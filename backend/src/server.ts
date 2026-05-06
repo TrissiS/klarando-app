@@ -1,0 +1,217 @@
+import express from 'express'
+import cors from 'cors'
+import dotenv from 'dotenv'
+import type { NextFunction, Request, Response } from 'express'
+import authRoutes, { seedRolePermissions } from './routes/auth'
+import appAuthRoutes from './routes/app-auth'
+import accessRoutes from './routes/access'
+import chainRoutes from './routes/chains'
+import chainadminRoutes from './routes/chainadmin'
+import tenantRoutes from './routes/tenant'
+import customerRoutes from './routes/customers'
+import productRoutes from './routes/products'
+import categoryRoutes from './routes/categories'
+import ingredientRoutes from './routes/ingredients'
+import productIngredientRoutes from './routes/product-ingredients'
+import productModifierRoutes from './routes/product-modifiers'
+import calculationRoutes from './routes/calculation'
+import orderRoutes from './routes/orders'
+import orderTerminalRoutes from './routes/order-terminals'
+import orderDisplayRoutes from './routes/order-displays'
+import orderDeskDeviceRoutes from './routes/orderdesk-devices'
+import businessSettingsRoutes from './routes/business-settings'
+import supplierRoutes from './routes/suppliers'
+import stockRoutes from './routes/stock'
+import actionRoutes from './routes/actions'
+import staffRoutes from './routes/staff'
+import screenRoutes from './routes/screen'
+import databaseManagementRoutes from './routes/database-management'
+import cashClosingRoutes from './routes/cash-closings'
+import platformBrandingRoutes from './routes/platform-branding'
+import mobileUpdatesRoutes from './routes/mobile-updates'
+import { optionalAuth } from './middleware/auth'
+import { rateLimitPasswordReset, rateLimitTokenRefresh } from './middleware/rate-limit'
+import { prisma } from './lib/prisma'
+
+dotenv.config()
+
+const app = express()
+const processStartedAt = new Date()
+
+const DEFAULT_PRODUCTION_ORIGINS = [
+  'https://klarando.com',
+  'https://www.klarando.com',
+  'https://app.klarando.com',
+  'https://admin.klarando.com',
+  'https://orderdesk.klarando.com',
+  'https://driver.klarando.com',
+]
+
+function parseCorsOriginsFromEnv() {
+  const configured = (process.env.CORS_ORIGINS || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+  if (configured.includes('*') && process.env.NODE_ENV === 'production') {
+    throw new Error('CORS_ORIGINS darf in Produktion kein "*" enthalten')
+  }
+
+  if (configured.length > 0) {
+    return configured
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    return DEFAULT_PRODUCTION_ORIGINS
+  }
+
+  return [...DEFAULT_PRODUCTION_ORIGINS, 'http://localhost:3000', 'http://localhost:5173']
+}
+
+const allowedCorsOrigins = new Set(parseCorsOriginsFromEnv())
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true)
+      }
+      if (allowedCorsOrigins.has(origin)) {
+        return callback(null, true)
+      }
+      return callback(new Error(`CORS blockiert fuer Origin: ${origin}`))
+    },
+    credentials: true,
+  })
+)
+app.use(express.json({ limit: '8mb' }))
+app.use(express.urlencoded({ extended: true, limit: '8mb' }))
+app.use(optionalAuth)
+
+app.use('/api/auth/reset-password', rateLimitPasswordReset)
+app.use('/api/auth/refresh', rateLimitTokenRefresh)
+app.use('/api/app-auth/refresh', rateLimitTokenRefresh)
+
+app.get('/api/health', (_req, res) => {
+  res.json({
+    ok: true,
+    message: 'Backend laeuft',
+    uptimeSeconds: Math.floor(process.uptime()),
+    startedAt: processStartedAt.toISOString(),
+    serverTime: new Date().toISOString(),
+  })
+})
+
+app.get('/api/health/ready', async (_req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`
+    return res.json({
+      ok: true,
+      checks: {
+        database: 'ok',
+      },
+      uptimeSeconds: Math.floor(process.uptime()),
+      startedAt: processStartedAt.toISOString(),
+      serverTime: new Date().toISOString(),
+    })
+  } catch (error) {
+    console.error('READINESS CHECK ERROR:', error)
+    return res.status(503).json({
+      ok: false,
+      checks: {
+        database: 'down',
+      },
+      uptimeSeconds: Math.floor(process.uptime()),
+      startedAt: processStartedAt.toISOString(),
+      serverTime: new Date().toISOString(),
+    })
+  }
+})
+
+app.use('/api/auth', authRoutes)
+app.use('/api/app-auth', appAuthRoutes)
+app.use('/api/access', accessRoutes)
+app.use('/api/chains', chainRoutes)
+app.use('/api/chainadmin', chainadminRoutes)
+app.use('/api/tenants', tenantRoutes)
+app.use('/api/customers', customerRoutes)
+app.use('/api/products', productRoutes)
+app.use('/api/categories', categoryRoutes)
+app.use('/api/ingredients', ingredientRoutes)
+app.use('/api/product-ingredients', productIngredientRoutes)
+app.use('/api/product-modifiers', productModifierRoutes)
+app.use('/api/calculation', calculationRoutes)
+app.use('/api/orders', orderRoutes)
+app.use('/api/order-terminals', orderTerminalRoutes)
+app.use('/api/order-displays', orderDisplayRoutes)
+app.use('/api/orderdesk-devices', orderDeskDeviceRoutes)
+app.use('/api/business-settings', businessSettingsRoutes)
+app.use('/api/suppliers', supplierRoutes)
+app.use('/api/stock', stockRoutes)
+app.use('/api/actions', actionRoutes)
+app.use('/api/staff', staffRoutes)
+app.use('/api/screen', screenRoutes)
+app.use('/api/database-management', databaseManagementRoutes)
+app.use('/api/cash-closings', cashClosingRoutes)
+app.use('/api/platform-branding', platformBrandingRoutes)
+app.use('/api/mobile-updates', mobileUpdatesRoutes)
+
+app.use((req, res) => {
+  res.status(404).json({
+    error: `Route nicht gefunden: ${req.method} ${req.originalUrl}`,
+  })
+})
+
+app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (error instanceof Error && error.message.startsWith('CORS blockiert')) {
+    return res.status(403).json({
+      error: 'Origin ist nicht fuer CORS freigegeben',
+    })
+  }
+
+  console.error('UNHANDLED SERVER ERROR:', error)
+  res.status(500).json({
+    error: 'Interner Serverfehler',
+  })
+})
+
+const PORT = Number.parseInt(process.env.PORT ?? '4000', 10)
+
+if (!Number.isFinite(PORT) || PORT <= 0) {
+  throw new Error(`Ungueltiger PORT Wert: ${process.env.PORT}`)
+}
+
+async function startServer() {
+  await seedRolePermissions()
+
+  const server = app.listen(PORT, () => {
+    console.log(`Server laeuft auf http://localhost:${PORT}`)
+  })
+
+  server.on('error', (error) => {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error as { code?: string }).code === 'EADDRINUSE'
+    ) {
+      console.error(`Port ${PORT} ist bereits belegt. Bitte alten Backend-Prozess beenden.`)
+      process.exit(1)
+    }
+    console.error('Server listen error:', error)
+    process.exit(1)
+  })
+}
+
+process.on('unhandledRejection', (reason) => {
+  console.error('UNHANDLED REJECTION:', reason)
+})
+
+process.on('uncaughtException', (error) => {
+  console.error('UNCAUGHT EXCEPTION:', error)
+})
+
+startServer().catch((error) => {
+  console.error('Server start failed:', error)
+  process.exit(1)
+})

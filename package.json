@@ -1,0 +1,51 @@
+{
+  "name": "klarando-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:up": "scripts\\dev-up.cmd dev",
+    "dev:up:open": "scripts\\dev-up.cmd dev open",
+    "start:up": "scripts\\dev-up.cmd",
+    "start:up:open": "scripts\\dev-up.cmd start open",
+    "flutter:web": "powershell -ExecutionPolicy Bypass -File scripts/start-flutter-web.ps1",
+    "flutter:web:safe": "powershell -ExecutionPolicy Bypass -File scripts/start-flutter-web.ps1 -StartupTimeoutSeconds 90",
+    "start:all": "powershell -ExecutionPolicy Bypass -File scripts/start-klarando-quick.ps1 -OpenBrowsers",
+    "start:all:wait": "powershell -ExecutionPolicy Bypass -File scripts/start-klarando-all.ps1 -OpenBrowsers -WaitForHealth",
+    "start:mobile:lan": "powershell -ExecutionPolicy Bypass -File scripts/start-mobile-lan.ps1",
+    "start:mobile:lan:open": "powershell -ExecutionPolicy Bypass -File scripts/start-mobile-lan.ps1 -OpenBrowsers",
+    "diagnose:all": "powershell -ExecutionPolicy Bypass -File scripts/diagnose-klarando.ps1",
+    "shortcut:desktop": "powershell -ExecutionPolicy Bypass -File scripts/create-klarando-desktop-shortcut.ps1",
+    "shortcut:desktop:mobile": "powershell -ExecutionPolicy Bypass -File scripts/create-klarando-mobile-shortcut.ps1",
+    "stop:all": "powershell -ExecutionPolicy Bypass -File scripts/stop-klarando-all.ps1",
+    "shortcut:desktop:stop": "powershell -ExecutionPolicy Bypass -File scripts/create-klarando-stop-shortcut.ps1",
+    "shortcut:desktop:diagnose": "powershell -ExecutionPolicy Bypass -File scripts/create-klarando-diagnose-shortcut.ps1",
+    "preflight": "node scripts/preflight.mjs",
+    "check:env-safety": "node scripts/check-env-safety.mjs",
+    "health:web": "node scripts/health-check.mjs http://localhost:3000/api/health web 4000",
+    "health:backend": "node scripts/health-check.mjs http://localhost:4000/api/health backend 4000",
+    "health:all": "npm run health:backend && npm run health:web",
+    "build": "next build",
+    "start": "next start",
+    "lint": "tsc --noEmit",
+    "typecheck:all": "npm run lint && npm --prefix backend run typecheck",
+    "clean": "powershell -Command \"if (Test-Path .next) { Remove-Item .next -Recurse -Force }; if (Test-Path tsconfig.tsbuildinfo) { Remove-Item tsconfig.tsbuildinfo -Force }\"",
+    "seed:live-test": "node scripts/seed-live-test.mjs"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.2.2",
+    "lucide-react": "^1.8.0",
+    "next": "^16.2.3",
+    "postcss": "^8.5.9",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "tailwindcss": "^4.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.39",
+    "@types/react": "^18.3.28",
+    "@types/react-dom": "^18.3.7",
+    "typescript": "^5.9.3"
+  }
+}

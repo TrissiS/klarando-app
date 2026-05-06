@@ -1,0 +1,14 @@
+{
+  "expo": {
+    "name": "Klarando Mobile",
+    "slug": "klarando-mobile",
+    "version": "1.0.0",
+    "scheme": "klarando",
+    "orientation": "portrait",
+    "platforms": [
+      "android",
+      "ios"
+    ],
+    "userInterfaceStyle": "light"
+  }
+}

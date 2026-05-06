@@ -1,0 +1,228 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fff4ee;
+  --foreground: #2a1220;
+  --font-geist-sans: "Segoe UI", Arial, Helvetica, sans-serif;
+  --font-geist-mono: "Consolas", "Courier New", monospace;
+  --brand-pink: #f10f74;
+  --brand-rose: #ff2f63;
+  --brand-orange: #ff8a00;
+  --brand-gold: #ffcc1f;
+  --brand-ink: #2d1122;
+  --brand-surface: #fffaf7;
+  --brand-surface-strong: #ffffff;
+  --brand-border: #ffc4a6;
+  --brand-gradient: linear-gradient(120deg, var(--brand-pink) 0%, var(--brand-rose) 48%, var(--brand-orange) 82%, var(--brand-gold) 100%);
+  --brand-gradient-soft: linear-gradient(180deg, #fff8f3 0%, #fff2ea 100%);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: radial-gradient(circle at 20% 0%, #ffe7d8 0%, #fff5ef 28%, #fffaf8 62%, #fffdfc 100%);
+  color: var(--foreground);
+  font-family: "Segoe UI", Arial, Helvetica, sans-serif;
+}
+
+.brand-shell {
+  background: var(--brand-gradient-soft);
+  color: var(--brand-ink);
+}
+
+.brand-sidebar {
+  background: linear-gradient(180deg, #2a0f1f 0%, #3a1428 55%, #4a1a2d 100%);
+  color: #fff6f1;
+}
+
+.brand-panel {
+  background: var(--brand-surface-strong);
+  border: 1px solid var(--brand-border);
+  box-shadow: 0 10px 24px rgba(226, 70, 43, 0.08);
+}
+
+.brand-kicker {
+  background-image: var(--brand-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.brand-nav-link {
+  transition: all 0.18s ease;
+}
+
+.brand-nav-link-active {
+  background: var(--brand-gradient);
+  color: #ffffff;
+  box-shadow: 0 8px 18px rgba(234, 25, 116, 0.35);
+}
+
+.brand-nav-link-inactive {
+  color: #ffe8dc;
+}
+
+.brand-nav-link-inactive:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.brand-nav-link-disabled {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 237, 227, 0.45);
+}
+
+.brand-button-primary {
+  background: var(--brand-gradient);
+  color: #fff;
+  box-shadow: 0 10px 18px rgba(234, 25, 116, 0.3);
+}
+
+.brand-button-primary:hover {
+  filter: saturate(1.1) brightness(1.02);
+}
+
+.brand-button-danger {
+  background: #c0392b;
+  color: #fff;
+}
+
+.brand-button-danger:hover {
+  background: #a83125;
+}
+
+.brand-chip {
+  background: #fff2ea;
+  border: 1px solid var(--brand-border);
+  color: #8f2f2a;
+}
+
+.brand-input:focus {
+  outline: none;
+  border-color: #ff7d2f;
+  box-shadow: 0 0 0 3px rgba(255, 143, 31, 0.22);
+}
+
+.input-ui {
+  width: 100%;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(203 213 225);
+  background: white;
+  padding: 0.55rem 0.7rem;
+  font-size: 0.93rem;
+  outline: none;
+  transition: 0.2s ease;
+}
+
+.input-ui:focus {
+  border-color: rgb(249 115 22);
+  box-shadow: 0 0 0 4px rgba(249, 115, 22, 0.12);
+}
+
+.btn-ui {
+  width: 100%;
+  border-radius: 0.75rem;
+  background: rgb(15 23 42);
+  padding: 0.65rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: white;
+  transition: 0.2s ease;
+}
+
+.btn-ui:hover {
+  background: rgb(30 41 59);
+}
+
+.btn-ui:disabled {
+  opacity: 0.6;
+}
+
+.th-ui {
+  background: rgb(248 250 252);
+  padding: 0.55rem 0.75rem;
+  text-align: left;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgb(71 85 105);
+}
+
+.td-ui {
+  border-top: 1px solid rgb(241 245 249);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.875rem;
+}
+
+.input-mini {
+  width: 100%;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(203 213 225);
+  background: white;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.78rem;
+  outline: none;
+}
+
+.input-mini:focus {
+  border-color: rgb(249 115 22);
+  box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.12);
+}
+
+.btn-mini {
+  border-radius: 0.5rem;
+  background: rgb(15 23 42);
+  color: white;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.55rem;
+  transition: 0.2s ease;
+}
+
+.btn-mini:hover {
+  background: rgb(30 41 59);
+}
+
+.btn-mini-outline {
+  border-radius: 0.5rem;
+  border: 1px solid rgb(148 163 184);
+  background: white;
+  color: rgb(51 65 85);
+  font-size: 0.75rem;
+  padding: 0.35rem 0.55rem;
+  transition: 0.2s ease;
+}
+
+.btn-mini-outline:hover {
+  background: rgb(248 250 252);
+}
+
+.btn-mini-danger {
+  border-radius: 0.5rem;
+  border: 1px solid rgb(252 165 165);
+  background: rgb(254 242 242);
+  color: rgb(153 27 27);
+  font-size: 0.75rem;
+  padding: 0.35rem 0.55rem;
+  transition: 0.2s ease;
+}
+
+.btn-mini-danger:hover {
+  background: rgb(254 226 226);
+}
+
+.surface-card {
+  border-radius: 1.5rem;
+  background: var(--brand-surface-strong);
+  border: 1px solid var(--brand-border);
+  box-shadow: 0 10px 24px rgba(226, 70, 43, 0.08);
+}
+
+.surface-muted {
+  border-radius: 1rem;
+  background: rgba(255, 242, 234, 0.7);
+  border: 1px solid var(--brand-border);
+}

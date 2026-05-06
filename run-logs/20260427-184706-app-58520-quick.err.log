@@ -1,0 +1,4 @@
+Waiting for another flutter command to release the startup lock...
+
+Oops; flutter has exited unexpectedly: "PathAccessException: Cannot delete file, path = 'build\flutter_assets\shaders/stretch_effect.frag.spirv' (OS Error: Der Prozess kann nicht auf die Datei zugreifen, da sie von einem anderen Prozess verwendet wird, errno = 32)".
+A crash report has been written to C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\mobile_flutter_app\flutter_01.log

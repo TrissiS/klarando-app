@@ -1,0 +1,960 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+
+import '../../core/klarando_api.dart';
+
+class OrderPage extends StatefulWidget {
+  const OrderPage({
+    required this.tenant,
+    required this.catalog,
+    required this.loading,
+    required this.message,
+    required this.products,
+    required this.onAddToCart,
+    super.key,
+  });
+
+  final TenantDiscoveryTenant? tenant;
+  final TenantCatalog? catalog;
+  final bool loading;
+  final String message;
+  final List<TenantCatalogProduct> products;
+  final void Function(
+    TenantCatalogProduct product,
+    List<TenantCatalogModifier> selectedModifiers,
+  )
+  onAddToCart;
+
+  @override
+  State<OrderPage> createState() => _OrderPageState();
+}
+
+class _OrderPageState extends State<OrderPage> {
+  final _searchController = TextEditingController();
+  String? _selectedCategory;
+  bool _headerCompact = false;
+
+  void _openLocalInfoSheet({
+    String? title,
+    String? text,
+    String? address,
+    String? phone,
+    String? email,
+  }) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) {
+        final infoTitle =
+            (title?.trim().isNotEmpty ?? false) ? title!.trim() : 'Infos zum Lokal';
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    infoTitle,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                  ),
+                  if (text != null && text.trim().isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      text.trim(),
+                      style: const TextStyle(fontSize: 14, height: 1.35),
+                    ),
+                  ],
+                  if (address != null && address.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    _InfoRow(
+                      icon: Icons.location_on_outlined,
+                      label: 'Adresse',
+                      value: address.trim(),
+                    ),
+                  ],
+                  if (phone != null && phone.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _InfoRow(
+                      icon: Icons.phone_outlined,
+                      label: 'Telefon',
+                      value: phone.trim(),
+                    ),
+                  ],
+                  if (email != null && email.trim().isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    _InfoRow(
+                      icon: Icons.alternate_email_rounded,
+                      label: 'E-Mail',
+                      value: email.trim(),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tenant = widget.tenant;
+    if (tenant == null) {
+      return const Center(
+        child: Text(
+          'Wähle zuerst auf Start eine Filiale aus.',
+          style: TextStyle(fontSize: 16),
+        ),
+      );
+    }
+
+    final categories = widget.products
+        .map((entry) => entry.categoryName)
+        .whereType<String>()
+        .toSet()
+        .toList(growable: false)
+      ..sort();
+
+    final query = _searchController.text.trim().toLowerCase();
+    final filtered = widget.products.where((product) {
+      final inCategory = _selectedCategory == null || product.categoryName == _selectedCategory;
+      if (!inCategory) {
+        return false;
+      }
+      if (query.isEmpty) {
+        return true;
+      }
+      final ingredients = product.ingredients.map((entry) => entry.name.toLowerCase()).join(' ');
+      return product.name.toLowerCase().contains(query) || ingredients.contains(query);
+    }).toList(growable: false);
+
+    final catalog = widget.catalog;
+    final logoUrl = catalog?.logoUrl ?? tenant.logoUrl;
+    final titleImageUrl = catalog?.titleImageUrl ?? tenant.titleImageUrl;
+    final localInfoTitle =
+        (catalog?.localInfoTitle?.trim().isNotEmpty ?? false)
+            ? catalog!.localInfoTitle
+            : tenant.localInfoTitle;
+    final localInfoText =
+        (catalog?.localInfoText?.trim().isNotEmpty ?? false)
+            ? catalog!.localInfoText
+            : tenant.localInfoText;
+    final contactPhone = catalog?.contactPhone ?? tenant.contactPhone;
+    final contactEmail = catalog?.contactEmail ?? tenant.contactEmail;
+    final addressLine = catalog?.addressLine ?? tenant.addressLine;
+    final hasInfo = (localInfoTitle?.trim().isNotEmpty ?? false) ||
+        (localInfoText?.trim().isNotEmpty ?? false) ||
+        (contactPhone?.trim().isNotEmpty ?? false) ||
+        (contactEmail?.trim().isNotEmpty ?? false) ||
+        (addressLine?.trim().isNotEmpty ?? false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _MenuHeader(
+          tenantName: tenant.tenantName,
+          itemCount: filtered.length,
+          logoUrl: logoUrl,
+          titleImageUrl: titleImageUrl,
+          compact: _headerCompact,
+          hasInfo: hasInfo,
+          onOpenInfo: hasInfo
+              ? () => _openLocalInfoSheet(
+                    title: localInfoTitle,
+                    text: localInfoText,
+                    address: addressLine,
+                    phone: contactPhone,
+                    email: contactEmail,
+                  )
+              : null,
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _searchController,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            hintText: 'Produkt oder Zutat suchen',
+            prefixIcon: const Icon(Icons.search_rounded),
+            filled: true,
+            fillColor: Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(14),
+              borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+            ),
+          ),
+        ),
+        if (categories.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 38,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: categories.length + 1,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return ChoiceChip(
+                    label: const Text('Alle'),
+                    selected: _selectedCategory == null,
+                    onSelected: (_) {
+                      setState(() {
+                        _selectedCategory = null;
+                      });
+                    },
+                  );
+                }
+                final category = categories[index - 1];
+                return ChoiceChip(
+                  label: Text(category),
+                  selected: _selectedCategory == category,
+                  onSelected: (_) {
+                    setState(() {
+                      _selectedCategory = category;
+                    });
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        if (widget.loading)
+          const Expanded(child: Center(child: CircularProgressIndicator()))
+        else if (filtered.isEmpty)
+          Expanded(
+            child: Center(
+              child: Text(
+                widget.message.isEmpty ? 'Keine Produkte gefunden.' : widget.message,
+                style: const TextStyle(color: Color(0xFF4B5563)),
+              ),
+            ),
+          )
+        else
+          Expanded(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: (notification) {
+                final shouldCompact = notification.metrics.pixels > 24;
+                if (shouldCompact != _headerCompact) {
+                  setState(() {
+                    _headerCompact = shouldCompact;
+                  });
+                }
+                return false;
+              },
+              child: ListView.separated(
+                itemCount: filtered.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final product = filtered[index];
+                  return _ProductCard(
+                    product: product,
+                    onAddToCart: widget.onAddToCart,
+                  );
+                },
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MenuHeader extends StatelessWidget {
+  const _MenuHeader({
+    required this.tenantName,
+    required this.itemCount,
+    required this.logoUrl,
+    required this.titleImageUrl,
+    required this.compact,
+    required this.hasInfo,
+    this.onOpenInfo,
+  });
+
+  final String tenantName;
+  final int itemCount;
+  final String? logoUrl;
+  final String? titleImageUrl;
+  final bool compact;
+  final bool hasInfo;
+  final VoidCallback? onOpenInfo;
+
+  @override
+  Widget build(BuildContext context) {
+    final titleImageHeight = compact ? 88.0 : 132.0;
+    final headerPadding = compact ? 10.0 : 12.0;
+    final logoSize = compact ? 38.0 : 44.0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (titleImageUrl != null && titleImageUrl!.trim().isNotEmpty) ...[
+          GestureDetector(
+            onTap: hasInfo ? onOpenInfo : null,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(16),
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 220),
+                curve: Curves.easeOutCubic,
+                width: double.infinity,
+                height: titleImageHeight,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _RemoteOrAssetImage(
+                      imageUrl: titleImageUrl,
+                      fit: BoxFit.cover,
+                    ),
+                    Container(
+                      decoration: const BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0x99000000)],
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      left: 10,
+                      right: 10,
+                      bottom: 8,
+                      child: Text(
+                        tenantName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: compact ? 13 : 15,
+                          shadows: const [
+                            Shadow(
+                              color: Color(0xAA000000),
+                              offset: Offset(0, 1),
+                              blurRadius: 3,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.all(headerPadding),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFFF5A1F), Color(0xFFFFBC00)],
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: logoSize,
+                height: logoSize,
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.22),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(5),
+                  child: _RemoteOrAssetImage(imageUrl: logoUrl),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      tenantName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: compact ? 15 : 16,
+                      ),
+                    ),
+                    Text(
+                      '$itemCount Artikel verfügbar',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: compact ? 12 : 14,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (hasInfo)
+                IconButton(
+                  tooltip: 'Infos zum Lokal',
+                  onPressed: onOpenInfo,
+                  icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ProductCard extends StatelessWidget {
+  const _ProductCard({
+    required this.product,
+    required this.onAddToCart,
+  });
+
+  final TenantCatalogProduct product;
+  final void Function(
+    TenantCatalogProduct product,
+    List<TenantCatalogModifier> selectedModifiers,
+  )
+  onAddToCart;
+
+  @override
+  Widget build(BuildContext context) {
+    final sizeCount = product.modifiers.where((entry) => entry.isSize).length;
+    final optionCount = product.modifiers.length - sizeCount;
+    final ingredientPreview = _ingredientPreview(product);
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    product.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (ingredientPreview != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      ingredientPreview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF4B5563),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(
+                    _priceLabel(product),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  if (product.modifiers.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      sizeCount > 0
+                          ? '$sizeCount Größen + $optionCount Optionen beim Hinzufügen auswählbar'
+                          : 'Optionen beim Hinzufügen auswählbar',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
+                  ],
+                  if (product.ingredients.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: const EdgeInsets.only(bottom: 4),
+                      title: const Text(
+                        'Zutaten & Allergene',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      children: product.ingredients
+                          .map(
+                            (entry) => Padding(
+                              padding: const EdgeInsets.only(bottom: 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Icon(
+                                    Icons.fiber_manual_record,
+                                    size: 10,
+                                    color: Color(0xFF9CA3AF),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: Text(
+                                      entry.allergens.isEmpty
+                                          ? entry.name
+                                          : '${entry.name} (Allergene: ${entry.allergens.join(', ')})',
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
+                  ],
+                  if (_hasArticleDetails(product)) ...[
+                    const SizedBox(height: 4),
+                    ExpansionTile(
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: const EdgeInsets.only(bottom: 4),
+                      title: const Text(
+                        'Artikeldetails',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                      children: _buildArticleDetails(product),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF5A1F),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    onPressed: () async {
+                      if (product.modifiers.isEmpty) {
+                        onAddToCart(product, const []);
+                        return;
+                      }
+
+                      final selected = await showDialog<List<TenantCatalogModifier>>(
+                        context: context,
+                        builder: (context) => _ModifierSelectionDialog(product: product),
+                      );
+
+                      if (selected == null) {
+                        return;
+                      }
+
+                      onAddToCart(product, selected);
+                    },
+                    icon: const Icon(Icons.add_shopping_cart_rounded),
+                    label: const Text('In den Warenkorb'),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            _ProductImage(imageUrl: product.imageUrl),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ProductImage extends StatelessWidget {
+  const _ProductImage({
+    required this.imageUrl,
+  });
+
+  final String? imageUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        width: 96,
+        height: 96,
+        child: _RemoteOrAssetImage(
+          imageUrl: imageUrl,
+          fit: BoxFit.cover,
+        ),
+      ),
+    );
+  }
+}
+
+class _RemoteOrAssetImage extends StatelessWidget {
+  const _RemoteOrAssetImage({
+    required this.imageUrl,
+    this.fit = BoxFit.contain,
+  });
+
+  final String? imageUrl;
+  final BoxFit fit;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedUrl = (imageUrl ?? '').trim();
+    if (normalizedUrl.isEmpty) {
+      return Image.asset('assets/klarando_icon.png', fit: fit);
+    }
+
+    final inlineImage = _decodeInlineImageData(normalizedUrl);
+    if (inlineImage != null) {
+      return Image.memory(
+        inlineImage,
+        fit: fit,
+        errorBuilder: (_, __, ___) => Image.asset('assets/klarando_icon.png', fit: fit),
+      );
+    }
+
+    return Image.network(
+      normalizedUrl,
+      fit: fit,
+      errorBuilder: (_, __, ___) => Image.asset('assets/klarando_icon.png', fit: fit),
+    );
+  }
+}
+
+Uint8List? _decodeInlineImageData(String value) {
+  final lower = value.toLowerCase();
+  if (!lower.startsWith('data:image/')) {
+    return null;
+  }
+
+  final commaIndex = value.indexOf(',');
+  if (commaIndex <= 0) {
+    return null;
+  }
+
+  final meta = lower.substring(0, commaIndex);
+  if (!meta.contains(';base64')) {
+    return null;
+  }
+
+  final payload = value.substring(commaIndex + 1);
+  if (payload.isEmpty) {
+    return null;
+  }
+
+  try {
+    return base64Decode(payload);
+  } catch (_) {
+    return null;
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF6B7280)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 14, color: Color(0xFF111827)),
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String? _ingredientPreview(TenantCatalogProduct product) {
+  if (product.ingredients.isEmpty) {
+    if (product.allergens.isEmpty) {
+      return null;
+    }
+    return 'Allergene: ${product.allergens.join(', ')}';
+  }
+  return product.ingredients.map((entry) => entry.name).join(', ');
+}
+
+bool _hasArticleDetails(TenantCatalogProduct product) {
+  return (product.articleInfo?.trim().isNotEmpty ?? false) ||
+      (product.foodBusinessOperator?.trim().isNotEmpty ?? false) ||
+      (product.nutritionInfo?.trim().isNotEmpty ?? false);
+}
+
+List<Widget> _buildArticleDetails(TenantCatalogProduct product) {
+  final rows = <Widget>[];
+
+  void addRow(String label, String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return;
+    }
+    rows.add(
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Icon(
+              Icons.fiber_manual_record,
+              size: 10,
+              color: Color(0xFF9CA3AF),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                '$label: $normalized',
+                style: const TextStyle(fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  addRow('Artikelinfo', product.articleInfo);
+  addRow('Lebensmittelunternehmer', product.foodBusinessOperator);
+  addRow('Nährwertangaben', product.nutritionInfo);
+
+  return rows;
+}
+
+String _priceLabel(TenantCatalogProduct product) {
+  var base = '${product.price.toStringAsFixed(2)} EUR';
+  if (product.depositAmount > 0) {
+    base = '$base (inkl. ${product.depositAmount.toStringAsFixed(2)} EUR Pfand)';
+  }
+  final containerLabel = _beverageContainerLabel(product);
+  if (containerLabel != null) {
+    return '$base • $containerLabel';
+  }
+  return base;
+}
+
+String? _beverageContainerLabel(TenantCatalogProduct product) {
+  final value = product.beverageContainerType.toUpperCase();
+  if (value == 'EINWEG') {
+    return '(EINWEG)';
+  }
+  if (value == 'MEHRWEG') {
+    return '(MEHRWEG)';
+  }
+  return null;
+}
+
+class _ModifierSelectionDialog extends StatefulWidget {
+  const _ModifierSelectionDialog({
+    required this.product,
+  });
+
+  final TenantCatalogProduct product;
+
+  @override
+  State<_ModifierSelectionDialog> createState() => _ModifierSelectionDialogState();
+}
+
+class _ModifierGroupConfig {
+  const _ModifierGroupConfig({
+    required this.key,
+    required this.label,
+    required this.required,
+    required this.modifiers,
+  });
+
+  final String key;
+  final String label;
+  final bool required;
+  final List<TenantCatalogModifier> modifiers;
+}
+
+class _ModifierSelectionDialogState extends State<_ModifierSelectionDialog> {
+  late final List<_ModifierGroupConfig> _modifierGroups;
+  late final Map<String, String?> _selectedModifierIdByGroup;
+
+  @override
+  void initState() {
+    super.initState();
+    final sizeModifiers = widget.product.modifiers.where((entry) => entry.isSize).toList(growable: false);
+    final groupedOptionModifiers = <String, List<TenantCatalogModifier>>{};
+    final optionGroupLabels = <String, String>{};
+
+    for (final modifier in widget.product.modifiers.where((entry) => !entry.isSize)) {
+      final key = (modifier.ingredientId?.trim().isNotEmpty ?? false)
+          ? modifier.ingredientId!.trim()
+          : '__default';
+      final label = (modifier.ingredientName?.trim().isNotEmpty ?? false)
+          ? modifier.ingredientName!.trim()
+          : 'Option';
+      groupedOptionModifiers.putIfAbsent(key, () => <TenantCatalogModifier>[]).add(modifier);
+      optionGroupLabels[key] = label;
+    }
+
+    final groups = <_ModifierGroupConfig>[];
+    if (sizeModifiers.isNotEmpty) {
+      groups.add(
+        _ModifierGroupConfig(
+          key: 'SIZE',
+          label: 'Groesse',
+          required: true,
+          modifiers: sizeModifiers,
+        ),
+      );
+    }
+
+    groupedOptionModifiers.forEach((key, modifiers) {
+      groups.add(
+        _ModifierGroupConfig(
+          key: 'OPTION:$key',
+          label: optionGroupLabels[key] ?? 'Option',
+          required: false,
+          modifiers: modifiers,
+        ),
+      );
+    });
+
+    _modifierGroups = groups;
+    _selectedModifierIdByGroup = <String, String?>{
+      for (final group in _modifierGroups)
+        group.key: (() {
+          final defaultModifier = group.modifiers.cast<TenantCatalogModifier?>().firstWhere(
+                (entry) => entry?.isDefaultSelected == true,
+                orElse: () => null,
+              );
+          if (defaultModifier != null) {
+            return defaultModifier.id;
+          }
+          if (group.required && group.modifiers.isNotEmpty) {
+            return group.modifiers.first.id;
+          }
+          return null;
+        })(),
+    };
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Optionen: ${widget.product.name}'),
+      content: SizedBox(
+        width: 360,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_modifierGroups.isEmpty)
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Keine Zusatzoptionen verfügbar.'),
+                ),
+              ..._modifierGroups.map((group) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        group.required ? '${group.label} *' : group.label,
+                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    ...group.modifiers.map(
+                      (modifier) => RadioListTile<String>(
+                        value: modifier.id,
+                        groupValue: _selectedModifierIdByGroup[group.key],
+                        toggleable: !group.required,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(modifier.name),
+                        subtitle: Text(
+                          modifier.priceDelta >= 0
+                              ? '+ ${modifier.priceDelta.toStringAsFixed(2)} EUR'
+                              : '- ${modifier.priceDelta.abs().toStringAsFixed(2)} EUR',
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedModifierIdByGroup[group.key] = value;
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Abbrechen'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final selected = <TenantCatalogModifier>[];
+            for (final group in _modifierGroups) {
+              var selectedId = _selectedModifierIdByGroup[group.key];
+              if (selectedId == null && group.required && group.modifiers.isNotEmpty) {
+                selectedId = group.modifiers.first.id;
+              }
+              if (selectedId == null) {
+                continue;
+              }
+              final selectedModifier = group.modifiers.cast<TenantCatalogModifier?>().firstWhere(
+                    (entry) => entry?.id == selectedId,
+                    orElse: () => null,
+                  );
+              if (selectedModifier != null) {
+                selected.add(selectedModifier);
+              }
+            }
+            Navigator.of(context).pop(selected);
+          },
+          child: const Text('Hinzufuegen'),
+        ),
+      ],
+    );
+  }
+}

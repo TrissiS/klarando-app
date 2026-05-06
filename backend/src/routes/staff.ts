@@ -1,0 +1,876 @@
+import { PermissionKey, StaffShiftStatus } from '@prisma/client'
+import { Router } from 'express'
+import { prisma } from '../lib/prisma'
+import { requirePermission } from '../middleware/auth'
+import { writeAuditLog } from '../lib/audit'
+import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
+
+const router = Router()
+
+function normalizeText(value?: string | null) {
+  if (!value) {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeDateOnly(value?: string | null) {
+  if (!value) {
+    return null
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return null
+  }
+
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
+}
+
+function parseTime(value?: string | null) {
+  if (!value) {
+    return null
+  }
+
+  if (!/^\d{2}:\d{2}$/.test(value)) {
+    return null
+  }
+
+  const [hourText, minuteText] = value.split(':')
+  const hour = Number(hourText)
+  const minute = Number(minuteText)
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null
+  }
+
+  return `${hourText}:${minuteText}`
+}
+
+function calculateShiftHours(startTime: string, endTime: string, breakMinutes: number) {
+  const [startHour, startMinute] = startTime.split(':').map(Number)
+  const [endHour, endMinute] = endTime.split(':').map(Number)
+  const startTotal = startHour * 60 + startMinute
+  const endTotal = endHour * 60 + endMinute
+  const rawMinutes = endTotal - startTotal
+
+  if (rawMinutes <= 0) {
+    return null
+  }
+
+  const effective = rawMinutes - breakMinutes
+  if (effective < 0) {
+    return null
+  }
+
+  return Number((effective / 60).toFixed(2))
+}
+
+router.get('/settings', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.query.tenantId)
+    const tenantId = scope.tenantId as string
+
+    const settings = await prisma.staffSetting.upsert({
+      where: { tenantId },
+      update: {},
+      create: {
+        tenantId,
+      },
+    })
+
+    return res.json(settings)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET STAFF SETTINGS ERROR:', error)
+    return res.status(500).json({ error: 'Mitarbeiter-Einstellungen konnten nicht geladen werden' })
+  }
+})
+
+router.put('/settings', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const {
+      tenantId,
+      planningDays,
+      defaultShiftStart,
+      defaultShiftEnd,
+      defaultBreakMinutes,
+      overtimeThresholdHours,
+    } = req.body as {
+      tenantId?: string
+      planningDays?: number
+      defaultShiftStart?: string
+      defaultShiftEnd?: string
+      defaultBreakMinutes?: number
+      overtimeThresholdHours?: number | null
+    }
+
+    const scope = await resolveTenantScope(req, tenantId)
+    const scopedTenantId = scope.tenantId as string
+
+    const normalizedStart = parseTime(defaultShiftStart || null)
+    const normalizedEnd = parseTime(defaultShiftEnd || null)
+
+    if (!normalizedStart || !normalizedEnd) {
+      return res.status(400).json({ error: 'Ungueltige Start-/Endzeit (HH:mm)' })
+    }
+
+    const normalizedPlanningDays = Number(planningDays)
+    const normalizedBreak = Number(defaultBreakMinutes)
+
+    if (!Number.isInteger(normalizedPlanningDays) || normalizedPlanningDays < 1 || normalizedPlanningDays > 90) {
+      return res.status(400).json({ error: 'planningDays muss zwischen 1 und 90 liegen' })
+    }
+
+    if (!Number.isInteger(normalizedBreak) || normalizedBreak < 0 || normalizedBreak > 240) {
+      return res.status(400).json({ error: 'defaultBreakMinutes muss zwischen 0 und 240 liegen' })
+    }
+
+    const overtime =
+      overtimeThresholdHours === null || overtimeThresholdHours === undefined
+        ? null
+        : Number(overtimeThresholdHours)
+
+    if (overtime !== null && (!Number.isFinite(overtime) || overtime <= 0)) {
+      return res.status(400).json({ error: 'overtimeThresholdHours muss groesser 0 sein' })
+    }
+
+    const settings = await prisma.staffSetting.upsert({
+      where: { tenantId: scopedTenantId },
+      update: {
+        planningDays: normalizedPlanningDays,
+        defaultShiftStart: normalizedStart,
+        defaultShiftEnd: normalizedEnd,
+        defaultBreakMinutes: normalizedBreak,
+        overtimeThresholdHours: overtime,
+      },
+      create: {
+        tenantId: scopedTenantId,
+        planningDays: normalizedPlanningDays,
+        defaultShiftStart: normalizedStart,
+        defaultShiftEnd: normalizedEnd,
+        defaultBreakMinutes: normalizedBreak,
+        overtimeThresholdHours: overtime,
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'staff',
+      action: 'settings_updated',
+      targetType: 'staff_setting',
+      targetId: settings.id,
+      tenantId: settings.tenantId,
+      metadata: {
+        planningDays: settings.planningDays,
+      },
+    })
+
+    return res.json(settings)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('UPDATE STAFF SETTINGS ERROR:', error)
+    return res.status(500).json({ error: 'Mitarbeiter-Einstellungen konnten nicht gespeichert werden' })
+  }
+})
+
+router.get('/employees', requirePermission(PermissionKey.USERS_READ), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.query.tenantId)
+    const tenantId = scope.tenantId as string
+
+    const employees = await prisma.staffMember.findMany({
+      where: { tenantId },
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+    })
+
+    return res.json(employees)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET STAFF EMPLOYEES ERROR:', error)
+    return res.status(500).json({ error: 'Mitarbeiter konnten nicht geladen werden' })
+  }
+})
+
+router.post('/employees', requirePermission(PermissionKey.USERS_WRITE), async (req, res) => {
+  try {
+    const {
+      tenantId,
+      name,
+      position,
+      phone,
+      email,
+      hourlyRate,
+      weeklyTargetHours,
+      isActive,
+    } = req.body as {
+      tenantId?: string
+      name?: string
+      position?: string | null
+      phone?: string | null
+      email?: string | null
+      hourlyRate?: number | null
+      weeklyTargetHours?: number | null
+      isActive?: boolean
+    }
+
+    if (!tenantId || !name) {
+      return res.status(400).json({ error: 'tenantId und name sind erforderlich' })
+    }
+    const scope = await resolveTenantScope(req, tenantId)
+    const scopedTenantId = scope.tenantId as string
+
+    const parsedHourlyRate =
+      hourlyRate === undefined || hourlyRate === null ? null : Number(hourlyRate)
+    const parsedWeeklyTarget =
+      weeklyTargetHours === undefined || weeklyTargetHours === null
+        ? null
+        : Number(weeklyTargetHours)
+
+    if (parsedHourlyRate !== null && (!Number.isFinite(parsedHourlyRate) || parsedHourlyRate < 0)) {
+      return res.status(400).json({ error: 'hourlyRate ist ungueltig' })
+    }
+
+    if (parsedWeeklyTarget !== null && (!Number.isFinite(parsedWeeklyTarget) || parsedWeeklyTarget < 0)) {
+      return res.status(400).json({ error: 'weeklyTargetHours ist ungueltig' })
+    }
+
+    const employee = await prisma.staffMember.create({
+      data: {
+        tenantId: scopedTenantId,
+        name: name.trim(),
+        position: normalizeText(position),
+        phone: normalizeText(phone),
+        email: normalizeText(email),
+        hourlyRate: parsedHourlyRate,
+        weeklyTargetHours: parsedWeeklyTarget,
+        isActive: isActive ?? true,
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'staff',
+      action: 'employee_created',
+      targetType: 'staff_member',
+      targetId: employee.id,
+      tenantId: employee.tenantId,
+      metadata: {
+        name: employee.name,
+      },
+    })
+
+    return res.status(201).json(employee)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('CREATE STAFF EMPLOYEE ERROR:', error)
+    return res.status(500).json({ error: 'Mitarbeiter konnte nicht erstellt werden' })
+  }
+})
+
+router.patch('/employees/:id', requirePermission(PermissionKey.USERS_WRITE), async (req, res) => {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    const {
+      name,
+      position,
+      phone,
+      email,
+      hourlyRate,
+      weeklyTargetHours,
+      isActive,
+    } = req.body as {
+      name?: string
+      position?: string | null
+      phone?: string | null
+      email?: string | null
+      hourlyRate?: number | null
+      weeklyTargetHours?: number | null
+      isActive?: boolean
+    }
+
+    if (!id) {
+      return res.status(400).json({ error: 'id ist erforderlich' })
+    }
+
+    const existing = await prisma.staffMember.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true },
+    })
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Mitarbeiter nicht gefunden' })
+    }
+    await resolveTenantScope(req, existing.tenantId)
+
+    const parsedHourlyRate =
+      hourlyRate === undefined ? undefined : hourlyRate === null ? null : Number(hourlyRate)
+    const parsedWeeklyTarget =
+      weeklyTargetHours === undefined
+        ? undefined
+        : weeklyTargetHours === null
+        ? null
+        : Number(weeklyTargetHours)
+
+    if (
+      parsedHourlyRate !== undefined &&
+      parsedHourlyRate !== null &&
+      (!Number.isFinite(parsedHourlyRate) || parsedHourlyRate < 0)
+    ) {
+      return res.status(400).json({ error: 'hourlyRate ist ungueltig' })
+    }
+
+    if (
+      parsedWeeklyTarget !== undefined &&
+      parsedWeeklyTarget !== null &&
+      (!Number.isFinite(parsedWeeklyTarget) || parsedWeeklyTarget < 0)
+    ) {
+      return res.status(400).json({ error: 'weeklyTargetHours ist ungueltig' })
+    }
+
+    const updated = await prisma.staffMember.update({
+      where: { id },
+      data: {
+        name: name === undefined ? undefined : name.trim(),
+        position: position === undefined ? undefined : normalizeText(position),
+        phone: phone === undefined ? undefined : normalizeText(phone),
+        email: email === undefined ? undefined : normalizeText(email),
+        hourlyRate: parsedHourlyRate,
+        weeklyTargetHours: parsedWeeklyTarget,
+        isActive,
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'staff',
+      action: 'employee_updated',
+      targetType: 'staff_member',
+      targetId: updated.id,
+      tenantId: updated.tenantId,
+      metadata: {
+        name: updated.name,
+        isActive: updated.isActive,
+      },
+    })
+
+    return res.json(updated)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('UPDATE STAFF EMPLOYEE ERROR:', error)
+    return res.status(500).json({ error: 'Mitarbeiter konnte nicht aktualisiert werden' })
+  }
+})
+
+router.get('/shifts', requirePermission(PermissionKey.USERS_READ), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.query.tenantId)
+    const tenantId = scope.tenantId as string
+    const employeeId = req.query.employeeId as string | undefined
+    const from = req.query.from as string | undefined
+    const to = req.query.to as string | undefined
+
+    const fromDate = from ? normalizeDateOnly(from) : null
+    const toDate = to ? normalizeDateOnly(to) : null
+
+    if (from && !fromDate) {
+      return res.status(400).json({ error: 'from ist ungueltig' })
+    }
+
+    if (to && !toDate) {
+      return res.status(400).json({ error: 'to ist ungueltig' })
+    }
+
+    const shifts = await prisma.staffShift.findMany({
+      where: {
+        tenantId,
+        staffMemberId: employeeId || undefined,
+        shiftDate:
+          fromDate || toDate
+            ? {
+                gte: fromDate || undefined,
+                lte: toDate || undefined,
+              }
+            : undefined,
+      },
+      include: {
+        staffMember: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            isActive: true,
+            hourlyRate: true,
+          },
+        },
+      },
+      orderBy: [{ shiftDate: 'asc' }, { startTime: 'asc' }],
+    })
+
+    return res.json(shifts)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET STAFF SHIFTS ERROR:', error)
+    return res.status(500).json({ error: 'Schichten konnten nicht geladen werden' })
+  }
+})
+
+router.post('/shifts', requirePermission(PermissionKey.USERS_WRITE), async (req, res) => {
+  try {
+    const {
+      tenantId,
+      staffMemberId,
+      shiftDate,
+      startTime,
+      endTime,
+      breakMinutes,
+      status,
+      note,
+    } = req.body as {
+      tenantId?: string
+      staffMemberId?: string
+      shiftDate?: string
+      startTime?: string
+      endTime?: string
+      breakMinutes?: number
+      status?: StaffShiftStatus
+      note?: string | null
+    }
+
+    if (!tenantId || !staffMemberId || !shiftDate || !startTime || !endTime) {
+      return res.status(400).json({ error: 'Pflichtfelder fehlen' })
+    }
+    const scope = await resolveTenantScope(req, tenantId)
+    const scopedTenantId = scope.tenantId as string
+
+    const parsedDate = normalizeDateOnly(shiftDate)
+    if (!parsedDate) {
+      return res.status(400).json({ error: 'shiftDate ist ungueltig' })
+    }
+
+    const parsedStart = parseTime(startTime)
+    const parsedEnd = parseTime(endTime)
+
+    if (!parsedStart || !parsedEnd) {
+      return res.status(400).json({ error: 'Start- oder Endzeit ist ungueltig' })
+    }
+
+    const parsedBreak = Number.isFinite(Number(breakMinutes)) ? Number(breakMinutes) : 0
+    if (parsedBreak < 0 || parsedBreak > 240) {
+      return res.status(400).json({ error: 'breakMinutes ist ungueltig' })
+    }
+
+    const hours = calculateShiftHours(parsedStart, parsedEnd, parsedBreak)
+    if (hours === null) {
+      return res.status(400).json({ error: 'Schichtdauer ist ungueltig' })
+    }
+
+    const member = await prisma.staffMember.findFirst({
+      where: {
+        id: staffMemberId,
+        tenantId: scopedTenantId,
+      },
+      select: { id: true, name: true },
+    })
+
+    if (!member) {
+      return res.status(404).json({ error: 'Mitarbeiter nicht gefunden' })
+    }
+
+    const normalizedStatus =
+      status && Object.values(StaffShiftStatus).includes(status)
+        ? status
+        : StaffShiftStatus.PLANNED
+
+    const created = await prisma.staffShift.create({
+      data: {
+        tenantId: scopedTenantId,
+        staffMemberId,
+        shiftDate: parsedDate,
+        startTime: parsedStart,
+        endTime: parsedEnd,
+        breakMinutes: parsedBreak,
+        status: normalizedStatus,
+        note: normalizeText(note),
+        createdByUserId: req.authUser?.id || null,
+      },
+      include: {
+        staffMember: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            isActive: true,
+            hourlyRate: true,
+          },
+        },
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'staff',
+      action: 'shift_created',
+      targetType: 'staff_shift',
+      targetId: created.id,
+      tenantId: created.tenantId,
+      metadata: {
+        staffMemberId,
+        hours,
+      },
+    })
+
+    return res.status(201).json(created)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('CREATE STAFF SHIFT ERROR:', error)
+    return res.status(500).json({ error: 'Schicht konnte nicht erstellt werden' })
+  }
+})
+
+router.patch('/shifts/:id', requirePermission(PermissionKey.USERS_WRITE), async (req, res) => {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    const {
+      staffMemberId,
+      shiftDate,
+      startTime,
+      endTime,
+      breakMinutes,
+      status,
+      note,
+    } = req.body as {
+      staffMemberId?: string
+      shiftDate?: string
+      startTime?: string
+      endTime?: string
+      breakMinutes?: number
+      status?: StaffShiftStatus
+      note?: string | null
+    }
+
+    if (!id) {
+      return res.status(400).json({ error: 'id ist erforderlich' })
+    }
+
+    const existing = await prisma.staffShift.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true, startTime: true, endTime: true, breakMinutes: true },
+    })
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Schicht nicht gefunden' })
+    }
+    await resolveTenantScope(req, existing.tenantId)
+
+    if (staffMemberId) {
+      const member = await prisma.staffMember.findFirst({
+        where: { id: staffMemberId, tenantId: existing.tenantId },
+        select: { id: true },
+      })
+
+      if (!member) {
+        return res.status(404).json({ error: 'Mitarbeiter nicht gefunden' })
+      }
+    }
+
+    let parsedDate: Date | undefined
+    if (shiftDate !== undefined) {
+      const normalizedDate = normalizeDateOnly(shiftDate)
+      if (!normalizedDate) {
+        return res.status(400).json({ error: 'shiftDate ist ungueltig' })
+      }
+      parsedDate = normalizedDate
+    }
+
+    let parsedStart: string | undefined
+    if (startTime !== undefined) {
+      const normalizedStart = parseTime(startTime)
+      if (!normalizedStart) {
+        return res.status(400).json({ error: 'startTime ist ungueltig' })
+      }
+      parsedStart = normalizedStart
+    }
+
+    let parsedEnd: string | undefined
+    if (endTime !== undefined) {
+      const normalizedEnd = parseTime(endTime)
+      if (!normalizedEnd) {
+        return res.status(400).json({ error: 'endTime ist ungueltig' })
+      }
+      parsedEnd = normalizedEnd
+    }
+
+    const parsedBreak =
+      breakMinutes === undefined ? undefined : Number.isFinite(Number(breakMinutes)) ? Number(breakMinutes) : null
+    if (parsedBreak !== undefined && (parsedBreak === null || parsedBreak < 0 || parsedBreak > 240)) {
+      return res.status(400).json({ error: 'breakMinutes ist ungueltig' })
+    }
+
+    const checkStart = parsedStart ?? existing.startTime
+    const checkEnd = parsedEnd ?? existing.endTime
+    const checkBreak = parsedBreak ?? existing.breakMinutes
+    const hours = calculateShiftHours(checkStart, checkEnd, checkBreak)
+    if (hours === null) {
+      return res.status(400).json({ error: 'Schichtdauer ist ungueltig' })
+    }
+
+    let normalizedStatus: StaffShiftStatus | undefined
+    if (status !== undefined) {
+      if (!Object.values(StaffShiftStatus).includes(status)) {
+        return res.status(400).json({ error: 'status ist ungueltig' })
+      }
+      normalizedStatus = status
+    }
+
+    const updated = await prisma.staffShift.update({
+      where: { id },
+      data: {
+        staffMemberId,
+        shiftDate: parsedDate,
+        startTime: parsedStart,
+        endTime: parsedEnd,
+        breakMinutes: parsedBreak,
+        status: normalizedStatus,
+        note: note === undefined ? undefined : normalizeText(note),
+      },
+      include: {
+        staffMember: {
+          select: {
+            id: true,
+            name: true,
+            position: true,
+            isActive: true,
+            hourlyRate: true,
+          },
+        },
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'staff',
+      action: 'shift_updated',
+      targetType: 'staff_shift',
+      targetId: updated.id,
+      tenantId: updated.tenantId,
+      metadata: {
+        hours,
+        status: updated.status,
+      },
+    })
+
+    return res.json(updated)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('UPDATE STAFF SHIFT ERROR:', error)
+    return res.status(500).json({ error: 'Schicht konnte nicht aktualisiert werden' })
+  }
+})
+
+router.delete('/shifts/:id', requirePermission(PermissionKey.USERS_WRITE), async (req, res) => {
+  try {
+    const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    if (!id) {
+      return res.status(400).json({ error: 'id ist erforderlich' })
+    }
+
+    const existing = await prisma.staffShift.findUnique({
+      where: { id },
+      select: { id: true, tenantId: true },
+    })
+
+    if (!existing) {
+      return res.status(404).json({ error: 'Schicht nicht gefunden' })
+    }
+    await resolveTenantScope(req, existing.tenantId)
+
+    await prisma.staffShift.delete({
+      where: { id },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'staff',
+      action: 'shift_deleted',
+      targetType: 'staff_shift',
+      targetId: id,
+      tenantId: existing.tenantId,
+    })
+
+    return res.json({ ok: true })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('DELETE STAFF SHIFT ERROR:', error)
+    return res.status(500).json({ error: 'Schicht konnte nicht geloescht werden' })
+  }
+})
+
+router.get('/evaluation', requirePermission(PermissionKey.USERS_READ), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.query.tenantId)
+    const tenantId = scope.tenantId as string
+    const from = req.query.from as string | undefined
+    const to = req.query.to as string | undefined
+
+    const fromDate = from ? normalizeDateOnly(from) : null
+    const toDate = to ? normalizeDateOnly(to) : null
+
+    if (from && !fromDate) {
+      return res.status(400).json({ error: 'from ist ungueltig' })
+    }
+
+    if (to && !toDate) {
+      return res.status(400).json({ error: 'to ist ungueltig' })
+    }
+
+    const [employees, shifts] = await Promise.all([
+      prisma.staffMember.findMany({
+        where: { tenantId },
+        orderBy: [{ name: 'asc' }],
+      }),
+      prisma.staffShift.findMany({
+        where: {
+          tenantId,
+          shiftDate:
+            fromDate || toDate
+              ? {
+                  gte: fromDate || undefined,
+                  lte: toDate || undefined,
+                }
+              : undefined,
+        },
+        orderBy: [{ shiftDate: 'asc' }, { startTime: 'asc' }],
+      }),
+    ])
+
+    const byEmployee = new Map(
+      employees.map((employee) => [
+        employee.id,
+        {
+          employeeId: employee.id,
+          name: employee.name,
+          position: employee.position,
+          isActive: employee.isActive,
+          plannedHours: 0,
+          completedHours: 0,
+          canceledHours: 0,
+          plannedShifts: 0,
+          completedShifts: 0,
+          canceledShifts: 0,
+          targetHours: employee.weeklyTargetHours ? Number(employee.weeklyTargetHours) : null,
+          hourlyRate: employee.hourlyRate ? Number(employee.hourlyRate) : null,
+          estimatedLaborCost: 0,
+        },
+      ])
+    )
+
+    for (const shift of shifts) {
+      const row = byEmployee.get(shift.staffMemberId)
+      if (!row) {
+        continue
+      }
+
+      const hours = calculateShiftHours(shift.startTime, shift.endTime, shift.breakMinutes) || 0
+      if (shift.status === StaffShiftStatus.CANCELED) {
+        row.canceledShifts += 1
+        row.canceledHours += hours
+      } else if (shift.status === StaffShiftStatus.COMPLETED) {
+        row.completedShifts += 1
+        row.completedHours += hours
+      } else {
+        row.plannedShifts += 1
+        row.plannedHours += hours
+      }
+    }
+
+    const rows = Array.from(byEmployee.values()).map((row) => {
+      const totalWorkedHours = row.completedHours + row.plannedHours
+      const estimatedLaborCost =
+        row.hourlyRate === null ? null : Number((row.hourlyRate * totalWorkedHours).toFixed(2))
+
+      return {
+        ...row,
+        plannedHours: Number(row.plannedHours.toFixed(2)),
+        completedHours: Number(row.completedHours.toFixed(2)),
+        canceledHours: Number(row.canceledHours.toFixed(2)),
+        estimatedLaborCost,
+      }
+    })
+
+    const totals = rows.reduce(
+      (acc, row) => {
+        acc.plannedHours += row.plannedHours
+        acc.completedHours += row.completedHours
+        acc.canceledHours += row.canceledHours
+        acc.plannedShifts += row.plannedShifts
+        acc.completedShifts += row.completedShifts
+        acc.canceledShifts += row.canceledShifts
+        acc.employeeCount += 1
+        if (row.estimatedLaborCost !== null) {
+          acc.estimatedLaborCost += row.estimatedLaborCost
+        }
+        return acc
+      },
+      {
+        employeeCount: 0,
+        plannedHours: 0,
+        completedHours: 0,
+        canceledHours: 0,
+        plannedShifts: 0,
+        completedShifts: 0,
+        canceledShifts: 0,
+        estimatedLaborCost: 0,
+      }
+    )
+
+    return res.json({
+      rows,
+      totals: {
+        ...totals,
+        plannedHours: Number(totals.plannedHours.toFixed(2)),
+        completedHours: Number(totals.completedHours.toFixed(2)),
+        canceledHours: Number(totals.canceledHours.toFixed(2)),
+        estimatedLaborCost: Number(totals.estimatedLaborCost.toFixed(2)),
+      },
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET STAFF EVALUATION ERROR:', error)
+    return res.status(500).json({ error: 'Auswertung konnte nicht geladen werden' })
+  }
+})
+
+export default router

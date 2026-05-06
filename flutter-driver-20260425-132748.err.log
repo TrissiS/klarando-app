@@ -1,0 +1,75 @@
+Error: Couldn't resolve the package 'geolocator' in 'package:geolocator/geolocator.dart'.
+lib/src/driver_delivery_app.dart:4:8: Error: Not found: 'package:geolocator/geolocator.dart'
+import 'package:geolocator/geolocator.dart';
+       ^
+lib/src/driver_delivery_app.dart:395:10: Error: Type 'Position' not found.
+  Future<Position> _resolveCurrentPosition() async {
+         ^^^^^^^^
+lib/src/driver_delivery_app.dart:396:34: Error: The getter 'Geolocator' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'Geolocator'.
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+                                 ^^^^^^^^^^
+lib/src/driver_delivery_app.dart:401:28: Error: The getter 'Geolocator' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'Geolocator'.
+    var permission = await Geolocator.checkPermission();
+                           ^^^^^^^^^^
+lib/src/driver_delivery_app.dart:402:23: Error: The getter 'LocationPermission' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'LocationPermission'.
+    if (permission == LocationPermission.denied) {
+                      ^^^^^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:403:26: Error: The getter 'Geolocator' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'Geolocator'.
+      permission = await Geolocator.requestPermission();
+                         ^^^^^^^^^^
+lib/src/driver_delivery_app.dart:406:23: Error: The getter 'LocationPermission' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'LocationPermission'.
+    if (permission == LocationPermission.denied ||
+                      ^^^^^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:407:23: Error: The getter 'LocationPermission' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'LocationPermission'.
+        permission == LocationPermission.deniedForever) {
+                      ^^^^^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:411:12: Error: The getter 'Geolocator' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'Geolocator'.
+    return Geolocator.getCurrentPosition(
+           ^^^^^^^^^^
+lib/src/driver_delivery_app.dart:412:24: Error: The getter 'LocationAccuracy' isn't defined for the type '_DriverHomePageState'.
+ - '_DriverHomePageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'LocationAccuracy'.
+      desiredAccuracy: LocationAccuracy.best,
+                       ^^^^^^^^^^^^^^^^
+Unhandled exception:
+Unsupported operation: Unsupported invalid type InvalidType(<invalid>) (InvalidType). Encountered while compiling file:///C:/Users/Tristan%20Stenger/Documents/New%20project/klarando/klarando-app/mobile_flutter_app/lib/src/driver_delivery_app.dart, which contains the type: InvalidType(<invalid>).
+#0      LibraryCompiler._typeCompilationError (package:dev_compiler/src/kernel/compiler_new.dart:4480)
+#1      LibraryCompiler._emitType (package:dev_compiler/src/kernel/compiler_new.dart:4445)
+#2      LibraryCompiler._rewriteAsyncFunction (package:dev_compiler/src/kernel/compiler_new.dart:4719)
+#3      LibraryCompiler._emitFunction.<anonymous closure> (package:dev_compiler/src/kernel/compiler_new.dart:4669)
+#4      LibraryCompiler._withLetScope (package:dev_compiler/src/kernel/compiler_new.dart:3661)
+#5      LibraryCompiler._withCurrentFunction (package:dev_compiler/src/kernel/compiler_new.dart:4841)
+#6      LibraryCompiler._emitFunction (package:dev_compiler/src/kernel/compiler_new.dart:4659)
+#7      LibraryCompiler._emitMethodDeclaration.<anonymous closure> (package:dev_compiler/src/kernel/compiler_new.dart:2941)
+#8      LibraryCompiler._withMethodDeclarationContext (package:dev_compiler/src/kernel/compiler_new.dart:4866)
+#9      LibraryCompiler._emitMethodDeclaration (package:dev_compiler/src/kernel/compiler_new.dart:2939)
+#10     LibraryCompiler._emitClassProperties (package:dev_compiler/src/kernel/compiler_new.dart:2880)
+#11     LibraryCompiler._emitClassDeclaration (package:dev_compiler/src/kernel/compiler_new.dart:1488)
+#12     LibraryCompiler._emitClass (package:dev_compiler/src/kernel/compiler_new.dart:1426)
+#13     List.forEach (dart:core-patch/growable_array.dart:428)
+#14     LibraryCompiler._emitLibrary (package:dev_compiler/src/kernel/compiler_new.dart:1348)
+#15     LibraryCompiler.emitLibrary (package:dev_compiler/src/kernel/compiler_new.dart:962)
+#16     LibraryBundleCompiler.emitModule (package:dev_compiler/src/kernel/compiler_new.dart:165)
+#17     IncrementalJavaScriptBundler.compile (package:frontend_server/src/javascript_bundle.dart:324)
+#18     FrontendCompiler.writeJavaScriptBundle (package:frontend_server/frontend_server.dart:922)
+<asynchronous suspension>
+#19     FrontendCompiler.compile (package:frontend_server/frontend_server.dart:728)
+<asynchronous suspension>
+#20     listenAndCompile.<anonymous closure> (package:frontend_server/frontend_server.dart:1449)
+<asynchronous suspension>
+The Dart compiler exited unexpectedly.
+Failed to compile application.

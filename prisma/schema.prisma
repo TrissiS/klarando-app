@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id         String     @id @default(uuid())
+  name       String
+  email      String?    @unique
+  categories Category[]
+  products   Product[]
+  createdAt  DateTime   @default(now())
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  sortOrder Int       @default(0)
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products  Product[]
+
+  createdAt DateTime  @default(now())
+}
+
+model Product {
+  id            String    @id @default(uuid())
+  tenantId      String
+  categoryId    String?
+  productNumber String
+  name          String
+  price         Decimal   @db.Decimal(10, 2)
+  vatRate       Decimal   @default(19.00) @db.Decimal(5, 2)
+
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category      Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  createdAt     DateTime  @default(now())
+}

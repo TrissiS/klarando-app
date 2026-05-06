@@ -1,0 +1,110 @@
+{
+  "specVersion": "1.0.0",
+  "paperWidthMm": 80,
+  "charsPerLine": 48,
+  "codepageDefault": "UTF8",
+  "templates": [
+    {
+      "templateId": "klarando.customer.80mm.v1",
+      "kind": "CUSTOMER",
+      "autoCut": true,
+      "blocks": [
+        {
+          "type": "TEXT",
+          "text": "{{tenant.name}}",
+          "align": "CENTER",
+          "emphasis": "BOLD",
+          "scale": "L"
+        },
+        {
+          "type": "TEXT",
+          "text": "{{tenant.street}} | {{tenant.zipCode}} {{tenant.city}}",
+          "align": "CENTER"
+        },
+        {
+          "type": "DIVIDER",
+          "char": "="
+        },
+        {
+          "type": "KEY_VALUE",
+          "key": "Bestellung",
+          "value": "#{{order.shortId}}",
+          "keyWidth": 18
+        },
+        {
+          "type": "ITEMS",
+          "qtyWidth": 5,
+          "priceWidth": 10,
+          "rows": [
+            {
+              "qty": "2x",
+              "label": "Doener Box",
+              "price": "16.00 EUR",
+              "modifiers": [
+                "Scharf",
+                "Extra Sauce"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "KEY_VALUE",
+          "key": "Gesamt",
+          "value": "{{order.totalEur}}",
+          "keyWidth": 20,
+          "valueAlign": "RIGHT"
+        },
+        {
+          "type": "QR",
+          "value": "{{order.trackingUrl}}",
+          "size": "M",
+          "align": "CENTER",
+          "label": "Bestellstatus"
+        }
+      ]
+    },
+    {
+      "templateId": "klarando.kitchen.80mm.v1",
+      "kind": "KITCHEN",
+      "autoCut": true,
+      "blocks": [
+        {
+          "type": "TEXT",
+          "text": "KUECHE",
+          "align": "CENTER",
+          "emphasis": "BOLD",
+          "scale": "XL"
+        },
+        {
+          "type": "DIVIDER",
+          "char": "="
+        },
+        {
+          "type": "KEY_VALUE",
+          "key": "Bestellung",
+          "value": "#{{order.shortId}}",
+          "keyWidth": 18
+        },
+        {
+          "type": "ITEMS",
+          "qtyWidth": 6,
+          "priceWidth": 0,
+          "rows": [
+            {
+              "qty": "1x",
+              "label": "Pizza Margherita",
+              "price": "",
+              "modifiers": [
+                "Ohne Zwiebeln"
+              ]
+            }
+          ]
+        },
+        {
+          "type": "TEXT",
+          "text": "{{order.customerAddressLine}}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "dev": "node -r ts-node/register/transpile-only src/server.ts",
+    "dev:watch": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "go-live:check": "node -r ts-node/register/transpile-only scripts/go-live-check.ts",
+    "go-live:provision": "node -r ts-node/register/transpile-only scripts/go-live-provision-displays.ts",
+    "go-live:apply-legal": "node -r ts-node/register/transpile-only scripts/go-live-apply-legal.ts",
+    "go-live:apply-payout": "node -r ts-node/register/transpile-only scripts/go-live-apply-payout.ts",
+    "go-live:provision-ingredients": "node -r ts-node/register/transpile-only scripts/go-live-provision-ingredients.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "pdf-lib": "^1.17.1",
+    "prisma": "^6.19.3"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.6.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.9.3"
+  }
+}

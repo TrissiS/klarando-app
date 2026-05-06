@@ -1,0 +1,11 @@
+lib/src/klarando_app.dart:2350:17: Error: Cannot invoke a non-'const' constructor where a const expression is expected.
+Try using a constructor or factory that is 'const'.
+                LengthLimitingTextInputFormatter(5),
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lib/src/klarando_app.dart:2348:32: Error: Constant evaluation error:
+              inputFormatters: const [
+                               ^
+lib/src/klarando_app.dart:2349:45: Context: The invocation of 'digitsOnly' is not allowed in a constant expression.
+                FilteringTextInputFormatter.digitsOnly,
+                                            ^
+Failed to compile application.

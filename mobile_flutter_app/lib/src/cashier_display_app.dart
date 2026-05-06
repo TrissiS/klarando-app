@@ -1,0 +1,1690 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+
+import 'core/klarando_api.dart';
+import 'core/receipt_printing.dart';
+import 'theme/klarando_theme.dart';
+
+const _prefsCashierBaseUrl = 'klarando_cashier_base_url';
+const _prefsCashierDisplayCode = 'klarando_cashier_display_code';
+const _prefsCashierDeviceToken = 'klarando_cashier_device_token';
+const _prefsCashierBindingId = 'klarando_cashier_binding_id';
+const _prefsCashierDeviceSerial = 'klarando_cashier_device_serial';
+const _prefsCashierDeviceAlias = 'klarando_cashier_device_alias';
+const _prefsCashierPrinterMode = 'klarando_cashier_printer_mode';
+const _prefsCashierPrinterHost = 'klarando_cashier_printer_host';
+const _prefsCashierPrinterPort = 'klarando_cashier_printer_port';
+const _cashierCurrentVersionName = '1.0.0';
+const _cashierCurrentVersionCode = 1;
+
+class KlarandoOrderDeskApp extends StatelessWidget {
+  const KlarandoOrderDeskApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Klarando OrderDesk',
+      debugShowCheckedModeBanner: false,
+      theme: KlarandoTheme.materialTheme(),
+      home: const _CashierDisplayHomePage(),
+    );
+  }
+}
+
+class _CashierDisplayHomePage extends StatefulWidget {
+  const _CashierDisplayHomePage();
+
+  @override
+  State<_CashierDisplayHomePage> createState() =>
+      _CashierDisplayHomePageState();
+}
+
+class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
+  final _api = const KlarandoApi();
+  final _baseUrlController = TextEditingController(
+    text: 'http://localhost:4000',
+  );
+  final _displayCodeController = TextEditingController();
+  final _pairingTokenController = TextEditingController();
+  final _deviceSerialController = TextEditingController();
+  final _deviceAliasController = TextEditingController();
+  final _tcpHostController = TextEditingController();
+  final _tcpPortController = TextEditingController(text: '9100');
+
+  late final ReceiptPrintQueue _printQueue;
+
+  Timer? _pollTimer;
+  bool _loading = false;
+  bool _connected = false;
+  bool _bindingLocked = false;
+  String? _error;
+  String? _info;
+  String? _updateInfo;
+  DateTime? _lastSuccessfulSyncAt;
+  String? _connectedTenantName;
+  List<OrderDeskContactUser> _connectedAdmins = const [];
+  List<OrderDeskContactUser> _connectedChainadmins = const [];
+  int _activeDriverDevices = 0;
+  int _onlineDriverDevices = 0;
+
+  EscPosPrinterMode _printerMode = EscPosPrinterMode.debugLog;
+  PublicOrderDisplayFeed? _feed;
+  List<ReceiptPrintQueueEntry> _queueEntries = const [];
+  String? _deviceAuthToken;
+  String? _bindingId;
+  Timer? _heartbeatTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _printQueue = ReceiptPrintQueue(
+      settings: _buildPrinterSettings(),
+      onChanged: (entries) {
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _queueEntries = entries;
+        });
+      },
+    );
+    _loadPrefs();
+  }
+
+  @override
+  void dispose() {
+    _pollTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    _baseUrlController.dispose();
+    _displayCodeController.dispose();
+    _pairingTokenController.dispose();
+    _deviceSerialController.dispose();
+    _deviceAliasController.dispose();
+    _tcpHostController.dispose();
+    _tcpPortController.dispose();
+    super.dispose();
+  }
+
+  EscPosPrinterSettings _buildPrinterSettings() {
+    final parsedPort = int.tryParse(_tcpPortController.text.trim()) ?? 9100;
+    return EscPosPrinterSettings(
+      mode: _printerMode,
+      tcpHost: _tcpHostController.text.trim().isEmpty
+          ? null
+          : _tcpHostController.text.trim(),
+      tcpPort: parsedPort <= 0 ? 9100 : parsedPort,
+    );
+  }
+
+  Future<void> _loadPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    final baseUrl = prefs.getString(_prefsCashierBaseUrl);
+    final displayCode = prefs.getString(_prefsCashierDisplayCode);
+    final deviceToken = prefs.getString(_prefsCashierDeviceToken);
+    final bindingId = prefs.getString(_prefsCashierBindingId);
+    final deviceSerial = prefs.getString(_prefsCashierDeviceSerial);
+    final deviceAlias = prefs.getString(_prefsCashierDeviceAlias);
+    final printerModeRaw = prefs.getString(_prefsCashierPrinterMode);
+    final printerHost = prefs.getString(_prefsCashierPrinterHost);
+    final printerPort = prefs.getString(_prefsCashierPrinterPort);
+
+    if (baseUrl != null && baseUrl.trim().isNotEmpty) {
+      _baseUrlController.text = baseUrl;
+    }
+    if (displayCode != null && displayCode.trim().isNotEmpty) {
+      _displayCodeController.text = displayCode;
+    }
+    if (deviceAlias != null && deviceAlias.trim().isNotEmpty) {
+      _deviceAliasController.text = deviceAlias;
+    }
+    if (deviceSerial != null && deviceSerial.trim().isNotEmpty) {
+      _deviceSerialController.text = deviceSerial;
+    } else {
+      final generatedSerial = _generatePseudoSerial();
+      _deviceSerialController.text = generatedSerial;
+      await prefs.setString(_prefsCashierDeviceSerial, generatedSerial);
+    }
+    if (printerHost != null && printerHost.trim().isNotEmpty) {
+      _tcpHostController.text = printerHost;
+    }
+    if (printerPort != null && printerPort.trim().isNotEmpty) {
+      _tcpPortController.text = printerPort;
+    }
+    if (printerModeRaw != null) {
+      _printerMode = EscPosPrinterMode.values.firstWhere(
+        (entry) => entry.name == printerModeRaw,
+        orElse: () => EscPosPrinterMode.debugLog,
+      );
+    }
+    _deviceAuthToken = deviceToken;
+    _bindingId = bindingId;
+    _bindingLocked = (deviceToken ?? '').trim().isNotEmpty;
+    _printQueue.updateSettings(_buildPrinterSettings());
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<void> _savePrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _prefsCashierBaseUrl,
+      _normalizeBaseUrl(_baseUrlController.text),
+    );
+    await prefs.setString(
+      _prefsCashierDisplayCode,
+      _displayCodeController.text.trim(),
+    );
+    await prefs.setString(
+      _prefsCashierDeviceSerial,
+      _deviceSerialController.text.trim().toUpperCase(),
+    );
+    await prefs.setString(
+      _prefsCashierDeviceAlias,
+      _deviceAliasController.text.trim(),
+    );
+    await prefs.setString(_prefsCashierPrinterMode, _printerMode.name);
+    await prefs.setString(
+      _prefsCashierPrinterHost,
+      _tcpHostController.text.trim(),
+    );
+    await prefs.setString(
+      _prefsCashierPrinterPort,
+      _tcpPortController.text.trim(),
+    );
+  }
+
+  Future<void> _connect() async {
+    if ((_deviceAuthToken ?? '').trim().isEmpty) {
+      setState(() {
+        _error = 'Bitte zuerst per QR-Code mit dem System verbinden.';
+      });
+      return;
+    }
+
+    final displayCode = _displayCodeController.text.trim();
+    if (displayCode.isEmpty) {
+      setState(() {
+        _error = 'Bitte Display-Code eingeben.';
+      });
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      await _savePrefs();
+      _printQueue.updateSettings(_buildPrinterSettings());
+      await _sendOrderDeskHeartbeatIfNeeded();
+      await _pollFeed();
+      _pollTimer?.cancel();
+      _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+        _pollFeed(silent: true);
+      });
+      _heartbeatTimer?.cancel();
+      _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+        _sendOrderDeskHeartbeatIfNeeded(silent: true);
+      });
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _connected = true;
+        _lastSuccessfulSyncAt = DateTime.now();
+        _info = 'Verbunden mit Display $displayCode';
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error.message;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error.toString();
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _pollFeed({bool silent = false}) async {
+    await _sendOrderDeskHeartbeatIfNeeded(silent: true);
+    final response = await _api.fetchPublicOrderDisplayFeed(
+      baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+      displayCode: _displayCodeController.text.trim(),
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _feed = response;
+      _lastSuccessfulSyncAt = DateTime.now();
+      if (!silent) {
+        _error = null;
+      }
+    });
+  }
+
+  Future<void> _acceptOrder(PublicOrderSummary order) async {
+    final eta = await _askEtaMinutes(initial: order.estimatedMinutes ?? 20);
+    if (eta == null) {
+      return;
+    }
+    await _runOrderMutation(() async {
+      await _api.acceptPublicOrderDisplayOrder(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        estimatedMinutes: eta,
+      );
+      await _pollFeed();
+      _info = 'Bestellung angenommen (${eta} Min).';
+    });
+  }
+
+  Future<void> _markPaid(PublicOrderSummary order) async {
+    await _runOrderMutation(() async {
+      await _api.updatePublicOrderDisplayPaymentStatus(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        paid: true,
+      );
+      await _pollFeed();
+      _info = 'Zahlung als bezahlt markiert.';
+    });
+  }
+
+  Future<void> _dispatchOrder(PublicOrderSummary order) async {
+    final dispatchTarget = await _askDispatchTarget();
+    if (dispatchTarget == null) {
+      return;
+    }
+    await _runOrderMutation(() async {
+      await _api.dispatchPublicOrderDisplayOrder(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        driverUserId: dispatchTarget.driverUserId,
+        driverName: dispatchTarget.driverName,
+        estimatedMinutes: order.estimatedMinutes ?? 30,
+      );
+      await _pollFeed();
+      _info = 'Fahrer ${dispatchTarget.label} zugewiesen.';
+    });
+  }
+
+  Future<void> _printOrder(
+    PublicOrderSummary order, {
+    String kind = 'both',
+  }) async {
+    await _runOrderMutation(() async {
+      final jobsResponse = await _api.fetchPublicOrderDisplayReceiptJobs(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        kind: kind,
+      );
+      if (jobsResponse.jobs.isEmpty) {
+        throw const ApiException(
+          'Keine Druckjobs für diese Bestellung erhalten.',
+        );
+      }
+      for (final job in jobsResponse.jobs) {
+        _printQueue.enqueue(orderId: order.id, job: job);
+      }
+      await _printQueue.process();
+      if (_printerMode == EscPosPrinterMode.disabled) {
+        _info = 'Druckjob erstellt (Drucker deaktiviert).';
+      } else if (_printerMode == EscPosPrinterMode.debugLog) {
+        final logPath = DebugLogEscPosPrinterTransport.lastLogFilePath;
+        _info = logPath == null
+            ? 'Debug-Druckjob protokolliert.'
+            : 'Debug-Druckjob protokolliert: $logPath';
+      } else {
+        _info = 'Druckjob gesendet.';
+      }
+    });
+  }
+
+  Future<void> _runOrderMutation(Future<void> Function() action) async {
+    if (_loading) {
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+      _info = null;
+    });
+    try {
+      await action();
+      if (mounted) {
+        setState(() {});
+      }
+    } on ApiException catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error.message;
+        });
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _error = error.toString();
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _sendOrderDeskHeartbeatIfNeeded({bool silent = false}) async {
+    final token = _deviceAuthToken;
+    if (token == null || token.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      final heartbeat = await _api.sendOrderDeskHeartbeat(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        authToken: token,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (!silent) {
+          _error = null;
+        }
+        _lastSuccessfulSyncAt = DateTime.now();
+        _connectedTenantName = heartbeat.tenantName;
+        _connectedAdmins = heartbeat.admins;
+        _connectedChainadmins = heartbeat.chainadmins;
+        _activeDriverDevices = heartbeat.activeDriverDevices;
+        _onlineDriverDevices = heartbeat.onlineDriverDevices;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      if (!silent) {
+        setState(() {
+          _error = error.message;
+        });
+      }
+      if (error.statusCode == 403 || error.statusCode == 401) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(_prefsCashierDeviceToken);
+        await prefs.remove(_prefsCashierBindingId);
+        if (!mounted) {
+          return;
+        }
+        setState(() {
+          _deviceAuthToken = null;
+          _bindingId = null;
+          _bindingLocked = false;
+          _connected = false;
+          _connectedTenantName = null;
+          _connectedAdmins = const [];
+          _connectedChainadmins = const [];
+          _activeDriverDevices = 0;
+          _onlineDriverDevices = 0;
+          _pollTimer?.cancel();
+          _heartbeatTimer?.cancel();
+          _info =
+              'OrderDesk-Bindung ist nicht mehr aktiv. Bitte neuen QR-Code vom Admin anfordern.';
+          _error = error.message;
+        });
+      }
+    }
+  }
+
+  Future<void> _checkForAppUpdate() async {
+    await _runOrderMutation(() async {
+      final manifest = await _api.fetchCashierUpdateManifest(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+      );
+      final hasUpdate = manifest.isUpdateAvailableFor(
+        _cashierCurrentVersionCode,
+      );
+      if (!hasUpdate) {
+        _updateInfo =
+            'App ist aktuell (${_cashierCurrentVersionName}+${_cashierCurrentVersionCode}).';
+        return;
+      }
+      final mandatory = manifest.isMandatoryFor(_cashierCurrentVersionCode);
+      final mode = mandatory ? 'Pflichtupdate' : 'Optionales Update';
+      final url = manifest.apkUrl.trim().isEmpty ? '-' : manifest.apkUrl.trim();
+      _updateInfo =
+          '$mode verfügbar: ${manifest.latestVersionName}+${manifest.latestVersionCode} | APK: $url';
+    });
+  }
+
+  Future<void> _bindWithPairingToken() async {
+    final pairingToken = _pairingTokenController.text.trim();
+    final deviceSerial = _deviceSerialController.text.trim().toUpperCase();
+    if (pairingToken.isEmpty) {
+      setState(() {
+        _error = 'Bitte Pairing-Token eintragen oder QR scannen.';
+      });
+      return;
+    }
+    if (deviceSerial.isEmpty) {
+      setState(() {
+        _error = 'Bitte eine Geräte-Seriennummer angeben.';
+      });
+      return;
+    }
+
+    await _runOrderMutation(() async {
+      final response = await _api.bindOrderDeskDevice(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        pairingTokenOrPayload: pairingToken,
+        deviceSerial: deviceSerial,
+        deviceAlias: _deviceAliasController.text.trim(),
+        deviceModel: 'unknown',
+        devicePlatform: 'flutter',
+        appVersion: '$_cashierCurrentVersionName+$_cashierCurrentVersionCode',
+      );
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _prefsCashierBaseUrl,
+        _normalizeBaseUrl(_baseUrlController.text),
+      );
+      await prefs.setString(_prefsCashierDisplayCode, response.displayCode);
+      await prefs.setString(_prefsCashierDeviceToken, response.authToken);
+      await prefs.setString(_prefsCashierBindingId, response.binding.id);
+      await prefs.setString(
+        _prefsCashierDeviceSerial,
+        response.binding.deviceSerial,
+      );
+      await prefs.setString(
+        _prefsCashierDeviceAlias,
+        response.binding.deviceAlias ?? _deviceAliasController.text.trim(),
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _displayCodeController.text = response.displayCode;
+        _deviceAuthToken = response.authToken;
+        _bindingId = response.binding.id;
+        _bindingLocked = true;
+        _connected = false;
+        _lastSuccessfulSyncAt = null;
+        _connectedTenantName = null;
+        _connectedAdmins = const [];
+        _connectedChainadmins = const [];
+        _activeDriverDevices = 0;
+        _onlineDriverDevices = 0;
+        _pairingTokenController.clear();
+        _info =
+            'OrderDesk wurde mit ${response.displayCode} verbunden (${response.binding.deviceSerial}).';
+      });
+    });
+  }
+
+  Future<void> _scanPairingTokenWithCamera() async {
+    final scanResult = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const _CashierQrScannerPage()),
+    );
+    final token = scanResult?.trim();
+    if (token == null || token.isEmpty || !mounted) {
+      return;
+    }
+    setState(() {
+      _pairingTokenController.text = token;
+      _info = 'QR-Code erkannt. Jetzt "Per QR verbinden" tippen.';
+    });
+  }
+
+  Future<void> _showConnectedAdminsDialog() async {
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Verknüpftes System'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Filiale/System: ${_connectedTenantName ?? '-'}'),
+                  Text('Display: ${_displayCodeController.text.trim()}'),
+                  Text('S/N: ${_deviceSerialController.text.trim()}'),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Admins',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 4),
+                  if (_connectedAdmins.isEmpty)
+                    const Text('Keine aktiven Admins gefunden.')
+                  else
+                    ..._connectedAdmins.map(
+                      (entry) => Text('• ${entry.name} (${entry.email})'),
+                    ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Kettenadmins',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 4),
+                  if (_connectedChainadmins.isEmpty)
+                    const Text('Keine aktiven Kettenadmins gefunden.')
+                  else
+                    ..._connectedChainadmins.map(
+                      (entry) => Text('• ${entry.name} (${entry.email})'),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Schließen'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _runDemoPrintFlow() async {
+    await _runOrderMutation(() async {
+      final orderId = 'demo_${DateTime.now().microsecondsSinceEpoch}';
+      final customerJob = PublicOrderDisplayReceiptJob(
+        kind: 'CUSTOMER',
+        templateId: 'klarando.demo.customer.80mm.v1',
+        codepage: 'UTF8',
+        charsPerLine: 48,
+        escposBase64: base64Encode(_buildDemoEscPosBytes('DEMO KUNDENBON')),
+        escposHex: '',
+        bytesLength: 0,
+      );
+      final kitchenJob = PublicOrderDisplayReceiptJob(
+        kind: 'KITCHEN',
+        templateId: 'klarando.demo.kitchen.80mm.v1',
+        codepage: 'UTF8',
+        charsPerLine: 48,
+        escposBase64: base64Encode(_buildDemoEscPosBytes('DEMO KÜCHENBON')),
+        escposHex: '',
+        bytesLength: 0,
+      );
+
+      _printQueue.enqueue(orderId: orderId, job: customerJob);
+      _printQueue.enqueue(orderId: orderId, job: kitchenJob);
+      await _printQueue.process();
+
+      if (_printerMode == EscPosPrinterMode.debugLog) {
+        final logPath = DebugLogEscPosPrinterTransport.lastLogFilePath;
+        _info = logPath == null
+            ? 'Demo-Druckjob protokolliert.'
+            : 'Demo-Druckjob protokolliert: $logPath';
+      } else {
+        _info = 'Demo-Druckjob verarbeitet.';
+      }
+    });
+  }
+
+  List<int> _buildDemoEscPosBytes(String headline) {
+    final encoder = Utf8Encoder();
+    return <int>[
+      0x1b,
+      0x40, // init
+      0x1b,
+      0x61,
+      0x01, // center
+      ...encoder.convert(headline),
+      0x0a,
+      ...encoder.convert('Klarando Testmodus'),
+      0x0a,
+      ...encoder.convert(DateTime.now().toIso8601String()),
+      0x0a,
+      0x0a,
+      0x1d,
+      0x56,
+      0x01, // cut
+    ];
+  }
+
+  String? _resolveDeliveryMapQuery(PublicOrderSummary order) {
+    if ((order.serviceType ?? '').toUpperCase() != 'DELIVERY') {
+      return null;
+    }
+    final parts =
+        [order.customerAddress, order.customerZipCode, order.customerCity]
+            .whereType<String>()
+            .map((entry) => entry.trim())
+            .where((entry) => entry.isNotEmpty)
+            .toList(growable: false);
+    if (parts.isEmpty) {
+      return null;
+    }
+    return parts.join(', ');
+  }
+
+  String _buildGoogleMapsEmbedUrl(String query) {
+    final encoded = Uri.encodeComponent(query);
+    return 'https://www.google.com/maps?q=$encoded&output=embed';
+  }
+
+  String _buildGoogleMapsSearchUrl(String query) {
+    final encoded = Uri.encodeComponent(query);
+    return 'https://www.google.com/maps/search/?api=1&query=$encoded';
+  }
+
+  String _orderStatusLabel(String value) {
+    switch (value.trim().toLowerCase()) {
+      case 'pending_payment':
+        return 'Offen';
+      case 'open':
+        return 'Offen';
+      case 'preparing':
+        return 'In Zubereitung';
+      case 'out_for_delivery':
+        return 'Fahrer unterwegs';
+      case 'done':
+        return 'Fertig';
+      case 'archived':
+        return 'Archiviert';
+      default:
+        return value;
+    }
+  }
+
+  String _paymentStatusLabel(String value) {
+    switch (value.trim().toUpperCase()) {
+      case 'PAID':
+        return 'BEZAHLT';
+      case 'UNPAID':
+        return 'UNBEZAHLT';
+      default:
+        return value;
+    }
+  }
+
+  String _generatePseudoSerial() {
+    final random = Random();
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    final buffer = StringBuffer('OD-');
+    for (var i = 0; i < 12; i += 1) {
+      buffer.write(alphabet[random.nextInt(alphabet.length)]);
+    }
+    return buffer.toString();
+  }
+
+  Future<int?> _askEtaMinutes({required int initial}) async {
+    const etaOptions = <int>[15, 20, 30, 45, 60];
+    var selected = etaOptions.first;
+    for (final option in etaOptions) {
+      if ((option - initial).abs() < (selected - initial).abs()) {
+        selected = option;
+      }
+    }
+
+    final result = await showDialog<int>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Lieferzeit auswählen'),
+          content: StatefulBuilder(
+            builder: (context, setDialogState) {
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: etaOptions
+                    .map(
+                      (entry) => ChoiceChip(
+                        label: Text('$entry min'),
+                        selected: selected == entry,
+                        onSelected: (_) {
+                          setDialogState(() {
+                            selected = entry;
+                          });
+                        },
+                      ),
+                    )
+                    .toList(growable: false),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(context).pop(selected);
+              },
+              child: const Text('Übernehmen'),
+            ),
+          ],
+        );
+      },
+    );
+    return result;
+  }
+
+  Future<_DispatchTarget?> _askDispatchTarget() async {
+    final drivers = _feed?.drivers ?? const <PublicOrderDisplayDriver>[];
+    final activeDriverDevices =
+        (_feed?.activeDriverDevices ?? const <PublicOrderDisplayDriverDevice>[])
+            .where((entry) => entry.isActive)
+            .toList(growable: false);
+
+    final options = <_DispatchTarget>[
+      ...drivers.map(
+        (entry) => _DispatchTarget(
+          label: entry.name,
+          detail: 'Fahrerkonto',
+          driverUserId: entry.id,
+          driverName: entry.name,
+        ),
+      ),
+      ...activeDriverDevices
+          .where((entry) => (entry.driverName ?? '').trim().isNotEmpty)
+          .map(
+            (entry) => _DispatchTarget(
+              label: entry.driverName!.trim(),
+              detail:
+                  '${entry.isOnline ? 'Online' : 'Offline'} • Gerät: ${entry.deviceLabel}',
+              driverUserId: entry.driverUserId,
+              driverName: entry.driverName!.trim(),
+            ),
+          ),
+    ];
+
+    if (options.isEmpty) {
+      setState(() {
+        _error = 'Keine aktiven Fahrer oder Fahrgeräte gefunden.';
+      });
+      return null;
+    }
+
+    return showDialog<_DispatchTarget>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Fahrer wählen'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: options
+                    .map(
+                      (entry) => ListTile(
+                        dense: true,
+                        contentPadding: EdgeInsets.zero,
+                        title: Text(entry.label),
+                        subtitle: entry.detail == null
+                            ? null
+                            : Text(entry.detail!),
+                        onTap: () => Navigator.of(context).pop(entry),
+                      ),
+                    )
+                    .toList(growable: false),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Abbrechen'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _copyGoogleMapsLink(String query) async {
+    final url = _buildGoogleMapsSearchUrl(query);
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _info = 'Google-Maps-Link wurde kopiert.';
+    });
+  }
+
+  Widget _buildOrderDeliveryMap(PublicOrderSummary order) {
+    final query = _resolveDeliveryMapQuery(order);
+    if (query == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Container(
+        padding: const EdgeInsets.all(8),
+        decoration: BoxDecoration(
+          border: Border.all(color: const Color(0xFFFDBA74)),
+          borderRadius: BorderRadius.circular(12),
+          color: const Color(0xFFFFFBEB),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Lieferkarte',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: SizedBox(
+                height: 160,
+                width: double.infinity,
+                child: _GoogleMapsEmbed(
+                  query: query,
+                  embedUrl: _buildGoogleMapsEmbedUrl(query),
+                ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(query, style: const TextStyle(fontSize: 12)),
+                ),
+                TextButton.icon(
+                  onPressed: () => _copyGoogleMapsLink(query),
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Maps-Link'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final orders = _feed?.orders ?? const <PublicOrderSummary>[];
+    final deliveryOrders = orders
+        .where(
+          (entry) =>
+              (entry.serviceType ?? '').toUpperCase() == 'DELIVERY' &&
+              entry.status != 'done' &&
+              entry.status != 'archived',
+        )
+        .toList(growable: false);
+    PublicOrderSummary? firstDeliveryOrderWithAddress;
+    for (final order in deliveryOrders) {
+      if (_resolveDeliveryMapQuery(order) != null) {
+        firstDeliveryOrderWithAddress = order;
+        break;
+      }
+    }
+    final now = DateTime.now();
+    final isStale =
+        _connected &&
+        (_lastSuccessfulSyncAt == null ||
+            now.difference(_lastSuccessfulSyncAt!).inSeconds > 60);
+    final statusText = !_connected
+        ? 'Getrennt'
+        : isStale
+        ? 'Veraltet (> 1 Minute)'
+        : 'Verbunden';
+    final statusColor = !_connected
+        ? const Color(0xFFDC2626)
+        : isStale
+        ? const Color(0xFFEAB308)
+        : const Color(0xFF16A34A);
+
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      appBar: AppBar(
+        backgroundColor: const Color(0xFFF97316),
+        foregroundColor: Colors.white,
+        title: Row(
+          children: [
+            GestureDetector(
+              onDoubleTap: _showConnectedAdminsDialog,
+              child: Image.asset(
+                'assets/klarando_icon.png',
+                width: 26,
+                height: 26,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text('Klarando OrderDesk'),
+          ],
+        ),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 9,
+                    height: 9,
+                    decoration: BoxDecoration(
+                      color: statusColor,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    statusText,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          if (_activeDriverDevices > 0)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.directions_car,
+                      color: Color(0xFF22C55E),
+                      size: 16,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '$_activeDriverDevices',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (_onlineDriverDevices > 0) ...[
+                      const SizedBox(width: 4),
+                      Text(
+                        '(${_onlineDriverDevices} online)',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          IconButton(
+            tooltip: 'Aktualisieren',
+            onPressed: _loading
+                ? null
+                : () => _runOrderMutation(() => _pollFeed()),
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+      ),
+      body: SafeArea(
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFF97316), Color(0xFF6D28D9)],
+            ),
+          ),
+          child: ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              _buildConnectionCard(),
+              const SizedBox(height: 10),
+              if (_error != null)
+                Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              if (_info != null)
+                Text(_info!, style: const TextStyle(color: Colors.white)),
+              if (_updateInfo != null)
+                Text(
+                  _updateInfo!,
+                  style: const TextStyle(color: Color(0xFFFFF7ED)),
+                ),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Chip(label: Text('Bestellungen: ${orders.length}')),
+                  Chip(
+                    label: Text('Lieferungen offen: ${deliveryOrders.length}'),
+                  ),
+                ],
+              ),
+              if (firstDeliveryOrderWithAddress != null) ...[
+                const SizedBox(height: 12),
+                _buildDeliveryMapCard(
+                  firstDeliveryOrderWithAddress,
+                  deliveryOrders,
+                ),
+              ],
+              const SizedBox(height: 12),
+              if (!_connected)
+                const Card(
+                  child: Padding(
+                    padding: EdgeInsets.all(14),
+                    child: Text(
+                      'Noch nicht verbunden. Bitte zuerst per QR mit dem Admin-System koppeln und dann verbinden.',
+                    ),
+                  ),
+                )
+              else ...[
+                ...orders.map(_buildOrderCard),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildConnectionCard() {
+    if (_bindingLocked) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Image.asset('assets/klarando_logo_wordmark.png', height: 24),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'OrderDesk verbunden',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Verbunden mit Display ${_displayCodeController.text.trim()} auf S/N ${_deviceSerialController.text.trim()}',
+              ),
+              Text(
+                'Alias: ${_deviceAliasController.text.trim().isEmpty ? '-' : _deviceAliasController.text.trim()}',
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Tipp: Doppelklick auf das Logo oben zeigt Admin/Kettenadmin-Kontakte.',
+                style: TextStyle(fontSize: 12),
+              ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: _loading ? null : _connect,
+                icon: const Icon(Icons.link),
+                label: Text(_loading ? 'Bitte warten…' : 'Jetzt verbinden'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Verbindung & Drucker',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _baseUrlController,
+              decoration: const InputDecoration(
+                labelText: 'Backend-URL',
+                hintText: 'http://192.168.1.10:4000',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _deviceSerialController,
+              textCapitalization: TextCapitalization.characters,
+              decoration: const InputDecoration(
+                labelText: 'Geräte-Seriennummer',
+                hintText: 'z.B. OD-8ZZM4A9K2P1Q',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _deviceAliasController,
+              decoration: const InputDecoration(
+                labelText: 'Geräte-Alias (optional)',
+                hintText: 'z.B. Kasse vorne 8 Zoll',
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _pairingTokenController,
+              decoration: const InputDecoration(
+                labelText: 'QR Pairing Token / Inhalt',
+                hintText: 'klarando-orderdesk-pair:DISPLAY:TOKEN',
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _scanPairingTokenWithCamera,
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('QR scannen'),
+                ),
+                FilledButton.icon(
+                  onPressed: _loading ? null : _bindWithPairingToken,
+                  icon: const Icon(Icons.link),
+                  label: const Text('Per QR verbinden'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _displayCodeController,
+              readOnly: _bindingLocked,
+              decoration: const InputDecoration(
+                labelText: 'Display-Code',
+                hintText: 'Wird nach QR-Bindung gesetzt',
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _bindingLocked
+                  ? 'Gerät ist fest verbunden (Binding-ID: ${_bindingId ?? '-'})'
+                  : 'Noch nicht gebunden: Bitte zuerst QR aus dem Adminbereich scannen.',
+              style: TextStyle(
+                fontSize: 12,
+                color: _bindingLocked
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.secondary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<EscPosPrinterMode>(
+              value: _printerMode,
+              decoration: const InputDecoration(labelText: 'Druckmodus'),
+              items: EscPosPrinterMode.values
+                  .map(
+                    (mode) => DropdownMenuItem(
+                      value: mode,
+                      child: Text(switch (mode) {
+                        EscPosPrinterMode.disabled => 'Deaktiviert',
+                        EscPosPrinterMode.tcp => 'TCP (9100)',
+                        EscPosPrinterMode.sunmi => 'Sunmi (integriert)',
+                        EscPosPrinterMode.debugLog => 'Debug-Log (ohne Druck)',
+                        EscPosPrinterMode.platformChannel =>
+                          'Android-Herstellerkanal',
+                      }),
+                    ),
+                  )
+                  .toList(growable: false),
+              onChanged: (value) {
+                if (value == null) {
+                  return;
+                }
+                setState(() {
+                  _printerMode = value;
+                });
+                _printQueue.updateSettings(_buildPrinterSettings());
+              },
+            ),
+            if (_printerMode == EscPosPrinterMode.tcp) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _tcpHostController,
+                decoration: const InputDecoration(
+                  labelText: 'Drucker Host/IP',
+                  hintText: '192.168.1.80',
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _tcpPortController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Drucker-Port',
+                  hintText: '9100',
+                ),
+              ),
+            ],
+            if (_printerMode == EscPosPrinterMode.debugLog) ...[
+              const SizedBox(height: 8),
+              const Text(
+                'Debug-Modus schreibt ESC/POS Logs lokal in ein Temp-Verzeichnis.',
+              ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  onPressed: _loading || (_deviceAuthToken ?? '').trim().isEmpty
+                      ? null
+                      : _connect,
+                  icon: const Icon(Icons.link),
+                  label: Text(
+                    _loading ? 'Bitte warten…' : 'Speichern & Verbinden',
+                  ),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _runDemoPrintFlow,
+                  icon: const Icon(Icons.science),
+                  label: const Text('Demo-Druck'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _loading ? null : _checkForAppUpdate,
+                  icon: const Icon(Icons.system_update),
+                  label: const Text('Update prüfen'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOrderCard(PublicOrderSummary order) {
+    final isPaid = order.paymentStatus.toUpperCase() == 'PAID';
+    final isDelivery = (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Bestellung ${order.pickupNumber?.toString() ?? order.id.substring(0, 8)}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${order.customerName ?? '-'} • ${order.customerPhone ?? '-'}',
+            ),
+            Text(
+              '${order.serviceType ?? '-'} • ${_orderStatusLabel(order.status)} • ${order.total.toStringAsFixed(2)} EUR',
+            ),
+            Text(
+              'Zahlung: ${_paymentStatusLabel(order.paymentStatus)}${order.paymentMethod != null ? ' (${order.paymentMethod})' : ''}',
+              style: TextStyle(
+                color: isPaid
+                    ? const Color(0xFF0F172A)
+                    : const Color(0xFFDC2626),
+                fontWeight: isPaid ? FontWeight.w500 : FontWeight.w800,
+              ),
+            ),
+            if (!isPaid)
+              const Text(
+                'UNBEZAHLT',
+                style: TextStyle(
+                  color: Color(0xFFDC2626),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            if (order.items.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              ...order.items
+                  .take(5)
+                  .map(
+                    (item) => Text('- ${item.quantity}x ${item.productName}'),
+                  ),
+            ],
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                OutlinedButton(
+                  onPressed: _loading ? null : () => _acceptOrder(order),
+                  child: const Text('Annehmen'),
+                ),
+                OutlinedButton(
+                  onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                  child: const Text('Bezahlt'),
+                ),
+                OutlinedButton(
+                  onPressed: _loading || !isDelivery
+                      ? null
+                      : () => _dispatchOrder(order),
+                  child: const Text('Fahrer'),
+                ),
+                FilledButton(
+                  onPressed: _loading
+                      ? null
+                      : () => _printOrder(order, kind: 'both'),
+                  child: const Text('Drucken'),
+                ),
+                TextButton(
+                  onPressed: _loading
+                      ? null
+                      : () => _printOrder(order, kind: 'kitchen'),
+                  child: const Text('Küche'),
+                ),
+                TextButton(
+                  onPressed: _loading
+                      ? null
+                      : () => _printOrder(order, kind: 'customer'),
+                  child: const Text('Kunde'),
+                ),
+              ],
+            ),
+            if (isDelivery) _buildOrderDeliveryMap(order),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeliveryMapCard(
+    PublicOrderSummary baseOrder,
+    List<PublicOrderSummary> pendingDeliveryOrders,
+  ) {
+    final query = _resolveDeliveryMapQuery(baseOrder);
+    if (query == null) {
+      return const SizedBox.shrink();
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Kunden-Lieferkarte',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                height: 200,
+                width: double.infinity,
+                child: _GoogleMapsEmbed(
+                  query: query,
+                  embedUrl: _buildGoogleMapsEmbedUrl(query),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(query, style: const TextStyle(fontSize: 12)),
+            const SizedBox(height: 4),
+            TextButton.icon(
+              onPressed: () => _copyGoogleMapsLink(query),
+              icon: const Icon(Icons.copy, size: 16),
+              label: const Text('Google-Maps-Link kopieren'),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Noch anzufahrende Kunden:',
+              style: TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            if (pendingDeliveryOrders.isEmpty)
+              const Text('Keine aktiven Lieferstopps.')
+            else
+              ...pendingDeliveryOrders.take(6).toList().asMap().entries.map((
+                entry,
+              ) {
+                final number = entry.key + 1;
+                final order = entry.value;
+                final customer = order.customerName ?? 'Unbekannt';
+                final address =
+                    [
+                          order.customerAddress,
+                          order.customerZipCode,
+                          order.customerCity,
+                        ]
+                        .whereType<String>()
+                        .where((value) => value.trim().isNotEmpty)
+                        .join(', ');
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text(
+                    '$number. $customer${address.isEmpty ? '' : ' – $address'}',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GoogleMapsEmbed extends StatefulWidget {
+  const _GoogleMapsEmbed({required this.query, required this.embedUrl});
+
+  final String query;
+  final String embedUrl;
+
+  @override
+  State<_GoogleMapsEmbed> createState() => _GoogleMapsEmbedState();
+}
+
+class _GoogleMapsEmbedState extends State<_GoogleMapsEmbed> {
+  late final WebViewController _controller;
+  bool _hasError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(const Color(0x00000000))
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onWebResourceError: (_) {
+            if (!mounted) {
+              return;
+            }
+            setState(() {
+              _hasError = true;
+            });
+          },
+          onNavigationRequest: (request) {
+            if (request.url.startsWith('https://www.google.com/maps') ||
+                request.url.startsWith('https://maps.google.com') ||
+                request.url.startsWith('about:blank')) {
+              return NavigationDecision.navigate;
+            }
+            return NavigationDecision.prevent;
+          },
+        ),
+      );
+    _loadMap();
+  }
+
+  @override
+  void didUpdateWidget(covariant _GoogleMapsEmbed oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.embedUrl != widget.embedUrl) {
+      _hasError = false;
+      _loadMap();
+    }
+  }
+
+  Future<void> _loadMap() async {
+    try {
+      await _controller.loadRequest(Uri.parse(widget.embedUrl));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _hasError = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hasError) {
+      return Container(
+        color: const Color(0xFFFDE68A),
+        alignment: Alignment.center,
+        padding: const EdgeInsets.all(10),
+        child: Text(
+          'Karte konnte nicht geladen werden.\n${widget.query}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12),
+        ),
+      );
+    }
+    return WebViewWidget(controller: _controller);
+  }
+}
+
+class _CashierQrScannerPage extends StatefulWidget {
+  const _CashierQrScannerPage();
+
+  @override
+  State<_CashierQrScannerPage> createState() => _CashierQrScannerPageState();
+}
+
+class _CashierQrScannerPageState extends State<_CashierQrScannerPage> {
+  late final MobileScannerController _controller;
+  bool _handlingResult = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = MobileScannerController(
+      detectionSpeed: DetectionSpeed.noDuplicates,
+      formats: const [BarcodeFormat.qrCode],
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleDetection(BarcodeCapture capture) async {
+    if (_handlingResult) {
+      return;
+    }
+    final value = capture.barcodes
+        .map((entry) => entry.rawValue?.trim())
+        .whereType<String>()
+        .firstWhere((entry) => entry.isNotEmpty, orElse: () => '');
+    if (value.isEmpty) {
+      return;
+    }
+
+    _handlingResult = true;
+    await _controller.stop();
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('OrderDesk QR scannen')),
+      body: Stack(
+        children: [
+          MobileScanner(controller: _controller, onDetect: _handleDetection),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Container(
+              width: double.infinity,
+              color: Colors.black54,
+              padding: const EdgeInsets.all(12),
+              child: const Text(
+                'QR-Code aus dem Adminbereich in den Rahmen halten.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DispatchTarget {
+  const _DispatchTarget({
+    required this.label,
+    required this.driverName,
+    required this.driverUserId,
+    this.detail,
+  });
+
+  final String label;
+  final String driverName;
+  final String? driverUserId;
+  final String? detail;
+}
+
+String _normalizeBaseUrl(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) {
+    return 'http://localhost:4000';
+  }
+  return trimmed.endsWith('/')
+      ? trimmed.substring(0, trimmed.length - 1)
+      : trimmed;
+}

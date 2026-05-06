@@ -1,0 +1,1126 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPERADMIN
+  CHAINADMIN
+  ADMIN
+  STAFF
+  DRIVER
+}
+
+enum PermissionKey {
+  TENANTS_READ
+  TENANTS_WRITE
+  USERS_READ
+  USERS_WRITE
+  PRODUCTS_READ
+  PRODUCTS_WRITE
+  INVENTORY_READ
+  INVENTORY_WRITE
+  ORDERS_READ
+  ORDERS_WRITE
+  SETTINGS_READ
+  SETTINGS_WRITE
+  AUDIT_READ
+}
+
+enum StockMovementType {
+  GOODS_RECEIPT
+  WRITE_OFF
+  INVENTORY_COUNT
+}
+
+enum ActionKind {
+  DAILY
+  WEEKLY
+  ONE_TIME
+}
+
+enum ActionValueType {
+  PERCENT
+  FIXED_PRICE
+}
+
+enum StaffShiftStatus {
+  PLANNED
+  COMPLETED
+  CANCELED
+}
+
+enum OrderDisplayRole {
+  CASH
+  KITCHEN
+  PICKUP
+}
+
+enum IngredientCategory {
+  FOOD
+  PACKAGING
+}
+
+enum BeverageContainerType {
+  NONE
+  EINWEG
+  MEHRWEG
+}
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+  MOLLIE
+  ADYEN
+}
+
+enum PaymentMethodType {
+  CARD
+  PAYPAL
+  APPLE_PAY
+  GOOGLE_PAY
+  KLARNA
+  SOFORT
+  SEPA_DEBIT
+}
+
+enum PaymentMethodStatus {
+  ENABLED
+  DISABLED
+  DEPRECATED
+}
+
+enum PaymentStatus {
+  PENDING
+  REQUIRES_ACTION
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  CANCELED
+  PARTIALLY_REFUNDED
+  REFUNDED
+}
+
+enum FeeBearer {
+  CUSTOMER
+  TENANT
+  PLATFORM
+}
+
+enum ProviderAccountStatus {
+  PENDING
+  ACTIVE
+  RESTRICTED
+  DISABLED
+}
+
+enum RefundStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELED
+}
+
+enum DisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  WON
+  LOST
+  CLOSED
+}
+
+model Chain {
+  id        String   @id @default(uuid())
+  name      String
+  code      String   @unique
+  payoutAccountHolder String?
+  payoutBankName String?
+  payoutIban String?
+  payoutBic String?
+  payoutEmail String?
+  payoutReference String?
+  tenants   Tenant[]
+  customerProfiles CustomerProfile[]
+  users     User[]
+  auditLogs AuditLog[]
+  createdAt DateTime @default(now())
+}
+
+model Tenant {
+  id         String    @id @default(uuid())
+  chainId    String?
+  name       String
+  email      String?   @unique
+  businessSettings Json?
+  chain      Chain?    @relation(fields: [chainId], references: [id], onDelete: SetNull)
+
+  products   Product[]
+  categories Category[]
+  customerProfiles CustomerProfile[]
+  suppliers  Supplier[]
+  stockMovements StockMovement[]
+  actions    Action[]
+  staffMembers StaffMember[]
+  staffShifts StaffShift[]
+  staffSetting StaffSetting?
+  orders     Order[]
+  orderTerminals OrderTerminal[]
+  orderDisplays OrderDisplay[]
+  chainAdminAccesses ChainAdminTenantAccess[]
+  users      User[]
+  auditLogs  AuditLog[]
+  screenSetting ScreenSetting?
+  screenProductSettings ScreenProductSetting[]
+  screenDevices ScreenDevice[]
+  productModifiers ProductModifier[]
+  orderDeskDeviceBindings OrderDeskDeviceBinding[]
+  orderDeskPairingSessions OrderDeskPairingSession[]
+  paymentConfig TenantPaymentConfig?
+  providerAccounts TenantProviderAccount[]
+  paymentTransactions PaymentTransaction[]
+  paymentWebhookEvents PaymentWebhookEvent[]
+  paymentRefunds PaymentRefund[]
+  paymentDisputes PaymentDispute[]
+  tipTransactions TipTransaction[]
+  paymentMethodOverrides TenantPaymentMethodOverride[]
+
+  createdAt  DateTime  @default(now())
+
+  @@index([chainId])
+}
+
+model CustomerProfile {
+  id             String   @id @default(uuid())
+  chainId        String?
+  tenantId       String
+  firstName      String
+  lastName       String?
+  email          String?
+  phone          String?
+  street         String?
+  zipCode        String?
+  city           String?
+  birthDate      DateTime? @db.Date
+  loyaltyCode    String?
+  marketingOptIn Boolean  @default(false)
+  isActive       Boolean  @default(true)
+  notes          String?
+  createdByUserId String?
+  chain          Chain?   @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([chainId, isActive, createdAt])
+  @@index([tenantId, isActive, createdAt])
+  @@index([tenantId, email])
+  @@index([tenantId, phone])
+  @@unique([tenantId, loyaltyCode])
+}
+
+model AppCustomerAccount {
+  id                  String   @id @default(uuid())
+  email               String   @unique
+  fullName            String
+  passwordHash        String
+  phone               String?
+  street              String?
+  zipCode             String?
+  city                String?
+  marketingOptIn      Boolean  @default(false)
+  isActive            Boolean  @default(true)
+  deletionRequestedAt DateTime?
+  deletionRequestNote String?
+  lastLoginAt         DateTime?
+  orders              Order[]
+  tipTransactions     TipTransaction[]
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([isActive, createdAt])
+  @@index([deletionRequestedAt])
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  tenantId  String
+  name      String
+  sortOrder Int
+  imageUrl  String?
+
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products  Product[]
+
+  createdAt DateTime  @default(now())
+}
+
+model Product {
+  id            String              @id @default(uuid())
+  tenantId      String
+  categoryId    String?
+  productNumber String
+  name          String
+  imageUrl      String?
+  ean           String?
+  unitEans      Json?
+  beverageContainerType BeverageContainerType @default(NONE)
+  deposit       Decimal             @default(0) @db.Decimal(10, 2)
+  articleInfo   String?
+  foodBusinessOperator String?
+  nutritionInfo String?
+  price         Decimal             @db.Decimal(10, 2)
+  vatRate       Decimal             @default(19.00) @db.Decimal(5, 2)
+  available     Boolean             @default(true)
+
+  tenant        Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category      Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  ingredients   ProductIngredient[]
+  actionLinks   ActionProduct[]
+  orderItems    OrderItem[]
+  screenSetting ScreenProductSetting?
+  modifiers     ProductModifier[]
+
+  createdAt     DateTime            @default(now())
+}
+
+model ScreenSetting {
+  id                    String   @id @default(uuid())
+  tenantId              String   @unique
+  title                 String   @default("Klarando Menu")
+  subtitle              String?
+  fontFamily            String   @default("Poppins, sans-serif")
+  defaultOrientation    String   @default("LANDSCAPE")
+  defaultResolutionWidth Int     @default(1920)
+  defaultResolutionHeight Int    @default(1080)
+  productFontSize       Int      @default(34)
+  ingredientFontSize    Int      @default(12)
+  categoryFontSize      Int      @default(12)
+  priceFontSize         Int      @default(30)
+  backgroundMode        String   @default("COLOR")
+  backgroundValue       String?
+  backgroundMediaUrl    String?
+  overlayAnimation      String   @default("NONE")
+  cardStyle             String   @default("SOFT")
+  cardPadding           Int      @default(16)
+  cardBackgroundOpacity Int      @default(35)
+  cardBorderOpacity     Int      @default(20)
+  productSortMode       String   @default("CUSTOM")
+  defaultColumnCount    Int      @default(4)
+  showCategoryHeaders   Boolean  @default(false)
+  showCategoryOnCard    Boolean  @default(true)
+  categoryUppercase     Boolean  @default(true)
+  accentColor           String   @default("#ea580c")
+  textColor             String   @default("#ffffff")
+  productNameColor      String   @default("#ffffff")
+  ingredientTextColor   String   @default("#e2e8f0")
+  categoryTextColor     String   @default("#cbd5e1")
+  priceTextColor        String   @default("#ffffff")
+  showAllergens         Boolean  @default(true)
+  allergenLegendEnabled Boolean  @default(true)
+  allergenLegendPosition String  @default("BOTTOM_RIGHT")
+  showPrices            Boolean  @default(true)
+  pricePinnedLeft       Boolean  @default(false)
+  priceDisplayMode      String   @default("EUR_SUFFIX")
+  showUnavailable       Boolean  @default(false)
+  showProductNumber     Boolean  @default(false)
+  logoUrl               String?
+  logoSize              Int      @default(72)
+  offerWindowEnabled    Boolean  @default(false)
+  offerWindowTitle      String?
+  offerWindowText       String?
+  offerWindowPosition   String   @default("RIGHT")
+  offerWindowSize       String   @default("M")
+  offerWindowWidthPx    Int      @default(380)
+  offerWindowHeightPx   Int      @default(280)
+  offerWindowXPercent   Int      @default(84)
+  offerWindowYPercent   Int      @default(14)
+  offerWindowReserveSpace Boolean @default(true)
+  offerWindowBackgroundColor String @default("#f97316")
+  offerWindowTextColor   String   @default("#ffffff")
+  offerWindowOpacity     Int      @default(28)
+  offerMediaUrls        Json?
+  offerMediaRotateSec   Int      @default(12)
+  tickerEnabled         Boolean  @default(false)
+  tickerPosition        String   @default("BOTTOM")
+  tickerShowClock       Boolean  @default(true)
+  tickerDataSource      String   @default("CUSTOM")
+  tickerCustomText      String?
+  tickerApiUrl          String?
+  tickerRefreshSec      Int      @default(180)
+  tickerClockFontSize   Int      @default(12)
+  tickerFontSize        Int      @default(14)
+  tickerInsetPx         Int      @default(0)
+  tickerOffsetPx        Int      @default(0)
+  tickerBackgroundColor String   @default("#111827")
+  tickerTextColor       String   @default("#ffffff")
+  tenant                Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model ScreenProductSetting {
+  id               String   @id @default(uuid())
+  tenantId         String
+  productId        String   @unique
+  displayCategory  String?
+  sortOrder        Int      @default(0)
+  showOnScreen     Boolean  @default(true)
+  isFeatured       Boolean  @default(false)
+  badgeText        String?
+  highlightColor   String?
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product          Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, showOnScreen, sortOrder])
+  @@index([tenantId, displayCategory])
+}
+
+model ScreenDevice {
+  id                          String    @id @default(uuid())
+  tenantId                    String
+  name                        String
+  deviceCode                  String    @unique
+  location                    String?
+  isActive                    Boolean   @default(true)
+  orientation                 String    @default("LANDSCAPE")
+  resolutionWidth             Int       @default(1920)
+  resolutionHeight            Int       @default(1080)
+  refreshIntervalSec          Int       @default(30)
+  showPricesOverride          Boolean?
+  showAllergensOverride       Boolean?
+  showUnavailableOverride     Boolean?
+  showProductNumberOverride   Boolean?
+  offerWindowEnabledOverride  Boolean?
+  offerWindowPositionOverride String?
+  offerWindowSizeOverride     String?
+  offerMediaUrlsOverride      Json?
+  offerMediaRotateSecOverride Int?
+  cardStyleOverride           String?
+  columnCountOverride         Int?
+  selectedCategoryIds         String?
+  selectedProductIds          String?
+  backgroundMediaUrlOverride  String?
+  accentColorOverride         String?
+  textColorOverride           String?
+  notes                       String?
+  lastSeenAt                  DateTime?
+  tenant                      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, name])
+}
+
+model Ingredient {
+  id                 String              @id @default(uuid())
+  tenantId           String
+  name               String
+  category           IngredientCategory  @default(FOOD)
+  unit               String
+  recipeUnit         String?
+  gramsPerPurchaseUnit Decimal?         @db.Decimal(10, 3)
+  purchasePrice      Decimal             @db.Decimal(10, 2)
+  minimumStock       Decimal             @default(0) @db.Decimal(12, 3)
+  consumptionFactorPercent Decimal       @default(0) @db.Decimal(6, 3)
+  deposit            Decimal             @default(0) @db.Decimal(10, 2)
+  ean                String?
+  unitEans           Json?
+  allergens          String?
+  supplier           String?
+  articleNumber      String?
+  productIngredients ProductIngredient[]
+  stockMovements     StockMovement[]
+  modifierOptions    ProductModifier[]
+
+  createdAt          DateTime            @default(now())
+}
+
+model Supplier {
+  id          String    @id @default(uuid())
+  tenantId    String
+  name        String
+  contactName String?
+  phone       String?
+  email       String?
+  notes       String?
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+}
+
+model ProductIngredient {
+  id           String      @id @default(uuid())
+  productId    String
+  ingredientId String
+  quantity     Decimal     @db.Decimal(10, 2)
+
+  product      Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient   Ingredient  @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime    @default(now())
+}
+
+model Order {
+  id                   String        @id @default(uuid())
+  tenantId             String
+  terminalId           String?
+  appCustomerAccountId String?
+  customerName         String?
+  customerPhone        String?
+  customerAddress      String?
+  customerZipCode      String?
+  customerCity         String?
+  serviceType          String?
+  subtotal             Decimal       @default(0) @db.Decimal(10, 2)
+  deliveryFee          Decimal       @default(0) @db.Decimal(10, 2)
+  cashDisplayId        String?
+  kitchenDisplayId     String?
+  pickupDisplayId      String?
+  pickupNumber         Int?
+  pickupAnnouncedAt    DateTime?
+  pickupAnnounceUntil  DateTime?
+  acceptedAt           DateTime?
+  estimatedReadyAt     DateTime?
+  estimatedMinutes     Int?
+  total                Decimal       @db.Decimal(10, 2)
+  status               String
+  sourceChannel        String        @default("POS")
+  paymentStatus        String        @default("UNPAID")
+  paymentMethod        String?
+  paidAt               DateTime?
+  assignedDriverId     String?
+  assignedDriverName   String?
+  driverAssignedAt     DateTime?
+  driverDepartedAt     DateTime?
+  forwardedToKitchenAt DateTime?
+  inventoryDeductedAt  DateTime?
+  tenant               Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  terminal             OrderTerminal? @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  appCustomerAccount   AppCustomerAccount? @relation(fields: [appCustomerAccountId], references: [id], onDelete: SetNull)
+  assignedDriver       User? @relation("OrderAssignedDriver", fields: [assignedDriverId], references: [id], onDelete: SetNull)
+  cashDisplay          OrderDisplay? @relation("CashDisplayOrders", fields: [cashDisplayId], references: [id], onDelete: SetNull)
+  kitchenDisplay       OrderDisplay? @relation("KitchenDisplayOrders", fields: [kitchenDisplayId], references: [id], onDelete: SetNull)
+  pickupDisplay        OrderDisplay? @relation("PickupDisplayOrders", fields: [pickupDisplayId], references: [id], onDelete: SetNull)
+  items                OrderItem[]
+  paymentTransactions  PaymentTransaction[]
+  paymentRefunds       PaymentRefund[]
+  paymentDisputes      PaymentDispute[]
+  tipTransactions      TipTransaction[]
+  createdAt            DateTime      @default(now())
+
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, sourceChannel, createdAt])
+  @@index([tenantId, inventoryDeductedAt])
+  @@index([terminalId, createdAt])
+  @@index([cashDisplayId, status, createdAt])
+  @@index([kitchenDisplayId, status, createdAt])
+  @@index([pickupDisplayId, status, createdAt])
+  @@index([appCustomerAccountId, createdAt])
+  @@index([assignedDriverId, status, createdAt])
+  @@index([acceptedAt, estimatedReadyAt])
+  @@index([tenantId, pickupNumber, createdAt])
+  @@index([tenantId, pickupAnnounceUntil])
+}
+
+model TenantPaymentConfig {
+  id                               String          @id @default(uuid())
+  tenantId                         String          @unique
+  defaultProvider                  PaymentProvider @default(STRIPE)
+  commissionPercent                Decimal         @default(0) @db.Decimal(6, 3)
+  fixedFeeCents                    Int             @default(0)
+  paymentFeeBearer                 FeeBearer       @default(TENANT)
+  allowMethodSurchargeToCustomer   Boolean         @default(false)
+  methodSurchargeJson              Json?
+  currency                         String          @default("EUR")
+  isActive                         Boolean         @default(true)
+  tenant                           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt                        DateTime        @default(now())
+  updatedAt                        DateTime        @updatedAt
+
+  @@index([defaultProvider, isActive])
+}
+
+model PlatformPaymentMethod {
+  id                String              @id @default(uuid())
+  provider          PaymentProvider
+  methodType        PaymentMethodType
+  status            PaymentMethodStatus @default(ENABLED)
+  enabled           Boolean             @default(true)
+  displayName       String
+  checkoutSortOrder Int                 @default(100)
+  countriesJson     Json?
+  currenciesJson    Json?
+  metadata          Json?
+  tenantOverrides   TenantPaymentMethodOverride[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@unique([provider, methodType])
+  @@index([enabled, status, checkoutSortOrder])
+}
+
+model TenantPaymentMethodOverride {
+  id                String                @id @default(uuid())
+  tenantId          String
+  paymentMethodId   String
+  enabled           Boolean?
+  feeBearer         FeeBearer?
+  surchargePercent  Decimal?              @db.Decimal(6, 3)
+  surchargeFixed    Int?
+  reason            String?
+  tenant            Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentMethod     PlatformPaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@unique([tenantId, paymentMethodId])
+  @@index([tenantId])
+}
+
+model TenantProviderAccount {
+  id                      String                @id @default(uuid())
+  tenantId                String
+  provider                PaymentProvider
+  providerAccountId       String
+  status                  ProviderAccountStatus @default(PENDING)
+  onboardingCompletedAt   DateTime?
+  chargesEnabled          Boolean               @default(false)
+  payoutsEnabled          Boolean               @default(false)
+  capabilitiesJson        Json?
+  detailsSubmittedAt      DateTime?
+  disabledReason          String?
+  tenant                  Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt               DateTime              @default(now())
+  updatedAt               DateTime              @updatedAt
+
+  @@unique([provider, providerAccountId])
+  @@unique([tenantId, provider])
+  @@index([tenantId, status])
+}
+
+model PaymentTransaction {
+  id                      String          @id @default(uuid())
+  tenantId                String
+  orderId                 String?
+  provider                PaymentProvider
+  status                  PaymentStatus   @default(PENDING)
+  providerPaymentId       String?
+  providerClientSecretRef String?
+  idempotencyKey          String?
+  currency                String          @default("EUR")
+  amountCents             Int
+  feeAmountCents          Int             @default(0)
+  platformFeeCents        Int             @default(0)
+  providerFeeCents        Int             @default(0)
+  feeBearer               FeeBearer       @default(TENANT)
+  metadata                Json?
+  processedAt             DateTime?
+  failureCode             String?
+  failureMessage          String?
+  tenant                  Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order                   Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  refunds                 PaymentRefund[]
+  disputes                PaymentDispute[]
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  @@unique([provider, providerPaymentId])
+  @@unique([provider, idempotencyKey])
+  @@index([tenantId, status, createdAt])
+  @@index([orderId, createdAt])
+  @@index([provider, status, createdAt])
+}
+
+model PaymentWebhookEvent {
+  id              String          @id @default(uuid())
+  tenantId        String
+  provider        PaymentProvider
+  providerEventId String
+  eventType       String
+  payload         Json
+  processed       Boolean         @default(false)
+  processedAt     DateTime?
+  processingError String?
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt       DateTime        @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([tenantId, createdAt])
+  @@index([processed, createdAt])
+}
+
+model PaymentRefund {
+  id                  String             @id @default(uuid())
+  tenantId            String
+  paymentTransactionId String
+  orderId             String?
+  provider            PaymentProvider
+  status              RefundStatus       @default(PENDING)
+  providerRefundId    String?
+  amountCents         Int
+  reason              String?
+  metadata            Json?
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentTransaction  PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
+  order               Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([provider, providerRefundId])
+  @@index([tenantId, status, createdAt])
+  @@index([paymentTransactionId, createdAt])
+}
+
+model PaymentDispute {
+  id                  String             @id @default(uuid())
+  tenantId            String
+  paymentTransactionId String
+  orderId             String?
+  provider            PaymentProvider
+  status              DisputeStatus      @default(OPEN)
+  providerDisputeId   String?
+  amountCents         Int?
+  reason              String?
+  evidenceDueAt       DateTime?
+  resolvedAt          DateTime?
+  metadata            Json?
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentTransaction  PaymentTransaction @relation(fields: [paymentTransactionId], references: [id], onDelete: Cascade)
+  order               Order?             @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([provider, providerDisputeId])
+  @@index([tenantId, status, createdAt])
+  @@index([paymentTransactionId, createdAt])
+}
+
+model TipTransaction {
+  id                  String             @id @default(uuid())
+  tenantId            String
+  orderId             String
+  customerId          String
+  paymentTransactionId String?
+  provider            PaymentProvider?
+  status              PaymentStatus      @default(PENDING)
+  providerPaymentId   String?
+  currency            String             @default("EUR")
+  amountCents         Int
+  metadata            Json?
+  tenant              Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  order               Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customer            AppCustomerAccount @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  paymentTransaction  PaymentTransaction? @relation(fields: [paymentTransactionId], references: [id], onDelete: SetNull)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  @@unique([provider, providerPaymentId])
+  @@index([tenantId, status, createdAt])
+  @@index([orderId, createdAt])
+  @@index([customerId, createdAt])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Decimal  @db.Decimal(10, 2)
+  unitBasePrice Decimal? @db.Decimal(10, 2)
+  unitModifierDelta Decimal? @db.Decimal(10, 2)
+  modifierSnapshot Json?
+  productionStatus String @default("OPEN")
+  productionDoneAt DateTime?
+
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+}
+
+model OrderTerminal {
+  id                 String   @id @default(uuid())
+  tenantId           String
+  name               String
+  terminalCode       String   @unique
+  location           String?
+  customerLogoUrl    String?
+  customerAccentColor String @default("#ea580c")
+  customerBgFromColor String @default("#ffedd5")
+  customerBgToColor  String  @default("#f8fafc")
+  customerCardColor  String  @default("#ffffff")
+  autoScaleLayout    Boolean @default(true)
+  isActive           Boolean  @default(true)
+  allowCashPayment   Boolean  @default(true)
+  allowCardPayment   Boolean  @default(true)
+  autoForwardToKitchen Boolean @default(true)
+  cashDisplayId      String?
+  kitchenDisplayId   String?
+  pickupDisplayId    String?
+  notes              String?
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cashDisplay        OrderDisplay? @relation("CashDisplayTerminals", fields: [cashDisplayId], references: [id], onDelete: SetNull)
+  kitchenDisplay     OrderDisplay? @relation("KitchenDisplayTerminals", fields: [kitchenDisplayId], references: [id], onDelete: SetNull)
+  pickupDisplay      OrderDisplay? @relation("PickupDisplayTerminals", fields: [pickupDisplayId], references: [id], onDelete: SetNull)
+  orders             Order[]
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([tenantId, isActive, name])
+  @@index([cashDisplayId])
+  @@index([kitchenDisplayId])
+  @@index([pickupDisplayId])
+}
+
+model OrderDisplay {
+  id               String   @id @default(uuid())
+  tenantId         String
+  name             String
+  displayCode      String   @unique
+  displayRole      OrderDisplayRole @default(KITCHEN)
+  location         String?
+  isActive         Boolean  @default(true)
+  refreshIntervalSec Int    @default(10)
+  sortMode         String   @default("PRIORITY_OLDEST")
+  doneAutoHideSec  Int      @default(0)
+  sourceTerminalIds String?
+  announceOnMenuScreens Boolean @default(true)
+  menuAnnouncementDurationSec Int @default(45)
+  displayBackgroundColor String @default("#020617")
+  orderCardBackgroundColor String @default("#0f172a")
+  statusColorPendingPayment String @default("#ef4444")
+  statusColorOpen  String   @default("#f97316")
+  statusColorPreparing String @default("#3b82f6")
+  statusColorDone  String   @default("#16a34a")
+  showOrderAge     Boolean  @default(true)
+  showTerminalInfo Boolean  @default(true)
+  showPaymentInfo  Boolean  @default(true)
+  showTotal        Boolean  @default(true)
+  showItems        Boolean  @default(true)
+  showStatusBadge  Boolean  @default(true)
+  showPickupNumber Boolean  @default(true)
+  showOrderNumber  Boolean  @default(true)
+  autoScaleLayout  Boolean  @default(true)
+  pickupShowOnlyNumber Boolean @default(false)
+  pickupShowOpen   Boolean  @default(true)
+  pickupShowPreparing Boolean @default(true)
+  pickupShowDone   Boolean  @default(true)
+  statusAnimationMode String @default("NONE")
+  statusAnimationDurationMs Int @default(2200)
+  orderAgeFontSize Int @default(22)
+  orderAgeAlertThresholdSec Int @default(900)
+  orderAgeAlertAnimationMode String @default("BLINK")
+  backgroundMediaMode String @default("NONE")
+  backgroundMediaUrl String?
+  notes            String?
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  cashTerminals    OrderTerminal[] @relation("CashDisplayTerminals")
+  kitchenTerminals OrderTerminal[] @relation("KitchenDisplayTerminals")
+  pickupTerminals  OrderTerminal[] @relation("PickupDisplayTerminals")
+  cashOrders       Order[] @relation("CashDisplayOrders")
+  kitchenOrders    Order[] @relation("KitchenDisplayOrders")
+  pickupOrders     Order[] @relation("PickupDisplayOrders")
+  orderDeskDeviceBindings OrderDeskDeviceBinding[]
+  orderDeskPairingSessions OrderDeskPairingSession[]
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, isActive, name])
+  @@index([tenantId, displayRole, isActive])
+}
+
+model OrderDeskPairingSession {
+  id              String   @id
+  tenantId        String
+  displayId       String
+  displayCode     String
+  deviceAlias     String?
+  createdByUserId String?
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  consumedBySerial String?
+  revokedAt       DateTime?
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  display         OrderDisplay @relation(fields: [displayId], references: [id], onDelete: Cascade)
+  createdByUser   User?    @relation("OrderDeskPairingSessionCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([displayId, createdAt])
+  @@index([expiresAt])
+  @@index([consumedAt])
+  @@index([revokedAt])
+}
+
+model OrderDeskDeviceBinding {
+  id             String   @id @default(uuid())
+  deviceSerial   String   @unique
+  tenantId       String
+  displayId      String
+  displayCode    String
+  deviceAlias    String?
+  deviceModel    String?
+  devicePlatform String?
+  appVersion     String?
+  boundByUserId  String?
+  boundAt        DateTime @default(now())
+  firstBoundAt   DateTime @default(now())
+  lastSeenAt     DateTime?
+  isActive       Boolean  @default(true)
+  resetAt        DateTime?
+  resetByUserId  String?
+  resetReason    String?
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  display        OrderDisplay @relation(fields: [displayId], references: [id], onDelete: Cascade)
+  boundByUser    User?    @relation("OrderDeskBindingBoundBy", fields: [boundByUserId], references: [id], onDelete: SetNull)
+  resetByUser    User?    @relation("OrderDeskBindingResetBy", fields: [resetByUserId], references: [id], onDelete: SetNull)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([tenantId, isActive, boundAt])
+  @@index([displayId, isActive, boundAt])
+  @@index([lastSeenAt])
+  @@index([resetAt])
+}
+
+model ProductModifier {
+  id                String    @id @default(uuid())
+  tenantId          String
+  productId         String
+  ingredientId      String?
+  name              String
+  priceDelta        Decimal   @db.Decimal(10, 2)
+  isDefaultSelected Boolean   @default(false)
+  isActive          Boolean   @default(true)
+  sortOrder         Int       @default(0)
+  tenant            Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product           Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  ingredient        Ingredient? @relation(fields: [ingredientId], references: [id], onDelete: SetNull)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([tenantId, productId, isActive, sortOrder])
+}
+
+model StockMovement {
+  id               String            @id @default(uuid())
+  tenantId         String
+  ingredientId     String
+  type             StockMovementType
+  quantityDelta    Decimal           @db.Decimal(12, 3)
+  resultingQuantity Decimal          @db.Decimal(12, 3)
+  countedQuantity  Decimal?          @db.Decimal(12, 3)
+  unitCost         Decimal?          @db.Decimal(10, 2)
+  reference        String?
+  note             String?
+  createdByUserId  String?
+  tenant           Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  ingredient       Ingredient        @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
+  createdByUser    User?             @relation("StockMovementActor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt        DateTime          @default(now())
+
+  @@index([tenantId, ingredientId, createdAt])
+  @@index([tenantId, createdAt])
+}
+
+model Action {
+  id             String          @id @default(uuid())
+  tenantId       String
+  name           String
+  description    String?
+  imageUrl       String?
+  displayAsMenu  Boolean         @default(false)
+  hidePriceOnScreen Boolean      @default(false)
+  kind           ActionKind
+  valueType      ActionValueType
+  value          Decimal         @db.Decimal(10, 2)
+  isActive       Boolean         @default(true)
+  startAt        DateTime?
+  endAt          DateTime?
+  weeklyDays     String?
+  dailyStartTime String?
+  dailyEndTime   String?
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  products       ActionProduct[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([tenantId, isActive, kind])
+  @@index([tenantId, createdAt])
+}
+
+model ActionProduct {
+  id        String   @id @default(uuid())
+  actionId  String
+  productId String
+  action    Action   @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([actionId, productId])
+  @@index([productId])
+}
+
+model User {
+  id              String           @id @default(uuid())
+  email           String           @unique
+  name            String
+  passwordHash    String
+  role            UserRole
+  isActive        Boolean          @default(true)
+  chainId         String?
+  tenantId        String?
+  chain           Chain?           @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  userPermissions UserPermission[]
+  chainAdminTenantAccesses ChainAdminTenantAccess[] @relation("ChainAdminAccessUser")
+  auditLogs       AuditLog[]       @relation("AuditActor")
+  stockMovements  StockMovement[]  @relation("StockMovementActor")
+  assignedOrders  Order[]          @relation("OrderAssignedDriver")
+  createdOrderDeskPairingSessions OrderDeskPairingSession[] @relation("OrderDeskPairingSessionCreator")
+  orderDeskDeviceBindingsAsBinder OrderDeskDeviceBinding[] @relation("OrderDeskBindingBoundBy")
+  orderDeskDeviceBindingsAsResetter OrderDeskDeviceBinding[] @relation("OrderDeskBindingResetBy")
+  staffMemberProfile StaffMember?  @relation("StaffMemberUser")
+  createdStaffShifts StaffShift[]  @relation("StaffShiftActor")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([role])
+  @@index([chainId])
+  @@index([tenantId])
+}
+
+model ChainAdminTenantAccess {
+  id                    String   @id @default(uuid())
+  chainAdminUserId      String
+  tenantId              String
+  superadminGranted     Boolean  @default(false)
+  canViewRevenue        Boolean  @default(true)
+  canManageAppOrders    Boolean  @default(true)
+  canManageDelivery     Boolean  @default(true)
+  canManagePickup       Boolean  @default(true)
+  canViewPurchasing     Boolean  @default(true)
+  canViewStaffPlanning  Boolean  @default(true)
+  canOverrideSettings   Boolean  @default(false)
+  notes                 String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  chainAdminUser User   @relation("ChainAdminAccessUser", fields: [chainAdminUserId], references: [id], onDelete: Cascade)
+  tenant         Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([chainAdminUserId, tenantId])
+  @@index([tenantId])
+  @@index([chainAdminUserId, superadminGranted])
+}
+
+model StaffMember {
+  id                String      @id @default(uuid())
+  tenantId          String
+  userId            String?     @unique
+  name              String
+  position          String?
+  phone             String?
+  email             String?
+  hourlyRate        Decimal?    @db.Decimal(10, 2)
+  weeklyTargetHours Decimal?    @db.Decimal(6, 2)
+  isActive          Boolean     @default(true)
+  tenant            Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user              User?       @relation("StaffMemberUser", fields: [userId], references: [id], onDelete: SetNull)
+  shifts            StaffShift[]
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, name])
+}
+
+model StaffShift {
+  id              String          @id @default(uuid())
+  tenantId        String
+  staffMemberId   String
+  shiftDate       DateTime        @db.Date
+  startTime       String
+  endTime         String
+  breakMinutes    Int             @default(0)
+  status          StaffShiftStatus @default(PLANNED)
+  note            String?
+  createdByUserId String?
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  staffMember     StaffMember     @relation(fields: [staffMemberId], references: [id], onDelete: Cascade)
+  createdByUser   User?           @relation("StaffShiftActor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([tenantId, shiftDate])
+  @@index([staffMemberId, shiftDate])
+}
+
+model StaffSetting {
+  id                  String    @id @default(uuid())
+  tenantId            String    @unique
+  planningDays        Int       @default(14)
+  defaultShiftStart   String    @default("10:00")
+  defaultShiftEnd     String    @default("18:00")
+  defaultBreakMinutes Int       @default(30)
+  overtimeThresholdHours Decimal? @db.Decimal(6, 2)
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+}
+
+model RolePermission {
+  id         String        @id @default(uuid())
+  role       UserRole
+  permission PermissionKey
+  createdAt  DateTime      @default(now())
+
+  @@unique([role, permission])
+  @@index([role])
+}
+
+model UserPermission {
+  id         String        @id @default(uuid())
+  userId     String
+  permission PermissionKey
+  allowed    Boolean       @default(true)
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+
+  @@unique([userId, permission])
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String    @id @default(uuid())
+  actorUserId String?
+  actorEmail String?
+  actorRole  UserRole?
+  chainId    String?
+  tenantId   String?
+  module     String
+  action     String
+  targetType String?
+  targetId   String?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+  actorUser  User?     @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  chain      Chain?    @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  tenant     Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+
+  @@index([actorUserId])
+  @@index([chainId])
+  @@index([tenantId])
+  @@index([module, createdAt])
+}

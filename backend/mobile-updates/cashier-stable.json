@@ -1,0 +1,12 @@
+{
+  "channel": "stable",
+  "packageName": "com.klarando.orderdesk",
+  "latestVersionName": "1.0.0",
+  "latestVersionCode": 1,
+  "minSupportedVersionCode": 1,
+  "mandatoryFromVersionCode": 0,
+  "apkUrl": "",
+  "apkSha256": null,
+  "notes": "Initiale Klarando OrderDesk Version",
+  "publishedAt": "2026-05-04T00:00:00.000Z"
+}

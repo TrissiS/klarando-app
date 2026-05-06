@@ -1,0 +1,94 @@
+Error: Couldn't resolve the package 'mobile_scanner' in 'package:mobile_scanner/mobile_scanner.dart'.
+lib/src/driver_delivery_app.dart:7:8: Error: Not found: 'package:mobile_scanner/mobile_scanner.dart'
+import 'package:mobile_scanner/mobile_scanner.dart';
+       ^
+lib/src/driver_delivery_app.dart:1516:14: Error: Type 'MobileScannerController' not found.
+  late final MobileScannerController _controller;
+             ^^^^^^^^^^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1537:18: Error: Type 'BarcodeCapture' not found.
+  void _onDetect(BarcodeCapture capture) {
+                 ^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1516:14: Error: 'MobileScannerController' isn't a type.
+  late final MobileScannerController _controller;
+             ^^^^^^^^^^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1525:23: Error: Not a constant expression.
+      formats: const [BarcodeFormat.qrCode],
+                      ^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1524:23: Error: The getter 'DetectionSpeed' isn't defined for the type '_DriverQrScannerPageState'.
+ - '_DriverQrScannerPageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'DetectionSpeed'.
+      detectionSpeed: DetectionSpeed.noDuplicates,
+                      ^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1526:15: Error: The getter 'CameraFacing' isn't defined for the type '_DriverQrScannerPageState'.
+ - '_DriverQrScannerPageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing getter, or defining a getter or field named 'CameraFacing'.
+      facing: CameraFacing.back,
+              ^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1523:19: Error: The method 'MobileScannerController' isn't defined for the type '_DriverQrScannerPageState'.
+ - '_DriverQrScannerPageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'MobileScannerController'.
+    _controller = MobileScannerController(
+                  ^^^^^^^^^^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1537:18: Error: 'BarcodeCapture' isn't a type.
+  void _onDetect(BarcodeCapture capture) {
+                 ^^^^^^^^^^^^^^
+lib/src/driver_delivery_app.dart:1590:24: Error: The method 'MobileScanner' isn't defined for the type '_DriverQrScannerPageState'.
+ - '_DriverQrScannerPageState' is from 'package:klarando_mobile_app/src/driver_delivery_app.dart' ('lib/src/driver_delivery_app.dart').
+Try correcting the name to the name of an existing method, or defining a method named 'MobileScanner'.
+                child: MobileScanner(
+                       ^^^^^^^^^^^^^
+Unhandled exception:
+Unsupported operation: Unsupported invalid type InvalidType(<invalid>) (InvalidType). Encountered while compiling file:///C:/Users/Tristan%20Stenger/Documents/New%20project/klarando/klarando-app/mobile_flutter_app/lib/src/driver_delivery_app.dart, which contains the type: InvalidType(<invalid>).
+#0      LibraryCompiler._typeCompilationError (package:dev_compiler/src/kernel/compiler_new.dart:4480)
+#1      LibraryCompiler._emitType (package:dev_compiler/src/kernel/compiler_new.dart:4445)
+#2      LibraryCompiler._emitCast (package:dev_compiler/src/kernel/compiler_new.dart:8676)
+#3      LibraryCompiler.visitInstanceGet (package:dev_compiler/src/kernel/compiler_new.dart:6214)
+#4      InstanceGet.accept (package:kernel/src/ast/expressions.dart:586)
+#5      LibraryCompiler._visitExpression (package:dev_compiler/src/kernel/compiler_new.dart:5147)
+#6      LibraryCompiler._emitHotReloadChecksConditional (package:dev_compiler/src/kernel/compiler_new.dart:7759)
+#7      LibraryCompiler.visitInstanceGet (package:dev_compiler/src/kernel/compiler_new.dart:6207)
+#8      InstanceGet.accept (package:kernel/src/ast/expressions.dart:586)
+#9      LibraryCompiler._visitExpression (package:dev_compiler/src/kernel/compiler_new.dart:5147)
+#10     LibraryCompiler._emitDynamicInvocation (package:dev_compiler/src/kernel/compiler_new.dart:6787)
+#11     LibraryCompiler.visitDynamicInvocation (package:dev_compiler/src/kernel/compiler_new.dart:6536)
+#12     DynamicInvocation.accept (package:kernel/src/ast/expressions.dart:1602)
+#13     LibraryCompiler._visitExpression (package:dev_compiler/src/kernel/compiler_new.dart:5147)
+#14     LibraryCompiler.visitAwaitExpression (package:dev_compiler/src/kernel/compiler_new.dart:8870)
+#15     AwaitExpression.accept (package:kernel/src/ast/expressions.dart:4628)
+#16     LibraryCompiler._visitExpression (package:dev_compiler/src/kernel/compiler_new.dart:5147)
+#17     LibraryCompiler.visitExpressionStatement (package:dev_compiler/src/kernel/compiler_new.dart:5235)
+#18     ExpressionStatement.accept (package:kernel/src/ast/statements.dart:50)
+#19     LibraryCompiler._visitStatement (package:dev_compiler/src/kernel/compiler_new.dart:5044)
+#20     MappedIterable.elementAt (dart:_internal/iterable.dart:402)
+#21     ListIterator.moveNext (dart:_internal/iterable.dart:371)
+#22     new _GrowableList._ofEfficientLengthIterable (dart:core-patch/growable_array.dart:194)
+#23     new _GrowableList.of (dart:core-patch/growable_array.dart:154)
+#24     new List.of (dart:core-patch/array_patch.dart:39)
+#25     SetBase.toList (dart:collection/set.dart:119)
+#26     LibraryCompiler.visitBlock (package:dev_compiler/src/kernel/compiler_new.dart:5257)
+#27     Block.accept (package:kernel/src/ast/statements.dart:106)
+#28     LibraryCompiler._visitStatement (package:dev_compiler/src/kernel/compiler_new.dart:5044)
+#29     LibraryCompiler._emitFunctionScopedBody (package:dev_compiler/src/kernel/compiler_new.dart:5081)
+#30     LibraryCompiler._emitFunction.<anonymous closure> (package:dev_compiler/src/kernel/compiler_new.dart:4667)
+#31     LibraryCompiler._withLetScope (package:dev_compiler/src/kernel/compiler_new.dart:3661)
+#32     LibraryCompiler._withCurrentFunction (package:dev_compiler/src/kernel/compiler_new.dart:4841)
+#33     LibraryCompiler._emitFunction (package:dev_compiler/src/kernel/compiler_new.dart:4659)
+#34     LibraryCompiler._emitMethodDeclaration.<anonymous closure> (package:dev_compiler/src/kernel/compiler_new.dart:2941)
+#35     LibraryCompiler._withMethodDeclarationContext (package:dev_compiler/src/kernel/compiler_new.dart:4866)
+#36     LibraryCompiler._emitMethodDeclaration (package:dev_compiler/src/kernel/compiler_new.dart:2939)
+#37     LibraryCompiler._emitClassProperties (package:dev_compiler/src/kernel/compiler_new.dart:2880)
+#38     LibraryCompiler._emitClassDeclaration (package:dev_compiler/src/kernel/compiler_new.dart:1488)
+#39     LibraryCompiler._emitClass (package:dev_compiler/src/kernel/compiler_new.dart:1426)
+#40     List.forEach (dart:core-patch/growable_array.dart:428)
+#41     LibraryCompiler._emitLibrary (package:dev_compiler/src/kernel/compiler_new.dart:1348)
+#42     LibraryCompiler.emitLibrary (package:dev_compiler/src/kernel/compiler_new.dart:962)
+#43     LibraryBundleCompiler.emitModule (package:dev_compiler/src/kernel/compiler_new.dart:165)
+#44     IncrementalJavaScriptBundler.compile (package:frontend_server/src/javascript_bundle.dart:324)
+#45     FrontendCompiler.writeJavaScriptBundle (package:frontend_server/frontend_server.dart:922)
+<asynchronous suspension>
+#46     FrontendCompiler.compile (package:frontend_server/frontend_server.dart:728)
+<asynchronous suspension>
+#47     listenAndCompile.<anonymous closure> (package:frontend_server/frontend_server.dart:1449)
+<asynchronous suspension>
+The Dart compiler exited unexpectedly.
+Failed to compile application.

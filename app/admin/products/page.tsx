@@ -1,0 +1,1176 @@
+'use client'
+
+import { Suspense, useEffect, useMemo, useState } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import AdminCategoriesSection from '@/app/Components/admin/AdminCategoriesSection'
+import AdminIngredientsSection from '@/app/Components/admin/AdminIngredientsSection'
+import AdminLayout from '@/app/Components/admin/AdminLayout'
+import AdminProductsSection from '@/app/Components/admin/AdminProductsSection'
+import ProductIngredientsManager from '@/app/Components/admin/ProductIngredientsManager'
+import {
+  createCategory,
+  createIngredient,
+  createProductIngredient,
+  createProductModifier,
+  createProduct,
+  deleteCategory,
+  deleteIngredient,
+  deleteProduct,
+  getCategories,
+  getIngredients,
+  getProductIngredients,
+  getProductModifiers,
+  getProducts,
+  updateCategory,
+  updateIngredient,
+  updateProduct,
+  type Category,
+  type Ingredient,
+  type Product,
+  type UnitEanEntry,
+} from '@/lib/api'
+
+type ProductTab = 'products' | 'categories' | 'ingredients' | 'pricing'
+
+const PRODUCT_TABS: Array<{ id: ProductTab; label: string }> = [
+  { id: 'products', label: 'Produkte' },
+  { id: 'categories', label: 'Kategorien' },
+  { id: 'ingredients', label: 'Zutaten' },
+  { id: 'pricing', label: 'Schnellpreise' },
+]
+
+function isProductTab(value: string | null): value is ProductTab {
+  return value === 'products' || value === 'categories' || value === 'ingredients' || value === 'pricing'
+}
+
+function suggestNextProductNumber(products: Product[]) {
+  const numericValues = products
+    .map((entry) => Number(entry.productNumber))
+    .filter((entry) => Number.isInteger(entry) && entry >= 0)
+
+  if (numericValues.length === 0) {
+    return '100'
+  }
+
+  return String(Math.max(...numericValues) + 1)
+}
+
+function suggestUniqueProductNumberForCopy(products: Product[], sourceNumber: string) {
+  const used = new Set(
+    products
+      .map((entry) => entry.productNumber.trim())
+      .filter((entry) => entry.length > 0)
+  )
+
+  const normalized = sourceNumber.trim()
+  if (!normalized) {
+    return suggestNextProductNumber(products)
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    let candidate = Number(normalized) + 1
+    while (used.has(String(candidate))) {
+      candidate += 1
+    }
+    return String(candidate)
+  }
+
+  const suffixMatch = normalized.match(/^(.*)-K(\d+)$/i)
+  const base = suffixMatch ? suffixMatch[1] : normalized
+  let counter = suffixMatch ? Number(suffixMatch[2]) + 1 : 1
+  let candidate = `${base}-K${counter}`
+  while (used.has(candidate)) {
+    counter += 1
+    candidate = `${base}-K${counter}`
+  }
+  return candidate
+}
+
+function suggestUniqueProductNameForCopy(products: Product[], sourceName: string) {
+  const used = new Set(
+    products.map((entry) => entry.name.trim().toLowerCase()).filter((entry) => entry.length > 0)
+  )
+
+  const normalized = sourceName.trim()
+  if (!normalized) {
+    return 'Neues Produkt'
+  }
+
+  const base = normalized
+  let candidate = `${base} (Kopie)`
+  let counter = 2
+  while (used.has(candidate.toLowerCase())) {
+    candidate = `${base} (Kopie ${counter})`
+    counter += 1
+  }
+
+  return candidate
+}
+
+function toPriceDraftMap(products: Product[]) {
+  return Object.fromEntries(products.map((product) => [product.id, String(Number(product.price).toFixed(2))]))
+}
+
+const INTEGER_ONLY_INGREDIENT_UNITS = new Set(['Stueck', 'Dose'])
+
+function isIntegerOnlyIngredientUnit(unit?: string | null) {
+  return Boolean(unit && INTEGER_ONLY_INGREDIENT_UNITS.has(unit))
+}
+
+function parseMinimumStockByUnit(value: string, unit: string) {
+  const parsed = Number(value || 0)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return {
+      ok: false as const,
+      value: 0,
+      error: 'Mindestbestand muss >= 0 sein.',
+    }
+  }
+
+  if (isIntegerOnlyIngredientUnit(unit) && !Number.isInteger(parsed)) {
+    return {
+      ok: false as const,
+      value: 0,
+      error: 'Bei Einheit Stueck oder Dose sind nur ganze Zahlen erlaubt.',
+    }
+  }
+
+  return {
+    ok: true as const,
+    value: parsed,
+    error: '',
+  }
+}
+
+function formatMinimumStockDraftByUnit(value: string, unit: string) {
+  const parsed = Number(value || 0)
+  if (!Number.isFinite(parsed)) {
+    return '0'
+  }
+
+  if (isIntegerOnlyIngredientUnit(unit)) {
+    return String(Math.round(parsed))
+  }
+
+  return String(parsed)
+}
+
+function AdminProductsPageContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const [activeTab, setActiveTab] = useState<ProductTab>('products')
+
+  const [products, setProducts] = useState<Product[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [ingredients, setIngredients] = useState<Ingredient[]>([])
+  const [ingredientsLoaded, setIngredientsLoaded] = useState(false)
+
+  const [productNumber, setProductNumber] = useState('')
+  const [productName, setProductName] = useState('')
+  const [productImageUrl, setProductImageUrl] = useState('')
+  const [productEan, setProductEan] = useState('')
+  const [productUnitEans, setProductUnitEans] = useState<UnitEanEntry[]>([])
+  const [beverageContainerType, setBeverageContainerType] = useState<
+    'NONE' | 'EINWEG' | 'MEHRWEG'
+  >('NONE')
+  const [productDeposit, setProductDeposit] = useState('0')
+  const [articleInfo, setArticleInfo] = useState('')
+  const [foodBusinessOperator, setFoodBusinessOperator] = useState('')
+  const [nutritionInfo, setNutritionInfo] = useState('')
+  const [price, setPrice] = useState('')
+  const [vatRate, setVatRate] = useState('19')
+  const [categoryId, setCategoryId] = useState('')
+  const [available, setAvailable] = useState('true')
+  const [editingProductId, setEditingProductId] = useState<string | null>(null)
+  const [savingProduct, setSavingProduct] = useState(false)
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
+  const [creatingIngredientProductId, setCreatingIngredientProductId] = useState<string | null>(null)
+  const [copyingProductId, setCopyingProductId] = useState<string | null>(null)
+
+  const [categoryName, setCategoryName] = useState('')
+  const [categoryImageUrl, setCategoryImageUrl] = useState('')
+  const [categorySortOrder, setCategorySortOrder] = useState('0')
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null)
+  const [savingCategory, setSavingCategory] = useState(false)
+  const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null)
+
+  const [ingredientName, setIngredientName] = useState('')
+  const [ingredientCategory, setIngredientCategory] = useState<'FOOD' | 'PACKAGING'>('FOOD')
+  const [ingredientUnit, setIngredientUnit] = useState('g')
+  const [recipeUnit, setRecipeUnit] = useState('g')
+  const [gramsPerPurchaseUnit, setGramsPerPurchaseUnit] = useState('')
+  const [purchasePrice, setPurchasePrice] = useState('')
+  const [minimumStock, setMinimumStock] = useState('0')
+  const [consumptionFactorPercent, setConsumptionFactorPercent] = useState('0')
+  const [deposit, setDeposit] = useState('0')
+  const [ingredientEan, setIngredientEan] = useState('')
+  const [ingredientUnitEans, setIngredientUnitEans] = useState<UnitEanEntry[]>([])
+  const [allergens, setAllergens] = useState('')
+  const [supplier, setSupplier] = useState('')
+  const [articleNumber, setArticleNumber] = useState('')
+  const [productTemplateId, setProductTemplateId] = useState('')
+  const [editingIngredientId, setEditingIngredientId] = useState<string | null>(null)
+  const [savingIngredient, setSavingIngredient] = useState(false)
+  const [deletingIngredientId, setDeletingIngredientId] = useState<string | null>(null)
+
+  const [pricingSearch, setPricingSearch] = useState('')
+  const [pricingCategoryFilter, setPricingCategoryFilter] = useState('ALL')
+  const [draftPrices, setDraftPrices] = useState<Record<string, string>>({})
+  const [savingPriceIds, setSavingPriceIds] = useState<Set<string>>(new Set())
+
+  const [loadingCore, setLoadingCore] = useState(true)
+  const [loadingIngredients, setLoadingIngredients] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  async function loadCoreData() {
+    try {
+      setLoadingCore(true)
+      const [productData, categoryData] = await Promise.all([getProducts(), getCategories()])
+      setProducts(productData)
+      setCategories(categoryData)
+      setDraftPrices(toPriceDraftMap(productData))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Produkte konnten nicht geladen werden')
+    } finally {
+      setLoadingCore(false)
+    }
+  }
+
+  async function refreshProductsOnly() {
+    const productData = await getProducts()
+    setProducts(productData)
+    setDraftPrices(toPriceDraftMap(productData))
+  }
+
+  async function refreshCategoriesOnly() {
+    const categoryData = await getCategories()
+    setCategories(categoryData)
+  }
+
+  async function loadIngredientsData(force = false) {
+    if (!force && ingredientsLoaded) return
+    try {
+      setLoadingIngredients(true)
+      const [ingredientData, productData] = await Promise.all([getIngredients(), getProducts()])
+      setIngredients(ingredientData)
+      setProducts(productData)
+      setDraftPrices(toPriceDraftMap(productData))
+      setIngredientsLoaded(true)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Zutaten konnten nicht geladen werden')
+    } finally {
+      setLoadingIngredients(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadCoreData()
+  }, [])
+
+  useEffect(() => {
+    const tabFromUrl = searchParams.get('tab')
+    setActiveTab(isProductTab(tabFromUrl) ? tabFromUrl : 'products')
+  }, [searchParams])
+
+  useEffect(() => {
+    if (activeTab === 'ingredients') {
+      void loadIngredientsData()
+    }
+  }, [activeTab])
+
+  useEffect(() => {
+    if (!editingProductId && !productNumber) {
+      setProductNumber(suggestNextProductNumber(products))
+    }
+  }, [editingProductId, productNumber, products])
+
+  function setTab(tab: ProductTab) {
+    setActiveTab(tab)
+    const params = new URLSearchParams(searchParams.toString())
+    if (tab === 'products') {
+      params.delete('tab')
+    } else {
+      params.set('tab', tab)
+    }
+    const query = params.toString()
+    router.replace(query ? `/admin/products?${query}` : '/admin/products')
+  }
+
+  function resetProductForm() {
+    setProductNumber(suggestNextProductNumber(products))
+    setProductName('')
+    setProductImageUrl('')
+    setProductEan('')
+    setProductUnitEans([])
+    setBeverageContainerType('NONE')
+    setProductDeposit('0')
+    setArticleInfo('')
+    setFoodBusinessOperator('')
+    setNutritionInfo('')
+    setPrice('')
+    setVatRate('19')
+    setCategoryId('')
+    setAvailable('true')
+    setEditingProductId(null)
+  }
+
+  function resetCategoryForm() {
+    setCategoryName('')
+    setCategoryImageUrl('')
+    setCategorySortOrder('0')
+    setEditingCategoryId(null)
+  }
+
+  function resetIngredientForm() {
+    setIngredientName('')
+    setIngredientCategory('FOOD')
+    setIngredientUnit('g')
+    setRecipeUnit('g')
+    setGramsPerPurchaseUnit('')
+    setPurchasePrice('')
+    setMinimumStock('0')
+    setConsumptionFactorPercent('0')
+    setDeposit('0')
+    setIngredientEan('')
+    setIngredientUnitEans([])
+    setAllergens('')
+    setSupplier('')
+    setArticleNumber('')
+    setProductTemplateId('')
+    setEditingIngredientId(null)
+  }
+
+  async function handleProductImageFile(file: File | null) {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('Bitte eine gueltige Bilddatei auswaehlen.')
+      return
+    }
+    const maxBytes = 6 * 1024 * 1024
+    if (file.size > maxBytes) {
+      setError('Produktbild ist zu gross (max. 6 MB).')
+      return
+    }
+
+    const fileReader = new FileReader()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      fileReader.onload = () => resolve(String(fileReader.result || ''))
+      fileReader.onerror = () => reject(new Error('Produktbild konnte nicht gelesen werden'))
+      fileReader.readAsDataURL(file)
+    })
+
+    setProductImageUrl(dataUrl)
+    setError('')
+  }
+
+  async function handleCategoryImageFile(file: File | null) {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('Bitte eine gueltige Bilddatei auswaehlen.')
+      return
+    }
+    const maxBytes = 3 * 1024 * 1024
+    if (file.size > maxBytes) {
+      setError('Kategoriebild ist zu gross (max. 3 MB).')
+      return
+    }
+
+    const fileReader = new FileReader()
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      fileReader.onload = () => resolve(String(fileReader.result || ''))
+      fileReader.onerror = () => reject(new Error('Kategoriebild konnte nicht gelesen werden'))
+      fileReader.readAsDataURL(file)
+    })
+
+    setCategoryImageUrl(dataUrl)
+    setError('')
+  }
+
+  async function handleProductSubmit(e: React.FormEvent) {
+    e.preventDefault()
+
+    try {
+      setSavingProduct(true)
+      setError('')
+      setSuccess('')
+
+      const payload = {
+        categoryId: categoryId || null,
+        productNumber,
+        name: productName,
+        imageUrl: productImageUrl.trim() || null,
+        ean: productEan.trim() || null,
+        unitEans: productUnitEans,
+        beverageContainerType,
+        deposit: Number(productDeposit || 0),
+        articleInfo: articleInfo.trim() || null,
+        foodBusinessOperator: foodBusinessOperator.trim() || null,
+        nutritionInfo: nutritionInfo.trim() || null,
+        price: Number(price),
+        vatRate: Number(vatRate),
+        available: available === 'true',
+      }
+
+      if (editingProductId) {
+        await updateProduct(editingProductId, {
+          name: payload.name,
+          imageUrl: payload.imageUrl,
+          ean: payload.ean,
+          unitEans: payload.unitEans,
+          beverageContainerType: payload.beverageContainerType,
+          deposit: payload.deposit,
+          articleInfo: payload.articleInfo,
+          foodBusinessOperator: payload.foodBusinessOperator,
+          nutritionInfo: payload.nutritionInfo,
+          price: payload.price,
+          vatRate: payload.vatRate,
+          categoryId: payload.categoryId,
+          available: payload.available,
+        })
+        setSuccess('Produkt erfolgreich aktualisiert.')
+      } else {
+        await createProduct(payload)
+        setSuccess('Produkt erfolgreich erstellt.')
+      }
+
+      resetProductForm()
+      await loadCoreData()
+      if (ingredientsLoaded) {
+        await loadIngredientsData(true)
+      }
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Produkt konnte nicht gespeichert werden')
+    } finally {
+      setSavingProduct(false)
+    }
+  }
+
+  async function handleDeleteProduct(product: Product) {
+    if (!window.confirm(`Produkt "${product.name}" wirklich loeschen?`)) {
+      return
+    }
+
+    try {
+      setDeletingProductId(product.id)
+      setError('')
+      setSuccess('')
+      await deleteProduct(product.id)
+
+      if (editingProductId === product.id) {
+        resetProductForm()
+      }
+
+      await loadCoreData()
+      if (ingredientsLoaded) {
+        await loadIngredientsData(true)
+      }
+      setSuccess('Produkt erfolgreich geloescht.')
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Produkt konnte nicht geloescht werden')
+    } finally {
+      setDeletingProductId(null)
+    }
+  }
+
+  async function handleCreateIngredientFromProduct(product: Product) {
+    try {
+      setCreatingIngredientProductId(product.id)
+      setError('')
+      setSuccess('')
+      await createIngredient({
+        name: product.name,
+        unit: 'Stueck',
+        recipeUnit: 'Stueck',
+        gramsPerPurchaseUnit: null,
+        purchasePrice: Number(product.price),
+        minimumStock: 0,
+        consumptionFactorPercent: 0,
+        deposit: 0,
+        ean: product.ean || null,
+        unitEans: product.unitEans || [],
+        supplier: '',
+        articleNumber: product.productNumber,
+        allergens: (product.allergens || []).join(','),
+      })
+      setSuccess(`Produkt "${product.name}" wurde als Zutat angelegt.`)
+      if (activeTab === 'ingredients' || ingredientsLoaded) {
+        await loadIngredientsData(true)
+      }
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Produkt konnte nicht als Zutat angelegt werden')
+    } finally {
+      setCreatingIngredientProductId(null)
+    }
+  }
+
+  async function handleCopyProduct(product: Product) {
+    try {
+      setCopyingProductId(product.id)
+      setError('')
+      setSuccess('')
+
+      const [sourceIngredients, sourceModifiers] = await Promise.all([
+        getProductIngredients(product.id),
+        getProductModifiers(product.id),
+      ])
+
+      const copiedProduct = await createProduct({
+        categoryId: product.categoryId || null,
+        productNumber: suggestUniqueProductNumberForCopy(products, product.productNumber),
+        name: suggestUniqueProductNameForCopy(products, product.name),
+        imageUrl: product.imageUrl || null,
+        ean: product.ean || null,
+        unitEans: product.unitEans || [],
+        beverageContainerType: product.beverageContainerType || 'NONE',
+        deposit: Number(product.deposit || 0),
+        articleInfo: product.articleInfo || null,
+        foodBusinessOperator: product.foodBusinessOperator || null,
+        nutritionInfo: product.nutritionInfo || null,
+        price: Number(product.price),
+        vatRate: Number(product.vatRate),
+        available: product.available,
+      })
+
+      for (const item of sourceIngredients) {
+        await createProductIngredient({
+          productId: copiedProduct.id,
+          ingredientId: item.ingredientId,
+          quantity: Number(item.quantity),
+        })
+      }
+
+      for (const modifier of sourceModifiers) {
+        await createProductModifier({
+          productId: copiedProduct.id,
+          ingredientId: modifier.ingredientId || null,
+          kind: modifier.kind,
+          name: modifier.name,
+          priceDelta: Number(modifier.priceDelta),
+          isDefaultSelected: modifier.isDefaultSelected,
+          isActive: modifier.isActive,
+          sortOrder: modifier.sortOrder,
+        })
+      }
+
+      await loadCoreData()
+      if (ingredientsLoaded) {
+        await loadIngredientsData(true)
+      }
+
+      setSuccess(`Produkt "${product.name}" wurde als "${copiedProduct.name}" kopiert.`)
+    } catch (copyError) {
+      setError(copyError instanceof Error ? copyError.message : 'Produkt konnte nicht kopiert werden')
+    } finally {
+      setCopyingProductId(null)
+    }
+  }
+
+  async function handleCategorySubmit(e: React.FormEvent) {
+    e.preventDefault()
+    try {
+      setSavingCategory(true)
+      setError('')
+      setSuccess('')
+
+      const payload = {
+        name: categoryName,
+        sortOrder: Number(categorySortOrder),
+        imageUrl: categoryImageUrl.trim() || null,
+      }
+
+      if (editingCategoryId) {
+        await updateCategory(editingCategoryId, payload)
+        setSuccess('Kategorie erfolgreich aktualisiert.')
+      } else {
+        await createCategory(payload)
+        setSuccess('Kategorie erfolgreich erstellt.')
+      }
+
+      resetCategoryForm()
+      await refreshCategoriesOnly()
+      await refreshProductsOnly()
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Kategorie konnte nicht gespeichert werden')
+    } finally {
+      setSavingCategory(false)
+    }
+  }
+
+  async function handleDeleteCategory(category: Category) {
+    if (!window.confirm(`Kategorie "${category.name}" wirklich loeschen?`)) {
+      return
+    }
+
+    try {
+      setDeletingCategoryId(category.id)
+      setError('')
+      setSuccess('')
+      await deleteCategory(category.id)
+      if (editingCategoryId === category.id) {
+        resetCategoryForm()
+      }
+      await refreshCategoriesOnly()
+      await refreshProductsOnly()
+      setSuccess('Kategorie erfolgreich geloescht.')
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Kategorie konnte nicht geloescht werden')
+    } finally {
+      setDeletingCategoryId(null)
+    }
+  }
+
+  function applyProductTemplate(templateId: string) {
+    const product = products.find((entry) => entry.id === templateId)
+    if (!product) {
+      return
+    }
+
+    setProductTemplateId(templateId)
+    setIngredientName(product.name)
+    setIngredientCategory('FOOD')
+    setIngredientUnit('Stueck')
+    setRecipeUnit('Stueck')
+    setGramsPerPurchaseUnit('')
+    setPurchasePrice(String(product.price))
+    setMinimumStock('0')
+    setConsumptionFactorPercent('0')
+    setDeposit('0')
+    setIngredientEan(product.ean || '')
+    setIngredientUnitEans(product.unitEans || [])
+    setAllergens((product.allergens || []).join(','))
+    setArticleNumber(product.productNumber)
+    setError('')
+    setSuccess(`Produktvorlage "${product.name}" wurde uebernommen.`)
+  }
+
+  async function handleIngredientSubmit(e: React.FormEvent) {
+    e.preventDefault()
+
+    try {
+      setSavingIngredient(true)
+      setError('')
+      setSuccess('')
+      const parsedMinimumStock = parseMinimumStockByUnit(minimumStock || '0', ingredientUnit)
+      if (!parsedMinimumStock.ok) {
+        throw new Error(parsedMinimumStock.error)
+      }
+      const normalizedUnitEans = ingredientUnitEans.map((entry) => {
+        const rawCount = Number(entry.unitCount || 1)
+        const validCount = Number.isFinite(rawCount) && rawCount > 0 ? rawCount : 1
+        return {
+          ...entry,
+          unitCount: isIntegerOnlyIngredientUnit(ingredientUnit)
+            ? Math.max(1, Math.round(validCount))
+            : validCount,
+        }
+      })
+
+      if (editingIngredientId) {
+        await updateIngredient(editingIngredientId, {
+          name: ingredientName,
+          category: ingredientCategory,
+          unit: ingredientUnit,
+          recipeUnit: recipeUnit || null,
+          gramsPerPurchaseUnit: gramsPerPurchaseUnit ? Number(gramsPerPurchaseUnit) : null,
+          purchasePrice: Number(purchasePrice),
+          minimumStock: parsedMinimumStock.value,
+          consumptionFactorPercent: Number(consumptionFactorPercent || 0),
+          deposit: Number(deposit),
+          ean: ingredientEan || null,
+          unitEans: normalizedUnitEans,
+          allergens: allergens || null,
+          supplier: supplier || null,
+          articleNumber: articleNumber || null,
+        })
+        setSuccess('Zutat erfolgreich aktualisiert.')
+      } else {
+        await createIngredient({
+          name: ingredientName,
+          category: ingredientCategory,
+          unit: ingredientUnit,
+          recipeUnit: recipeUnit || null,
+          gramsPerPurchaseUnit: gramsPerPurchaseUnit ? Number(gramsPerPurchaseUnit) : null,
+          purchasePrice: Number(purchasePrice),
+          minimumStock: parsedMinimumStock.value,
+          consumptionFactorPercent: Number(consumptionFactorPercent || 0),
+          deposit: Number(deposit),
+          ean: ingredientEan || null,
+          unitEans: normalizedUnitEans,
+          allergens,
+          supplier,
+          articleNumber,
+        })
+        setSuccess('Zutat erfolgreich erstellt.')
+      }
+
+      resetIngredientForm()
+      await loadIngredientsData(true)
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : 'Zutat konnte nicht gespeichert werden')
+    } finally {
+      setSavingIngredient(false)
+    }
+  }
+
+  async function handleDeleteIngredient(ingredient: Ingredient) {
+    if (!window.confirm(`Zutat "${ingredient.name}" wirklich loeschen?`)) {
+      return
+    }
+
+    try {
+      setDeletingIngredientId(ingredient.id)
+      setError('')
+      setSuccess('')
+      await deleteIngredient(ingredient.id)
+      if (editingIngredientId === ingredient.id) {
+        resetIngredientForm()
+      }
+      await loadIngredientsData(true)
+      setSuccess('Zutat erfolgreich geloescht.')
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Zutat konnte nicht geloescht werden')
+    } finally {
+      setDeletingIngredientId(null)
+    }
+  }
+
+  const filteredPricingProducts = useMemo(() => {
+    const query = pricingSearch.trim().toLowerCase()
+    return products.filter((product) => {
+      if (query) {
+        const matchesQuery =
+          product.name.toLowerCase().includes(query) || product.productNumber.toLowerCase().includes(query)
+        if (!matchesQuery) return false
+      }
+      if (pricingCategoryFilter !== 'ALL' && product.categoryId !== pricingCategoryFilter) {
+        return false
+      }
+      return true
+    })
+  }, [products, pricingSearch, pricingCategoryFilter])
+
+  const dirtyPricingProductIds = useMemo(
+    () =>
+      filteredPricingProducts
+        .filter((product) => draftPrices[product.id] !== String(Number(product.price).toFixed(2)))
+        .map((product) => product.id),
+    [filteredPricingProducts, draftPrices]
+  )
+
+  async function saveProductPrice(product: Product) {
+    const raw = draftPrices[product.id]
+    const parsed = Number(raw)
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      setError(`Ungueltiger Preis bei ${product.name}`)
+      return
+    }
+
+    try {
+      setSavingPriceIds((current) => new Set(current).add(product.id))
+      setError('')
+      await updateProduct(product.id, {
+        name: product.name,
+        price: parsed,
+        vatRate: Number(product.vatRate),
+        categoryId: product.categoryId,
+        available: product.available,
+      })
+      setSuccess(`Preis fuer ${product.name} gespeichert.`)
+      await refreshProductsOnly()
+      if (ingredientsLoaded) {
+        await loadIngredientsData(true)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Preis konnte nicht gespeichert werden')
+    } finally {
+      setSavingPriceIds((current) => {
+        const next = new Set(current)
+        next.delete(product.id)
+        return next
+      })
+    }
+  }
+
+  async function saveAllDirtyPrices() {
+    const dirtyProducts = filteredPricingProducts.filter((product) => dirtyPricingProductIds.includes(product.id))
+    if (dirtyProducts.length === 0) {
+      setSuccess('Keine Preisaenderung vorhanden.')
+      return
+    }
+
+    try {
+      setError('')
+      setSuccess('')
+      setSavingPriceIds(new Set(dirtyProducts.map((entry) => entry.id)))
+
+      for (const product of dirtyProducts) {
+        const parsed = Number(draftPrices[product.id])
+        if (!Number.isFinite(parsed) || parsed < 0) {
+          throw new Error(`Ungueltiger Preis bei ${product.name}`)
+        }
+
+        await updateProduct(product.id, {
+          name: product.name,
+          price: parsed,
+          vatRate: Number(product.vatRate),
+          categoryId: product.categoryId,
+          available: product.available,
+        })
+      }
+
+      setSuccess(`${dirtyProducts.length} Preise gespeichert.`)
+      await refreshProductsOnly()
+      if (ingredientsLoaded) {
+        await loadIngredientsData(true)
+      }
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Preise konnten nicht gespeichert werden')
+    } finally {
+      setSavingPriceIds(new Set())
+    }
+  }
+
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-rose-900/75">Lade Ansicht...</div>}>
+      <AdminLayout
+        title="Produkte"
+        subtitle="Produkte, Kategorien, Zutaten und Schnellpreise zentral in einem Bereich verwalten"
+      >
+      {error ? (
+        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
+      {success ? (
+        <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {success}
+        </div>
+      ) : null}
+
+      <section className="mb-6 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-[var(--brand-border)]">
+        <div className="flex flex-wrap gap-2">
+          {PRODUCT_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setTab(tab.id)}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                activeTab === tab.id
+                  ? 'bg-slate-900 text-white'
+                  : 'border border-[var(--brand-border)] bg-white text-rose-900/85 hover:bg-rose-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {activeTab === 'products' ? (
+        <>
+          <AdminProductsSection
+            products={products}
+            categories={categories}
+            loading={loadingCore}
+            productNumber={productNumber}
+            setProductNumber={setProductNumber}
+            productName={productName}
+            setProductName={setProductName}
+            productImageUrl={productImageUrl}
+            setProductImageUrl={setProductImageUrl}
+            productEan={productEan}
+            setProductEan={setProductEan}
+            productUnitEans={productUnitEans}
+            setProductUnitEans={setProductUnitEans}
+            beverageContainerType={beverageContainerType}
+            setBeverageContainerType={setBeverageContainerType}
+            productDeposit={productDeposit}
+            setProductDeposit={setProductDeposit}
+            articleInfo={articleInfo}
+            setArticleInfo={setArticleInfo}
+            foodBusinessOperator={foodBusinessOperator}
+            setFoodBusinessOperator={setFoodBusinessOperator}
+            nutritionInfo={nutritionInfo}
+            setNutritionInfo={setNutritionInfo}
+            onProductImageFileChange={(file) => void handleProductImageFile(file)}
+            nextProductNumberSuggestion={suggestNextProductNumber(products)}
+            price={price}
+            setPrice={setPrice}
+            vatRate={vatRate}
+            setVatRate={setVatRate}
+            categoryId={categoryId}
+            setCategoryId={setCategoryId}
+            available={available}
+            setAvailable={setAvailable}
+            savingProduct={savingProduct}
+            editingProductId={editingProductId}
+            deletingProductId={deletingProductId}
+            creatingIngredientProductId={creatingIngredientProductId}
+            copyingProductId={copyingProductId}
+            onSubmit={handleProductSubmit}
+            onEdit={(product) => {
+              setEditingProductId(product.id)
+              setProductNumber(product.productNumber)
+              setProductName(product.name)
+              setProductImageUrl(product.imageUrl || '')
+              setProductEan(product.ean || '')
+              setProductUnitEans(product.unitEans || [])
+              setBeverageContainerType(product.beverageContainerType || 'NONE')
+              setProductDeposit(product.deposit || '0')
+              setArticleInfo(product.articleInfo || '')
+              setFoodBusinessOperator(product.foodBusinessOperator || '')
+              setNutritionInfo(product.nutritionInfo || '')
+              setPrice(product.price)
+              setVatRate(product.vatRate)
+              setCategoryId(product.categoryId ?? '')
+              setAvailable(product.available ? 'true' : 'false')
+              setError('')
+              setSuccess('')
+            }}
+            onDelete={(product) => void handleDeleteProduct(product)}
+            onCreateIngredientFromProduct={(product) => void handleCreateIngredientFromProduct(product)}
+            onCopy={(product) => void handleCopyProduct(product)}
+            onCancelEdit={resetProductForm}
+          />
+
+          <div className="mt-6">
+            <ProductIngredientsManager
+              productId={editingProductId}
+              productName={productName}
+              products={products}
+            />
+          </div>
+        </>
+      ) : null}
+
+      {activeTab === 'categories' ? (
+        <AdminCategoriesSection
+          categories={categories}
+          loading={loadingCore}
+          categoryName={categoryName}
+          setCategoryName={setCategoryName}
+          categoryImageUrl={categoryImageUrl}
+          setCategoryImageUrl={setCategoryImageUrl}
+          onCategoryImageFileChange={(file) => void handleCategoryImageFile(file)}
+          categorySortOrder={categorySortOrder}
+          setCategorySortOrder={setCategorySortOrder}
+          savingCategory={savingCategory}
+          editingCategoryId={editingCategoryId}
+          deletingCategoryId={deletingCategoryId}
+          onSubmit={handleCategorySubmit}
+          onEdit={(category) => {
+            setEditingCategoryId(category.id)
+            setCategoryName(category.name)
+            setCategoryImageUrl(category.imageUrl || '')
+            setCategorySortOrder(String(category.sortOrder))
+            setError('')
+            setSuccess('')
+          }}
+          onDelete={(category) => void handleDeleteCategory(category)}
+          onCancelEdit={resetCategoryForm}
+        />
+      ) : null}
+
+      {activeTab === 'ingredients' ? (
+        <AdminIngredientsSection
+          ingredients={ingredients}
+          products={products}
+          productTemplateId={productTemplateId}
+          loading={loadingIngredients}
+          ingredientName={ingredientName}
+          setIngredientName={setIngredientName}
+          ingredientCategory={ingredientCategory}
+          setIngredientCategory={setIngredientCategory}
+          ingredientUnit={ingredientUnit}
+          setIngredientUnit={setIngredientUnit}
+          recipeUnit={recipeUnit}
+          setRecipeUnit={setRecipeUnit}
+          gramsPerPurchaseUnit={gramsPerPurchaseUnit}
+          setGramsPerPurchaseUnit={setGramsPerPurchaseUnit}
+          purchasePrice={purchasePrice}
+          setPurchasePrice={setPurchasePrice}
+          minimumStock={minimumStock}
+          setMinimumStock={setMinimumStock}
+          consumptionFactorPercent={consumptionFactorPercent}
+          setConsumptionFactorPercent={setConsumptionFactorPercent}
+          deposit={deposit}
+          setDeposit={setDeposit}
+          ingredientEan={ingredientEan}
+          setIngredientEan={setIngredientEan}
+          ingredientUnitEans={ingredientUnitEans}
+          setIngredientUnitEans={setIngredientUnitEans}
+          allergens={allergens}
+          setAllergens={setAllergens}
+          supplier={supplier}
+          setSupplier={setSupplier}
+          articleNumber={articleNumber}
+          setArticleNumber={setArticleNumber}
+          savingIngredient={savingIngredient}
+          editingIngredientId={editingIngredientId}
+          deletingIngredientId={deletingIngredientId}
+          onSubmit={handleIngredientSubmit}
+          onApplyProductTemplate={applyProductTemplate}
+          setProductTemplateId={setProductTemplateId}
+          onEdit={(ingredient) => {
+            setEditingIngredientId(ingredient.id)
+            setProductTemplateId('')
+            setIngredientName(ingredient.name)
+            setIngredientCategory(ingredient.category || 'FOOD')
+            setIngredientUnit(ingredient.unit)
+            setRecipeUnit(ingredient.recipeUnit || ingredient.unit)
+            setGramsPerPurchaseUnit(ingredient.gramsPerPurchaseUnit || '')
+            setPurchasePrice(ingredient.purchasePrice)
+            setMinimumStock(
+              formatMinimumStockDraftByUnit(ingredient.minimumStock || '0', ingredient.unit)
+            )
+            setConsumptionFactorPercent(ingredient.consumptionFactorPercent || '0')
+            setDeposit(ingredient.deposit)
+            setIngredientEan(ingredient.ean || '')
+            setIngredientUnitEans(ingredient.unitEans || [])
+            setAllergens(ingredient.allergens || '')
+            setSupplier(ingredient.supplier || '')
+            setArticleNumber(ingredient.articleNumber || '')
+            setError('')
+            setSuccess('')
+          }}
+          onDelete={(ingredient) => void handleDeleteIngredient(ingredient)}
+          onCancelEdit={resetIngredientForm}
+        />
+      ) : null}
+
+      {activeTab === 'pricing' ? (
+        <section className="min-w-0 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-rose-900/85">Suche</span>
+              <input
+                value={pricingSearch}
+                onChange={(event) => setPricingSearch(event.target.value)}
+                placeholder="Name oder Nummer"
+                className="w-[260px] rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-rose-900/85">Kategorie</span>
+              <select
+                value={pricingCategoryFilter}
+                onChange={(event) => setPricingCategoryFilter(event.target.value)}
+                className="w-[220px] rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+              >
+                <option value="ALL">Alle Kategorien</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void saveAllDirtyPrices()}
+              className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800"
+              disabled={savingPriceIds.size > 0}
+            >
+              {savingPriceIds.size > 0 ? 'Speichere...' : `Alle Aenderungen speichern (${dirtyPricingProductIds.length})`}
+            </button>
+          </div>
+
+          <div className="mt-4 max-w-full overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
+            <table className="w-full min-w-[920px] border-collapse">
+              <thead>
+                <tr>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Produkt
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Kategorie
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Preis aktuell
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Neuer Preis
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Aktion
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingCore ? (
+                  <tr>
+                    <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={5}>
+                      Lade Produkte...
+                    </td>
+                  </tr>
+                ) : filteredPricingProducts.length === 0 ? (
+                  <tr>
+                    <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={5}>
+                      Keine Produkte gefunden.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredPricingProducts.map((product) => {
+                    const currentPrice = String(Number(product.price).toFixed(2))
+                    const nextPrice = draftPrices[product.id] ?? currentPrice
+                    const isDirty = nextPrice !== currentPrice
+                    const isSaving = savingPriceIds.has(product.id)
+
+                    return (
+                      <tr key={product.id}>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
+                          <p className="font-medium text-[var(--brand-ink)]">{product.name}</p>
+                          <p className="text-xs text-rose-900/70">Nr. {product.productNumber}</p>
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {product.category?.name || '-'}
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {currentPrice} EUR
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={nextPrice}
+                            onChange={(event) =>
+                              setDraftPrices((current) => ({ ...current, [product.id]: event.target.value }))
+                            }
+                            className={`w-36 rounded-lg border px-2.5 py-1.5 text-sm outline-none transition ${
+                              isDirty ? 'border-orange-400 bg-orange-50' : 'border-[var(--brand-border)] bg-white'
+                            }`}
+                          />
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
+                          <button
+                            type="button"
+                            onClick={() => void saveProductPrice(product)}
+                            disabled={!isDirty || isSaving}
+                            className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isSaving ? 'Speichert...' : 'Preis speichern'}
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+      </AdminLayout>
+    </Suspense>
+  )
+}
+
+export default function AdminProductsPage() {
+  return (
+    <Suspense fallback={<div className="p-4 text-sm text-rose-900/75">Lade Produkte...</div>}>
+      <AdminProductsPageContent />
+    </Suspense>
+  )
+}
