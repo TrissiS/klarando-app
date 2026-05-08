@@ -40,6 +40,10 @@ function assertPasswordStrength(password: string) {
   }
 }
 
+function isPasswordResetAllowed() {
+  return process.env.BOOTSTRAP_ADMIN_RESET_PASSWORD === 'true'
+}
+
 async function seedSuperadminPermissions() {
   const superadminPermissions = DEFAULT_ROLE_PERMISSIONS[UserRole.SUPERADMIN] ?? []
   const rows = superadminPermissions.map((permission) => ({
@@ -62,20 +66,37 @@ async function run() {
 
   const email = normalizeEmail(requireEnv('BOOTSTRAP_ADMIN_EMAIL'))
   const password = requireEnv('BOOTSTRAP_ADMIN_PASSWORD')
+  const allowPasswordReset = isPasswordResetAllowed()
   assertPasswordStrength(password)
 
   const existingUser = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, role: true },
+    select: { id: true, role: true, isActive: true },
   })
 
   if (existingUser) {
-    if (existingUser.role === UserRole.SUPERADMIN) {
-      console.log(`Superadmin existiert bereits fuer ${email}. Keine Aenderung notwendig.`)
-      return
+    if (!allowPasswordReset) {
+      if (existingUser.role === UserRole.SUPERADMIN) {
+        console.log('Superadmin existiert bereits, keine Aenderung')
+        return
+      }
+
+      throw new Error('Es existiert bereits ein User mit dieser E-Mail, aber ohne SUPERADMIN-Rolle.')
     }
 
-    throw new Error('Es existiert bereits ein User mit dieser E-Mail, aber ohne SUPERADMIN-Rolle.')
+    await seedSuperadminPermissions()
+
+    await prisma.user.update({
+      where: { id: existingUser.id },
+      data: {
+        role: UserRole.SUPERADMIN,
+        passwordHash: hashPassword(password),
+        isActive: true,
+      },
+    })
+
+    console.log('Superadmin Passwort wurde zurueckgesetzt')
+    return
   }
 
   const existingSuperadminCount = await prisma.user.count({
@@ -83,8 +104,14 @@ async function run() {
   })
 
   if (existingSuperadminCount > 0) {
+    if (!allowPasswordReset) {
+      throw new Error(
+        'Es existiert bereits mindestens ein SUPERADMIN. Dieses Bootstrap-Skript erstellt nur den initialen Superadmin.'
+      )
+    }
+
     throw new Error(
-      'Es existiert bereits mindestens ein SUPERADMIN. Dieses Bootstrap-Skript erstellt nur den initialen Superadmin.'
+      'BOOTSTRAP_ADMIN_RESET_PASSWORD=true wurde gesetzt, aber kein User mit BOOTSTRAP_ADMIN_EMAIL gefunden.'
     )
   }
 
@@ -106,7 +133,7 @@ async function run() {
     },
   })
 
-  console.log('Initialer SUPERADMIN wurde erstellt:')
+  console.log('Superadmin erstellt')
   console.log(`- ID: ${createdUser.id}`)
   console.log(`- E-Mail: ${createdUser.email}`)
   console.log(`- Rolle: ${createdUser.role}`)
