@@ -631,6 +631,7 @@ model PaymentTransaction {
   order                   Order?          @relation(fields: [orderId], references: [id], onDelete: SetNull)
   refunds                 PaymentRefund[]
   disputes                PaymentDispute[]
+  tipTransactions         TipTransaction[]
   createdAt               DateTime        @default(now())
   updatedAt               DateTime        @updatedAt
 
