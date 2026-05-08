@@ -7,6 +7,7 @@
     "dev:watch": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start:prod": "node dist/src/server.js",
+    "bootstrap:superadmin": "node dist/scripts/create-production-superadmin.js",
     "typecheck": "tsc --noEmit",
     "go-live:check": "node -r ts-node/register/transpile-only scripts/go-live-check.ts",
     "go-live:provision": "node -r ts-node/register/transpile-only scripts/go-live-provision-displays.ts",

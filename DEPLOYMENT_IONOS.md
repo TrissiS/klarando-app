@@ -18,7 +18,7 @@ Diese Anleitung beschreibt ein produktionsnahes Docker-Setup fuer Klarando auf e
 
 ### Deployment-Analyse (Ist-Stand)
 - Backend-Startprozess:
-  - Container startet mit `npx prisma migrate deploy && node -r ts-node/register/transpile-only src/server.ts`
+  - Container startet mit `npx prisma migrate deploy && node dist/src/server.js`
 - Prisma-Migrationsflow:
   - Produktion: nur `prisma migrate deploy`
   - Kein `migrate reset`/`db push` in Produktionsprozess
@@ -122,6 +122,29 @@ Manuell (falls noetig):
 ```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml exec backend npx prisma migrate deploy
 ```
+
+## 6b) Initialen Superadmin sicher anlegen
+
+Der Bootstrap ist absichtlich hart abgesichert und laeuft nur mit expliziter Freigabe:
+- `NODE_ENV=production`
+- `ALLOW_PRODUCTION_ADMIN_BOOTSTRAP=true`
+- `BOOTSTRAP_ADMIN_EMAIL=<mail>`
+- `BOOTSTRAP_ADMIN_PASSWORD=<starkes-passwort>`
+
+Beispiel im laufenden Backend-Container:
+```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml exec \
+  -e NODE_ENV=production \
+  -e ALLOW_PRODUCTION_ADMIN_BOOTSTRAP=true \
+  -e BOOTSTRAP_ADMIN_EMAIL=admin@klarando.com \
+  -e BOOTSTRAP_ADMIN_PASSWORD='<STARKES_PASSWORT>' \
+  backend npm run bootstrap:superadmin
+```
+
+Wichtig:
+- Das Skript legt nur den **ersten** `SUPERADMIN` an.
+- Falls bereits ein `SUPERADMIN` existiert, bricht der Run sicher ab.
+- Passwoerter werden nicht geloggt.
 
 ## 7) Nginx und Domains
 
