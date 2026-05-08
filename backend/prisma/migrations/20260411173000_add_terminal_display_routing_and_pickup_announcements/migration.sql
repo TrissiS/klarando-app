@@ -9,12 +9,6 @@ ADD COLUMN "announceOnMenuScreens" BOOLEAN NOT NULL DEFAULT true,
 ADD COLUMN "menuAnnouncementDurationSec" INTEGER NOT NULL DEFAULT 45;
 
 -- AlterTable
-ALTER TABLE "OrderTerminal"
-ADD COLUMN "cashDisplayId" TEXT,
-ADD COLUMN "kitchenDisplayId" TEXT,
-ADD COLUMN "pickupDisplayId" TEXT;
-
--- AlterTable
 ALTER TABLE "Order"
 ADD COLUMN "cashDisplayId" TEXT,
 ADD COLUMN "kitchenDisplayId" TEXT,
@@ -39,25 +33,7 @@ CREATE INDEX "Order_tenantId_pickupNumber_createdAt_idx" ON "Order"("tenantId", 
 CREATE INDEX "Order_tenantId_pickupAnnounceUntil_idx" ON "Order"("tenantId", "pickupAnnounceUntil");
 
 -- CreateIndex
-CREATE INDEX "OrderTerminal_cashDisplayId_idx" ON "OrderTerminal"("cashDisplayId");
-
--- CreateIndex
-CREATE INDEX "OrderTerminal_kitchenDisplayId_idx" ON "OrderTerminal"("kitchenDisplayId");
-
--- CreateIndex
-CREATE INDEX "OrderTerminal_pickupDisplayId_idx" ON "OrderTerminal"("pickupDisplayId");
-
--- CreateIndex
 CREATE INDEX "OrderDisplay_tenantId_displayRole_isActive_idx" ON "OrderDisplay"("tenantId", "displayRole", "isActive");
-
--- AddForeignKey
-ALTER TABLE "OrderTerminal" ADD CONSTRAINT "OrderTerminal_cashDisplayId_fkey" FOREIGN KEY ("cashDisplayId") REFERENCES "OrderDisplay"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "OrderTerminal" ADD CONSTRAINT "OrderTerminal_kitchenDisplayId_fkey" FOREIGN KEY ("kitchenDisplayId") REFERENCES "OrderDisplay"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "OrderTerminal" ADD CONSTRAINT "OrderTerminal_pickupDisplayId_fkey" FOREIGN KEY ("pickupDisplayId") REFERENCES "OrderDisplay"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Order" ADD CONSTRAINT "Order_cashDisplayId_fkey" FOREIGN KEY ("cashDisplayId") REFERENCES "OrderDisplay"("id") ON DELETE SET NULL ON UPDATE CASCADE;
