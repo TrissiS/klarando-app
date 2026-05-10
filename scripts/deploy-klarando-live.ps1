@@ -232,7 +232,7 @@ $remoteCommands = @(
 )
 
 if (-not $SkipRemoteBackup) {
-  $remoteCommands += 'if [ -f deploy/backup/postgres-backup.sh ]; then chmod +x deploy/backup/postgres-backup.sh && bash deploy/backup/postgres-backup.sh; else echo "WARN: Kein Backup-Script gefunden (deploy/backup/postgres-backup.sh)"; fi'
+  $remoteCommands += 'if [ -f deploy/backup/postgres-backup.sh ]; then chmod +x deploy/backup/postgres-backup.sh && bash deploy/backup/postgres-backup.sh; else echo "WARN: Kein Backup-Script gefunden: deploy/backup/postgres-backup.sh"; fi'
 }
 
 $remoteCommands += @(
@@ -244,16 +244,16 @@ $remoteCommands += @(
   "if command -v curl >/dev/null 2>&1; then curl -fsS $publicHealthUrl; else wget -qO- $publicHealthUrl; fi"
 )
 
-$remoteCommand = $remoteCommands -join '; '
+$remoteScript = ($remoteCommands -join "`n")
 
 $sshArgs = @('-p', $VpsPort.ToString())
 if (-not [string]::IsNullOrWhiteSpace($SshKeyPath)) {
   $sshArgs += @('-i', $SshKeyPath)
 }
 $sshArgs += "$VpsUser@$VpsHost"
-$sshArgs += $remoteCommand
+$sshArgs += 'bash -s'
 
-& ssh @sshArgs
+$remoteScript | & ssh @sshArgs
 if ($LASTEXITCODE -ne 0) {
   throw 'Remote Deploy via SSH fehlgeschlagen.'
 }
