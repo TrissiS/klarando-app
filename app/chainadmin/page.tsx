@@ -4,7 +4,15 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { CHAINADMIN_NAV_ITEMS } from '@/app/chainadmin/nav'
-import { AdminPageShell } from '@/app/Components/admin/ui/AdminUi'
+import {
+  AdminActionBar,
+  AdminButton,
+  AdminFormGrid,
+  AdminPageShell,
+  AdminSectionCard,
+  AdminSelect,
+  AdminTextInput,
+} from '@/app/Components/admin/ui/AdminUi'
 import {
   createAccessUser,
   deleteAccessUser,
@@ -366,7 +374,7 @@ export default function ChainadminPage() {
     if (!token) return
 
     const shouldDelete = window.confirm(
-      `Benutzer "${user.name}" wirklich loeschen? Diese Aktion kann nicht rueckgaengig gemacht werden.`
+      `Benutzer "${user.name}" wirklich löschen? Diese Aktion kann nicht rückgängig gemacht werden.`
     )
     if (!shouldDelete) {
       return
@@ -384,10 +392,10 @@ export default function ChainadminPage() {
         setSelectedPackageIds([])
         setSelectedUserPermissions([])
       }
-      setSuccess('Benutzer wurde geloescht.')
+      setSuccess('Benutzer wurde gelöscht.')
       await loadData(token)
     } catch (saveError) {
-      const message = saveError instanceof Error ? saveError.message : 'Benutzer konnte nicht geloescht werden'
+      const message = saveError instanceof Error ? saveError.message : 'Benutzer konnte nicht gelöscht werden'
       setError(message)
     } finally {
       setIsSaving(false)
@@ -408,7 +416,7 @@ export default function ChainadminPage() {
 
       const response = await updateAccessUserPermissions(token, selectedUser.id, nextPermissions)
       setSelectedUserPermissions(response.permissions)
-      setSuccess(`Pakete fuer ${selectedUser.name} wurden gespeichert.`)
+      setSuccess(`Pakete für ${selectedUser.name} wurden gespeichert.`)
 
       if (session?.userId === selectedUser.id) {
         const nextSession: SessionUser = {
@@ -464,7 +472,7 @@ export default function ChainadminPage() {
     }
 
     if (!right.superadminGranted) {
-      setError('Diese Filiale ist fuer dich noch nicht durch den Superadmin freigegeben.')
+      setError('Diese Filiale ist für dich noch nicht durch den Superadmin freigegeben.')
       return
     }
 
@@ -482,7 +490,7 @@ export default function ChainadminPage() {
         canViewStaffPlanning: right.canViewStaffPlanning,
         notes: right.notes,
       })
-      setSuccess(`Filialrechte fuer ${right.tenantName} gespeichert.`)
+      setSuccess(`Filialrechte für ${right.tenantName} gespeichert.`)
       const refreshedRights = await getChainadminAccessRights(token)
       setTenantRights(refreshedRights.rights)
     } catch (saveError) {
@@ -516,8 +524,8 @@ export default function ChainadminPage() {
         </div>
       ) : null}
 
-      <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <AdminSectionCard title="Live-Status">
+        <AdminActionBar>
           <div className="text-sm text-rose-900/80">
             Letztes Update:{' '}
             <span className="font-semibold text-[var(--brand-ink)]">
@@ -533,20 +541,18 @@ export default function ChainadminPage() {
               />
               Auto-Refresh (45s)
             </label>
-            <button
+            <AdminButton
               type="button"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
               onClick={triggerRefresh}
               disabled={isRefreshing}
             >
               {isRefreshing ? 'Aktualisiere...' : 'Jetzt aktualisieren'}
-            </button>
+            </AdminButton>
           </div>
-        </div>
-      </section>
-      <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
-        <p className="text-xs uppercase tracking-wide text-rose-900/70">Dashboard anpassen (pro Benutzer)</p>
-        <div className="mt-2 flex flex-wrap gap-2">
+        </AdminActionBar>
+      </AdminSectionCard>
+      <AdminSectionCard title="Dashboard anpassen (pro Benutzer)">
+        <div className="flex flex-wrap gap-2">
           {sectionMeta.map((section) => {
             const checked = visibleSectionIds.includes(section.id)
             return (
@@ -588,12 +594,12 @@ export default function ChainadminPage() {
             Quelle App-Einstellungen
           </Link>
         </div>
-      </section>
+      </AdminSectionCard>
 
       {isLoading ? (
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+        <AdminSectionCard>
           <p className="text-sm text-rose-900/75">Lade Daten...</p>
-        </section>
+        </AdminSectionCard>
       ) : (
         <div className="grid gap-6">
           {visibleSectionIds.includes('kpi') ? (
@@ -653,7 +659,7 @@ export default function ChainadminPage() {
                   href="/chainadmin/closings"
                   className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-1.5 text-xs font-semibold text-rose-900/85 transition hover:bg-rose-100"
                 >
-                  Quelle Abschluesse
+                  Quelle Abschlüsse
                 </Link>
                 <Link
                   href="/chainadmin/app-settings"
@@ -670,7 +676,7 @@ export default function ChainadminPage() {
           <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">Filial-Dashboard</h2>
             <p className="mt-1 text-sm text-rose-900/70">
-              Verkauf, Einkauf und Personalplanung je Filiale im gewaehlten Zeitraum.
+              Verkauf, Einkauf und Personalplanung je Filiale im gewählten Zeitraum.
             </p>
             <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
               <table className="w-full min-w-[940px] border-collapse">
@@ -714,7 +720,7 @@ export default function ChainadminPage() {
                   {(dashboard?.tenants || []).length === 0 ? (
                     <tr>
                       <td className="border-t border-slate-100 px-3 py-4 text-sm text-rose-900/70" colSpan={6}>
-                        Keine Daten verfuegbar.
+                        Keine Daten verfügbar.
                       </td>
                     </tr>
                   ) : null}
@@ -728,7 +734,7 @@ export default function ChainadminPage() {
           <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">Filialrechte & Oberhand</h2>
             <p className="mt-1 text-sm text-rose-900/70">
-              Rechte pro Filiale. Nicht freigegebene Filialen koennen erst nach Superadmin-Freigabe bearbeitet werden.
+              Rechte pro Filiale. Nicht freigegebene Filialen können erst nach Superadmin-Freigabe bearbeitet werden.
             </p>
             <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
               <table className="w-full min-w-[1180px] border-collapse">
@@ -849,29 +855,29 @@ export default function ChainadminPage() {
           ) : null}
 
           {visibleSectionIds.includes('create-user') ? (
-          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <h2 className="text-xl font-semibold">Admin oder Staff anlegen</h2>
-            <div className="mt-4 grid gap-3 lg:grid-cols-5">
-              <input
+          <AdminSectionCard title="Admin oder Staff anlegen">
+            <AdminFormGrid>
+              <AdminTextInput
+                label="Name"
                 value={form.name}
                 onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
                 placeholder="Name"
-                className="input-ui"
               />
-              <input
+              <AdminTextInput
+                label="E-Mail"
                 value={form.email}
                 onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
                 placeholder="E-Mail"
-                className="input-ui"
               />
-              <input
+              <AdminTextInput
+                label="Passwort"
                 value={form.password}
                 type="password"
                 onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
                 placeholder="Passwort"
-                className="input-ui"
               />
-              <select
+              <AdminSelect
+                label="Rolle"
                 value={form.role}
                 onChange={(event) =>
                   setForm((prev) => ({
@@ -879,33 +885,31 @@ export default function ChainadminPage() {
                     role: event.target.value as Extract<AccessRole, 'ADMIN' | 'STAFF'>,
                   }))
                 }
-                className="input-ui"
               >
                 <option value="ADMIN">ADMIN</option>
                 <option value="STAFF">STAFF</option>
-              </select>
-              <select
-                value={form.tenantId}
-                onChange={(event) => setForm((prev) => ({ ...prev, tenantId: event.target.value }))}
-                className="input-ui"
-              >
-                <option value="">Filiale waehlen</option>
-                {tenants.map((tenant) => (
-                  <option key={tenant.id} value={tenant.id}>
-                    {tenant.name}
-                  </option>
-                ))}
-              </select>
+              </AdminSelect>
+              <div className="md:col-span-2">
+                <AdminSelect
+                  label="Filiale"
+                  value={form.tenantId}
+                  onChange={(event) => setForm((prev) => ({ ...prev, tenantId: event.target.value }))}
+                >
+                  <option value="">Filiale wählen</option>
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.name}
+                    </option>
+                  ))}
+                </AdminSelect>
+              </div>
+            </AdminFormGrid>
+            <div className="mt-4">
+              <AdminButton type="button" onClick={handleCreateUser} disabled={isSaving}>
+                {isSaving ? 'Speichere...' : 'Benutzer erstellen'}
+              </AdminButton>
             </div>
-            <button
-              type="button"
-              className="mt-4 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-              onClick={handleCreateUser}
-              disabled={isSaving}
-            >
-              {isSaving ? 'Speichere...' : 'Benutzer erstellen'}
-            </button>
-          </section>
+          </AdminSectionCard>
           ) : null}
 
           {visibleSectionIds.includes('users-and-packages') ? (
@@ -978,7 +982,7 @@ export default function ChainadminPage() {
                                       void loadUserPermissions(token, user.id)
                                     }}
                                   >
-                                    {selected ? 'Ausgewaehlt' : 'Pakete'}
+                                    {selected ? 'Ausgewählt' : 'Pakete'}
                                   </button>
                                   <button
                                     type="button"
@@ -986,7 +990,7 @@ export default function ChainadminPage() {
                                     disabled={isSaving || session?.userId === user.id}
                                     onClick={() => void handleDeleteUser(user)}
                                   >
-                                    Loeschen
+                                    Löschen
                                   </button>
                                 </>
                               ) : (
@@ -1007,7 +1011,7 @@ export default function ChainadminPage() {
                 <h2 className="text-xl font-semibold">Benutzer bearbeiten</h2>
                 {!editForm ? (
                   <p className="mt-3 rounded-2xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-4 py-4 text-sm text-rose-900/75">
-                    Waehle links einen Admin/Staff auf Bearbeiten.
+                    Wähle links einen Admin/Staff auf Bearbeiten.
                   </p>
                 ) : (
                   <div className="mt-3 space-y-3">
@@ -1061,7 +1065,7 @@ export default function ChainadminPage() {
                         onClick={handleSaveEditedUser}
                         disabled={isSaving}
                       >
-                        {isSaving ? 'Speichere...' : 'Aenderungen speichern'}
+                        {isSaving ? 'Speichere...' : 'Änderungen speichern'}
                       </button>
                       <button
                         type="button"
@@ -1079,7 +1083,7 @@ export default function ChainadminPage() {
                 <h2 className="text-xl font-semibold">Paketfreigabe</h2>
                 {!selectedUser ? (
                   <p className="mt-3 rounded-2xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-4 py-4 text-sm text-rose-900/75">
-                    Waehle links einen Benutzer aus.
+                    Wähle links einen Benutzer aus.
                   </p>
                 ) : (
                   <div className="mt-3 space-y-3">
@@ -1096,7 +1100,7 @@ export default function ChainadminPage() {
                       <div className="space-y-2">
                         <div className="grid gap-2 sm:grid-cols-3">
                           <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-xs text-rose-900/80">
-                            Ausgewaehlte Pakete: <span className="font-semibold">{selectedPackageIds.length}</span>
+                            Ausgewählte Pakete: <span className="font-semibold">{selectedPackageIds.length}</span>
                           </div>
                           <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-xs text-rose-900/80">
                             Effektive Rechte: <span className="font-semibold">{previewPermissions.length}</span>
@@ -1189,7 +1193,7 @@ export default function ChainadminPage() {
                           : 'Keine Rechte aktiv'}
                       </p>
                       <p className="mt-1 text-[11px] text-rose-900/70">
-                        Gespeichert: {selectedUserPermissions.length} | Ausgewaehlt: {selectedPackageIds.length}
+                        Gespeichert: {selectedUserPermissions.length} | Ausgewählt: {selectedPackageIds.length}
                       </p>
                     </div>
 
