@@ -133,6 +133,65 @@ enum DisputeStatus {
   CLOSED
 }
 
+enum FeatureModuleKey {
+  ORDERS
+  PRODUCTS
+  CATEGORIES
+  INGREDIENTS
+  ALLERGENS
+  STOCK
+  SUPPLIERS
+  STAFF
+  DRIVERS
+  DISPLAYS
+  DISPLAY_DESIGN
+  ORDERDESK
+  TERMINALS
+  POS
+  DELIVERY_ZONES
+  RATINGS
+  TIPS
+  LOYALTY
+  PAYMENT
+  ANALYTICS
+  CASH_CLOSING
+  PLATFORM_BRANDING
+}
+
+enum BillingPlanType {
+  REVENUE_SHARE
+  MONTHLY_FIXED
+  ORDER_PACKAGE
+  HYBRID
+  CUSTOM
+}
+
+enum BillingPeriodType {
+  MONTHLY
+  WEEKLY
+}
+
+enum BillingUsagePeriodStatus {
+  OPEN
+  CLOSED
+  FINALIZED
+}
+
+enum BillingUsageCounterKey {
+  ORDERS_TOTAL
+  ORDERS_COUNTED
+  ORDERS_CANCELED
+  REVENUE_GROSS_CENTS
+  REVENUE_COUNTED_CENTS
+}
+
+enum CommissionRuleType {
+  PERCENT
+  FIXED_PER_ORDER
+  HYBRID
+  THRESHOLD
+}
+
 model Chain {
   id        String   @id @default(uuid())
   name      String
@@ -147,6 +206,12 @@ model Chain {
   customerProfiles CustomerProfile[]
   users     User[]
   auditLogs AuditLog[]
+  featureModuleSettings ChainFeatureModuleSetting[]
+  tenantFeatureModuleSettings TenantFeatureModuleSetting[]
+  tenantBillingPlans TenantBillingPlan[]
+  tenantBillingSettings TenantBillingSettings[]
+  billingUsagePeriods BillingUsagePeriod[]
+  commissionRules CommissionRule[]
   createdAt DateTime @default(now())
 }
 
@@ -187,6 +252,12 @@ model Tenant {
   paymentDisputes PaymentDispute[]
   tipTransactions TipTransaction[]
   paymentMethodOverrides TenantPaymentMethodOverride[]
+  featureModuleSettings TenantFeatureModuleSetting[]
+  tenantBillingPlan TenantBillingPlan?
+  tenantBillingSettings TenantBillingSettings?
+  billingUsagePeriods BillingUsagePeriod[]
+  billingUsageCounters BillingUsageCounter[]
+  commissionRules CommissionRule[]
 
   createdAt  DateTime  @default(now())
 
@@ -585,6 +656,172 @@ model TenantPaymentMethodOverride {
 
   @@unique([tenantId, paymentMethodId])
   @@index([tenantId])
+}
+
+model ChainFeatureModuleSetting {
+  id                  String           @id @default(uuid())
+  chainId             String
+  featureKey          FeatureModuleKey
+  enabled             Boolean          @default(true)
+  enabledBySuperadmin Boolean          @default(true)
+  updatedBy           String?
+  chain               Chain            @relation(fields: [chainId], references: [id], onDelete: Cascade)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([chainId, featureKey])
+  @@index([chainId])
+}
+
+model TenantFeatureModuleSetting {
+  id                  String           @id @default(uuid())
+  tenantId            String
+  chainId             String?
+  featureKey          FeatureModuleKey
+  enabled             Boolean          @default(true)
+  enabledBySuperadmin Boolean          @default(true)
+  updatedBy           String?
+  tenant              Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chain               Chain?           @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  @@unique([tenantId, featureKey])
+  @@index([tenantId])
+  @@index([chainId])
+}
+
+model BillingPlanTemplate {
+  id                                     String             @id @default(uuid())
+  key                                    String             @unique
+  name                                   String
+  description                            String?
+  planType                               BillingPlanType
+  monthlyFeeCents                        Int                @default(0)
+  includedOrders                         Int                @default(0)
+  commissionPercent                      Decimal            @default(0) @db.Decimal(6, 3)
+  commissionAfterIncludedOrdersPercent   Decimal?           @db.Decimal(6, 3)
+  fixedFeePerOrderCents                  Int                @default(0)
+  billingPeriod                          BillingPeriodType  @default(MONTHLY)
+  isActive                               Boolean            @default(true)
+  metadata                               Json?
+  createdAt                              DateTime           @default(now())
+  updatedAt                              DateTime           @updatedAt
+
+  @@index([isActive, planType])
+}
+
+model TenantBillingPlan {
+  id                                   String             @id @default(uuid())
+  tenantId                             String             @unique
+  chainId                              String?
+  planType                             BillingPlanType
+  monthlyFeeCents                      Int                @default(0)
+  includedOrders                       Int                @default(0)
+  commissionPercent                    Decimal            @default(0) @db.Decimal(6, 3)
+  commissionAfterIncludedOrdersPercent Decimal?           @db.Decimal(6, 3)
+  fixedFeePerOrderCents                Int                @default(0)
+  billingPeriod                        BillingPeriodType  @default(MONTHLY)
+  activeFrom                           DateTime           @default(now())
+  activeUntil                          DateTime?
+  isActive                             Boolean            @default(true)
+  notes                                String?
+  updatedBy                            String?
+  tenant                               Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chain                                Chain?             @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  createdAt                            DateTime           @default(now())
+  updatedAt                            DateTime           @updatedAt
+
+  @@index([chainId])
+  @@index([isActive, planType, activeFrom])
+}
+
+model TenantBillingSettings {
+  id                         String   @id @default(uuid())
+  tenantId                   String   @unique
+  chainId                    String?
+  paymentFeeBearer           FeeBearer @default(TENANT)
+  countOnlyPaidOrders        Boolean  @default(true)
+  countOnlyCompletedOrders   Boolean  @default(true)
+  excludeCanceledOrders      Boolean  @default(true)
+  revenueMode                String   @default("GROSS")
+  currency                   String   @default("EUR")
+  timezone                   String   @default("Europe/Berlin")
+  notes                      String?
+  isActive                   Boolean  @default(true)
+  updatedBy                  String?
+  tenant                     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chain                      Chain?   @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([chainId])
+  @@index([isActive])
+}
+
+model BillingUsagePeriod {
+  id                 String                   @id @default(uuid())
+  tenantId           String
+  chainId            String?
+  periodStart        DateTime
+  periodEnd          DateTime
+  status             BillingUsagePeriodStatus @default(OPEN)
+  ordersTotal        Int                      @default(0)
+  ordersCounted      Int                      @default(0)
+  ordersCanceled     Int                      @default(0)
+  revenueGrossCents  Int                      @default(0)
+  revenueCountedCents Int                     @default(0)
+  snapshotAt         DateTime?
+  metadata           Json?
+  tenant             Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chain              Chain?                   @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  counters           BillingUsageCounter[]
+  createdAt          DateTime                 @default(now())
+  updatedAt          DateTime                 @updatedAt
+
+  @@unique([tenantId, periodStart, periodEnd])
+  @@index([tenantId, status, periodStart])
+  @@index([chainId, status, periodStart])
+}
+
+model BillingUsageCounter {
+  id            String                @id @default(uuid())
+  usagePeriodId String
+  tenantId      String
+  counterKey    BillingUsageCounterKey
+  valueInt      Int                   @default(0)
+  valueDecimal  Decimal?              @db.Decimal(16, 4)
+  metadata      Json?
+  usagePeriod   BillingUsagePeriod    @relation(fields: [usagePeriodId], references: [id], onDelete: Cascade)
+  tenant        Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+
+  @@unique([usagePeriodId, counterKey])
+  @@index([tenantId, counterKey])
+}
+
+model CommissionRule {
+  id                    String              @id @default(uuid())
+  tenantId              String
+  chainId               String?
+  name                  String
+  ruleType              CommissionRuleType
+  isActive              Boolean             @default(true)
+  priority              Int                 @default(100)
+  conditionsJson        Json?
+  commissionPercent     Decimal?            @db.Decimal(6, 3)
+  fixedFeePerOrderCents Int?
+  appliesAfterOrders    Int?
+  activeFrom            DateTime?
+  activeUntil           DateTime?
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  chain                 Chain?              @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  @@index([tenantId, isActive, priority])
+  @@index([chainId, isActive, priority])
 }
 
 model TenantProviderAccount {

@@ -680,6 +680,14 @@ router.post('/public/heartbeat', async (req, res) => {
         chainId: true,
       },
     })
+    const display = await prisma.orderDisplay.findUnique({
+      where: { displayCode: binding.displayCode },
+      select: {
+        id: true,
+        displayRole: true,
+        isActive: true,
+      },
+    })
 
     const tenantAdmins = await prisma.user.findMany({
       where: {
@@ -719,8 +727,16 @@ router.post('/public/heartbeat', async (req, res) => {
 
     return res.json({
       ok: true,
+      status: binding.isActive ? 'online' : 'inactive',
       bindingId: binding.id,
+      displayId: display?.id ?? null,
       displayCode: binding.displayCode,
+      displayType:
+        display?.displayRole === 'KITCHEN'
+          ? 'KITCHEN'
+          : display?.displayRole === 'PICKUP'
+          ? 'PICKUP_NUMBERS'
+          : 'MIXED',
       tenant: {
         id: tenant?.id ?? binding.tenantId,
         name: tenant?.name ?? null,
@@ -736,6 +752,12 @@ router.post('/public/heartbeat', async (req, res) => {
         reconnectGapMs: staleMs,
         previousLastSeenAt: lastSeenAtIso,
       },
+      recoveryHints: recoveredAfterGap
+        ? [
+            'Verbindung wurde nach einer Unterbrechung wiederhergestellt',
+            'Bitte Netzwerkqualitaet am Geraet pruefen',
+          ]
+        : [],
       serverTime: now.toISOString(),
     })
   } catch (error) {

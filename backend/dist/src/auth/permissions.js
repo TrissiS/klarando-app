@@ -41,6 +41,10 @@ exports.DEFAULT_ROLE_PERMISSIONS = {
         client_1.PermissionKey.ORDERS_READ,
         client_1.PermissionKey.ORDERS_WRITE,
     ],
+    [client_1.UserRole.DRIVER]: [
+        client_1.PermissionKey.ORDERS_READ,
+        client_1.PermissionKey.ORDERS_WRITE,
+    ],
 };
 function getDefaultPermissions(role) {
     return exports.DEFAULT_ROLE_PERMISSIONS[role] ?? [];

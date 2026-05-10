@@ -6,7 +6,11 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.signAuthToken = signAuthToken;
 exports.verifyAuthToken = verifyAuthToken;
 const crypto_1 = __importDefault(require("crypto"));
-const AUTH_SECRET = process.env.AUTH_SECRET || 'klarando-change-me';
+const RESOLVED_AUTH_SECRET = process.env.JWT_SECRET || process.env.AUTH_SECRET || '';
+if (!RESOLVED_AUTH_SECRET && process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET oder AUTH_SECRET muss in Produktion gesetzt sein');
+}
+const AUTH_SECRET = RESOLVED_AUTH_SECRET || 'dev-auth-secret-change-me';
 const TOKEN_TTL_SECONDS = Number(process.env.AUTH_TOKEN_TTL_SECONDS || 60 * 60 * 12);
 function toBase64Url(value) {
     return Buffer.from(value).toString('base64url');

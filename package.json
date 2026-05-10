@@ -1,6 +1,6 @@
 {
   "name": "klarando-app",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -21,8 +21,16 @@
     "stop:all": "powershell -ExecutionPolicy Bypass -File scripts/stop-klarando-all.ps1",
     "shortcut:desktop:stop": "powershell -ExecutionPolicy Bypass -File scripts/create-klarando-stop-shortcut.ps1",
     "shortcut:desktop:diagnose": "powershell -ExecutionPolicy Bypass -File scripts/create-klarando-diagnose-shortcut.ps1",
+    "shortcut:desktop:deploy": "powershell -ExecutionPolicy Bypass -File scripts/create-klarando-live-deploy-shortcut.ps1",
     "preflight": "node scripts/preflight.mjs",
     "check:env-safety": "node scripts/check-env-safety.mjs",
+    "version:show": "node scripts/version-manager.mjs show",
+    "version:bump:patch": "node scripts/version-manager.mjs bump patch",
+    "version:bump:minor": "node scripts/version-manager.mjs bump minor",
+    "version:bump:major": "node scripts/version-manager.mjs bump major",
+    "deploy:live": "powershell -ExecutionPolicy Bypass -File scripts/deploy-klarando-live.ps1 -Mode live",
+    "deploy:test": "powershell -ExecutionPolicy Bypass -File scripts/deploy-klarando-live.ps1 -Mode test",
+    "deploy:quick": "powershell -ExecutionPolicy Bypass -File scripts/deploy-klarando-live.ps1 -Mode quick",
     "health:web": "node scripts/health-check.mjs http://localhost:3000/api/health web 4000",
     "health:backend": "node scripts/health-check.mjs http://localhost:4000/api/health backend 4000",
     "health:all": "npm run health:backend && npm run health:web",
@@ -47,5 +55,7 @@
     "@types/react": "^18.3.28",
     "@types/react-dom": "^18.3.7",
     "typescript": "^5.9.3"
-  }
+  },
+  "klarandoVersion": "0.1.1",
+  "klarandoBuildDateUtc": "2026-05-10T13:54:01.749Z"
 }

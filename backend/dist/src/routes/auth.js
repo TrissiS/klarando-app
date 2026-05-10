@@ -9,13 +9,27 @@ const password_1 = require("../auth/password");
 const token_1 = require("../auth/token");
 const auth_1 = require("../middleware/auth");
 const audit_1 = require("../lib/audit");
+const rate_limit_1 = require("../middleware/rate-limit");
 const router = (0, express_1.Router)();
+async function loadSupportedUserRolesFromDatabase() {
+    try {
+        const rows = await prisma_1.prisma.$queryRawUnsafe('SELECT unnest(enum_range(NULL::"UserRole"))::text AS role');
+        return new Set(rows.map((entry) => entry.role));
+    }
+    catch (error) {
+        console.warn('LOAD USER ROLE ENUM ERROR:', error);
+        return null;
+    }
+}
 async function seedRolePermissions() {
     try {
-        const rows = Object.entries(permissions_1.DEFAULT_ROLE_PERMISSIONS).flatMap(([role, permissions]) => permissions.map((permission) => ({
-            role: role,
-            permission,
-        })));
+        const supportedRoles = await loadSupportedUserRolesFromDatabase();
+        const rows = Object.entries(permissions_1.DEFAULT_ROLE_PERMISSIONS).flatMap(([role, permissions]) => (supportedRoles && !supportedRoles.has(role)
+            ? []
+            : permissions.map((permission) => ({
+                role: role,
+                permission,
+            }))));
         if (rows.length === 0) {
             return;
         }
@@ -94,7 +108,7 @@ router.post('/bootstrap-superadmin', async (req, res) => {
         return res.status(500).json({ error: 'Superadmin konnte nicht erstellt werden' });
     }
 });
-router.post('/login', async (req, res) => {
+router.post('/login', rate_limit_1.rateLimitAuthLogin, async (req, res) => {
     try {
         const { email, password } = req.body;
         if (!email || !password) {
@@ -112,6 +126,14 @@ router.post('/login', async (req, res) => {
                 metadata: { email: normalizedEmail },
             });
             return res.status(401).json({ error: 'Login fehlgeschlagen' });
+        }
+        if ((0, password_1.needsPasswordRehash)(user.passwordHash)) {
+            await prisma_1.prisma.user.update({
+                where: { id: user.id },
+                data: {
+                    passwordHash: (0, password_1.hashPassword)(password),
+                },
+            });
         }
         const permissions = await resolvePermissionsForUser(user.id, user.role);
         const token = (0, token_1.signAuthToken)({

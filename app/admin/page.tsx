@@ -12,7 +12,9 @@ import {
   getActions,
   type AdminOrderRatingsDashboard,
   type AdminOrderDashboard,
+  type EffectiveFeatureSetResponse,
   getCategories,
+  getMyEffectiveFeatureModules,
   getIngredients,
   getOrderDisplays,
   getOrderTerminals,
@@ -49,6 +51,7 @@ export default function AdminPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [dashboardStorageScope, setDashboardStorageScope] = useState('default')
   const [grantedPermissions, setGrantedPermissions] = useState<Set<string> | null>(null)
+  const [featureScope, setFeatureScope] = useState<EffectiveFeatureSetResponse | null>(null)
   const [visibleSectionIds, setVisibleSectionIds] = useState<string[]>([
     'stats',
     'sales',
@@ -69,7 +72,12 @@ export default function AdminPage() {
     { id: 'liveLinks', label: 'Aktive Links Screens/Displays' },
     { id: 'previews', label: 'Bildschirm-Vorschau' },
   ] as const
-  const moduleContext = { permissions: grantedPermissions }
+  const moduleContext = {
+    permissions: grantedPermissions,
+    enabledFeatureKeys: featureScope
+      ? new Set(featureScope.modules.filter((entry) => entry.enabled).map((entry) => entry.key))
+      : null,
+  }
   const productsModuleEnabled = isModuleEnabled('products', moduleContext)
   const inventoryModuleEnabled = isModuleEnabled('inventory', moduleContext)
   const ordersModuleEnabled = isModuleEnabled('orders', moduleContext)
@@ -261,6 +269,28 @@ export default function AdminPage() {
     } catch {
       setDashboardStorageScope('default')
       setGrantedPermissions(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadFeatureScope() {
+      try {
+        const effective = await getMyEffectiveFeatureModules()
+        if (!cancelled) {
+          setFeatureScope(effective)
+        }
+      } catch {
+        if (!cancelled) {
+          setFeatureScope(null)
+        }
+      }
+    }
+
+    void loadFeatureScope()
+    return () => {
+      cancelled = true
     }
   }, [])
 

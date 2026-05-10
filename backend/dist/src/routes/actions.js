@@ -13,6 +13,13 @@ function normalizeText(value) {
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
 }
+function normalizeMoney(value, fallback = 0) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        return fallback;
+    }
+    return Number(parsed.toFixed(2));
+}
 function parseWeeklyDays(input) {
     if (!Array.isArray(input)) {
         return [];
@@ -34,6 +41,31 @@ function readWeeklyDays(raw) {
         .split(',')
         .map((entry) => Number(entry))
         .filter((entry) => Number.isInteger(entry) && entry >= 1 && entry <= 7);
+}
+function isMissingActionColumnsError(error) {
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    return (error.message.includes('Action.imageUrl') ||
+        error.message.includes('"imageUrl"') ||
+        error.message.includes('Action.displayAsMenu') ||
+        error.message.includes('"displayAsMenu"') ||
+        error.message.includes('Action.hidePriceOnScreen') ||
+        error.message.includes('"hidePriceOnScreen"'));
+}
+async function ensureActionColumns() {
+    await prisma_1.prisma.$executeRawUnsafe(`
+    ALTER TABLE "Action"
+    ADD COLUMN IF NOT EXISTS "imageUrl" TEXT;
+  `);
+    await prisma_1.prisma.$executeRawUnsafe(`
+    ALTER TABLE "Action"
+    ADD COLUMN IF NOT EXISTS "displayAsMenu" BOOLEAN NOT NULL DEFAULT false;
+  `);
+    await prisma_1.prisma.$executeRawUnsafe(`
+    ALTER TABLE "Action"
+    ADD COLUMN IF NOT EXISTS "hidePriceOnScreen" BOOLEAN NOT NULL DEFAULT false;
+  `);
 }
 function parseTime(input) {
     if (!input) {
@@ -83,6 +115,14 @@ function isActionCurrentlyActive(action) {
     }
     return true;
 }
+function mapActionOutput(action) {
+    return {
+        ...action,
+        weeklyDays: readWeeklyDays(action.weeklyDays),
+        value: normalizeMoney(action.value, 0).toFixed(2),
+        imageUrl: normalizeText(action.imageUrl) ?? null,
+    };
+}
 async function validateProductScope(tenantId, productIds) {
     if (productIds.length === 0) {
         return true;
@@ -104,7 +144,7 @@ router.get('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_RE
         if (!tenantId) {
             return res.status(400).json({ error: 'tenantId fehlt' });
         }
-        const actions = await prisma_1.prisma.action.findMany({
+        const loadActions = () => prisma_1.prisma.action.findMany({
             where: { tenantId },
             include: {
                 products: {
@@ -124,10 +164,18 @@ router.get('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_RE
             },
             orderBy: [{ createdAt: 'desc' }],
         });
-        return res.json(actions.map((action) => ({
-            ...action,
-            weeklyDays: readWeeklyDays(action.weeklyDays),
-        })));
+        let actions;
+        try {
+            actions = await loadActions();
+        }
+        catch (loadError) {
+            if (!isMissingActionColumnsError(loadError)) {
+                throw loadError;
+            }
+            await ensureActionColumns();
+            actions = await loadActions();
+        }
+        return res.json(actions.map(mapActionOutput));
     }
     catch (error) {
         console.error('GET ACTIONS ERROR:', error);
@@ -140,7 +188,7 @@ router.get('/active', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODU
         if (!tenantId) {
             return res.status(400).json({ error: 'tenantId fehlt' });
         }
-        const actions = await prisma_1.prisma.action.findMany({
+        const loadActions = () => prisma_1.prisma.action.findMany({
             where: {
                 tenantId,
                 isActive: true,
@@ -161,11 +209,19 @@ router.get('/active', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODU
             },
             orderBy: [{ createdAt: 'desc' }],
         });
+        let actions;
+        try {
+            actions = await loadActions();
+        }
+        catch (loadError) {
+            if (!isMissingActionColumnsError(loadError)) {
+                throw loadError;
+            }
+            await ensureActionColumns();
+            actions = await loadActions();
+        }
         const active = actions.filter((action) => isActionCurrentlyActive(action));
-        return res.json(active.map((action) => ({
-            ...action,
-            weeklyDays: readWeeklyDays(action.weeklyDays),
-        })));
+        return res.json(active.map(mapActionOutput));
     }
     catch (error) {
         console.error('GET ACTIVE ACTIONS ERROR:', error);
@@ -174,7 +230,7 @@ router.get('/active', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODU
 });
 router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_WRITE), async (req, res) => {
     try {
-        const { tenantId, name, description, kind, valueType, value, isActive, startAt, endAt, weeklyDays, dailyStartTime, dailyEndTime, productIds, } = req.body;
+        const { tenantId, name, description, imageUrl, displayAsMenu, hidePriceOnScreen, kind, valueType, value, isActive, startAt, endAt, weeklyDays, dailyStartTime, dailyEndTime, productIds, } = req.body;
         if (!tenantId || !name || !kind || !valueType || value === undefined) {
             return res.status(400).json({ error: 'Pflichtfelder fehlen' });
         }
@@ -190,6 +246,12 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
         }
         if (valueType === client_1.ActionValueType.PERCENT && parsedValue > 100) {
             return res.status(400).json({ error: 'Prozentwert darf max. 100 sein' });
+        }
+        if (displayAsMenu !== undefined && typeof displayAsMenu !== 'boolean') {
+            return res.status(400).json({ error: 'displayAsMenu muss true oder false sein' });
+        }
+        if (hidePriceOnScreen !== undefined && typeof hidePriceOnScreen !== 'boolean') {
+            return res.status(400).json({ error: 'hidePriceOnScreen muss true oder false sein' });
         }
         const normalizedStartAt = startAt ? new Date(startAt) : null;
         const normalizedEndAt = endAt ? new Date(endAt) : null;
@@ -233,11 +295,18 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
         if (!productsAreValid) {
             return res.status(400).json({ error: 'Mindestens ein Produkt gehoert nicht zum Tenant' });
         }
+        if ((displayAsMenu ?? false) && normalizedProductIds.length < 2) {
+            return res.status(400).json({ error: 'Ein Menue braucht mindestens zwei Artikel' });
+        }
+        await ensureActionColumns();
         const action = await prisma_1.prisma.action.create({
             data: {
                 tenantId,
                 name: name.trim(),
                 description: normalizeText(description),
+                imageUrl: normalizeText(imageUrl),
+                displayAsMenu: displayAsMenu ?? false,
+                hidePriceOnScreen: hidePriceOnScreen ?? false,
                 kind,
                 valueType,
                 value: parsedValue,
@@ -283,10 +352,7 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
                 productCount: action.products.length,
             },
         });
-        return res.status(201).json({
-            ...action,
-            weeklyDays: readWeeklyDays(action.weeklyDays),
-        });
+        return res.status(201).json(mapActionOutput(action));
     }
     catch (error) {
         if (error instanceof client_1.Prisma.PrismaClientKnownRequestError &&
@@ -300,7 +366,7 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
 router.patch('/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_WRITE), async (req, res) => {
     try {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const { tenantId, name, description, kind, valueType, value, isActive, startAt, endAt, weeklyDays, dailyStartTime, dailyEndTime, productIds, } = req.body;
+        const { tenantId, name, description, imageUrl, displayAsMenu, hidePriceOnScreen, kind, valueType, value, isActive, startAt, endAt, weeklyDays, dailyStartTime, dailyEndTime, productIds, } = req.body;
         if (!id || !tenantId) {
             return res.status(400).json({ error: 'id und tenantId sind erforderlich' });
         }
@@ -325,6 +391,12 @@ router.patch('/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUC
             parsedValue !== undefined &&
             parsedValue > 100) {
             return res.status(400).json({ error: 'Prozentwert darf max. 100 sein' });
+        }
+        if (displayAsMenu !== undefined && typeof displayAsMenu !== 'boolean') {
+            return res.status(400).json({ error: 'displayAsMenu muss true oder false sein' });
+        }
+        if (hidePriceOnScreen !== undefined && typeof hidePriceOnScreen !== 'boolean') {
+            return res.status(400).json({ error: 'hidePriceOnScreen muss true oder false sein' });
         }
         const normalizedStartAt = startAt === undefined ? undefined : startAt ? new Date(startAt) : null;
         const normalizedEndAt = endAt === undefined ? undefined : endAt ? new Date(endAt) : null;
@@ -361,14 +433,21 @@ router.patch('/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUC
                     .status(400)
                     .json({ error: 'Mindestens ein Produkt gehoert nicht zum Tenant' });
             }
+            if (displayAsMenu === true && normalizedProductIds.length < 2) {
+                return res.status(400).json({ error: 'Ein Menue braucht mindestens zwei Artikel' });
+            }
         }
         const normalizedWeeklyDays = weeklyDays === undefined ? undefined : normalizeWeeklyDays(weeklyDays);
+        await ensureActionColumns();
         const action = await prisma_1.prisma.$transaction(async (tx) => {
             const updated = await tx.action.update({
                 where: { id },
                 data: {
                     name: name === undefined ? undefined : name.trim(),
                     description: description === undefined ? undefined : normalizeText(description),
+                    imageUrl: imageUrl === undefined ? undefined : normalizeText(imageUrl),
+                    displayAsMenu,
+                    hidePriceOnScreen,
                     kind,
                     valueType,
                     value: parsedValue,
@@ -427,10 +506,7 @@ router.patch('/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUC
                 productCount: action.products.length,
             },
         });
-        return res.json({
-            ...action,
-            weeklyDays: readWeeklyDays(action.weeklyDays),
-        });
+        return res.json(mapActionOutput(action));
     }
     catch (error) {
         console.error('UPDATE ACTION ERROR:', error);

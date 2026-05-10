@@ -1,11 +1,28 @@
 import { Request, Router } from 'express'
-import { PermissionKey, Prisma, UserRole } from '@prisma/client'
+import {
+  BillingUsageCounterKey,
+  BillingPeriodType,
+  BillingPlanType,
+  FeatureModuleKey,
+  FeeBearer,
+  PermissionKey,
+  Prisma,
+  UserRole,
+} from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { hashPassword } from '../auth/password'
 import { getDefaultPermissions } from '../auth/permissions'
+import { signOrderDeskDeviceToken } from '../auth/orderdesk-device-token'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
+import {
+  calculateBillingUsageSnapshot,
+  FEATURE_MODULE_REGISTRY,
+  FEATURE_PACKAGES,
+  moduleKeyFromString,
+  resolveEffectiveFeatureSetForTenant,
+} from '../lib/feature-modules'
 
 const router = Router()
 const ALL_PERMISSIONS = Object.values(PermissionKey)
@@ -55,6 +72,140 @@ async function loadSupportedUserRoles() {
 async function isUserRoleSupported(role: UserRole) {
   const roles = await loadSupportedUserRoles()
   return roles.has(role)
+}
+
+const DISPLAY_STATUS_ONLINE_MS = 60_000
+const ORDERDESK_PAIRING_SESSION_MS = 15 * 60 * 1000
+const DISPLAY_MANAGEMENT_TYPES = new Set([
+  'MENU',
+  'OFFERS',
+  'PICKUP_NUMBERS',
+  'KITCHEN',
+  'ADVERTISING',
+  'MIXED',
+])
+
+type DisplayManagementType =
+  | 'MENU'
+  | 'OFFERS'
+  | 'PICKUP_NUMBERS'
+  | 'KITCHEN'
+  | 'ADVERTISING'
+  | 'MIXED'
+
+type DisplayManagementStatus = 'online' | 'offline' | 'inactive'
+
+type DisplaySourceKind = 'ORDER_DISPLAY' | 'SCREEN_DEVICE'
+
+type DisplayRecord = {
+  id: string
+  entityId: string
+  sourceKind: DisplaySourceKind
+  tenantId: string
+  tenantName: string | null
+  chainId: string | null
+  chainName: string | null
+  name: string
+  displayType: DisplayManagementType
+  code: string
+  isActive: boolean
+  lastSeenAt: string | null
+  lastSyncAt: string | null
+  resolution: string | null
+  deviceInfo: {
+    alias: string | null
+    model: string | null
+    platform: string | null
+    appVersion: string | null
+    source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE'
+  } | null
+  status: DisplayManagementStatus
+  previewPath: string
+  editablePath: string
+  pairingSupported: boolean
+}
+
+function parseDisplayManagementType(value: unknown): DisplayManagementType | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const normalized = value.trim().toUpperCase()
+  return DISPLAY_MANAGEMENT_TYPES.has(normalized)
+    ? (normalized as DisplayManagementType)
+    : null
+}
+
+function mapOrderDisplayRoleToType(role: 'CASH' | 'KITCHEN' | 'PICKUP'): DisplayManagementType {
+  if (role === 'KITCHEN') {
+    return 'KITCHEN'
+  }
+  if (role === 'PICKUP') {
+    return 'PICKUP_NUMBERS'
+  }
+  return 'MIXED'
+}
+
+function parseScreenDeviceType(value: unknown, fallbackName: string): DisplayManagementType {
+  if (typeof value === 'string') {
+    const direct = parseDisplayManagementType(value)
+    if (direct) {
+      return direct
+    }
+  }
+
+  const loweredName = fallbackName.trim().toLowerCase()
+  if (loweredName.includes('angebot')) {
+    return 'OFFERS'
+  }
+  if (loweredName.includes('werbung') || loweredName.includes('ad')) {
+    return 'ADVERTISING'
+  }
+  if (loweredName.includes('abhol')) {
+    return 'PICKUP_NUMBERS'
+  }
+
+  return 'MENU'
+}
+
+function computeDisplayStatus(
+  isActive: boolean,
+  lastSeenAt: Date | string | null | undefined
+): DisplayManagementStatus {
+  if (!isActive) {
+    return 'inactive'
+  }
+
+  if (!lastSeenAt) {
+    return 'offline'
+  }
+
+  const parsed = lastSeenAt instanceof Date ? lastSeenAt : new Date(lastSeenAt)
+  if (Number.isNaN(parsed.getTime())) {
+    return 'offline'
+  }
+
+  return Date.now() - parsed.getTime() <= DISPLAY_STATUS_ONLINE_MS ? 'online' : 'offline'
+}
+
+function parseDisplayRef(input: string | null | undefined) {
+  if (!input) {
+    return null
+  }
+  const trimmed = input.trim()
+  if (trimmed.startsWith('order:')) {
+    const entityId = trimmed.slice('order:'.length).trim()
+    return entityId ? { sourceKind: 'ORDER_DISPLAY' as const, entityId } : null
+  }
+  if (trimmed.startsWith('screen:')) {
+    const entityId = trimmed.slice('screen:'.length).trim()
+    return entityId ? { sourceKind: 'SCREEN_DEVICE' as const, entityId } : null
+  }
+  return null
+}
+
+function createOrderDeskPairingSessionId() {
+  const randomPart = Math.random().toString(36).slice(2, 10)
+  return `odpk_${Date.now().toString(36)}_${randomPart}`
 }
 
 function parseRole(value?: string) {
@@ -123,6 +274,66 @@ function parseScopedId(value: unknown) {
   }
   const trimmed = value.trim()
   return trimmed.length > 0 ? trimmed : null
+}
+
+function parseFeatureModuleKey(value: unknown) {
+  return moduleKeyFromString(value)
+}
+
+function parseOptionalInt(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+  return Math.round(parsed)
+}
+
+function parseOptionalDecimal(value: unknown) {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    return null
+  }
+  return parsed
+}
+
+function parseBillingPlanType(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const normalized = value.trim().toUpperCase()
+  const parsed = normalized as BillingPlanType
+  return Object.values(BillingPlanType).includes(parsed) ? parsed : null
+}
+
+function parseBillingPeriodType(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const normalized = value.trim().toUpperCase()
+  const parsed = normalized as BillingPeriodType
+  return Object.values(BillingPeriodType).includes(parsed) ? parsed : null
+}
+
+function parseFeeBearer(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const normalized = value.trim().toUpperCase()
+  const parsed = normalized as FeeBearer
+  return Object.values(FeeBearer).includes(parsed) ? parsed : null
+}
+
+function ensureSuperadmin(req: Request) {
+  if (req.authUser?.role !== UserRole.SUPERADMIN) {
+    return 'Nur Superadmin darf diese Aktion ausfuehren'
+  }
+  return null
 }
 
 function canManageUsersRole(role: UserRole | undefined) {
@@ -281,6 +492,233 @@ function enforceAuditScope(req: Request, where: Record<string, unknown>) {
   return where
 }
 
+async function loadDisplayOverviewRows(tenantIds: string[]) {
+  const [orderDisplays, screenDevices, orderDeskBindings] = await Promise.all([
+    prisma.orderDisplay.findMany({
+      where: {
+        tenantId: {
+          in: tenantIds,
+        },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        displayCode: true,
+        displayRole: true,
+        isActive: true,
+        updatedAt: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            chainId: true,
+            chain: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ tenantId: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.screenDevice.findMany({
+      where: {
+        tenantId: {
+          in: tenantIds,
+        },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        deviceCode: true,
+        isActive: true,
+        resolutionWidth: true,
+        resolutionHeight: true,
+        notes: true,
+        lastSeenAt: true,
+        updatedAt: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            chainId: true,
+            chain: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ tenantId: 'asc' }, { name: 'asc' }],
+    }),
+    prisma.orderDeskDeviceBinding.findMany({
+      where: {
+        tenantId: {
+          in: tenantIds,
+        },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        displayId: true,
+        isActive: true,
+        deviceAlias: true,
+        deviceModel: true,
+        devicePlatform: true,
+        appVersion: true,
+        lastSeenAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+    }),
+  ])
+
+  const bindingsByDisplayId = new Map<
+    string,
+    Array<{
+      id: string
+      tenantId: string
+      displayId: string
+      isActive: boolean
+      deviceAlias: string | null
+      deviceModel: string | null
+      devicePlatform: string | null
+      appVersion: string | null
+      lastSeenAt: Date | null
+      updatedAt: Date
+    }>
+  >()
+
+  for (const binding of orderDeskBindings) {
+    const list = bindingsByDisplayId.get(binding.displayId) || []
+    list.push(binding)
+    bindingsByDisplayId.set(binding.displayId, list)
+  }
+
+  const rows: DisplayRecord[] = []
+
+  for (const display of orderDisplays) {
+    const bindings = bindingsByDisplayId.get(display.id) || []
+    const latestBinding = bindings
+      .slice()
+      .sort((left, right) => {
+        const leftTs = left.lastSeenAt?.getTime() ?? 0
+        const rightTs = right.lastSeenAt?.getTime() ?? 0
+        if (leftTs !== rightTs) {
+          return rightTs - leftTs
+        }
+        return right.updatedAt.getTime() - left.updatedAt.getTime()
+      })[0]
+
+    const lastSeenCandidate =
+      latestBinding?.lastSeenAt ??
+      (bindings.length > 0
+        ? bindings.reduce<Date | null>((latest, entry) => {
+            if (!entry.lastSeenAt) {
+              return latest
+            }
+            if (!latest || entry.lastSeenAt.getTime() > latest.getTime()) {
+              return entry.lastSeenAt
+            }
+            return latest
+          }, null)
+        : null)
+    const lastSyncCandidate =
+      bindings.length > 0
+        ? bindings.reduce<Date>((latest, entry) =>
+            entry.updatedAt.getTime() > latest.getTime() ? entry.updatedAt : latest
+          , bindings[0].updatedAt)
+        : display.updatedAt
+
+    rows.push({
+      id: `order:${display.id}`,
+      entityId: display.id,
+      sourceKind: 'ORDER_DISPLAY',
+      tenantId: display.tenantId,
+      tenantName: display.tenant?.name ?? null,
+      chainId: display.tenant?.chainId ?? null,
+      chainName: display.tenant?.chain?.name ?? null,
+      name: display.name,
+      displayType: mapOrderDisplayRoleToType(display.displayRole),
+      code: display.displayCode,
+      isActive: display.isActive,
+      lastSeenAt: lastSeenCandidate ? lastSeenCandidate.toISOString() : null,
+      lastSyncAt: lastSyncCandidate ? lastSyncCandidate.toISOString() : null,
+      resolution: null,
+      deviceInfo: latestBinding
+        ? {
+            alias: latestBinding.deviceAlias,
+            model: latestBinding.deviceModel,
+            platform: latestBinding.devicePlatform,
+            appVersion: latestBinding.appVersion,
+            source: 'ORDERDESK_BINDING',
+          }
+        : null,
+      status: computeDisplayStatus(display.isActive, lastSeenCandidate),
+      previewPath: `/order-display/${display.displayCode}`,
+      editablePath: '/admin/order-displays',
+      pairingSupported: true,
+    })
+  }
+
+  for (const device of screenDevices) {
+    const parsedNotesType =
+      (() => {
+        const noteText = device.notes || ''
+        const lines = noteText.split('\n')
+        const firstLine = lines[0]?.trim() || ''
+        if (!firstLine.startsWith('@@klarando-screen-device-meta:')) {
+          return null
+        }
+        try {
+          const json = JSON.parse(firstLine.slice('@@klarando-screen-device-meta:'.length))
+          return parseDisplayManagementType(
+            json && typeof json === 'object' ? (json as { displayType?: unknown }).displayType : null
+          )
+        } catch {
+          return null
+        }
+      })()
+
+    const resolution = `${device.resolutionWidth}x${device.resolutionHeight}`
+    rows.push({
+      id: `screen:${device.id}`,
+      entityId: device.id,
+      sourceKind: 'SCREEN_DEVICE',
+      tenantId: device.tenantId,
+      tenantName: device.tenant?.name ?? null,
+      chainId: device.tenant?.chainId ?? null,
+      chainName: device.tenant?.chain?.name ?? null,
+      name: device.name,
+      displayType: parsedNotesType ?? parseScreenDeviceType(null, device.name),
+      code: device.deviceCode,
+      isActive: device.isActive,
+      lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null,
+      lastSyncAt: device.updatedAt ? device.updatedAt.toISOString() : null,
+      resolution,
+      deviceInfo: {
+        alias: device.name,
+        model: null,
+        platform: null,
+        appVersion: null,
+        source: 'SCREEN_DEVICE',
+      },
+      status: computeDisplayStatus(device.isActive, device.lastSeenAt),
+      previewPath: `/screen/${device.deviceCode}`,
+      editablePath: '/admin/screen',
+      pairingSupported: false,
+    })
+  }
+
+  return rows
+}
+
 router.get('/roles', requirePermission(PermissionKey.USERS_READ), async (_req, res) => {
   const supportedRoles = await loadSupportedUserRoles()
   return res.json({
@@ -347,6 +785,383 @@ router.get('/context', requirePermission(PermissionKey.USERS_READ), async (req, 
     return res.status(500).json({ error: 'Kontext konnte nicht geladen werden' })
   }
 })
+
+router.get('/displays/overview', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const requestedTenantId = parseScopedId(req.query.tenantId)
+    const requestedChainId = parseScopedId(req.query.chainId)
+    const requestedStatus = parseScopedId(req.query.status)?.toLowerCase() || null
+    const requestedDisplayType = parseDisplayManagementType(req.query.displayType)
+    const queryText = parseScopedId(req.query.q)?.toLowerCase() || null
+
+    let tenantScope
+    if (requestedTenantId) {
+      tenantScope = await resolveTenantScope(req, requestedTenantId)
+    } else {
+      tenantScope = await resolveTenantScope(req, null, { allowMissingTenant: true })
+    }
+
+    let tenantIds = tenantScope.tenantId
+      ? [tenantScope.tenantId]
+      : [...tenantScope.allowedTenantIds]
+
+    if (requestedChainId) {
+      const actor = req.authUser
+      if (!actor) {
+        return res.status(401).json({ error: 'Nicht eingeloggt' })
+      }
+      if (actor.role === UserRole.CHAINADMIN && actor.chainId !== requestedChainId) {
+        return res.status(403).json({ error: 'Keine Berechtigung fuer diese Kette' })
+      }
+
+      const chainTenantIds = await prisma.tenant.findMany({
+        where: { chainId: requestedChainId },
+        select: { id: true },
+      })
+      const chainTenantIdSet = new Set(chainTenantIds.map((entry) => entry.id))
+      tenantIds = tenantIds.filter((id) => chainTenantIdSet.has(id))
+    }
+
+    if (tenantIds.length === 0) {
+      return res.json({
+        generatedAt: new Date().toISOString(),
+        rows: [],
+        summary: {
+          total: 0,
+          online: 0,
+          offline: 0,
+          inactive: 0,
+        },
+      })
+    }
+
+    let rows = await loadDisplayOverviewRows(tenantIds)
+
+    if (requestedDisplayType) {
+      rows = rows.filter((entry) => entry.displayType === requestedDisplayType)
+    }
+
+    if (requestedStatus && ['online', 'offline', 'inactive'].includes(requestedStatus)) {
+      rows = rows.filter((entry) => entry.status === requestedStatus)
+    }
+
+    if (queryText) {
+      rows = rows.filter((entry) => {
+        const haystack = [
+          entry.name,
+          entry.code,
+          entry.displayType,
+          entry.tenantName || '',
+          entry.chainName || '',
+          entry.status,
+        ]
+          .join(' ')
+          .toLowerCase()
+        return haystack.includes(queryText)
+      })
+    }
+
+    const summary = {
+      total: rows.length,
+      online: rows.filter((entry) => entry.status === 'online').length,
+      offline: rows.filter((entry) => entry.status === 'offline').length,
+      inactive: rows.filter((entry) => entry.status === 'inactive').length,
+    }
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      rows,
+      summary,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET DISPLAY OVERVIEW ERROR:', error)
+    return res.status(500).json({ error: 'Display-Uebersicht konnte nicht geladen werden' })
+  }
+})
+
+router.get('/displays/:ref/preview', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const ref = Array.isArray(req.params.ref) ? req.params.ref[0] : req.params.ref
+    const parsed = parseDisplayRef(ref)
+    if (!parsed) {
+      return res.status(400).json({ error: 'Ungueltige Display-Referenz' })
+    }
+
+    if (parsed.sourceKind === 'ORDER_DISPLAY') {
+      const display = await prisma.orderDisplay.findUnique({
+        where: { id: parsed.entityId },
+        select: {
+          id: true,
+          tenantId: true,
+          name: true,
+          displayCode: true,
+          displayRole: true,
+          isActive: true,
+        },
+      })
+
+      if (!display) {
+        return res.status(404).json({ error: 'Display nicht gefunden' })
+      }
+
+      await resolveTenantScope(req, display.tenantId)
+
+      return res.json({
+        id: `order:${display.id}`,
+        sourceKind: 'ORDER_DISPLAY',
+        displayType: mapOrderDisplayRoleToType(display.displayRole),
+        previewUrl: `/order-display/${display.displayCode}`,
+        status: computeDisplayStatus(display.isActive, null),
+        isActive: display.isActive,
+        serverTime: new Date().toISOString(),
+      })
+    }
+
+    const device = await prisma.screenDevice.findUnique({
+      where: { id: parsed.entityId },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        deviceCode: true,
+        isActive: true,
+        lastSeenAt: true,
+      },
+    })
+
+    if (!device) {
+      return res.status(404).json({ error: 'Display nicht gefunden' })
+    }
+
+    await resolveTenantScope(req, device.tenantId)
+
+    return res.json({
+      id: `screen:${device.id}`,
+      sourceKind: 'SCREEN_DEVICE',
+      displayType: parseScreenDeviceType(null, device.name),
+      previewUrl: `/screen/${device.deviceCode}`,
+      status: computeDisplayStatus(device.isActive, device.lastSeenAt),
+      isActive: device.isActive,
+      serverTime: new Date().toISOString(),
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET DISPLAY PREVIEW ERROR:', error)
+    return res.status(500).json({ error: 'Display-Vorschau konnte nicht vorbereitet werden' })
+  }
+})
+
+router.patch('/displays/:ref/active', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const ref = Array.isArray(req.params.ref) ? req.params.ref[0] : req.params.ref
+    const parsed = parseDisplayRef(ref)
+    if (!parsed) {
+      return res.status(400).json({ error: 'Ungueltige Display-Referenz' })
+    }
+
+    const payload = req.body as { isActive?: boolean }
+    if (typeof payload.isActive !== 'boolean') {
+      return res.status(400).json({ error: 'isActive muss true oder false sein' })
+    }
+
+    if (parsed.sourceKind === 'ORDER_DISPLAY') {
+      const current = await prisma.orderDisplay.findUnique({
+        where: { id: parsed.entityId },
+        select: { id: true, tenantId: true, name: true, displayCode: true, isActive: true },
+      })
+      if (!current) {
+        return res.status(404).json({ error: 'Display nicht gefunden' })
+      }
+      await resolveTenantScope(req, current.tenantId)
+
+      const updated = await prisma.orderDisplay.update({
+        where: { id: current.id },
+        data: { isActive: payload.isActive },
+        select: { id: true, tenantId: true, name: true, displayCode: true, isActive: true, updatedAt: true },
+      })
+
+      await writeAuditLog({
+        req,
+        module: 'display_management',
+        action: 'order_display_active_toggled',
+        targetType: 'order_display',
+        targetId: updated.id,
+        tenantId: updated.tenantId,
+        metadata: {
+          displayCode: updated.displayCode,
+          isActive: updated.isActive,
+        },
+      })
+
+      return res.json({
+        id: `order:${updated.id}`,
+        sourceKind: 'ORDER_DISPLAY',
+        isActive: updated.isActive,
+        status: computeDisplayStatus(updated.isActive, null),
+        updatedAt: updated.updatedAt.toISOString(),
+      })
+    }
+
+    const current = await prisma.screenDevice.findUnique({
+      where: { id: parsed.entityId },
+      select: { id: true, tenantId: true, name: true, deviceCode: true, isActive: true, lastSeenAt: true },
+    })
+    if (!current) {
+      return res.status(404).json({ error: 'Display nicht gefunden' })
+    }
+    await resolveTenantScope(req, current.tenantId)
+
+    const updated = await prisma.screenDevice.update({
+      where: { id: current.id },
+      data: { isActive: payload.isActive },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        deviceCode: true,
+        isActive: true,
+        lastSeenAt: true,
+        updatedAt: true,
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'display_management',
+      action: 'screen_device_active_toggled',
+      targetType: 'screen_device',
+      targetId: updated.id,
+      tenantId: updated.tenantId,
+      metadata: {
+        deviceCode: updated.deviceCode,
+        isActive: updated.isActive,
+      },
+    })
+
+    return res.json({
+      id: `screen:${updated.id}`,
+      sourceKind: 'SCREEN_DEVICE',
+      isActive: updated.isActive,
+      status: computeDisplayStatus(updated.isActive, updated.lastSeenAt),
+      updatedAt: updated.updatedAt.toISOString(),
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('PATCH DISPLAY ACTIVE ERROR:', error)
+    return res.status(500).json({ error: 'Display-Status konnte nicht aktualisiert werden' })
+  }
+})
+
+router.post(
+  '/displays/:ref/pairing-code',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  async (req, res) => {
+    try {
+      const ref = Array.isArray(req.params.ref) ? req.params.ref[0] : req.params.ref
+      const parsed = parseDisplayRef(ref)
+      if (!parsed || parsed.sourceKind !== 'ORDER_DISPLAY') {
+        return res.status(400).json({ error: 'Pairing-Code ist nur fuer Bestell-Displays verfuegbar' })
+      }
+
+      const payload = req.body as { deviceAlias?: string | null; expiresMinutes?: number | null }
+      const display = await prisma.orderDisplay.findUnique({
+        where: { id: parsed.entityId },
+        select: {
+          id: true,
+          tenantId: true,
+          displayCode: true,
+          name: true,
+        },
+      })
+
+      if (!display) {
+        return res.status(404).json({ error: 'Display nicht gefunden' })
+      }
+
+      await resolveTenantScope(req, display.tenantId)
+
+      const normalizedAlias =
+        typeof payload.deviceAlias === 'string' && payload.deviceAlias.trim().length > 0
+          ? payload.deviceAlias.trim().slice(0, 80)
+          : `${display.name} OrderDesk`
+      const expiresMinutesRaw = Number(payload.expiresMinutes)
+      const expiresMinutes =
+        Number.isFinite(expiresMinutesRaw) && expiresMinutesRaw >= 1 && expiresMinutesRaw <= 240
+          ? Math.round(expiresMinutesRaw)
+          : 15
+      const sessionId = createOrderDeskPairingSessionId()
+      const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000)
+
+      await prisma.orderDeskPairingSession.create({
+        data: {
+          id: sessionId,
+          tenantId: display.tenantId,
+          displayId: display.id,
+          displayCode: display.displayCode,
+          deviceAlias: normalizedAlias,
+          createdByUserId: req.authUser?.id || null,
+          expiresAt,
+        },
+      })
+
+      const pairingToken = signOrderDeskDeviceToken({
+        sid: sessionId,
+        tenantId: display.tenantId,
+        displayCode: display.displayCode,
+        bindingId: null,
+        deviceSerial: null,
+        deviceAlias: normalizedAlias,
+        kind: 'PAIRING',
+        expiresAtMs: expiresAt.getTime(),
+      })
+      const pairingPayload = `klarando-orderdesk-pair:${display.displayCode}:${pairingToken}`
+
+      await writeAuditLog({
+        req,
+        module: 'display_management',
+        action: 'pairing_code_regenerated',
+        targetType: 'order_display',
+        targetId: display.id,
+        tenantId: display.tenantId,
+        metadata: {
+          sessionId,
+          displayCode: display.displayCode,
+          expiresAt: expiresAt.toISOString(),
+        },
+      })
+
+      return res.json({
+        ok: true,
+        sessionId,
+        displayId: display.id,
+        displayCode: display.displayCode,
+        tenantId: display.tenantId,
+        expiresAt: expiresAt.toISOString(),
+        pairingPayload,
+        qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(
+          pairingPayload
+        )}`,
+      })
+    } catch (error) {
+      const scopeError = asTenantScopeError(error)
+      if (scopeError) {
+        return res.status(scopeError.status).json({ error: scopeError.message })
+      }
+      console.error('CREATE DISPLAY PAIRING CODE ERROR:', error)
+      return res.status(500).json({ error: 'Pairing-Code konnte nicht erzeugt werden' })
+    }
+  }
+)
 
 router.get('/users', requirePermission(PermissionKey.USERS_READ), async (req, res) => {
   try {
@@ -1280,6 +2095,879 @@ router.put('/users/:id/permissions', requirePermission(PermissionKey.USERS_WRITE
     }
     console.error('SET USER PERMISSIONS ERROR:', error)
     return res.status(500).json({ error: 'Berechtigungen konnten nicht gespeichert werden' })
+  }
+})
+
+router.get('/features/catalog', requirePermission(PermissionKey.SETTINGS_READ), async (_req, res) => {
+  return res.json({
+    modules: FEATURE_MODULE_REGISTRY.map((entry) => ({
+      key: entry.key,
+      name: entry.name,
+      description: entry.description,
+      category: entry.category,
+      defaultEnabled: entry.defaultEnabled,
+      adminNavPath: entry.adminNavPath ?? null,
+      requiredPermissions: entry.requiredPermissions ?? [],
+      dependencies: entry.dependencies ?? [],
+    })),
+    packages: FEATURE_PACKAGES,
+  })
+})
+
+router.get('/features/effective', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const requestedTenantId = parseScopedId(req.query.tenantId)
+    let targetTenantId = requestedTenantId
+
+    if (!targetTenantId) {
+      targetTenantId = req.authUser?.tenantId ?? null
+    }
+
+    if (!targetTenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+
+    await resolveTenantScope(req, targetTenantId)
+    const effective = await resolveEffectiveFeatureSetForTenant(targetTenantId)
+    if (!effective) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    return res.json(effective)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET EFFECTIVE FEATURES ERROR:', error)
+    return res.status(500).json({ error: 'Feature-Scope konnte nicht geladen werden' })
+  }
+})
+
+router.get('/features/overview', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const requestedTenantId = parseScopedId(req.query.tenantId)
+    const requestedChainId = parseScopedId(req.query.chainId)
+    const scope = await resolveTenantScope(req, null, { allowMissingTenant: true })
+
+    let tenantIds = [...scope.allowedTenantIds]
+    if (requestedTenantId) {
+      await resolveTenantScope(req, requestedTenantId)
+      tenantIds = [requestedTenantId]
+    }
+
+    const where: Prisma.TenantWhereInput = {
+      id: {
+        in: tenantIds,
+      },
+    }
+
+    if (requestedChainId) {
+      if (req.authUser?.role === UserRole.CHAINADMIN && req.authUser.chainId !== requestedChainId) {
+        return res.status(403).json({ error: 'Keine Berechtigung fuer diese Kette' })
+      }
+      where.chainId = requestedChainId
+    }
+
+    const tenants = await prisma.tenant.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        chainId: true,
+        chain: { select: { id: true, name: true } },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    const rows = await Promise.all(
+      tenants.map(async (tenant) => {
+        const effective = await resolveEffectiveFeatureSetForTenant(tenant.id)
+        const modules = effective?.modules ?? []
+        const enabled = modules.filter((entry) => entry.enabled).length
+        return {
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          chainId: tenant.chainId,
+          chainName: tenant.chain?.name ?? null,
+          enabledModules: enabled,
+          disabledModules: Math.max(modules.length - enabled, 0),
+          modules,
+        }
+      })
+    )
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      rows,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET FEATURES OVERVIEW ERROR:', error)
+    return res.status(500).json({ error: 'Feature-Uebersicht konnte nicht geladen werden' })
+  }
+})
+
+router.get('/features/chain/:chainId', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const chainId = Array.isArray(req.params.chainId) ? req.params.chainId[0] : req.params.chainId
+    const actor = req.authUser
+    if (!actor) {
+      return res.status(401).json({ error: 'Nicht eingeloggt' })
+    }
+    if (actor.role === UserRole.CHAINADMIN && actor.chainId !== chainId) {
+      return res.status(403).json({ error: 'Keine Berechtigung fuer diese Kette' })
+    }
+
+    const chain = await prisma.chain.findUnique({
+      where: { id: chainId },
+      select: { id: true, name: true, code: true },
+    })
+    if (!chain) {
+      return res.status(404).json({ error: 'Kette nicht gefunden' })
+    }
+
+    const settings = await prisma.chainFeatureModuleSetting.findMany({
+      where: { chainId: chain.id },
+      orderBy: { featureKey: 'asc' },
+    })
+
+    return res.json({
+      chain,
+      settings,
+    })
+  } catch (error) {
+    console.error('GET CHAIN FEATURES ERROR:', error)
+    return res.status(500).json({ error: 'Chain-Features konnten nicht geladen werden' })
+  }
+})
+
+router.put('/features/chain/:chainId', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const superadminError = ensureSuperadmin(req)
+    if (superadminError) {
+      return res.status(403).json({ error: superadminError })
+    }
+
+    const chainId = Array.isArray(req.params.chainId) ? req.params.chainId[0] : req.params.chainId
+    const chain = await prisma.chain.findUnique({
+      where: { id: chainId },
+      select: { id: true },
+    })
+    if (!chain) {
+      return res.status(404).json({ error: 'Kette nicht gefunden' })
+    }
+
+    const body = req.body as {
+      featureKey?: unknown
+      enabled?: unknown
+      enabledBySuperadmin?: unknown
+      features?: Array<{ featureKey?: unknown; enabled?: unknown }>
+    }
+    const enabledBySuperadmin = parseOptionalBoolean(body.enabledBySuperadmin)
+    const features = Array.isArray(body.features) ? body.features : null
+    const singleKey = parseFeatureModuleKey(body.featureKey)
+    const singleEnabled = parseOptionalBoolean(body.enabled)
+
+    const updates: Array<{ featureKey: FeatureModuleKey; enabled: boolean }> = []
+    if (features && features.length > 0) {
+      for (const entry of features) {
+        const featureKey = parseFeatureModuleKey(entry.featureKey)
+        const enabled = parseOptionalBoolean(entry.enabled)
+        if (!featureKey || enabled === null) {
+          return res.status(400).json({ error: 'features enthalten ungueltige Werte' })
+        }
+        updates.push({ featureKey, enabled })
+      }
+    } else {
+      if (!singleKey || singleEnabled === null) {
+        return res.status(400).json({ error: 'featureKey oder enabled ungueltig' })
+      }
+      updates.push({ featureKey: singleKey, enabled: singleEnabled })
+    }
+
+    await prisma.$transaction(
+      updates.map((entry) =>
+        prisma.chainFeatureModuleSetting.upsert({
+          where: {
+            chainId_featureKey: {
+              chainId: chain.id,
+              featureKey: entry.featureKey,
+            },
+          },
+          create: {
+            chainId: chain.id,
+            featureKey: entry.featureKey,
+            enabled: entry.enabled,
+            enabledBySuperadmin: enabledBySuperadmin ?? true,
+            updatedBy: req.authUser?.email ?? 'superadmin',
+          },
+          update: {
+            enabled: entry.enabled,
+            enabledBySuperadmin: enabledBySuperadmin ?? true,
+            updatedBy: req.authUser?.email ?? 'superadmin',
+          },
+        })
+      )
+    )
+
+    await writeAuditLog({
+      req,
+      module: 'access',
+      action: 'chain_features_updated',
+      targetType: 'chain',
+      targetId: chain.id,
+      chainId: chain.id,
+      tenantId: null,
+      metadata: { updates },
+    })
+
+    return res.json({
+      ok: true,
+      chainId: chain.id,
+      settings: await prisma.chainFeatureModuleSetting.findMany({
+        where: { chainId: chain.id },
+        orderBy: { featureKey: 'asc' },
+      }),
+    })
+  } catch (error) {
+    console.error('UPDATE CHAIN FEATURES ERROR:', error)
+    return res.status(500).json({ error: 'Chain-Features konnten nicht gespeichert werden' })
+  }
+})
+
+router.put('/features/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const superadminError = ensureSuperadmin(req)
+    if (superadminError) {
+      return res.status(403).json({ error: superadminError })
+    }
+
+    const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
+    await resolveTenantScope(req, tenantId)
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, chainId: true },
+    })
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    const body = req.body as {
+      featureKey?: unknown
+      enabled?: unknown
+      enabledBySuperadmin?: unknown
+      features?: Array<{ featureKey?: unknown; enabled?: unknown }>
+    }
+
+    const enabledBySuperadmin = parseOptionalBoolean(body.enabledBySuperadmin)
+    const features = Array.isArray(body.features) ? body.features : null
+    const singleKey = parseFeatureModuleKey(body.featureKey)
+    const singleEnabled = parseOptionalBoolean(body.enabled)
+
+    const updates: Array<{ featureKey: FeatureModuleKey; enabled: boolean }> = []
+
+    if (features && features.length > 0) {
+      for (const entry of features) {
+        const featureKey = parseFeatureModuleKey(entry.featureKey)
+        const enabled = parseOptionalBoolean(entry.enabled)
+        if (!featureKey || enabled === null) {
+          return res.status(400).json({ error: 'features enthalten ungueltige Werte' })
+        }
+        updates.push({ featureKey, enabled })
+      }
+    } else {
+      if (!singleKey || singleEnabled === null) {
+        return res.status(400).json({ error: 'featureKey oder enabled ungueltig' })
+      }
+      updates.push({ featureKey: singleKey, enabled: singleEnabled })
+    }
+
+    await prisma.$transaction(
+      updates.map((entry) =>
+        prisma.tenantFeatureModuleSetting.upsert({
+          where: {
+            tenantId_featureKey: {
+              tenantId: tenant.id,
+              featureKey: entry.featureKey,
+            },
+          },
+          create: {
+            tenantId: tenant.id,
+            chainId: tenant.chainId,
+            featureKey: entry.featureKey,
+            enabled: entry.enabled,
+            enabledBySuperadmin: enabledBySuperadmin ?? true,
+            updatedBy: req.authUser?.email ?? 'superadmin',
+          },
+          update: {
+            enabled: entry.enabled,
+            enabledBySuperadmin: enabledBySuperadmin ?? true,
+            updatedBy: req.authUser?.email ?? 'superadmin',
+            chainId: tenant.chainId,
+          },
+        })
+      )
+    )
+
+    await writeAuditLog({
+      req,
+      module: 'access',
+      action: 'tenant_features_updated',
+      targetType: 'tenant',
+      targetId: tenant.id,
+      chainId: tenant.chainId,
+      tenantId: tenant.id,
+      metadata: { updates },
+    })
+
+    const effective = await resolveEffectiveFeatureSetForTenant(tenant.id)
+    return res.json({
+      ok: true,
+      tenantId: tenant.id,
+      effective,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('UPDATE TENANT FEATURES ERROR:', error)
+    return res.status(500).json({ error: 'Feature-Einstellungen konnten nicht gespeichert werden' })
+  }
+})
+
+router.post('/features/tenant/:tenantId/apply-package', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const superadminError = ensureSuperadmin(req)
+    if (superadminError) {
+      return res.status(403).json({ error: superadminError })
+    }
+
+    const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
+    await resolveTenantScope(req, tenantId)
+    const packageKey = parseScopedId((req.body as { packageKey?: unknown }).packageKey)?.toUpperCase()
+    if (!packageKey) {
+      return res.status(400).json({ error: 'packageKey fehlt' })
+    }
+
+    const packageEntry = FEATURE_PACKAGES.find((entry) => entry.key === packageKey)
+    if (!packageEntry) {
+      return res.status(404).json({ error: 'Paket nicht gefunden' })
+    }
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, chainId: true },
+    })
+    if (!tenant) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    const enabledSet = new Set(packageEntry.features)
+    await prisma.$transaction(
+      FEATURE_MODULE_REGISTRY.map((module) =>
+        prisma.tenantFeatureModuleSetting.upsert({
+          where: {
+            tenantId_featureKey: {
+              tenantId: tenant.id,
+              featureKey: module.key,
+            },
+          },
+          create: {
+            tenantId: tenant.id,
+            chainId: tenant.chainId,
+            featureKey: module.key,
+            enabled: enabledSet.has(module.key),
+            enabledBySuperadmin: true,
+            updatedBy: req.authUser?.email ?? 'superadmin',
+          },
+          update: {
+            enabled: enabledSet.has(module.key),
+            enabledBySuperadmin: true,
+            updatedBy: req.authUser?.email ?? 'superadmin',
+            chainId: tenant.chainId,
+          },
+        })
+      )
+    )
+
+    await writeAuditLog({
+      req,
+      module: 'access',
+      action: 'tenant_feature_package_applied',
+      targetType: 'tenant',
+      targetId: tenant.id,
+      chainId: tenant.chainId,
+      tenantId: tenant.id,
+      metadata: { packageKey },
+    })
+
+    const effective = await resolveEffectiveFeatureSetForTenant(tenant.id)
+    return res.json({
+      ok: true,
+      packageKey,
+      tenantId: tenant.id,
+      effective,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('APPLY TENANT FEATURE PACKAGE ERROR:', error)
+    return res.status(500).json({ error: 'Feature-Paket konnte nicht angewendet werden' })
+  }
+})
+
+router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
+    await resolveTenantScope(req, tenantId)
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: {
+        id: true,
+        name: true,
+        chainId: true,
+        chain: { select: { id: true, name: true } },
+        tenantBillingPlan: true,
+        tenantBillingSettings: true,
+      },
+    })
+
+    if (!tenant) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    const now = new Date()
+    const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+
+    const usage = await calculateBillingUsageSnapshot({
+      tenantId: tenant.id,
+      periodStart,
+      periodEnd,
+      countOnlyPaidOrders: tenant.tenantBillingSettings?.countOnlyPaidOrders ?? true,
+      countOnlyCompletedOrders: tenant.tenantBillingSettings?.countOnlyCompletedOrders ?? true,
+      excludeCanceledOrders: tenant.tenantBillingSettings?.excludeCanceledOrders ?? true,
+    })
+
+    const activeRules = await prisma.commissionRule.findMany({
+      where: {
+        tenantId: tenant.id,
+        isActive: true,
+      },
+      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+    })
+
+    return res.json({
+      tenant: {
+        id: tenant.id,
+        name: tenant.name,
+        chainId: tenant.chainId,
+        chainName: tenant.chain?.name ?? null,
+      },
+      plan:
+        tenant.tenantBillingPlan ??
+        {
+          tenantId: tenant.id,
+          chainId: tenant.chainId,
+          planType: BillingPlanType.REVENUE_SHARE,
+          monthlyFeeCents: 0,
+          includedOrders: 0,
+          commissionPercent: 0,
+          commissionAfterIncludedOrdersPercent: null,
+          fixedFeePerOrderCents: 0,
+          billingPeriod: BillingPeriodType.MONTHLY,
+          activeFrom: now.toISOString(),
+          activeUntil: null,
+          isActive: false,
+          notes: null,
+          updatedBy: null,
+        },
+      settings:
+        tenant.tenantBillingSettings ??
+        {
+          tenantId: tenant.id,
+          chainId: tenant.chainId,
+          paymentFeeBearer: FeeBearer.TENANT,
+          countOnlyPaidOrders: true,
+          countOnlyCompletedOrders: true,
+          excludeCanceledOrders: true,
+          revenueMode: 'GROSS',
+          currency: 'EUR',
+          timezone: 'Europe/Berlin',
+          notes: null,
+          isActive: false,
+          updatedBy: null,
+        },
+      usage,
+      commissionRules: activeRules,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET TENANT BILLING SETTINGS ERROR:', error)
+    return res.status(500).json({ error: 'Abrechnung konnte nicht geladen werden' })
+  }
+})
+
+router.get('/billing/overview', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const requestedTenantId = parseScopedId(req.query.tenantId)
+    const requestedChainId = parseScopedId(req.query.chainId)
+    const scope = await resolveTenantScope(req, null, { allowMissingTenant: true })
+    let tenantIds = [...scope.allowedTenantIds]
+
+    if (requestedTenantId) {
+      await resolveTenantScope(req, requestedTenantId)
+      tenantIds = [requestedTenantId]
+    }
+
+    const where: Prisma.TenantWhereInput = {
+      id: { in: tenantIds },
+    }
+
+    if (requestedChainId) {
+      if (req.authUser?.role === UserRole.CHAINADMIN && req.authUser.chainId !== requestedChainId) {
+        return res.status(403).json({ error: 'Keine Berechtigung fuer diese Kette' })
+      }
+      where.chainId = requestedChainId
+    }
+
+    const tenants = await prisma.tenant.findMany({
+      where,
+      select: {
+        id: true,
+        name: true,
+        chainId: true,
+        chain: { select: { id: true, name: true } },
+        tenantBillingPlan: true,
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      rows: tenants.map((entry) => ({
+        tenantId: entry.id,
+        tenantName: entry.name,
+        chainId: entry.chainId,
+        chainName: entry.chain?.name ?? null,
+        plan: entry.tenantBillingPlan,
+      })),
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET BILLING OVERVIEW ERROR:', error)
+    return res.status(500).json({ error: 'Abrechnungsuebersicht konnte nicht geladen werden' })
+  }
+})
+
+router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const superadminError = ensureSuperadmin(req)
+    if (superadminError) {
+      return res.status(403).json({ error: superadminError })
+    }
+
+    const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
+    await resolveTenantScope(req, tenantId)
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, chainId: true },
+    })
+    if (!tenant) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    const body = req.body as {
+      planType?: unknown
+      monthlyFeeCents?: unknown
+      includedOrders?: unknown
+      commissionPercent?: unknown
+      commissionAfterIncludedOrdersPercent?: unknown
+      fixedFeePerOrderCents?: unknown
+      billingPeriod?: unknown
+      activeFrom?: unknown
+      activeUntil?: unknown
+      isActive?: unknown
+      notes?: unknown
+      paymentFeeBearer?: unknown
+      countOnlyPaidOrders?: unknown
+      countOnlyCompletedOrders?: unknown
+      excludeCanceledOrders?: unknown
+      revenueMode?: unknown
+      currency?: unknown
+      timezone?: unknown
+      settingsNotes?: unknown
+    }
+
+    const planType = parseBillingPlanType(body.planType)
+    const billingPeriod = parseBillingPeriodType(body.billingPeriod) ?? BillingPeriodType.MONTHLY
+    const monthlyFeeCents = parseOptionalInt(body.monthlyFeeCents)
+    const includedOrders = parseOptionalInt(body.includedOrders)
+    const commissionPercent = parseOptionalDecimal(body.commissionPercent)
+    const commissionAfterIncludedOrdersPercent = parseOptionalDecimal(
+      body.commissionAfterIncludedOrdersPercent
+    )
+    const fixedFeePerOrderCents = parseOptionalInt(body.fixedFeePerOrderCents)
+    const isActive = parseOptionalBoolean(body.isActive)
+    const paymentFeeBearer = parseFeeBearer(body.paymentFeeBearer)
+    const countOnlyPaidOrders = parseOptionalBoolean(body.countOnlyPaidOrders)
+    const countOnlyCompletedOrders = parseOptionalBoolean(body.countOnlyCompletedOrders)
+    const excludeCanceledOrders = parseOptionalBoolean(body.excludeCanceledOrders)
+
+    if (!planType) {
+      return res.status(400).json({ error: 'planType ist ungueltig' })
+    }
+
+    const activeFrom = parseScopedId(body.activeFrom)
+    const activeUntil = parseScopedId(body.activeUntil)
+    const activeFromDate = activeFrom ? new Date(activeFrom) : new Date()
+    const activeUntilDate = activeUntil ? new Date(activeUntil) : null
+
+    if (Number.isNaN(activeFromDate.getTime())) {
+      return res.status(400).json({ error: 'activeFrom ist ungueltig' })
+    }
+    if (activeUntilDate && Number.isNaN(activeUntilDate.getTime())) {
+      return res.status(400).json({ error: 'activeUntil ist ungueltig' })
+    }
+
+    const [plan, settings] = await prisma.$transaction([
+      prisma.tenantBillingPlan.upsert({
+        where: { tenantId: tenant.id },
+        create: {
+          tenantId: tenant.id,
+          chainId: tenant.chainId,
+          planType,
+          monthlyFeeCents: Math.max(0, monthlyFeeCents ?? 0),
+          includedOrders: Math.max(0, includedOrders ?? 0),
+          commissionPercent: Math.max(0, commissionPercent ?? 0),
+          commissionAfterIncludedOrdersPercent:
+            commissionAfterIncludedOrdersPercent === null
+              ? null
+              : Math.max(0, commissionAfterIncludedOrdersPercent),
+          fixedFeePerOrderCents: Math.max(0, fixedFeePerOrderCents ?? 0),
+          billingPeriod,
+          activeFrom: activeFromDate,
+          activeUntil: activeUntilDate,
+          isActive: isActive ?? true,
+          notes: parseScopedId(body.notes),
+          updatedBy: req.authUser?.email ?? 'superadmin',
+        },
+        update: {
+          chainId: tenant.chainId,
+          planType,
+          monthlyFeeCents: Math.max(0, monthlyFeeCents ?? 0),
+          includedOrders: Math.max(0, includedOrders ?? 0),
+          commissionPercent: Math.max(0, commissionPercent ?? 0),
+          commissionAfterIncludedOrdersPercent:
+            commissionAfterIncludedOrdersPercent === null
+              ? null
+              : Math.max(0, commissionAfterIncludedOrdersPercent),
+          fixedFeePerOrderCents: Math.max(0, fixedFeePerOrderCents ?? 0),
+          billingPeriod,
+          activeFrom: activeFromDate,
+          activeUntil: activeUntilDate,
+          isActive: isActive ?? true,
+          notes: parseScopedId(body.notes),
+          updatedBy: req.authUser?.email ?? 'superadmin',
+        },
+      }),
+      prisma.tenantBillingSettings.upsert({
+        where: { tenantId: tenant.id },
+        create: {
+          tenantId: tenant.id,
+          chainId: tenant.chainId,
+          paymentFeeBearer: paymentFeeBearer ?? FeeBearer.TENANT,
+          countOnlyPaidOrders: countOnlyPaidOrders ?? true,
+          countOnlyCompletedOrders: countOnlyCompletedOrders ?? true,
+          excludeCanceledOrders: excludeCanceledOrders ?? true,
+          revenueMode: parseScopedId(body.revenueMode) ?? 'GROSS',
+          currency: parseScopedId(body.currency) ?? 'EUR',
+          timezone: parseScopedId(body.timezone) ?? 'Europe/Berlin',
+          notes: parseScopedId(body.settingsNotes),
+          isActive: true,
+          updatedBy: req.authUser?.email ?? 'superadmin',
+        },
+        update: {
+          chainId: tenant.chainId,
+          paymentFeeBearer: paymentFeeBearer ?? FeeBearer.TENANT,
+          countOnlyPaidOrders: countOnlyPaidOrders ?? true,
+          countOnlyCompletedOrders: countOnlyCompletedOrders ?? true,
+          excludeCanceledOrders: excludeCanceledOrders ?? true,
+          revenueMode: parseScopedId(body.revenueMode) ?? 'GROSS',
+          currency: parseScopedId(body.currency) ?? 'EUR',
+          timezone: parseScopedId(body.timezone) ?? 'Europe/Berlin',
+          notes: parseScopedId(body.settingsNotes),
+          isActive: true,
+          updatedBy: req.authUser?.email ?? 'superadmin',
+        },
+      }),
+    ])
+
+    await writeAuditLog({
+      req,
+      module: 'access',
+      action: 'tenant_billing_updated',
+      targetType: 'tenant',
+      targetId: tenant.id,
+      chainId: tenant.chainId,
+      tenantId: tenant.id,
+      metadata: {
+        planType,
+        billingPeriod,
+        monthlyFeeCents: plan.monthlyFeeCents,
+        includedOrders: plan.includedOrders,
+      },
+    })
+
+    return res.json({
+      ok: true,
+      tenantId: tenant.id,
+      plan,
+      settings,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('UPDATE TENANT BILLING SETTINGS ERROR:', error)
+    return res.status(500).json({ error: 'Abrechnung konnte nicht gespeichert werden' })
+  }
+})
+
+router.post('/billing/tenant/:tenantId/usage/sync', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const superadminError = ensureSuperadmin(req)
+    if (superadminError) {
+      return res.status(403).json({ error: superadminError })
+    }
+
+    const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
+    await resolveTenantScope(req, tenantId)
+
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, chainId: true, tenantBillingSettings: true },
+    })
+    if (!tenant) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    const body = req.body as { periodStart?: unknown; periodEnd?: unknown }
+    const periodStartRaw = parseScopedId(body.periodStart)
+    const periodEndRaw = parseScopedId(body.periodEnd)
+
+    const now = new Date()
+    const defaultStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const defaultEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
+    const periodStart = periodStartRaw ? new Date(periodStartRaw) : defaultStart
+    const periodEnd = periodEndRaw ? new Date(periodEndRaw) : defaultEnd
+
+    if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime()) || periodEnd <= periodStart) {
+      return res.status(400).json({ error: 'periodStart/periodEnd ungueltig' })
+    }
+
+    const snapshot = await calculateBillingUsageSnapshot({
+      tenantId: tenant.id,
+      periodStart,
+      periodEnd,
+      countOnlyPaidOrders: tenant.tenantBillingSettings?.countOnlyPaidOrders ?? true,
+      countOnlyCompletedOrders: tenant.tenantBillingSettings?.countOnlyCompletedOrders ?? true,
+      excludeCanceledOrders: tenant.tenantBillingSettings?.excludeCanceledOrders ?? true,
+    })
+
+    const usagePeriod = await prisma.billingUsagePeriod.upsert({
+      where: {
+        tenantId_periodStart_periodEnd: {
+          tenantId: tenant.id,
+          periodStart,
+          periodEnd,
+        },
+      },
+      create: {
+        tenantId: tenant.id,
+        chainId: tenant.chainId,
+        periodStart,
+        periodEnd,
+        status: 'OPEN',
+        ordersTotal: snapshot.ordersTotal,
+        ordersCounted: snapshot.ordersCounted,
+        ordersCanceled: snapshot.ordersCanceled,
+        revenueGrossCents: snapshot.revenueGrossCents,
+        revenueCountedCents: snapshot.revenueCountedCents,
+        snapshotAt: new Date(),
+      },
+      update: {
+        chainId: tenant.chainId,
+        ordersTotal: snapshot.ordersTotal,
+        ordersCounted: snapshot.ordersCounted,
+        ordersCanceled: snapshot.ordersCanceled,
+        revenueGrossCents: snapshot.revenueGrossCents,
+        revenueCountedCents: snapshot.revenueCountedCents,
+        snapshotAt: new Date(),
+      },
+    })
+
+    const counterValues: Array<{ key: BillingUsageCounterKey; value: number }> = [
+      { key: BillingUsageCounterKey.ORDERS_TOTAL, value: snapshot.ordersTotal },
+      { key: BillingUsageCounterKey.ORDERS_COUNTED, value: snapshot.ordersCounted },
+      { key: BillingUsageCounterKey.ORDERS_CANCELED, value: snapshot.ordersCanceled },
+      { key: BillingUsageCounterKey.REVENUE_GROSS_CENTS, value: snapshot.revenueGrossCents },
+      { key: BillingUsageCounterKey.REVENUE_COUNTED_CENTS, value: snapshot.revenueCountedCents },
+    ]
+
+    await prisma.$transaction(
+      counterValues.map((entry) =>
+        prisma.billingUsageCounter.upsert({
+          where: {
+            usagePeriodId_counterKey: {
+              usagePeriodId: usagePeriod.id,
+              counterKey: entry.key,
+            },
+          },
+          create: {
+            usagePeriodId: usagePeriod.id,
+            tenantId: tenant.id,
+            counterKey: entry.key,
+            valueInt: entry.value,
+          },
+          update: {
+            valueInt: entry.value,
+          },
+        })
+      )
+    )
+
+    return res.json({
+      ok: true,
+      tenantId: tenant.id,
+      usagePeriodId: usagePeriod.id,
+      snapshot,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('SYNC TENANT BILLING USAGE ERROR:', error)
+    return res.status(500).json({ error: 'Usage-Stand konnte nicht aktualisiert werden' })
   }
 })
 

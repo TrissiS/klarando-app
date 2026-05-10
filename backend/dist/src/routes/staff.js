@@ -5,6 +5,7 @@ const express_1 = require("express");
 const prisma_1 = require("../lib/prisma");
 const auth_1 = require("../middleware/auth");
 const audit_1 = require("../lib/audit");
+const tenant_scope_1 = require("../lib/tenant-scope");
 const router = (0, express_1.Router)();
 function normalizeText(value) {
     if (!value) {
@@ -55,10 +56,8 @@ function calculateShiftHours(startTime, endTime, breakMinutes) {
 }
 router.get('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SETTINGS_READ), async (req, res) => {
     try {
-        const tenantId = req.query.tenantId;
-        if (!tenantId) {
-            return res.status(400).json({ error: 'tenantId fehlt' });
-        }
+        const scope = await (0, tenant_scope_1.resolveTenantScope)(req, req.query.tenantId);
+        const tenantId = scope.tenantId;
         const settings = await prisma_1.prisma.staffSetting.upsert({
             where: { tenantId },
             update: {},
@@ -69,6 +68,10 @@ router.get('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SET
         return res.json(settings);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('GET STAFF SETTINGS ERROR:', error);
         return res.status(500).json({ error: 'Mitarbeiter-Einstellungen konnten nicht geladen werden' });
     }
@@ -76,9 +79,8 @@ router.get('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SET
 router.put('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SETTINGS_WRITE), async (req, res) => {
     try {
         const { tenantId, planningDays, defaultShiftStart, defaultShiftEnd, defaultBreakMinutes, overtimeThresholdHours, } = req.body;
-        if (!tenantId) {
-            return res.status(400).json({ error: 'tenantId fehlt' });
-        }
+        const scope = await (0, tenant_scope_1.resolveTenantScope)(req, tenantId);
+        const scopedTenantId = scope.tenantId;
         const normalizedStart = parseTime(defaultShiftStart || null);
         const normalizedEnd = parseTime(defaultShiftEnd || null);
         if (!normalizedStart || !normalizedEnd) {
@@ -99,7 +101,7 @@ router.put('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SET
             return res.status(400).json({ error: 'overtimeThresholdHours muss groesser 0 sein' });
         }
         const settings = await prisma_1.prisma.staffSetting.upsert({
-            where: { tenantId },
+            where: { tenantId: scopedTenantId },
             update: {
                 planningDays: normalizedPlanningDays,
                 defaultShiftStart: normalizedStart,
@@ -108,7 +110,7 @@ router.put('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SET
                 overtimeThresholdHours: overtime,
             },
             create: {
-                tenantId,
+                tenantId: scopedTenantId,
                 planningDays: normalizedPlanningDays,
                 defaultShiftStart: normalizedStart,
                 defaultShiftEnd: normalizedEnd,
@@ -122,7 +124,7 @@ router.put('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SET
             action: 'settings_updated',
             targetType: 'staff_setting',
             targetId: settings.id,
-            tenantId,
+            tenantId: settings.tenantId,
             metadata: {
                 planningDays: settings.planningDays,
             },
@@ -130,16 +132,18 @@ router.put('/settings', (0, auth_1.requirePermission)(client_1.PermissionKey.SET
         return res.json(settings);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('UPDATE STAFF SETTINGS ERROR:', error);
         return res.status(500).json({ error: 'Mitarbeiter-Einstellungen konnten nicht gespeichert werden' });
     }
 });
 router.get('/employees', (0, auth_1.requirePermission)(client_1.PermissionKey.USERS_READ), async (req, res) => {
     try {
-        const tenantId = req.query.tenantId;
-        if (!tenantId) {
-            return res.status(400).json({ error: 'tenantId fehlt' });
-        }
+        const scope = await (0, tenant_scope_1.resolveTenantScope)(req, req.query.tenantId);
+        const tenantId = scope.tenantId;
         const employees = await prisma_1.prisma.staffMember.findMany({
             where: { tenantId },
             orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
@@ -147,6 +151,10 @@ router.get('/employees', (0, auth_1.requirePermission)(client_1.PermissionKey.US
         return res.json(employees);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('GET STAFF EMPLOYEES ERROR:', error);
         return res.status(500).json({ error: 'Mitarbeiter konnten nicht geladen werden' });
     }
@@ -157,6 +165,8 @@ router.post('/employees', (0, auth_1.requirePermission)(client_1.PermissionKey.U
         if (!tenantId || !name) {
             return res.status(400).json({ error: 'tenantId und name sind erforderlich' });
         }
+        const scope = await (0, tenant_scope_1.resolveTenantScope)(req, tenantId);
+        const scopedTenantId = scope.tenantId;
         const parsedHourlyRate = hourlyRate === undefined || hourlyRate === null ? null : Number(hourlyRate);
         const parsedWeeklyTarget = weeklyTargetHours === undefined || weeklyTargetHours === null
             ? null
@@ -169,7 +179,7 @@ router.post('/employees', (0, auth_1.requirePermission)(client_1.PermissionKey.U
         }
         const employee = await prisma_1.prisma.staffMember.create({
             data: {
-                tenantId,
+                tenantId: scopedTenantId,
                 name: name.trim(),
                 position: normalizeText(position),
                 phone: normalizeText(phone),
@@ -193,6 +203,10 @@ router.post('/employees', (0, auth_1.requirePermission)(client_1.PermissionKey.U
         return res.status(201).json(employee);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('CREATE STAFF EMPLOYEE ERROR:', error);
         return res.status(500).json({ error: 'Mitarbeiter konnte nicht erstellt werden' });
     }
@@ -200,17 +214,18 @@ router.post('/employees', (0, auth_1.requirePermission)(client_1.PermissionKey.U
 router.patch('/employees/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.USERS_WRITE), async (req, res) => {
     try {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const { tenantId, name, position, phone, email, hourlyRate, weeklyTargetHours, isActive, } = req.body;
-        if (!id || !tenantId) {
-            return res.status(400).json({ error: 'id und tenantId sind erforderlich' });
+        const { name, position, phone, email, hourlyRate, weeklyTargetHours, isActive, } = req.body;
+        if (!id) {
+            return res.status(400).json({ error: 'id ist erforderlich' });
         }
         const existing = await prisma_1.prisma.staffMember.findUnique({
             where: { id },
             select: { id: true, tenantId: true },
         });
-        if (!existing || existing.tenantId !== tenantId) {
+        if (!existing) {
             return res.status(404).json({ error: 'Mitarbeiter nicht gefunden' });
         }
+        await (0, tenant_scope_1.resolveTenantScope)(req, existing.tenantId);
         const parsedHourlyRate = hourlyRate === undefined ? undefined : hourlyRate === null ? null : Number(hourlyRate);
         const parsedWeeklyTarget = weeklyTargetHours === undefined
             ? undefined
@@ -254,19 +269,21 @@ router.patch('/employees/:id', (0, auth_1.requirePermission)(client_1.Permission
         return res.json(updated);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('UPDATE STAFF EMPLOYEE ERROR:', error);
         return res.status(500).json({ error: 'Mitarbeiter konnte nicht aktualisiert werden' });
     }
 });
 router.get('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USERS_READ), async (req, res) => {
     try {
-        const tenantId = req.query.tenantId;
+        const scope = await (0, tenant_scope_1.resolveTenantScope)(req, req.query.tenantId);
+        const tenantId = scope.tenantId;
         const employeeId = req.query.employeeId;
         const from = req.query.from;
         const to = req.query.to;
-        if (!tenantId) {
-            return res.status(400).json({ error: 'tenantId fehlt' });
-        }
         const fromDate = from ? normalizeDateOnly(from) : null;
         const toDate = to ? normalizeDateOnly(to) : null;
         if (from && !fromDate) {
@@ -302,6 +319,10 @@ router.get('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USERS
         return res.json(shifts);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('GET STAFF SHIFTS ERROR:', error);
         return res.status(500).json({ error: 'Schichten konnten nicht geladen werden' });
     }
@@ -312,6 +333,8 @@ router.post('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USER
         if (!tenantId || !staffMemberId || !shiftDate || !startTime || !endTime) {
             return res.status(400).json({ error: 'Pflichtfelder fehlen' });
         }
+        const scope = await (0, tenant_scope_1.resolveTenantScope)(req, tenantId);
+        const scopedTenantId = scope.tenantId;
         const parsedDate = normalizeDateOnly(shiftDate);
         if (!parsedDate) {
             return res.status(400).json({ error: 'shiftDate ist ungueltig' });
@@ -332,7 +355,7 @@ router.post('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USER
         const member = await prisma_1.prisma.staffMember.findFirst({
             where: {
                 id: staffMemberId,
-                tenantId,
+                tenantId: scopedTenantId,
             },
             select: { id: true, name: true },
         });
@@ -344,7 +367,7 @@ router.post('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USER
             : client_1.StaffShiftStatus.PLANNED;
         const created = await prisma_1.prisma.staffShift.create({
             data: {
-                tenantId,
+                tenantId: scopedTenantId,
                 staffMemberId,
                 shiftDate: parsedDate,
                 startTime: parsedStart,
@@ -372,7 +395,7 @@ router.post('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USER
             action: 'shift_created',
             targetType: 'staff_shift',
             targetId: created.id,
-            tenantId,
+            tenantId: created.tenantId,
             metadata: {
                 staffMemberId,
                 hours,
@@ -381,6 +404,10 @@ router.post('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USER
         return res.status(201).json(created);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('CREATE STAFF SHIFT ERROR:', error);
         return res.status(500).json({ error: 'Schicht konnte nicht erstellt werden' });
     }
@@ -388,20 +415,21 @@ router.post('/shifts', (0, auth_1.requirePermission)(client_1.PermissionKey.USER
 router.patch('/shifts/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.USERS_WRITE), async (req, res) => {
     try {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const { tenantId, staffMemberId, shiftDate, startTime, endTime, breakMinutes, status, note, } = req.body;
-        if (!id || !tenantId) {
-            return res.status(400).json({ error: 'id und tenantId sind erforderlich' });
+        const { staffMemberId, shiftDate, startTime, endTime, breakMinutes, status, note, } = req.body;
+        if (!id) {
+            return res.status(400).json({ error: 'id ist erforderlich' });
         }
         const existing = await prisma_1.prisma.staffShift.findUnique({
             where: { id },
             select: { id: true, tenantId: true, startTime: true, endTime: true, breakMinutes: true },
         });
-        if (!existing || existing.tenantId !== tenantId) {
+        if (!existing) {
             return res.status(404).json({ error: 'Schicht nicht gefunden' });
         }
+        await (0, tenant_scope_1.resolveTenantScope)(req, existing.tenantId);
         if (staffMemberId) {
             const member = await prisma_1.prisma.staffMember.findFirst({
-                where: { id: staffMemberId, tenantId },
+                where: { id: staffMemberId, tenantId: existing.tenantId },
                 select: { id: true },
             });
             if (!member) {
@@ -479,7 +507,7 @@ router.patch('/shifts/:id', (0, auth_1.requirePermission)(client_1.PermissionKey
             action: 'shift_updated',
             targetType: 'staff_shift',
             targetId: updated.id,
-            tenantId,
+            tenantId: updated.tenantId,
             metadata: {
                 hours,
                 status: updated.status,
@@ -488,6 +516,10 @@ router.patch('/shifts/:id', (0, auth_1.requirePermission)(client_1.PermissionKey
         return res.json(updated);
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('UPDATE STAFF SHIFT ERROR:', error);
         return res.status(500).json({ error: 'Schicht konnte nicht aktualisiert werden' });
     }
@@ -495,17 +527,17 @@ router.patch('/shifts/:id', (0, auth_1.requirePermission)(client_1.PermissionKey
 router.delete('/shifts/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.USERS_WRITE), async (req, res) => {
     try {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const tenantId = req.query.tenantId;
-        if (!id || !tenantId) {
-            return res.status(400).json({ error: 'id und tenantId sind erforderlich' });
+        if (!id) {
+            return res.status(400).json({ error: 'id ist erforderlich' });
         }
         const existing = await prisma_1.prisma.staffShift.findUnique({
             where: { id },
             select: { id: true, tenantId: true },
         });
-        if (!existing || existing.tenantId !== tenantId) {
+        if (!existing) {
             return res.status(404).json({ error: 'Schicht nicht gefunden' });
         }
+        await (0, tenant_scope_1.resolveTenantScope)(req, existing.tenantId);
         await prisma_1.prisma.staffShift.delete({
             where: { id },
         });
@@ -515,23 +547,25 @@ router.delete('/shifts/:id', (0, auth_1.requirePermission)(client_1.PermissionKe
             action: 'shift_deleted',
             targetType: 'staff_shift',
             targetId: id,
-            tenantId,
+            tenantId: existing.tenantId,
         });
         return res.json({ ok: true });
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('DELETE STAFF SHIFT ERROR:', error);
         return res.status(500).json({ error: 'Schicht konnte nicht geloescht werden' });
     }
 });
 router.get('/evaluation', (0, auth_1.requirePermission)(client_1.PermissionKey.USERS_READ), async (req, res) => {
     try {
-        const tenantId = req.query.tenantId;
+        const scope = await (0, tenant_scope_1.resolveTenantScope)(req, req.query.tenantId);
+        const tenantId = scope.tenantId;
         const from = req.query.from;
         const to = req.query.to;
-        if (!tenantId) {
-            return res.status(400).json({ error: 'tenantId fehlt' });
-        }
         const fromDate = from ? normalizeDateOnly(from) : null;
         const toDate = to ? normalizeDateOnly(to) : null;
         if (from && !fromDate) {
@@ -640,6 +674,10 @@ router.get('/evaluation', (0, auth_1.requirePermission)(client_1.PermissionKey.U
         });
     }
     catch (error) {
+        const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
+        if (scopeError) {
+            return res.status(scopeError.status).json({ error: scopeError.message });
+        }
         console.error('GET STAFF EVALUATION ERROR:', error);
         return res.status(500).json({ error: 'Auswertung konnte nicht geladen werden' });
     }

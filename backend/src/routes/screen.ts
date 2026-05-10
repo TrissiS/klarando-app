@@ -2260,6 +2260,8 @@ router.get('/public/devices/:deviceCode/feed', async (req, res) => {
     })
 
     return res.json({
+      status: device.isActive ? 'online' : 'inactive',
+      serverTime: new Date().toISOString(),
       device: {
         id: device.id,
         name: device.name,

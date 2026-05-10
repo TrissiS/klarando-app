@@ -43,7 +43,7 @@ async function optionalAuth(req, res, next) {
     }
     const payload = (0, token_1.verifyAuthToken)(token);
     if (!payload) {
-        return res.status(401).json({ error: 'Ungueltiges Token' });
+        return next();
     }
     try {
         const user = await prisma_1.prisma.user.findUnique({

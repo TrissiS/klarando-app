@@ -1,6 +1,8 @@
 import express from 'express'
 import cors from 'cors'
 import dotenv from 'dotenv'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { NextFunction, Request, Response } from 'express'
 import authRoutes, { seedRolePermissions } from './routes/auth'
 import appAuthRoutes from './routes/app-auth'
@@ -37,6 +39,29 @@ dotenv.config()
 
 const app = express()
 const processStartedAt = new Date()
+
+function readBackendBuildMetadata() {
+  const packageJsonPath = path.resolve(process.cwd(), 'package.json')
+  try {
+    const packageJsonRaw = fs.readFileSync(packageJsonPath, 'utf8')
+    const packageJson = JSON.parse(packageJsonRaw) as {
+      version?: string
+      klarandoVersion?: string
+      klarandoBuildDateUtc?: string
+    }
+    return {
+      backendVersion: packageJson.klarandoVersion || packageJson.version || null,
+      buildDateUtc: packageJson.klarandoBuildDateUtc || null,
+    }
+  } catch {
+    return {
+      backendVersion: null,
+      buildDateUtc: null,
+    }
+  }
+}
+
+const backendBuildMetadata = readBackendBuildMetadata()
 
 const DEFAULT_PRODUCTION_ORIGINS = [
   'https://klarando.com',
@@ -96,6 +121,8 @@ app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     message: 'Backend laeuft',
+    backendVersion: backendBuildMetadata.backendVersion,
+    buildDateUtc: backendBuildMetadata.buildDateUtc,
     uptimeSeconds: Math.floor(process.uptime()),
     startedAt: processStartedAt.toISOString(),
     serverTime: new Date().toISOString(),
@@ -107,6 +134,8 @@ app.get('/api/health/ready', async (_req, res) => {
     await prisma.$queryRaw`SELECT 1`
     return res.json({
       ok: true,
+      backendVersion: backendBuildMetadata.backendVersion,
+      buildDateUtc: backendBuildMetadata.buildDateUtc,
       checks: {
         database: 'ok',
       },
@@ -118,6 +147,8 @@ app.get('/api/health/ready', async (_req, res) => {
     console.error('READINESS CHECK ERROR:', error)
     return res.status(503).json({
       ok: false,
+      backendVersion: backendBuildMetadata.backendVersion,
+      buildDateUtc: backendBuildMetadata.buildDateUtc,
       checks: {
         database: 'down',
       },

@@ -1110,14 +1110,24 @@ router.get('/public/:displayCode/feed', async (req, res) => {
     const activeDriverDevices = await listDriverDeviceSessionsForTenant(display.tenantId, {
       displayCode: display.displayCode,
     })
+    const nowIso = new Date().toISOString()
+    const displayType =
+      display.displayRole === 'KITCHEN'
+        ? 'KITCHEN'
+        : display.displayRole === 'PICKUP'
+        ? 'PICKUP_NUMBERS'
+        : 'MIXED'
 
     return res.json({
+      status: display.isActive ? 'online' : 'inactive',
+      serverTime: nowIso,
+      displayType,
       ...mapDisplayOutput(display),
       display: mapDisplayOutput(display),
       orders: ordersWithComplaintInfo,
       drivers,
       activeDriverDevices,
-      generatedAt: new Date().toISOString(),
+      generatedAt: nowIso,
     })
   } catch (error) {
     console.error('GET PUBLIC ORDER DISPLAY FEED ERROR:', error)

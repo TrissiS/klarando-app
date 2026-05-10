@@ -1539,6 +1539,16 @@ export type ChainadminCashClosingQueue = {
   }>
 }
 
+export type BackendHealthOverview = {
+  ok: boolean
+  message?: string
+  backendVersion: string | null
+  buildDateUtc: string | null
+  uptimeSeconds: number
+  startedAt: string
+  serverTime: string
+}
+
 const REQUEST_TIMEOUT_MS = 15000
 
 function toUserFriendlyNetworkMessage(error: unknown): string {
@@ -1574,6 +1584,14 @@ async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 }
 
 const fetch = safeFetch
+
+export async function getBackendHealthOverview(): Promise<BackendHealthOverview> {
+  const res = await fetch(`${API_BASE_URL}/api/health`)
+  if (!res.ok) {
+    throw new Error('Backend-Health konnte nicht geladen werden')
+  }
+  return res.json()
+}
 
 export async function getCategories(): Promise<Category[]> {
   const tenantId = resolveTenantId()
@@ -1857,6 +1875,15 @@ export async function getBusinessSettingsForTenant(
   }
 
   return res.json()
+}
+
+export async function getMyEffectiveFeatureModules(): Promise<EffectiveFeatureSetResponse> {
+  const token = readBrowserAccessToken()
+  if (!token) {
+    throw new Error('Kein Access-Token gefunden')
+  }
+
+  return getEffectiveFeatureModules(token)
 }
 
 export async function updateBusinessSettingsForTenant(
@@ -4764,6 +4791,201 @@ export type SuperadminDriverDetailResponse = {
   }>
 }
 
+export type DisplayDeviceType =
+  | 'MENU'
+  | 'OFFERS'
+  | 'PICKUP_NUMBERS'
+  | 'KITCHEN'
+  | 'ADVERTISING'
+  | 'MIXED'
+
+export type DisplayDeviceStatus = 'online' | 'offline' | 'inactive'
+
+export type DisplayDeviceOverviewRow = {
+  id: string
+  entityId: string
+  sourceKind: 'ORDER_DISPLAY' | 'SCREEN_DEVICE'
+  tenantId: string
+  tenantName: string | null
+  chainId: string | null
+  chainName: string | null
+  name: string
+  displayType: DisplayDeviceType
+  code: string
+  isActive: boolean
+  lastSeenAt: string | null
+  lastSyncAt: string | null
+  resolution: string | null
+  deviceInfo: {
+    alias: string | null
+    model: string | null
+    platform: string | null
+    appVersion: string | null
+    source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE'
+  } | null
+  status: DisplayDeviceStatus
+  previewPath: string
+  editablePath: string
+  pairingSupported: boolean
+}
+
+export type DisplayDeviceOverviewResponse = {
+  generatedAt: string
+  rows: DisplayDeviceOverviewRow[]
+  summary: {
+    total: number
+    online: number
+    offline: number
+    inactive: number
+  }
+}
+
+export type DisplayDevicePreviewResponse = {
+  id: string
+  sourceKind: 'ORDER_DISPLAY' | 'SCREEN_DEVICE'
+  displayType: DisplayDeviceType
+  previewUrl: string
+  status: DisplayDeviceStatus
+  isActive: boolean
+  serverTime: string
+}
+
+export type FeatureModuleCategory =
+  | 'BESTELLUNG'
+  | 'KATALOG'
+  | 'BETRIEB'
+  | 'GERAETE'
+  | 'FINANZEN'
+  | 'PLATTFORM'
+
+export type FeatureModuleKey =
+  | 'ORDERS'
+  | 'PRODUCTS'
+  | 'CATEGORIES'
+  | 'INGREDIENTS'
+  | 'ALLERGENS'
+  | 'STOCK'
+  | 'SUPPLIERS'
+  | 'STAFF'
+  | 'DRIVERS'
+  | 'DISPLAYS'
+  | 'DISPLAY_DESIGN'
+  | 'ORDERDESK'
+  | 'TERMINALS'
+  | 'POS'
+  | 'DELIVERY_ZONES'
+  | 'RATINGS'
+  | 'TIPS'
+  | 'LOYALTY'
+  | 'PAYMENT'
+  | 'ANALYTICS'
+  | 'CASH_CLOSING'
+  | 'PLATFORM_BRANDING'
+
+export type FeatureModuleDefinition = {
+  key: FeatureModuleKey
+  name: string
+  description: string
+  category: FeatureModuleCategory
+  defaultEnabled: boolean
+  adminNavPath: string | null
+  requiredPermissions: AccessPermission[]
+  dependencies: FeatureModuleKey[]
+}
+
+export type FeaturePackageTemplate = {
+  key: string
+  name: string
+  description: string
+  features: FeatureModuleKey[]
+}
+
+export type EffectiveFeatureModuleEntry = {
+  key: FeatureModuleKey
+  enabled: boolean
+  source: 'default' | 'chain' | 'tenant'
+  name: string
+  description: string
+  category: FeatureModuleCategory
+  adminNavPath: string | null
+  requiredPermissions: AccessPermission[]
+  dependencies: FeatureModuleKey[]
+  dependencyIssues: FeatureModuleKey[]
+}
+
+export type EffectiveFeatureSetResponse = {
+  tenantId: string
+  chainId: string | null
+  modules: EffectiveFeatureModuleEntry[]
+}
+
+export type FeatureModuleOverviewRow = {
+  tenantId: string
+  tenantName: string
+  chainId: string | null
+  chainName: string | null
+  enabledModules: number
+  disabledModules: number
+  modules: EffectiveFeatureModuleEntry[]
+}
+
+export type FeatureModuleOverviewResponse = {
+  generatedAt: string
+  rows: FeatureModuleOverviewRow[]
+}
+
+export type BillingPlanType =
+  | 'REVENUE_SHARE'
+  | 'MONTHLY_FIXED'
+  | 'ORDER_PACKAGE'
+  | 'HYBRID'
+  | 'CUSTOM'
+
+export type BillingPeriodType = 'MONTHLY' | 'WEEKLY'
+export type FeeBearerType = 'CUSTOMER' | 'TENANT' | 'PLATFORM'
+
+export type TenantBillingPlanSettings = {
+  tenantId: string
+  chainId: string | null
+  planType: BillingPlanType
+  monthlyFeeCents: number
+  includedOrders: number
+  commissionPercent: number
+  commissionAfterIncludedOrdersPercent: number | null
+  fixedFeePerOrderCents: number
+  billingPeriod: BillingPeriodType
+  activeFrom: string
+  activeUntil: string | null
+  isActive: boolean
+  notes: string | null
+  updatedBy: string | null
+}
+
+export type TenantBillingSettingsData = {
+  tenantId: string
+  chainId: string | null
+  paymentFeeBearer: FeeBearerType
+  countOnlyPaidOrders: boolean
+  countOnlyCompletedOrders: boolean
+  excludeCanceledOrders: boolean
+  revenueMode: string
+  currency: string
+  timezone: string
+  notes: string | null
+  isActive: boolean
+  updatedBy: string | null
+}
+
+export type BillingUsageSnapshot = {
+  periodStart: string
+  periodEnd: string
+  ordersTotal: number
+  ordersCounted: number
+  ordersCanceled: number
+  revenueGrossCents: number
+  revenueCountedCents: number
+}
+
 export type AccessContext = {
   me: {
     id: string
@@ -4871,6 +5093,310 @@ export async function getAccessContext(token: string): Promise<AccessContext> {
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
     throw new Error(errorData?.error || 'Kontext konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getFeatureModuleCatalog(token: string): Promise<{
+  modules: FeatureModuleDefinition[]
+  packages: FeaturePackageTemplate[]
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/access/features/catalog`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feature-Katalog konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getEffectiveFeatureModules(
+  token: string,
+  tenantId?: string
+): Promise<EffectiveFeatureSetResponse> {
+  const query = new URLSearchParams()
+  if (tenantId) {
+    query.set('tenantId', tenantId)
+  }
+  const queryPart = query.toString()
+  const res = await fetch(
+    `${API_BASE_URL}/api/access/features/effective${queryPart ? `?${queryPart}` : ''}`,
+    {
+      headers: authHeaders(token),
+    }
+  )
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feature-Scope konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getFeatureModuleOverview(
+  token: string,
+  filters: {
+    tenantId?: string
+    chainId?: string
+  } = {}
+): Promise<FeatureModuleOverviewResponse> {
+  const query = new URLSearchParams()
+  if (filters.tenantId) {
+    query.set('tenantId', filters.tenantId)
+  }
+  if (filters.chainId) {
+    query.set('chainId', filters.chainId)
+  }
+
+  const queryPart = query.toString()
+  const res = await fetch(
+    `${API_BASE_URL}/api/access/features/overview${queryPart ? `?${queryPart}` : ''}`,
+    {
+      headers: authHeaders(token),
+    }
+  )
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feature-Uebersicht konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function updateTenantFeatureModules(
+  token: string,
+  tenantId: string,
+  payload: {
+    featureKey?: FeatureModuleKey
+    enabled?: boolean
+    enabledBySuperadmin?: boolean
+    features?: Array<{ featureKey: FeatureModuleKey; enabled: boolean }>
+  }
+): Promise<{ ok: boolean; tenantId: string; effective: EffectiveFeatureSetResponse | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/access/features/tenant/${tenantId}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feature-Einstellungen konnten nicht gespeichert werden')
+  }
+
+  return res.json()
+}
+
+export async function applyTenantFeaturePackage(
+  token: string,
+  tenantId: string,
+  packageKey: string
+): Promise<{ ok: boolean; packageKey: string; tenantId: string; effective: EffectiveFeatureSetResponse | null }> {
+  const res = await fetch(`${API_BASE_URL}/api/access/features/tenant/${tenantId}/apply-package`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ packageKey }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feature-Paket konnte nicht angewendet werden')
+  }
+
+  return res.json()
+}
+
+export async function getChainFeatureModules(
+  token: string,
+  chainId: string
+): Promise<{
+  chain: { id: string; name: string; code: string }
+  settings: Array<{
+    id: string
+    chainId: string
+    featureKey: FeatureModuleKey
+    enabled: boolean
+    enabledBySuperadmin: boolean
+    updatedBy: string | null
+    createdAt: string
+    updatedAt: string
+  }>
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/access/features/chain/${chainId}`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Chain-Feature-Scope konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function updateChainFeatureModules(
+  token: string,
+  chainId: string,
+  payload: {
+    featureKey?: FeatureModuleKey
+    enabled?: boolean
+    enabledBySuperadmin?: boolean
+    features?: Array<{ featureKey: FeatureModuleKey; enabled: boolean }>
+  }
+): Promise<{
+  ok: boolean
+  chainId: string
+  settings: Array<{
+    id: string
+    chainId: string
+    featureKey: FeatureModuleKey
+    enabled: boolean
+    enabledBySuperadmin: boolean
+    updatedBy: string | null
+    createdAt: string
+    updatedAt: string
+  }>
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/access/features/chain/${chainId}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Chain-Feature-Scope konnte nicht gespeichert werden')
+  }
+
+  return res.json()
+}
+
+export async function getTenantBillingConfig(
+  token: string,
+  tenantId: string
+): Promise<{
+  tenant: { id: string; name: string; chainId: string | null; chainName: string | null }
+  plan: TenantBillingPlanSettings
+  settings: TenantBillingSettingsData
+  usage: BillingUsageSnapshot
+  commissionRules: Array<{
+    id: string
+    tenantId: string
+    chainId: string | null
+    name: string
+    ruleType: 'PERCENT' | 'FIXED_PER_ORDER' | 'HYBRID' | 'THRESHOLD'
+    isActive: boolean
+    priority: number
+    commissionPercent: number | null
+    fixedFeePerOrderCents: number | null
+    appliesAfterOrders: number | null
+    activeFrom: string | null
+    activeUntil: string | null
+    createdAt: string
+    updatedAt: string
+  }>
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/access/billing/tenant/${tenantId}`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Abrechnung konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function updateTenantBillingConfig(
+  token: string,
+  tenantId: string,
+  payload: Partial<
+    TenantBillingPlanSettings &
+      TenantBillingSettingsData & {
+        settingsNotes: string | null
+      }
+  >
+): Promise<{
+  ok: boolean
+  tenantId: string
+  plan: TenantBillingPlanSettings
+  settings: TenantBillingSettingsData
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/access/billing/tenant/${tenantId}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Abrechnung konnte nicht gespeichert werden')
+  }
+
+  return res.json()
+}
+
+export async function getBillingOverview(
+  token: string,
+  filters: {
+    tenantId?: string
+    chainId?: string
+  } = {}
+): Promise<{
+  generatedAt: string
+  rows: Array<{
+    tenantId: string
+    tenantName: string
+    chainId: string | null
+    chainName: string | null
+    plan: TenantBillingPlanSettings | null
+  }>
+}> {
+  const query = new URLSearchParams()
+  if (filters.tenantId) {
+    query.set('tenantId', filters.tenantId)
+  }
+  if (filters.chainId) {
+    query.set('chainId', filters.chainId)
+  }
+
+  const queryPart = query.toString()
+  const res = await fetch(
+    `${API_BASE_URL}/api/access/billing/overview${queryPart ? `?${queryPart}` : ''}`,
+    {
+      headers: authHeaders(token),
+    }
+  )
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Abrechnungsuebersicht konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function syncTenantBillingUsage(
+  token: string,
+  tenantId: string,
+  payload: { periodStart?: string; periodEnd?: string } = {}
+): Promise<{ ok: boolean; tenantId: string; usagePeriodId: string; snapshot: BillingUsageSnapshot }> {
+  const res = await fetch(`${API_BASE_URL}/api/access/billing/tenant/${tenantId}/usage/sync`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Usage-Sync konnte nicht ausgefuehrt werden')
   }
 
   return res.json()
@@ -5109,6 +5635,111 @@ export async function getSuperadminDriverDetail(
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
     throw new Error(errorData?.error || 'Fahrer-Details konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getDisplayDeviceOverview(
+  token: string,
+  params?: {
+    tenantId?: string
+    chainId?: string
+    status?: DisplayDeviceStatus | 'all'
+    displayType?: DisplayDeviceType | 'all'
+    q?: string
+  }
+): Promise<DisplayDeviceOverviewResponse> {
+  const query = new URLSearchParams()
+  if (params?.tenantId) query.set('tenantId', params.tenantId)
+  if (params?.chainId) query.set('chainId', params.chainId)
+  if (params?.status && params.status !== 'all') query.set('status', params.status)
+  if (params?.displayType && params.displayType !== 'all') query.set('displayType', params.displayType)
+  if (params?.q) query.set('q', params.q)
+
+  const suffix = query.toString().length > 0 ? `?${query.toString()}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/access/displays/overview${suffix}`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Display-Uebersicht konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getDisplayDevicePreview(
+  token: string,
+  displayRef: string
+): Promise<DisplayDevicePreviewResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/access/displays/${encodeURIComponent(displayRef)}/preview`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Display-Vorschau konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function updateDisplayDeviceActiveState(
+  token: string,
+  displayRef: string,
+  isActive: boolean
+): Promise<{
+  id: string
+  sourceKind: 'ORDER_DISPLAY' | 'SCREEN_DEVICE'
+  isActive: boolean
+  status: DisplayDeviceStatus
+  updatedAt: string
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/access/displays/${encodeURIComponent(displayRef)}/active`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: JSON.stringify({ isActive }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Display-Status konnte nicht aktualisiert werden')
+  }
+
+  return res.json()
+}
+
+export async function regenerateDisplayPairingCode(
+  token: string,
+  displayRef: string,
+  data?: {
+    deviceAlias?: string
+    expiresMinutes?: number
+  }
+): Promise<{
+  ok: true
+  sessionId: string
+  displayId: string
+  displayCode: string
+  tenantId: string
+  expiresAt: string
+  pairingPayload: string
+  qrImageUrl: string
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/access/displays/${encodeURIComponent(displayRef)}/pairing-code`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      deviceAlias: data?.deviceAlias || undefined,
+      expiresMinutes: data?.expiresMinutes ?? undefined,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Pairing-Code konnte nicht erzeugt werden')
   }
 
   return res.json()

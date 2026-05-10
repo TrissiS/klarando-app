@@ -21,6 +21,7 @@ type ModuleRule = {
 type ModuleContext = {
   permissions: Set<string> | null
   businessSettings?: BusinessSettings | null
+  enabledFeatureKeys?: Set<string> | null
 }
 
 const MODULE_RULES: Record<AdminModuleKey, ModuleRule> = {
@@ -55,6 +56,18 @@ const MODULE_RULES: Record<AdminModuleKey, ModuleRule> = {
   },
 }
 
+const MODULE_FEATURE_MAPPING: Partial<Record<AdminModuleKey, string>> = {
+  products: 'PRODUCTS',
+  inventory: 'STOCK',
+  orders: 'ORDERS',
+  displays: 'DISPLAYS',
+  actions: 'PRODUCTS',
+  staff: 'STAFF',
+  drivers: 'DRIVERS',
+  'app-settings': 'PLATFORM_BRANDING',
+  settings: 'PLATFORM_BRANDING',
+}
+
 export function isModuleEnabled(
   moduleKey: AdminModuleKey,
   context: ModuleContext
@@ -79,6 +92,11 @@ export function isModuleEnabled(
   }
 
   if (rule.featureEnabled && !rule.featureEnabled(context.businessSettings ?? null)) {
+    return false
+  }
+
+  const featureKey = MODULE_FEATURE_MAPPING[moduleKey]
+  if (featureKey && context.enabledFeatureKeys && !context.enabledFeatureKeys.has(featureKey)) {
     return false
   }
 

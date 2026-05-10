@@ -4,8 +4,10 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
+import klarandoVersion from '@/klarando-version.json'
 import {
   getAccessContext,
+  getBackendHealthOverview,
   getAccessUsers,
   getSuperadminDriverOverview,
   getSuperadminOrderRatingsDashboard,
@@ -13,6 +15,7 @@ import {
   type AccessContext,
   type AccessRole,
   type AccessUser,
+  type BackendHealthOverview,
   type SuperadminOrderRatingsDashboard,
   type SuperadminSalesDashboard,
 } from '@/lib/api'
@@ -52,6 +55,7 @@ export default function SuperadminPage() {
   ])
   const [connectedDriversCount, setConnectedDriversCount] = useState(0)
   const [activeDriversCount, setActiveDriversCount] = useState(0)
+  const [backendHealth, setBackendHealth] = useState<BackendHealthOverview | null>(null)
   const [error, setError] = useState('')
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
   const [sectionOrder, setSectionOrder] = useState<string[]>([
@@ -185,6 +189,13 @@ export default function SuperadminPage() {
         driverOverview.rows.filter((entry) => entry.stats.activeDeliveries > 0).length
       )
       setLastUpdatedAt(new Date())
+
+      try {
+        const health = await getBackendHealthOverview()
+        setBackendHealth(health)
+      } catch {
+        setBackendHealth(null)
+      }
     } catch (loadError) {
       const message =
         loadError instanceof Error ? loadError.message : 'Dashboard konnte nicht geladen werden'
@@ -534,13 +545,13 @@ export default function SuperadminPage() {
                 href="/superadmin/security"
                 className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3 text-sm font-medium text-[var(--brand-ink)] transition hover:border-orange-300 hover:bg-orange-50"
               >
-                Admin Verwaltung oeffnen
+                Admin Verwaltung öffnen
               </Link>
               <Link
                 href="/superadmin/app-settings"
                 className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3 text-sm font-medium text-[var(--brand-ink)] transition hover:border-orange-300 hover:bg-orange-50"
               >
-                App Einstellungen oeffnen
+                App Einstellungen öffnen
               </Link>
               <Link
                 href="/chainadmin"
@@ -555,6 +566,30 @@ export default function SuperadminPage() {
               <p className="mt-1 text-sm text-slate-800">
                 Angemeldet als {session?.name} ({session?.email})
               </p>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-rose-900/70">Plattform Version</p>
+              <div className="mt-2 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
+                <p>
+                  Plattform: <span className="font-semibold">{klarandoVersion.version}</span>
+                </p>
+                <p>
+                  Frontend: <span className="font-semibold">{klarandoVersion.frontendVersion}</span>
+                </p>
+                <p>
+                  Backend: <span className="font-semibold">{backendHealth?.backendVersion || klarandoVersion.backendVersion}</span>
+                </p>
+                <p>
+                  Display/API: <span className="font-semibold">{klarandoVersion.displayApiVersion}</span>
+                </p>
+                <p className="sm:col-span-2">
+                  Build-Datum: <span className="font-semibold">{new Date(klarandoVersion.buildDateUtc).toLocaleString('de-DE')}</span>
+                </p>
+                <p className="sm:col-span-2">
+                  Backend gestartet: <span className="font-semibold">{backendHealth?.startedAt ? new Date(backendHealth.startedAt).toLocaleString('de-DE') : '-'}</span>
+                </p>
+              </div>
             </div>
           </article>
 

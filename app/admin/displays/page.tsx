@@ -5,6 +5,12 @@ import AdminLayout from '@/app/Components/admin/AdminLayout'
 
 const displaySections = [
   {
+    href: '/admin/display-devices',
+    title: 'Display-Geräteverwaltung',
+    description:
+      'Online/Offline-Status, Pairing und Browser-Vorschau für gekoppelte Display-Geräte verwalten.',
+  },
+  {
     href: '/admin/order-displays',
     title: 'Bestell-Displays',
     description:
