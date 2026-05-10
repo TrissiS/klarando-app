@@ -99,6 +99,10 @@ Technik:
 - `BackofficeLayout` (Responsive Sidebar, konsistente Header/Content-Breite)
 - `admin` Dashboard Feature-Scope-Integration
 - Superadmin-Seite `Module & Pakete` auf zentrale UI-Bausteine vorbereitet
+- Chainadmin-Seiten `App-Einstellungen` und `Abschlüsse` auf zentrale UI-Bausteine migriert
+- Zentrale Nav-Konfigurationen:
+  - `app/superadmin/nav.ts`
+  - `app/chainadmin/nav.ts`
 
 ## Empfehlung für neue Adminseiten
 1. Seite mit `AdminPageShell` aufbauen

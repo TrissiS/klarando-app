@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { CHAINADMIN_NAV_ITEMS } from '@/app/chainadmin/nav'
+import { AdminPageShell } from '@/app/Components/admin/ui/AdminUi'
 import {
   createAccessUser,
   deleteAccessUser,
@@ -502,6 +503,7 @@ export default function ChainadminPage() {
       subtitle="Admins und Staff pro Filiale verwalten und Pakete freischalten"
       navItems={CHAINADMIN_NAV_ITEMS}
     >
+      <AdminPageShell>
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -1208,6 +1210,7 @@ export default function ChainadminPage() {
         </div>
       )}
 
+      </AdminPageShell>
     </BackofficeLayout>
   )
 }

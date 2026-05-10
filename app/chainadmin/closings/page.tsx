@@ -4,6 +4,15 @@ import { useEffect, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { CHAINADMIN_NAV_ITEMS } from '@/app/chainadmin/nav'
 import {
+  AdminButton,
+  AdminEmptyState,
+  AdminFormGrid,
+  AdminPageShell,
+  AdminSectionCard,
+  AdminTable,
+  AdminTextInput,
+} from '@/app/Components/admin/ui/AdminUi'
+import {
   getAccessContext,
   getChainadminCashClosingQueue,
   reviewChainadminDailyClosing,
@@ -80,12 +89,12 @@ export default function ChainadminClosingsPage() {
 
   async function reviewDaily(submissionId: string, decision: 'APPROVED' | 'RETURNED') {
     const note = window.prompt(
-      decision === 'APPROVED' ? 'Notiz zur Freigabe (optional):' : 'Grund fuer Rueckgabe (optional):'
+      decision === 'APPROVED' ? 'Notiz zur Freigabe (optional):' : 'Grund für Rückgabe (optional):'
     )
     const confirm = window.confirm(
       decision === 'APPROVED'
         ? 'Tagesabschluss jetzt freigeben?'
-        : 'Tagesabschluss jetzt zurueckgeben?'
+        : 'Tagesabschluss jetzt zurückgeben?'
     )
     if (!confirm) return
 
@@ -101,7 +110,7 @@ export default function ChainadminClosingsPage() {
       setSuccess(
         decision === 'APPROVED'
           ? 'Tagesabschluss wurde freigegeben.'
-          : 'Tagesabschluss wurde zurueckgegeben.'
+          : 'Tagesabschluss wurde zurückgegeben.'
       )
       await loadQueue()
     } catch (saveError) {
@@ -114,13 +123,13 @@ export default function ChainadminClosingsPage() {
   async function reviewReopen(requestId: string, decision: 'APPROVED' | 'REJECTED') {
     const note = window.prompt(
       decision === 'APPROVED'
-        ? 'Notiz zur Wiedereroeffnung (optional):'
-        : 'Grund fuer Ablehnung (optional):'
+        ? 'Notiz zur Wiedereröffnung (optional):'
+        : 'Grund für Ablehnung (optional):'
     )
     const confirm = window.confirm(
       decision === 'APPROVED'
-        ? 'Wiedereroeffnung jetzt freigeben?'
-        : 'Wiedereroeffnung jetzt ablehnen?'
+        ? 'Wiedereröffnung jetzt freigeben?'
+        : 'Wiedereröffnung jetzt ablehnen?'
     )
     if (!confirm) return
 
@@ -135,8 +144,8 @@ export default function ChainadminClosingsPage() {
       })
       setSuccess(
         decision === 'APPROVED'
-          ? 'Wiedereroeffnung wurde freigegeben.'
-          : 'Wiedereroeffnung wurde abgelehnt.'
+          ? 'Wiedereröffnung wurde freigegeben.'
+          : 'Wiedereröffnung wurde abgelehnt.'
       )
       await loadQueue()
     } catch (saveError) {
@@ -148,12 +157,12 @@ export default function ChainadminClosingsPage() {
 
   async function reviewMonthly(submissionId: string, decision: 'APPROVED' | 'RETURNED') {
     const note = window.prompt(
-      decision === 'APPROVED' ? 'Notiz zur Freigabe (optional):' : 'Grund fuer Rueckgabe (optional):'
+      decision === 'APPROVED' ? 'Notiz zur Freigabe (optional):' : 'Grund für Rückgabe (optional):'
     )
     const confirm = window.confirm(
       decision === 'APPROVED'
         ? 'Monatsabschluss jetzt freigeben?'
-        : 'Monatsabschluss jetzt zurueckgeben?'
+        : 'Monatsabschluss jetzt zurückgeben?'
     )
     if (!confirm) return
 
@@ -169,7 +178,7 @@ export default function ChainadminClosingsPage() {
       setSuccess(
         decision === 'APPROVED'
           ? 'Monatsabschluss wurde freigegeben.'
-          : 'Monatsabschluss wurde zurueckgegeben.'
+          : 'Monatsabschluss wurde zurückgegeben.'
       )
       await loadQueue()
     } catch (saveError) {
@@ -185,71 +194,69 @@ export default function ChainadminClosingsPage() {
     <BackofficeLayout
       brand="Kettenadmin"
       title="Abschluss-Queue"
-      subtitle="Tages-/Monatsabschluesse pruefen und Wiedereroeffnungen freigeben"
+      subtitle="Tages-/Monatsabschlüsse prüfen und Wiedereröffnungen freigeben"
       navItems={CHAINADMIN_NAV_ITEMS}
     >
-      {error ? (
-        <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-      {success ? (
-        <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {success}
-        </div>
-      ) : null}
-
-      <section className="mb-5 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-wide text-rose-900/70">Monat</span>
-            <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="input-ui" />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-wide text-rose-900/70">Filiale</span>
-            <select value={tenantId} onChange={(event) => setTenantId(event.target.value)} className="input-ui">
-              <option value="">Alle freigegebenen Filialen</option>
-              {tenants.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex items-end">
-            <button
-              type="button"
-              onClick={() => void loadQueue()}
-              disabled={isLoading}
-              className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              Aktualisieren
-            </button>
+      <AdminPageShell>
+        {error ? (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
           </div>
-        </div>
-      </section>
+        ) : null}
+        {success ? (
+          <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            {success}
+          </div>
+        ) : null}
 
-      {isLoading ? (
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-          <p className="text-sm text-rose-900/70">Lade Abschluss-Queue...</p>
-        </section>
-      ) : queue ? (
-        <div className="grid gap-5">
-          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <h2 className="text-xl font-semibold text-[var(--brand-ink)]">Offene Tagesabschluesse</h2>
-            {queue.pendingDaily.length === 0 ? (
-              <p className="mt-3 rounded-2xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-4 py-4 text-sm text-rose-900/75">
-                Keine offenen Tagesabschluesse.
-              </p>
-            ) : (
-              <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
-                <table className="w-full min-w-[980px] border-collapse">
+        <AdminSectionCard title="Filter" description="Monat und Filiale für die Abschluss-Queue.">
+          <AdminFormGrid>
+            <AdminTextInput
+              type="month"
+              label="Monat"
+              value={month}
+              onChange={(event) => setMonth(event.target.value)}
+            />
+            <label className="block text-sm">
+              <span className="mb-1 block text-rose-900/75">Filiale</span>
+              <select
+                value={tenantId}
+                onChange={(event) => setTenantId(event.target.value)}
+                className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-orange-400 focus:ring-2 focus:ring-orange-200"
+              >
+                <option value="">Alle freigegebenen Filialen</option>
+                {tenants.map((entry) => (
+                  <option key={entry.id} value={entry.id}>
+                    {entry.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="md:col-span-2">
+              <AdminButton type="button" onClick={() => void loadQueue()} disabled={isLoading}>
+                Aktualisieren
+              </AdminButton>
+            </div>
+          </AdminFormGrid>
+        </AdminSectionCard>
+
+        {isLoading ? (
+          <AdminSectionCard title="Abschluss-Queue">
+            <p className="text-sm text-rose-900/70">Lade Abschluss-Queue...</p>
+          </AdminSectionCard>
+        ) : queue ? (
+          <>
+            <AdminSectionCard title="Offene Tagesabschlüsse">
+              {queue.pendingDaily.length === 0 ? (
+                <AdminEmptyState title="Keine offenen Tagesabschlüsse." />
+              ) : (
+                <AdminTable>
                   <thead>
                     <tr>
                       <th className="th-ui">Filiale</th>
                       <th className="th-ui">Tag</th>
                       <th className="th-ui">Einreichung</th>
-                      <th className="th-ui">Bar gezaehlt</th>
+                      <th className="th-ui">Bar gezählt</th>
                       <th className="th-ui">Aktion</th>
                     </tr>
                   </thead>
@@ -262,82 +269,72 @@ export default function ChainadminClosingsPage() {
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">{entry.payload ? `${entry.payload.countedCash.toFixed(2)} EUR` : '-'}</td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">
                           <div className="flex gap-2">
-                            <button
+                            <AdminButton
                               type="button"
                               onClick={() => void reviewDaily(entry.submissionId, 'APPROVED')}
                               disabled={isSaving}
-                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
                             >
                               Freigeben
-                            </button>
-                            <button
+                            </AdminButton>
+                            <AdminButton
                               type="button"
+                              variant="secondary"
                               onClick={() => void reviewDaily(entry.submissionId, 'RETURNED')}
                               disabled={isSaving}
-                              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
                             >
-                              Zurueckgeben
-                            </button>
+                              Zurückgeben
+                            </AdminButton>
                           </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
-            )}
-          </section>
+                </AdminTable>
+              )}
+            </AdminSectionCard>
 
-          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <h2 className="text-xl font-semibold text-[var(--brand-ink)]">Offene Wiedereroeffnungen</h2>
-            {queue.pendingReopenRequests.length === 0 ? (
-              <p className="mt-3 rounded-2xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-4 py-4 text-sm text-rose-900/75">
-                Keine offenen Wiedereroeffnungen.
-              </p>
-            ) : (
-              <div className="mt-3 space-y-3">
-                {queue.pendingReopenRequests.map((entry) => (
-                  <article key={entry.requestId} className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3">
-                    <p className="text-sm font-semibold text-[var(--brand-ink)]">
-                      {entry.tenantName || '-'} | {entry.closingDate || '-'}
-                    </p>
-                    <p className="mt-1 text-xs text-rose-900/75">
-                      Angefragt am {new Date(entry.requestedAt).toLocaleString('de-DE')}
-                    </p>
-                    <p className="mt-2 text-sm text-rose-900/85">{entry.reason || 'Kein Grund angegeben.'}</p>
-                    <div className="mt-3 flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void reviewReopen(entry.requestId, 'APPROVED')}
-                        disabled={isSaving}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
-                      >
-                        Freigeben
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void reviewReopen(entry.requestId, 'REJECTED')}
-                        disabled={isSaving}
-                        className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
-                      >
-                        Ablehnen
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
+            <AdminSectionCard title="Offene Wiedereröffnungen">
+              {queue.pendingReopenRequests.length === 0 ? (
+                <AdminEmptyState title="Keine offenen Wiedereröffnungen." />
+              ) : (
+                <div className="space-y-3">
+                  {queue.pendingReopenRequests.map((entry) => (
+                    <article key={entry.requestId} className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3">
+                      <p className="text-sm font-semibold text-[var(--brand-ink)]">
+                        {entry.tenantName || '-'} | {entry.closingDate || '-'}
+                      </p>
+                      <p className="mt-1 text-xs text-rose-900/75">
+                        Angefragt am {new Date(entry.requestedAt).toLocaleString('de-DE')}
+                      </p>
+                      <p className="mt-2 text-sm text-rose-900/85">{entry.reason || 'Kein Grund angegeben.'}</p>
+                      <div className="mt-3 flex gap-2">
+                        <AdminButton
+                          type="button"
+                          onClick={() => void reviewReopen(entry.requestId, 'APPROVED')}
+                          disabled={isSaving}
+                        >
+                          Freigeben
+                        </AdminButton>
+                        <AdminButton
+                          type="button"
+                          variant="secondary"
+                          onClick={() => void reviewReopen(entry.requestId, 'REJECTED')}
+                          disabled={isSaving}
+                        >
+                          Ablehnen
+                        </AdminButton>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </AdminSectionCard>
 
-          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <h2 className="text-xl font-semibold text-[var(--brand-ink)]">Offene Monatsabschluesse</h2>
-            {queue.pendingMonthly.length === 0 ? (
-              <p className="mt-3 rounded-2xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-4 py-4 text-sm text-rose-900/75">
-                Keine offenen Monatsabschluesse.
-              </p>
-            ) : (
-              <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
-                <table className="w-full min-w-[920px] border-collapse">
+            <AdminSectionCard title="Offene Monatsabschlüsse">
+              {queue.pendingMonthly.length === 0 ? (
+                <AdminEmptyState title="Keine offenen Monatsabschlüsse." />
+              ) : (
+                <AdminTable>
                   <thead>
                     <tr>
                       <th className="th-ui">Filiale</th>
@@ -356,33 +353,32 @@ export default function ChainadminClosingsPage() {
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">{entry.dayCount}</td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">
                           <div className="flex gap-2">
-                            <button
+                            <AdminButton
                               type="button"
                               onClick={() => void reviewMonthly(entry.submissionId, 'APPROVED')}
                               disabled={isSaving}
-                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-60"
                             >
                               Freigeben
-                            </button>
-                            <button
+                            </AdminButton>
+                            <AdminButton
                               type="button"
+                              variant="secondary"
                               onClick={() => void reviewMonthly(entry.submissionId, 'RETURNED')}
                               disabled={isSaving}
-                              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-500 disabled:opacity-60"
                             >
-                              Zurueckgeben
-                            </button>
+                              Zurückgeben
+                            </AdminButton>
                           </div>
                         </td>
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        </div>
-      ) : null}
+                </AdminTable>
+              )}
+            </AdminSectionCard>
+          </>
+        ) : null}
+      </AdminPageShell>
     </BackofficeLayout>
   )
 }
