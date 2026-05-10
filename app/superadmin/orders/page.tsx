@@ -221,15 +221,6 @@ export default function SuperadminOrdersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTenantId, selectedChainId, selectedSource, selectedStatus])
 
-  if (!session) {
-    return null
-  }
-
-  const appOrders =
-    data?.orders.filter(
-      (entry) => entry.sourceChannel === 'APP' || entry.sourceChannel === 'DELIVERY'
-    ) || []
-  const terminalOrders = data?.orders.filter((entry) => entry.sourceChannel === 'TERMINAL') || []
   const displayedOrders = useMemo(() => {
     const normalizedSearch = searchText.trim().toLowerCase()
 
@@ -265,6 +256,16 @@ export default function SuperadminOrdersPage() {
       return searchableText.includes(normalizedSearch)
     })
   }, [data?.orders, searchText, selectedPaymentStatus, selectedServiceType])
+
+  if (!session) {
+    return null
+  }
+
+  const appOrders =
+    data?.orders.filter(
+      (entry) => entry.sourceChannel === 'APP' || entry.sourceChannel === 'DELIVERY'
+    ) || []
+  const terminalOrders = data?.orders.filter((entry) => entry.sourceChannel === 'TERMINAL') || []
 
   function resolveTenantName(order: Order) {
     return order.tenant?.name || tenantNameById.get(order.tenantId) || order.tenantId

@@ -9,13 +9,60 @@ import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 
 const router = Router()
 const ALL_PERMISSIONS = Object.values(PermissionKey)
+const ALL_USER_ROLES = Object.values(UserRole)
+let cachedSupportedUserRoles: Set<UserRole> | null = null
+let supportedUserRolesPromise: Promise<Set<UserRole>> | null = null
+
+async function loadSupportedUserRoles() {
+  if (cachedSupportedUserRoles) {
+    return cachedSupportedUserRoles
+  }
+
+  if (supportedUserRolesPromise) {
+    return supportedUserRolesPromise
+  }
+
+  supportedUserRolesPromise = (async () => {
+    try {
+      const rows = await prisma.$queryRawUnsafe<Array<{ role: string }>>(
+        'SELECT unnest(enum_range(NULL::\"UserRole\"))::text AS role'
+      )
+      const resolved = new Set<UserRole>()
+      for (const row of rows) {
+        if (ALL_USER_ROLES.includes(row.role as UserRole)) {
+          resolved.add(row.role as UserRole)
+        }
+      }
+
+      if (resolved.size === 0) {
+        cachedSupportedUserRoles = new Set(ALL_USER_ROLES)
+      } else {
+        cachedSupportedUserRoles = resolved
+      }
+    } catch (error) {
+      console.warn('LOAD SUPPORTED USER ROLES ERROR:', error)
+      cachedSupportedUserRoles = new Set(ALL_USER_ROLES)
+    } finally {
+      supportedUserRolesPromise = null
+    }
+
+    return cachedSupportedUserRoles as Set<UserRole>
+  })()
+
+  return supportedUserRolesPromise
+}
+
+async function isUserRoleSupported(role: UserRole) {
+  const roles = await loadSupportedUserRoles()
+  return roles.has(role)
+}
 
 function parseRole(value?: string) {
   if (!value) {
     return null
   }
 
-  if (Object.values(UserRole).includes(value as UserRole)) {
+  if (ALL_USER_ROLES.includes(value as UserRole)) {
     return value as UserRole
   }
 
@@ -235,8 +282,9 @@ function enforceAuditScope(req: Request, where: Record<string, unknown>) {
 }
 
 router.get('/roles', requirePermission(PermissionKey.USERS_READ), async (_req, res) => {
+  const supportedRoles = await loadSupportedUserRoles()
   return res.json({
-    roles: Object.values(UserRole),
+    roles: Array.from(supportedRoles),
     permissions: Object.values(PermissionKey),
   })
 })
@@ -308,6 +356,9 @@ router.get('/users', requirePermission(PermissionKey.USERS_READ), async (req, re
     const tenantId = parseScopedId(req.query.tenantId)
 
     if (role) {
+      if (!(await isUserRoleSupported(role))) {
+        return res.json([])
+      }
       where.role = role
     }
 
@@ -378,6 +429,9 @@ router.post('/users', requirePermission(PermissionKey.USERS_WRITE), async (req, 
 
     if (!email || !name || !password || !role) {
       return res.status(400).json({ error: 'email, name, password und role sind erforderlich' })
+    }
+    if (!(await isUserRoleSupported(role))) {
+      return res.status(400).json({ error: `Rolle ${role} ist in dieser Datenbank nicht verfuegbar` })
     }
 
     if (
@@ -542,6 +596,9 @@ router.patch('/users/:id', requirePermission(PermissionKey.USERS_WRITE), async (
 
     if (rawRole && !role) {
       return res.status(400).json({ error: 'Ungueltige Rolle' })
+    }
+    if (role && !(await isUserRoleSupported(role))) {
+      return res.status(400).json({ error: `Rolle ${role} ist in dieser Datenbank nicht verfuegbar` })
     }
 
     if (
@@ -733,6 +790,13 @@ router.delete('/users/:id', requirePermission(PermissionKey.USERS_WRITE), async 
 
 router.get('/drivers/overview', requirePermission(PermissionKey.USERS_READ), async (req, res) => {
   try {
+    if (!(await isUserRoleSupported(UserRole.DRIVER))) {
+      return res.json({
+        generatedAt: new Date().toISOString(),
+        rows: [],
+      })
+    }
+
     const q =
       typeof req.query.q === 'string' && req.query.q.trim().length > 0
         ? req.query.q.trim()
@@ -928,6 +992,10 @@ router.get('/drivers/overview', requirePermission(PermissionKey.USERS_READ), asy
 
 router.get('/drivers/:id', requirePermission(PermissionKey.USERS_READ), async (req, res) => {
   try {
+    if (!(await isUserRoleSupported(UserRole.DRIVER))) {
+      return res.status(404).json({ error: 'Fahrer nicht gefunden' })
+    }
+
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
     if (!id) {
       return res.status(400).json({ error: 'id fehlt' })
