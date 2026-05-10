@@ -1,8 +1,9 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   getAccessContext,
   getAccessUsers,
@@ -16,17 +17,6 @@ import {
   type SuperadminSalesDashboard,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
-
-const navItems = [
-  { href: '/superadmin', label: 'Dashboard' },
-  { href: '/superadmin/orders', label: 'Bestellungen' },
-  { href: '/superadmin/app-settings', label: 'App Einstellungen' },
-  { href: '/superadmin/misc-settings', label: 'Sonstige Einstellungen' },
-  { href: '/superadmin/business-data', label: 'Stammdaten & Abrechnung' },
-  { href: '/superadmin/customers', label: 'Kundenstamm' },
-  { href: '/superadmin/drivers', label: 'Fahrer' },
-  { href: '/superadmin/security', label: 'Admin Verwaltung' },
-]
 
 const roleOrder: AccessRole[] = ['SUPERADMIN', 'CHAINADMIN', 'ADMIN', 'STAFF', 'DRIVER']
 
@@ -649,7 +639,7 @@ export default function SuperadminPage() {
       brand="Superadmin"
       title="Dashboard"
       subtitle="Klarando Plattformueberblick fuer Rollen, Filialen und Sicherheitsaktivitaeten"
-      navItems={navItems}
+      navItems={SUPERADMIN_NAV_ITEMS}
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -749,4 +739,6 @@ export default function SuperadminPage() {
     </BackofficeLayout>
   )
 }
+
+
 

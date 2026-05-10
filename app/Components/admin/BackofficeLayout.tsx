@@ -34,6 +34,7 @@ export default function BackofficeLayout({
   const [sessionRole, setSessionRole] = useState('')
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const normalizedRole = sessionRole.trim().toLowerCase()
   const canSwitchToAdmin = normalizedRole === 'superadmin' || normalizedRole === 'chainadmin'
 
@@ -59,6 +60,45 @@ export default function BackofficeLayout({
   useEffect(() => {
     setMobileNavOpen(false)
   }, [pathname])
+
+  useEffect(() => {
+    const storageKey = 'klarando.backoffice.sidebar.collapsed.v1'
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      if (raw === '1' || raw === '0') {
+        setIsSidebarCollapsed(raw === '1')
+      } else if (window.innerWidth < 1280) {
+        setIsSidebarCollapsed(true)
+      }
+    } catch {
+      if (window.innerWidth < 1280) {
+        setIsSidebarCollapsed(true)
+      }
+    }
+
+    const onResize = () => {
+      if (window.innerWidth < 768) {
+        return
+      }
+      if (window.innerWidth < 1280) {
+        setIsSidebarCollapsed(true)
+      }
+    }
+
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        'klarando.backoffice.sidebar.collapsed.v1',
+        isSidebarCollapsed ? '1' : '0'
+      )
+    } catch {
+      // ignore
+    }
+  }, [isSidebarCollapsed])
 
   useEffect(() => {
     let cancelled = false
@@ -92,14 +132,22 @@ export default function BackofficeLayout({
   return (
     <main className="brand-shell min-h-screen">
       <div className="flex min-h-screen">
-        <aside className="brand-sidebar hidden w-72 shrink-0 border-r border-white/10 lg:flex lg:flex-col">
+        <aside
+          className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${
+            isSidebarCollapsed ? 'w-20' : 'w-72'
+          }`}
+        >
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
-              Klarando Plattform
-            </p>
-            <h1 className="mt-2 text-2xl font-bold">{brand}</h1>
-            <p className="mt-2 text-sm text-orange-100/80">Verwaltung von Rollen, Rechten und Freigaben.</p>
+            {!isSidebarCollapsed ? (
+              <>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
+                  Klarando Plattform
+                </p>
+                <h1 className="mt-2 text-2xl font-bold">{brand}</h1>
+                <p className="mt-2 text-sm text-orange-100/80">Verwaltung von Rollen, Rechten und Freigaben.</p>
+              </>
+            ) : null}
           </div>
 
           <nav className="flex-1 px-4 py-6">
@@ -110,11 +158,12 @@ export default function BackofficeLayout({
                   <Link
                     key={item.href}
                     href={item.href}
+                    title={item.label}
                     className={`brand-nav-link block rounded-2xl px-4 py-3 text-sm font-medium ${
                       isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
                     }`}
                   >
-                    {item.label}
+                    {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
                   </Link>
                 )
               })}
@@ -128,17 +177,19 @@ export default function BackofficeLayout({
                 {canSwitchToAdmin ? (
                   <Link
                     href="/admin"
+                    title="Zum Adminbereich"
                     className="brand-nav-link brand-nav-link-inactive block rounded-2xl px-4 py-3 text-sm font-medium"
                   >
-                    Zum Adminbereich
+                    {isSidebarCollapsed ? '>>' : 'Zum Adminbereich'}
                   </Link>
                 ) : null}
                 <button
                   type="button"
                   onClick={handleLogout}
+                  title="Logout"
                   className="block w-full rounded-2xl border border-red-300 bg-red-500/15 px-4 py-3 text-left text-sm font-medium text-red-100 transition hover:bg-red-500/25"
                 >
-                  Logout
+                  {isSidebarCollapsed ? 'X' : 'Logout'}
                 </button>
               </div>
             </div>
@@ -166,10 +217,17 @@ export default function BackofficeLayout({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setMobileNavOpen(true)}
-                    className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 lg:hidden"
+                    onClick={() => setIsSidebarCollapsed((current) => !current)}
+                    className="hidden rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 md:inline-flex"
                   >
-                    Menue
+                    {isSidebarCollapsed ? 'Sidebar öffnen' : 'Sidebar einklappen'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMobileNavOpen(true)}
+                    className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 md:hidden"
+                  >
+                    Menü
                   </button>
                   <div className="brand-chip rounded-xl px-3 py-2 text-xs">
                     {sessionName || 'Benutzer'} {sessionRole ? `(${sessionRole})` : ''}
@@ -192,13 +250,13 @@ export default function BackofficeLayout({
                 >
                   Logout
                 </button>
-                <span className="text-xs text-rose-900/70">Tippe auf „Menue“ fuer Navigation</span>
+                <span className="text-xs text-rose-900/70">Tippe auf „Menü“ für Navigation</span>
               </div>
             </div>
           </header>
 
           {mobileNavOpen ? (
-            <div className="fixed inset-0 z-50 bg-slate-950/55 p-3 lg:hidden">
+            <div className="fixed inset-0 z-50 bg-slate-950/55 p-3 md:hidden">
               <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white">
                 <div className="flex items-center justify-between border-b border-[var(--brand-border)] px-4 py-3">
                   <p className="text-sm font-semibold text-[var(--brand-ink)]">Navigation</p>
@@ -207,7 +265,7 @@ export default function BackofficeLayout({
                     onClick={() => setMobileNavOpen(false)}
                     className="rounded-lg border border-[var(--brand-border)] bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-900"
                   >
-                    Schliessen
+                    Schließen
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -249,7 +307,7 @@ export default function BackofficeLayout({
             </div>
           ) : null}
 
-          <div className="mx-auto max-w-7xl px-3 py-6 sm:px-4 md:px-6 md:py-8">{children}</div>
+          <div className="mx-auto w-full max-w-[1400px] px-3 py-6 sm:px-4 md:px-6 md:py-8">{children}</div>
         </div>
       </div>
     </main>

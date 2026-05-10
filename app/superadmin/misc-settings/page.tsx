@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   DEFAULT_PLATFORM_BRANDING_SETTINGS,
   getPlatformBrandingSettings,
@@ -9,17 +10,6 @@ import {
   type PlatformBrandingSettings,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
-
-const navItems = [
-  { href: '/superadmin', label: 'Dashboard' },
-  { href: '/superadmin/orders', label: 'Bestellungen' },
-  { href: '/superadmin/app-settings', label: 'App-Einstellungen' },
-  { href: '/superadmin/misc-settings', label: 'Sonstige Einstellungen' },
-  { href: '/superadmin/business-data', label: 'Stammdaten & Abrechnung' },
-  { href: '/superadmin/customers', label: 'Kundenstamm' },
-  { href: '/superadmin/drivers', label: 'Fahrer' },
-  { href: '/superadmin/security', label: 'Admin Verwaltung' },
-]
 
 function confirmBrandingSave() {
   const firstCheck = window.confirm('Logo-Einstellungen wirklich global ändern?')
@@ -170,7 +160,7 @@ export default function SuperadminMiscSettingsPage() {
       brand="Superadmin"
       title="Sonstige Einstellungen"
       subtitle="Globales Logo für Sidebar und Header verwalten (ohne Icon)"
-      navItems={navItems}
+      navItems={SUPERADMIN_NAV_ITEMS}
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -275,3 +265,5 @@ export default function SuperadminMiscSettingsPage() {
     </BackofficeLayout>
   )
 }
+
+

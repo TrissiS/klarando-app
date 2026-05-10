@@ -2,13 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import PlatformBranding from '@/app/Components/admin/PlatformBranding'
 import {
   getBusinessSettings,
+  getMyEffectiveFeatureModules,
   getPlatformBrandingSettings,
   type AccessPermission,
   type BusinessSettings,
+  type EffectiveFeatureSetResponse,
   type PlatformBrandingSettings,
 } from '@/lib/api'
 import { isModuleEnabled, type AdminModuleKey } from '@/lib/admin-module-visibility'
@@ -41,32 +43,71 @@ type SubNavGroup = {
 
 const navSections: NavSection[] = [
   {
-    id: 'core',
-    label: 'Hauptmenü',
+    id: 'overview',
+    label: 'Übersicht',
     items: [
       { href: '/admin', label: 'Dashboard', moduleKey: 'dashboard' },
-      { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/staff', label: 'Mitarbeiter', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
-      { href: '/admin/displays', label: 'Bildschirme & Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+    ],
+  },
+  {
+    id: 'orders',
+    label: 'Bestellungen',
+    items: [
       { href: '/admin/orders', label: 'Bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/closings', label: 'Abschlüsse', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
+    ],
+  },
+  {
+    id: 'products',
+    label: 'Produkte',
+    items: [
+      { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/ingredients', label: 'Zutaten & Allergene', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/calculation', label: 'Preise & Kalkulation', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'PRODUCTS_READ' },
+    ],
+  },
+  {
+    id: 'operations',
+    label: 'Betrieb',
+    items: [
+      { href: '/admin/staff', label: 'Mitarbeiter', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+      { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings', label: 'Öffnungszeiten & Lieferung', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/drivers', label: 'Fahrer-App', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
+    ],
+  },
+  {
+    id: 'devices',
+    label: 'Geräte',
+    items: [
+      { href: '/admin/displays', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/terminals', label: 'OrderDesk & Terminals', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/order-displays', label: 'Order-Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/screen', label: 'Display-Design', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {
     id: 'stock',
     label: 'Lager',
     items: [
-      { href: '/admin/stock', label: 'Lager', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
+      { href: '/admin/stock', label: 'Bestand', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
+      { href: '/admin/suppliers', label: 'Lieferanten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
     ],
   },
   {
-    id: 'settings',
-    label: 'Einstellungen',
+    id: 'reports',
+    label: 'Auswertung',
     items: [
-      { href: '/admin/drivers', label: 'Fahrer-App', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings', label: 'App-Einstellungen', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/settings', label: 'Systemeinstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/closings', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
+    ],
+  },
+  {
+    id: 'design',
+    label: 'Design',
+    items: [
+      { href: '/admin/screen', label: 'Display-Design', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/app-settings', label: 'Branding', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
     ],
   },
 ]
@@ -75,12 +116,14 @@ const subNavGroups: SubNavGroup[] = [
   {
     id: 'catalog',
     label: 'Unterkategorien: Produkte',
-    routePrefixes: ['/admin/products', '/admin/categories', '/admin/ingredients', '/admin/suppliers'],
+    routePrefixes: ['/admin/products', '/admin/categories', '/admin/ingredients', '/admin/calculation', '/admin/actions'],
     items: [
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/ingredients', label: 'Zutaten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/suppliers', label: 'Lieferanten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/ingredients', label: 'Allergene', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/calculation', label: 'Preise & Kalkulation', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'PRODUCTS_READ' },
       {
         href: '/admin/suppliers?focus=quick-order',
         label: 'Schnellbestellung',
@@ -103,7 +146,7 @@ const subNavGroups: SubNavGroup[] = [
       { href: '/admin/displays', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/terminals', label: 'OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/order-displays', label: 'Order-Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/screen', label: 'Screen', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/screen', label: 'Display-Design', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {
@@ -117,11 +160,12 @@ const subNavGroups: SubNavGroup[] = [
   },
   {
     id: 'settings',
-    label: 'Unterkategorien: Einstellungen',
-    routePrefixes: ['/admin/drivers', '/admin/app-settings', '/admin/settings'],
+    label: 'Unterkategorien: Betrieb',
+    routePrefixes: ['/admin/drivers', '/admin/app-settings', '/admin/settings', '/admin/staff'],
     items: [
+      { href: '/admin/staff', label: 'Mitarbeiter', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
       { href: '/admin/drivers', label: 'Fahrer-App', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings', label: 'App-Einstellungen', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings', label: 'Öffnungszeiten & Lieferung', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/settings', label: 'Systemeinstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
     ],
   },
@@ -135,8 +179,16 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [sessionName, setSessionName] = useState('')
   const [sessionRole, setSessionRole] = useState('')
   const [businessSettings, setBusinessSettings] = useState<BusinessSettings | null>(null)
+  const [featureScope, setFeatureScope] = useState<EffectiveFeatureSetResponse | null>(null)
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const enabledFeatureKeys = useMemo(() => {
+    if (!featureScope) {
+      return null
+    }
+    return new Set(featureScope.modules.filter((entry) => entry.enabled).map((entry) => entry.key))
+  }, [featureScope])
   const normalizedRole = sessionRole.trim().toLowerCase()
   const switchTarget =
     normalizedRole === 'superadmin'
@@ -219,8 +271,66 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
+
+    async function loadFeatureScope() {
+      try {
+        const effective = await getMyEffectiveFeatureModules()
+        if (!cancelled) {
+          setFeatureScope(effective)
+        }
+      } catch {
+        if (!cancelled) {
+          setFeatureScope(null)
+        }
+      }
+    }
+
+    void loadFeatureScope()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
     setMobileNavOpen(false)
   }, [pathname, searchKey])
+
+  useEffect(() => {
+    const storageKey = 'klarando.admin.sidebar.collapsed.v1'
+    try {
+      const raw = window.localStorage.getItem(storageKey)
+      if (raw === '1' || raw === '0') {
+        setIsSidebarCollapsed(raw === '1')
+      } else if (window.innerWidth < 1280) {
+        setIsSidebarCollapsed(true)
+      }
+    } catch {
+      if (window.innerWidth < 1280) {
+        setIsSidebarCollapsed(true)
+      }
+    }
+
+    const onResize = () => {
+      if (window.innerWidth < 768) {
+        return
+      }
+      if (window.innerWidth < 1280) {
+        setIsSidebarCollapsed(true)
+      }
+    }
+
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('klarando.admin.sidebar.collapsed.v1', isSidebarCollapsed ? '1' : '0')
+    } catch {
+      // ignore write failures
+    }
+  }, [isSidebarCollapsed])
 
   function handleLogout() {
     if (typeof window === 'undefined') return
@@ -234,6 +344,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       !isModuleEnabled(item.moduleKey, {
         permissions,
         businessSettings,
+        enabledFeatureKeys,
       })
     ) {
       return false
@@ -296,28 +407,70 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     : []
   const showSubNavGroup = Boolean(activeSubNavGroup && visibleActiveSubNavItems.length > 0)
 
+  function inferPathModuleKey(path: string): AdminModuleKey | null {
+    if (path === '/admin') return 'dashboard'
+    if (path.startsWith('/admin/products') || path.startsWith('/admin/categories') || path.startsWith('/admin/ingredients') || path.startsWith('/admin/suppliers') || path.startsWith('/admin/calculation')) {
+      return 'products'
+    }
+    if (path.startsWith('/admin/stock')) return 'inventory'
+    if (path.startsWith('/admin/orders') || path.startsWith('/admin/closings')) return 'orders'
+    if (
+      path.startsWith('/admin/displays') ||
+      path.startsWith('/admin/terminals') ||
+      path.startsWith('/admin/order-displays') ||
+      path.startsWith('/admin/screen')
+    ) {
+      return 'displays'
+    }
+    if (path.startsWith('/admin/actions')) return 'actions'
+    if (path.startsWith('/admin/staff')) return 'staff'
+    if (path.startsWith('/admin/drivers')) return 'drivers'
+    if (path.startsWith('/admin/app-settings')) return 'app-settings'
+    if (path.startsWith('/admin/settings')) return 'settings'
+    return null
+  }
+
+  const routeModuleKey = inferPathModuleKey(pathname)
+  const routeModuleAllowed = routeModuleKey
+    ? isModuleEnabled(routeModuleKey, {
+        permissions,
+        businessSettings,
+        enabledFeatureKeys,
+      })
+    : true
+
   return (
     <main className="brand-shell min-h-screen overflow-x-hidden">
       <div className="flex min-h-screen min-w-0">
-        <aside className="brand-sidebar hidden w-72 shrink-0 border-r border-white/10 lg:flex lg:flex-col">
+        <aside
+          className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${
+            isSidebarCollapsed ? 'w-20' : 'w-72'
+          }`}
+        >
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
-              Klarando Plattform
-            </p>
-            <h1 className="mt-2 text-2xl font-bold">Admin Panel</h1>
-            <p className="mt-2 text-sm text-orange-100/80">
-              Zentrale Verwaltung für Produkte, Mitarbeiter und Prozesse.
-            </p>
+            {!isSidebarCollapsed ? (
+              <>
+                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
+                  Klarando Plattform
+                </p>
+                <h1 className="mt-2 text-2xl font-bold">Admin Panel</h1>
+                <p className="mt-2 text-sm text-orange-100/80">
+                  Zentrale Verwaltung für Produkte, Mitarbeiter und Prozesse.
+                </p>
+              </>
+            ) : null}
           </div>
 
           <nav className="flex-1 overflow-y-auto px-4 py-6">
             <div className="space-y-4">
               {visibleNavSections.map((section) => (
                 <div key={section.id}>
-                  <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
-                    {section.label}
-                  </p>
+                  {!isSidebarCollapsed ? (
+                    <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+                      {section.label}
+                    </p>
+                  ) : null}
                   <div className="mt-2 space-y-2">
                     {section.items.map((item) => {
                       const isActive = isItemActive(item)
@@ -326,11 +479,12 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                         <Link
                           key={item.href}
                           href={item.href}
+                          title={item.label}
                           className={`brand-nav-link block rounded-2xl px-4 py-3 text-sm font-medium ${
                             isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
                           }`}
                         >
-                          {item.label}
+                          {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
                         </Link>
                       )
                     })}
@@ -339,7 +493,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               ))}
             </div>
 
-            {showSubNavGroup && activeSubNavGroup ? (
+            {!isSidebarCollapsed && showSubNavGroup && activeSubNavGroup ? (
               <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-3">
                 <p className="px-1 text-[11px] uppercase tracking-[0.18em] text-orange-100/75">
                   {activeSubNavGroup.label}
@@ -372,17 +526,19 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 {switchTarget ? (
                   <Link
                     href={switchTarget.href}
+                    title={switchTarget.label}
                     className="brand-nav-link brand-nav-link-inactive block rounded-2xl px-4 py-3 text-sm font-medium"
                   >
-                    {switchTarget.label}
+                    {isSidebarCollapsed ? '>>' : switchTarget.label}
                   </Link>
                 ) : null}
                 <button
                   type="button"
                   onClick={handleLogout}
+                  title="Logout"
                   className="block w-full rounded-2xl border border-red-300 bg-red-500/15 px-4 py-3 text-left text-sm font-medium text-red-100 transition hover:bg-red-500/25"
                 >
-                  Logout
+                  {isSidebarCollapsed ? 'X' : 'Logout'}
                 </button>
               </div>
             </div>
@@ -411,8 +567,15 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
+                    onClick={() => setIsSidebarCollapsed((current) => !current)}
+                    className="hidden rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 md:inline-flex"
+                  >
+                    {isSidebarCollapsed ? 'Sidebar öffnen' : 'Sidebar einklappen'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => setMobileNavOpen(true)}
-                    className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 lg:hidden"
+                    className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 md:hidden"
                   >
                     Menü
                   </button>
@@ -469,7 +632,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
           </header>
 
           {mobileNavOpen ? (
-            <div className="fixed inset-0 z-50 bg-slate-950/55 p-3 lg:hidden">
+            <div className="fixed inset-0 z-50 bg-slate-950/55 p-3 md:hidden">
               <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white">
                 <div className="flex items-center justify-between border-b border-[var(--brand-border)] px-4 py-3">
                   <p className="text-sm font-semibold text-[var(--brand-ink)]">Navigation</p>
@@ -555,7 +718,15 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           ) : null}
 
-          <div className="w-full min-w-0 px-3 py-6 sm:px-4 md:px-6 md:py-8">{children}</div>
+          <div className="mx-auto w-full max-w-[1400px] min-w-0 px-3 py-6 sm:px-4 md:px-6 md:py-8">
+            {routeModuleAllowed ? (
+              children
+            ) : (
+              <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-6 text-sm text-amber-900">
+                Modul nicht aktiviert. Diese Funktion wurde fuer diese Filiale deaktiviert.
+              </section>
+            )}
+          </div>
         </div>
       </div>
     </main>

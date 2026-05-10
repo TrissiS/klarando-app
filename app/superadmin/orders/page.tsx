@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import OrderDetailsModal from '@/app/Components/admin/OrderDetailsModal'
 import {
   getChains,
@@ -13,17 +14,6 @@ import {
   type OrderManagementResponse,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
-
-const navItems = [
-  { href: '/superadmin', label: 'Dashboard' },
-  { href: '/superadmin/orders', label: 'Bestellungen' },
-  { href: '/superadmin/app-settings', label: 'App-Einstellungen' },
-  { href: '/superadmin/misc-settings', label: 'Sonstige Einstellungen' },
-  { href: '/superadmin/business-data', label: 'Stammdaten & Abrechnung' },
-  { href: '/superadmin/customers', label: 'Kundenstamm' },
-  { href: '/superadmin/drivers', label: 'Fahrer' },
-  { href: '/superadmin/security', label: 'Admin Verwaltung' },
-]
 
 const SOURCE_OPTIONS = [
   { value: 'ALL', label: 'Alle Kanäle' },
@@ -280,7 +270,7 @@ export default function SuperadminOrdersPage() {
       brand="Superadmin"
       title="Bestellungen"
       subtitle="Alle App- und Terminalbestellungen kettenübergreifend auswerten"
-      navItems={navItems}
+      navItems={SUPERADMIN_NAV_ITEMS}
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -544,3 +534,5 @@ export default function SuperadminOrdersPage() {
     </BackofficeLayout>
   )
 }
+
+

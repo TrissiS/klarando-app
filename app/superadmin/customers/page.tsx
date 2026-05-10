@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   archiveCustomerMaster,
   createCustomerMaster,
@@ -15,17 +16,6 @@ import {
   type CustomerMasterRecord,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
-
-const navItems = [
-  { href: '/superadmin', label: 'Dashboard' },
-  { href: '/superadmin/orders', label: 'Bestellungen' },
-  { href: '/superadmin/app-settings', label: 'App Einstellungen' },
-  { href: '/superadmin/misc-settings', label: 'Sonstige Einstellungen' },
-  { href: '/superadmin/business-data', label: 'Stammdaten & Abrechnung' },
-  { href: '/superadmin/customers', label: 'Kundenstamm' },
-  { href: '/superadmin/drivers', label: 'Fahrer' },
-  { href: '/superadmin/security', label: 'Admin Verwaltung' },
-]
 
 type CampaignChannel = 'EMAIL' | 'PUSH' | 'EMAIL_AND_PUSH'
 
@@ -289,7 +279,7 @@ export default function SuperadminCustomersPage() {
       brand="Superadmin"
       title="Kundenstammdatenbank"
       subtitle="Kundenstamm plus automatische App-Kundenanalyse"
-      navItems={navItems}
+      navItems={SUPERADMIN_NAV_ITEMS}
     >
       {error ? <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {success ? <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div> : null}
@@ -406,3 +396,5 @@ export default function SuperadminCustomersPage() {
     </BackofficeLayout>
   )
 }
+
+
