@@ -1,7 +1,8 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import { CHAINADMIN_NAV_ITEMS } from '@/app/chainadmin/nav'
 import AppSettingsFields from '@/app/Components/admin/AppSettingsFields'
 import {
   getAccessContext,
@@ -25,13 +26,6 @@ function confirmDoubleSave(tenantName: string) {
     `Zweite Bestätigung: Änderungen für "${tenantName}" jetzt speichern?`
   )
 }
-
-const navItems = [
-  { href: '/chainadmin', label: 'Benutzer & Pakete' },
-  { href: '/chainadmin/app-settings', label: 'App-Einstellungen' },
-  { href: '/chainadmin/closings', label: 'Abschlüsse' },
-  { href: '/admin', label: 'Zum Adminbereich' },
-]
 
 export default function ChainadminAppSettingsPage() {
   const [session, setSession] = useState<SessionUser | null>(null)
@@ -179,7 +173,7 @@ export default function ChainadminAppSettingsPage() {
       brand="Kettenadmin"
       title="App-Einstellungen"
       subtitle="Filialen mit Bestellmodus und gemeinsamem Liefer-/Abholgebiet steuern"
-      navItems={navItems}
+      navItems={CHAINADMIN_NAV_ITEMS}
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -291,4 +285,5 @@ export default function ChainadminAppSettingsPage() {
     </BackofficeLayout>
   )
 }
+
 

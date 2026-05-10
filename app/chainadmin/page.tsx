@@ -1,8 +1,9 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import { CHAINADMIN_NAV_ITEMS } from '@/app/chainadmin/nav'
 import {
   createAccessUser,
   deleteAccessUser,
@@ -52,14 +53,6 @@ const initialForm: NewUserForm = {
   role: 'ADMIN',
   tenantId: '',
 }
-
-const navItems = [
-  { href: '/chainadmin', label: 'Benutzer & Pakete' },
-  { href: '/chainadmin/app-settings', label: 'App Einstellungen' },
-  { href: '/chainadmin/closings', label: 'Abschluesse' },
-  { href: '/admin/orders', label: 'Bestellungen' },
-  { href: '/admin', label: 'Zum Adminbereich' },
-]
 
 export default function ChainadminPage() {
   const [session, setSession] = useState<SessionUser | null>(null)
@@ -507,7 +500,7 @@ export default function ChainadminPage() {
       brand="Kettenadmin"
       title="Benutzerverwaltung"
       subtitle="Admins und Staff pro Filiale verwalten und Pakete freischalten"
-      navItems={navItems}
+      navItems={CHAINADMIN_NAV_ITEMS}
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1218,4 +1211,5 @@ export default function ChainadminPage() {
     </BackofficeLayout>
   )
 }
+
 

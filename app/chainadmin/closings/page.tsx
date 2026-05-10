@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import { CHAINADMIN_NAV_ITEMS } from '@/app/chainadmin/nav'
 import {
   getAccessContext,
   getChainadminCashClosingQueue,
@@ -12,14 +13,6 @@ import {
   type ManagedTenant,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
-
-const navItems = [
-  { href: '/chainadmin', label: 'Benutzer & Pakete' },
-  { href: '/chainadmin/app-settings', label: 'App Einstellungen' },
-  { href: '/chainadmin/closings', label: 'Abschluesse' },
-  { href: '/admin/orders', label: 'Bestellungen' },
-  { href: '/admin', label: 'Zum Adminbereich' },
-]
 
 function currentMonthIso() {
   const now = new Date()
@@ -193,7 +186,7 @@ export default function ChainadminClosingsPage() {
       brand="Kettenadmin"
       title="Abschluss-Queue"
       subtitle="Tages-/Monatsabschluesse pruefen und Wiedereroeffnungen freigeben"
-      navItems={navItems}
+      navItems={CHAINADMIN_NAV_ITEMS}
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -393,3 +386,4 @@ export default function ChainadminClosingsPage() {
     </BackofficeLayout>
   )
 }
+
