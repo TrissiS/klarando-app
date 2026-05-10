@@ -232,7 +232,36 @@ $remoteCommands = @(
 )
 
 if (-not $SkipRemoteBackup) {
-  $remoteCommands += 'if [ -f deploy/backup/postgres-backup.sh ]; then chmod +x deploy/backup/postgres-backup.sh && bash deploy/backup/postgres-backup.sh; else echo "WARN: Kein Backup-Script gefunden: deploy/backup/postgres-backup.sh"; fi'
+  if ($Mode -eq 'test') {
+    $remoteCommands += @(
+      'if docker compose --env-file .env.production -f docker-compose.prod.yml ps postgres 2>/dev/null | grep -qi "Up"; then',
+      '  if [ -f deploy/backup/postgres-backup.sh ]; then',
+      '    chmod +x deploy/backup/postgres-backup.sh',
+      '    if ! bash deploy/backup/postgres-backup.sh; then',
+      '      echo "WARN: Backup fehlgeschlagen im TEST-Modus - Deploy läuft weiter."',
+      '    fi',
+      '  else',
+      '    echo "WARN: Kein Backup-Script gefunden: deploy/backup/postgres-backup.sh"',
+      '  fi',
+      'else',
+      '  echo "WARN: Postgres läuft nicht - Backup wird im TEST-Modus übersprungen."',
+      'fi'
+    )
+  } else {
+    $remoteCommands += @(
+      'if docker compose --env-file .env.production -f docker-compose.prod.yml ps postgres 2>/dev/null | grep -qi "Up"; then',
+      '  if [ -f deploy/backup/postgres-backup.sh ]; then',
+      '    chmod +x deploy/backup/postgres-backup.sh',
+      '    bash deploy/backup/postgres-backup.sh',
+      '  else',
+      '    echo "WARN: Kein Backup-Script gefunden: deploy/backup/postgres-backup.sh"',
+      '  fi',
+      'else',
+      '  echo "FEHLER: Postgres läuft nicht. LIVE-Deploy wird zum Schutz abgebrochen."',
+      '  exit 43',
+      'fi'
+    )
+  }
 }
 
 $remoteCommands += @(

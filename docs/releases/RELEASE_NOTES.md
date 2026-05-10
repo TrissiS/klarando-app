@@ -20,3 +20,9 @@ Automatisch erzeugte Release-Historie für lokale Desktop-Deployments.
 - Commit-Message: release: klarando v0.1.3 (test)
 - Quelle: lokales Desktop-Deploy-Script
 
+## v0.1.4 (2026-05-10 14:02:17 UTC)
+- Modus: test
+- Basis-Commit: 1a7e78c
+- Commit-Message: release: klarando v0.1.4 (test)
+- Quelle: lokales Desktop-Deploy-Script
+
