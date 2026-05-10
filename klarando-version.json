@@ -1,10 +1,10 @@
 {
-  "version": "0.1.9",
-  "frontendVersion": "0.1.9",
-  "backendVersion": "0.1.9",
-  "displayApiVersion": "0.1.9",
-  "mobileCustomerVersion": "0.1.9",
-  "mobileDriverVersion": "0.1.9",
-  "buildDateUtc": "2026-05-10T14:32:17.498Z",
-  "updatedAtUtc": "2026-05-10T14:32:17.498Z"
+  "version": "0.1.10",
+  "frontendVersion": "0.1.10",
+  "backendVersion": "0.1.10",
+  "displayApiVersion": "0.1.10",
+  "mobileCustomerVersion": "0.1.10",
+  "mobileDriverVersion": "0.1.10",
+  "buildDateUtc": "2026-05-10T14:43:15.380Z",
+  "updatedAtUtc": "2026-05-10T14:43:15.380Z"
 }
