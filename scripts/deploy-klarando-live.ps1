@@ -236,10 +236,21 @@ $localHealthCheckCommand = if ($Mode -eq 'test') {
 Write-Step 'Remote Deploy auf VPS'
 $remoteCommands = @(
   'set -euo pipefail',
-  "cd $remoteAppPath",
+  "cd $remoteAppPath"
+)
+
+if ($Mode -eq 'test') {
+  $remoteCommands += @(
+    'git fetch origin',
+    'git reset --hard origin/main'
+  )
+} else {
+  $remoteCommands += 'git pull --ff-only'
+}
+
+$remoteCommands += @(
   'if [ ! -f .env.production ]; then echo "FEHLER: .env.production fehlt"; exit 12; fi',
-  "if [ '$Mode' = 'test' ] && [ ! -f docker-compose.test.yml ]; then echo 'FEHLER: docker-compose.test.yml fehlt im Test-Ordner'; exit 13; fi",
-  'git pull --ff-only'
+  "if [ '$Mode' = 'test' ] && [ ! -f docker-compose.test.yml ]; then echo 'FEHLER: docker-compose.test.yml fehlt im Test-Ordner'; exit 13; fi"
 )
 
 if (-not $SkipRemoteBackup) {
