@@ -28,8 +28,6 @@ services:
       - backend_data:/app/data
     expose:
       - "4000"
-    ports:
-      - "4001:4000"
     healthcheck:
       test:
         [

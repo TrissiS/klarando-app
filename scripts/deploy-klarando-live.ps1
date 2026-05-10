@@ -228,7 +228,7 @@ $composeBaseCommand = if ($Mode -eq 'test') {
   'docker compose --env-file .env.production -f docker-compose.prod.yml'
 }
 $localHealthCheckCommand = if ($Mode -eq 'test') {
-  'if command -v curl >/dev/null 2>&1; then curl -fsS http://localhost:8080/api/health || curl -fsS http://localhost:4001/api/health; else wget -qO- http://localhost:8080/api/health || wget -qO- http://localhost:4001/api/health; fi'
+  'if command -v curl >/dev/null 2>&1; then curl -fsS http://localhost:8080/api/health; else wget -qO- http://localhost:8080/api/health; fi'
 } else {
   'if command -v curl >/dev/null 2>&1; then curl -fsS http://localhost/api/health || curl -fsS http://localhost:4000/api/health; else wget -qO- http://localhost/api/health || wget -qO- http://localhost:4000/api/health; fi'
 }
@@ -250,7 +250,8 @@ if ($Mode -eq 'test') {
 
 $remoteCommands += @(
   'if [ ! -f .env.production ]; then echo "FEHLER: .env.production fehlt"; exit 12; fi',
-  "if [ '$Mode' = 'test' ] && [ ! -f docker-compose.test.yml ]; then echo 'FEHLER: docker-compose.test.yml fehlt im Test-Ordner'; exit 13; fi"
+  "if [ '$Mode' = 'test' ] && [ ! -f docker-compose.test.yml ]; then echo 'FEHLER: docker-compose.test.yml fehlt im Test-Ordner'; exit 13; fi",
+  "if [ '$Mode' = 'test' ] && ! grep -qE '^[[:space:]]+nginx:' docker-compose.test.yml; then echo 'FEHLER: nginx-Service fehlt in docker-compose.test.yml'; exit 14; fi"
 )
 
 if (-not $SkipRemoteBackup) {

@@ -100,10 +100,25 @@ Kein schweres CI/CD erforderlich.
   - nginx `80/443`
 - TEST nutzt `docker-compose.test.yml` mit separaten Ports:
   - nginx `8080:80`
-  - backend `4001:4000`
+  - backend/web/postgres bleiben intern im Docker-Netz
+  - API-Routing läuft im Test über nginx (`/api/* -> backend`)
 - TEST läuft mit eigenem Compose-Project-Name:
   - `klarando-app-test`
   - dadurch getrennte Container-/Volume-Namen
+
+### Test-Deploy Ablauf (Remote)
+Im TEST-Modus führt das Deploy-Script auf dem VPS aus:
+1. `cd /opt/klarando-app-test`
+2. `git fetch origin`
+3. `git reset --hard origin/main`
+4. Prüfung auf `.env.production`, `docker-compose.test.yml` und `nginx`-Service
+5. Start mit:
+   - `docker compose -p klarando-app-test --env-file .env.production -f docker-compose.test.yml up -d --build`
+6. Statusausgabe:
+   - `docker compose -p klarando-app-test --env-file .env.production -f docker-compose.test.yml ps`
+7. Healthchecks:
+   - intern `http://localhost:8080/api/health`
+   - extern `http://31.70.76.55:8080/api/health`
 
 ## Konkrete IONOS-VPS Werte (gesetzt)
 - Host/IP: `31.70.76.55`
