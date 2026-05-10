@@ -20,7 +20,7 @@ $VpsPort = 22
 $VpsProjectPath = '/opt/klarando-app'
 $VpsProjectPathTest = '/opt/klarando-app-test'
 $PublicHealthUrlLive = 'http://31.70.76.55/api/health'
-$PublicHealthUrlTest = 'http://31.70.76.55/api/health'
+$PublicHealthUrlTest = 'http://31.70.76.55:8080/api/health'
 $SshKeyPath = '' # optional, z.B. C:\Users\<du>\.ssh\id_ed25519
 
 function Write-Step {
@@ -222,19 +222,30 @@ if ([string]::IsNullOrWhiteSpace($VpsHost) -or [string]::IsNullOrWhiteSpace($Vps
 
 $remoteAppPath = if ($Mode -eq 'test') { $VpsProjectPathTest } else { $VpsProjectPath }
 $publicHealthUrl = if ($Mode -eq 'test') { $PublicHealthUrlTest } else { $PublicHealthUrlLive }
+$composeBaseCommand = if ($Mode -eq 'test') {
+  'docker compose -p klarando-app-test --env-file .env.production -f docker-compose.test.yml'
+} else {
+  'docker compose --env-file .env.production -f docker-compose.prod.yml'
+}
+$localHealthCheckCommand = if ($Mode -eq 'test') {
+  'if command -v curl >/dev/null 2>&1; then curl -fsS http://localhost:8080/api/health || curl -fsS http://localhost:4001/api/health; else wget -qO- http://localhost:8080/api/health || wget -qO- http://localhost:4001/api/health; fi'
+} else {
+  'if command -v curl >/dev/null 2>&1; then curl -fsS http://localhost/api/health || curl -fsS http://localhost:4000/api/health; else wget -qO- http://localhost/api/health || wget -qO- http://localhost:4000/api/health; fi'
+}
 
 Write-Step 'Remote Deploy auf VPS'
 $remoteCommands = @(
   'set -euo pipefail',
   "cd $remoteAppPath",
   'if [ ! -f .env.production ]; then echo "FEHLER: .env.production fehlt"; exit 12; fi',
+  "if [ '$Mode' = 'test' ] && [ ! -f docker-compose.test.yml ]; then echo 'FEHLER: docker-compose.test.yml fehlt im Test-Ordner'; exit 13; fi",
   'git pull --ff-only'
 )
 
 if (-not $SkipRemoteBackup) {
   if ($Mode -eq 'test') {
     $remoteCommands += @(
-      'if docker compose --env-file .env.production -f docker-compose.prod.yml ps postgres 2>/dev/null | grep -qi "Up"; then',
+      "if $composeBaseCommand ps postgres 2>/dev/null | grep -qi Up; then",
       '  if [ -f deploy/backup/postgres-backup.sh ]; then',
       '    chmod +x deploy/backup/postgres-backup.sh',
       '    if ! bash deploy/backup/postgres-backup.sh; then',
@@ -249,7 +260,7 @@ if (-not $SkipRemoteBackup) {
     )
   } else {
     $remoteCommands += @(
-      'if docker compose --env-file .env.production -f docker-compose.prod.yml ps postgres 2>/dev/null | grep -qi "Up"; then',
+      "if $composeBaseCommand ps postgres 2>/dev/null | grep -qi Up; then",
       '  if [ -f deploy/backup/postgres-backup.sh ]; then',
       '    chmod +x deploy/backup/postgres-backup.sh',
       '    bash deploy/backup/postgres-backup.sh',
@@ -265,10 +276,10 @@ if (-not $SkipRemoteBackup) {
 }
 
 $remoteCommands += @(
-  'docker compose --env-file .env.production -f docker-compose.prod.yml up -d --build',
-  'docker compose --env-file .env.production -f docker-compose.prod.yml ps',
+  "$composeBaseCommand up -d --build",
+  "$composeBaseCommand ps",
   'echo "--- Healthcheck localhost/api/health ---"',
-  'if command -v curl >/dev/null 2>&1; then curl -fsS http://localhost/api/health || curl -fsS http://localhost:4000/api/health; else wget -qO- http://localhost/api/health || wget -qO- http://localhost:4000/api/health; fi',
+  $localHealthCheckCommand,
   'echo "--- Healthcheck public ---"',
   "if command -v curl >/dev/null 2>&1; then curl -fsS $publicHealthUrl; else wget -qO- $publicHealthUrl; fi"
 )

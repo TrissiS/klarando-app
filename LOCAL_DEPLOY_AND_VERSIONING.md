@@ -14,6 +14,7 @@ Dieses Setup ermöglicht dir ein Windows-first Desktop-Deployment für Klarando:
 - Zentrale Version: `C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\klarando-version.json`
 - Version-Manager: `C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\scripts\version-manager.mjs`
 - Live-Deploy Script: `C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\scripts\deploy-klarando-live.ps1`
+- Test-Compose: `C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\docker-compose.test.yml`
 - Shortcut-Generator: `C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\scripts\create-klarando-live-deploy-shortcut.ps1`
 - Release-Notizen: `C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\docs\releases\RELEASE_NOTES.md`
 
@@ -94,6 +95,16 @@ Aktuell bewusst einfach/stabil:
 
 Kein schweres CI/CD erforderlich.
 
+### Ports LIVE vs TEST
+- LIVE bleibt auf Standard-Ports über `docker-compose.prod.yml`:
+  - nginx `80/443`
+- TEST nutzt `docker-compose.test.yml` mit separaten Ports:
+  - nginx `8080:80`
+  - backend `4001:4000`
+- TEST läuft mit eigenem Compose-Project-Name:
+  - `klarando-app-test`
+  - dadurch getrennte Container-/Volume-Namen
+
 ## Konkrete IONOS-VPS Werte (gesetzt)
 - Host/IP: `31.70.76.55`
 - User: `root`
@@ -101,6 +112,7 @@ Kein schweres CI/CD erforderlich.
 - Compose-Datei: `docker-compose.prod.yml`
 - ENV-Datei: `.env.production`
 - Public Healthcheck: `http://31.70.76.55/api/health`
+- Public Healthcheck TEST: `http://31.70.76.55:8080/api/health`
 
 ## Superadmin Versionsanzeige
 
