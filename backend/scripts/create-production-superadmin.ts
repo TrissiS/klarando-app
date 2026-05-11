@@ -25,7 +25,7 @@ function assertBootstrapGuards() {
 
   if (process.env.ALLOW_PRODUCTION_ADMIN_BOOTSTRAP !== 'true') {
     throw new Error(
-      'Bootstrap ist blockiert. Setze ALLOW_PRODUCTION_ADMIN_BOOTSTRAP=true fuer einen expliziten Run.'
+      'Bootstrap ist blockiert. Setze ALLOW_PRODUCTION_ADMIN_BOOTSTRAP=true für einen expliziten Run.'
     )
   }
 }
@@ -77,7 +77,7 @@ async function run() {
   if (existingUser) {
     if (!allowPasswordReset) {
       if (existingUser.role === UserRole.SUPERADMIN) {
-        console.log('Superadmin existiert bereits, keine Aenderung')
+        console.log('Superadmin existiert bereits, keine Änderung')
         return
       }
 
@@ -95,7 +95,7 @@ async function run() {
       },
     })
 
-    console.log('Superadmin Passwort wurde zurueckgesetzt')
+    console.log('Superadmin Passwort wurde zurückgesetzt')
     return
   }
 
