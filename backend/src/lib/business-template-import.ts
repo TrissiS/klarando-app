@@ -1,14 +1,33 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 
-type ImportBusinessTemplateInput = {
+export type ImportBusinessTemplateInput = {
   templateId: string
   tenantId: string
+  options?: Partial<ImportBusinessTemplateOptions>
 }
 
-type ImportBusinessTemplateResult = {
+export type ImportBusinessTemplateOptions = {
+  importCategories: boolean
+  importProducts: boolean
+  importIngredients: boolean
+  importProductIngredients: boolean
+  importAllergens: boolean
+  importPriceSuggestions: boolean
+  overwriteExisting: boolean
+}
+
+export type ImportBusinessTemplateResult = {
   templateId: string
   tenantId: string
+  options: ImportBusinessTemplateOptions
+  categoriesCreated: number
+  productsCreated: number
+  productsUpdated: number
+  ingredientsCreated: number
+  productIngredientsCreated: number
+  allergensApplied: number
+  skippedExisting: number
   createdCategories: number
   createdIngredients: number
   createdProducts: number
@@ -27,10 +46,58 @@ function toAllergenCodeString(allergens: string[]) {
   return allergens.join(',')
 }
 
+const DEFAULT_IMPORT_OPTIONS: ImportBusinessTemplateOptions = {
+  importCategories: true,
+  importProducts: true,
+  importIngredients: true,
+  importProductIngredients: true,
+  importAllergens: true,
+  importPriceSuggestions: true,
+  overwriteExisting: false,
+}
+
+function resolveImportOptions(
+  options?: Partial<ImportBusinessTemplateOptions>
+): ImportBusinessTemplateOptions {
+  return {
+    importCategories:
+      typeof options?.importCategories === 'boolean'
+        ? options.importCategories
+        : DEFAULT_IMPORT_OPTIONS.importCategories,
+    importProducts:
+      typeof options?.importProducts === 'boolean'
+        ? options.importProducts
+        : DEFAULT_IMPORT_OPTIONS.importProducts,
+    importIngredients:
+      typeof options?.importIngredients === 'boolean'
+        ? options.importIngredients
+        : DEFAULT_IMPORT_OPTIONS.importIngredients,
+    importProductIngredients:
+      typeof options?.importProductIngredients === 'boolean'
+        ? options.importProductIngredients
+        : DEFAULT_IMPORT_OPTIONS.importProductIngredients,
+    importAllergens:
+      typeof options?.importAllergens === 'boolean'
+        ? options.importAllergens
+        : DEFAULT_IMPORT_OPTIONS.importAllergens,
+    importPriceSuggestions:
+      typeof options?.importPriceSuggestions === 'boolean'
+        ? options.importPriceSuggestions
+        : DEFAULT_IMPORT_OPTIONS.importPriceSuggestions,
+    overwriteExisting:
+      typeof options?.overwriteExisting === 'boolean'
+        ? options.overwriteExisting
+        : DEFAULT_IMPORT_OPTIONS.overwriteExisting,
+  }
+}
+
 export async function importBusinessTemplateToTenant(
-  input: ImportBusinessTemplateInput
+  input: ImportBusinessTemplateInput,
+  dbClient?: Prisma.TransactionClient
 ): Promise<ImportBusinessTemplateResult> {
-  const template = await prisma.businessTemplate.findUnique({
+  const options = resolveImportOptions(input.options)
+  const db = dbClient ?? prisma
+  const template = await db.businessTemplate.findUnique({
     where: { id: input.templateId },
     include: {
       categories: {
@@ -52,7 +119,7 @@ export async function importBusinessTemplateToTenant(
     throw new Error('Vorlage nicht gefunden oder deaktiviert')
   }
 
-  return prisma.$transaction(async (tx) => {
+  const runImport = async (tx: Prisma.TransactionClient) => {
     const existingCategories = await tx.category.findMany({
       where: { tenantId: input.tenantId },
       select: { id: true, name: true },
@@ -77,16 +144,19 @@ export async function importBusinessTemplateToTenant(
     const templateIngredientToTenantIngredient = new Map<string, string>()
     const templateProductToTenantProduct = new Map<string, string>()
 
-    let createdCategories = 0
-    let createdIngredients = 0
-    let createdProducts = 0
-    let createdProductIngredients = 0
+    let categoriesCreated = 0
+    let ingredientsCreated = 0
+    let productsCreated = 0
+    let productsUpdated = 0
+    let productIngredientsCreated = 0
+    let allergensApplied = 0
+    let skippedExisting = 0
 
     for (const templateCategory of template.categories) {
       const normalizedName = normalizeKey(templateCategory.name)
       let tenantCategoryId = categoryByName.get(normalizedName)
 
-      if (!tenantCategoryId) {
+      if (!tenantCategoryId && options.importCategories) {
         const createdCategory = await tx.category.create({
           data: {
             tenantId: input.tenantId,
@@ -97,17 +167,31 @@ export async function importBusinessTemplateToTenant(
         })
         tenantCategoryId = createdCategory.id
         categoryByName.set(normalizedName, tenantCategoryId)
-        createdCategories += 1
+        categoriesCreated += 1
+      } else if (tenantCategoryId && options.importCategories && options.overwriteExisting) {
+        await tx.category.update({
+          where: { id: tenantCategoryId },
+          data: {
+            sortOrder: templateCategory.sortOrder,
+          },
+        })
+      } else if (tenantCategoryId && !options.overwriteExisting) {
+        skippedExisting += 1
       }
 
-      templateCategoryToTenantCategory.set(templateCategory.id, tenantCategoryId)
+      if (tenantCategoryId) {
+        templateCategoryToTenantCategory.set(templateCategory.id, tenantCategoryId)
+      }
     }
 
     for (const templateIngredient of template.ingredients) {
       const normalizedName = normalizeKey(templateIngredient.name)
       let tenantIngredientId = ingredientByName.get(normalizedName)
 
-      if (!tenantIngredientId) {
+      if (!tenantIngredientId && options.importIngredients) {
+        const allergenPayload = options.importAllergens
+          ? toAllergenCodeString(templateIngredient.allergens)
+          : null
         const createdIngredient = await tx.ingredient.create({
           data: {
             tenantId: input.tenantId,
@@ -120,7 +204,7 @@ export async function importBusinessTemplateToTenant(
             minimumStock: templateIngredient.minimumStock,
             consumptionFactorPercent: 0,
             deposit: new Prisma.Decimal('0'),
-            allergens: toAllergenCodeString(templateIngredient.allergens),
+            allergens: allergenPayload,
             supplier: templateIngredient.supplier,
             articleNumber: templateIngredient.articleNumber,
           },
@@ -128,10 +212,38 @@ export async function importBusinessTemplateToTenant(
         })
         tenantIngredientId = createdIngredient.id
         ingredientByName.set(normalizedName, tenantIngredientId)
-        createdIngredients += 1
+        ingredientsCreated += 1
+        if (allergenPayload) {
+          allergensApplied += 1
+        }
+      } else if (tenantIngredientId && options.importIngredients && options.overwriteExisting) {
+        const allergenPayload = options.importAllergens
+          ? toAllergenCodeString(templateIngredient.allergens)
+          : undefined
+        await tx.ingredient.update({
+          where: { id: tenantIngredientId },
+          data: {
+            category: templateIngredient.category,
+            unit: templateIngredient.unit,
+            recipeUnit: templateIngredient.recipeUnit,
+            gramsPerPurchaseUnit: templateIngredient.gramsPerPurchaseUnit,
+            purchasePrice: templateIngredient.purchasePrice,
+            minimumStock: templateIngredient.minimumStock,
+            supplier: templateIngredient.supplier,
+            articleNumber: templateIngredient.articleNumber,
+            ...(allergenPayload !== undefined ? { allergens: allergenPayload } : {}),
+          },
+        })
+        if (allergenPayload) {
+          allergensApplied += 1
+        }
+      } else if (tenantIngredientId && !options.overwriteExisting) {
+        skippedExisting += 1
       }
 
-      templateIngredientToTenantIngredient.set(templateIngredient.id, tenantIngredientId)
+      if (tenantIngredientId) {
+        templateIngredientToTenantIngredient.set(templateIngredient.id, tenantIngredientId)
+      }
     }
 
     for (const templateProduct of template.products) {
@@ -140,7 +252,7 @@ export async function importBusinessTemplateToTenant(
       let tenantProductId =
         productByNumber.get(normalizedProductNumber) || productByName.get(normalizedProductName)
 
-      if (!tenantProductId) {
+      if (!tenantProductId && options.importProducts) {
         const createdProduct = await tx.product.create({
           data: {
             tenantId: input.tenantId,
@@ -150,19 +262,65 @@ export async function importBusinessTemplateToTenant(
             productNumber: templateProduct.productNumber,
             name: templateProduct.name,
             imageUrl: templateProduct.imageUrl,
-            price: templateProduct.price,
-            vatRate: templateProduct.vatRate,
+            price: options.importPriceSuggestions
+              ? templateProduct.price
+              : new Prisma.Decimal('0'),
+            vatRate: options.importPriceSuggestions
+              ? templateProduct.vatRate
+              : new Prisma.Decimal('19.00'),
             available: templateProduct.available,
           },
           select: { id: true },
         })
         tenantProductId = createdProduct.id
-        createdProducts += 1
+        productsCreated += 1
+      } else if (tenantProductId && options.importProducts && options.overwriteExisting) {
+        await tx.product.update({
+          where: { id: tenantProductId },
+          data: {
+            categoryId: templateProduct.categoryId
+              ? templateCategoryToTenantCategory.get(templateProduct.categoryId) || null
+              : null,
+            name: templateProduct.name,
+            imageUrl: templateProduct.imageUrl,
+            available: templateProduct.available,
+            ...(options.importPriceSuggestions
+              ? {
+                  price: templateProduct.price,
+                  vatRate: templateProduct.vatRate,
+                }
+              : {}),
+          },
+        })
+        productsUpdated += 1
+      } else if (tenantProductId && !options.overwriteExisting) {
+        skippedExisting += 1
       }
 
-      productByNumber.set(normalizedProductNumber, tenantProductId)
-      productByName.set(normalizedProductName, tenantProductId)
-      templateProductToTenantProduct.set(templateProduct.id, tenantProductId)
+      if (tenantProductId) {
+        productByNumber.set(normalizedProductNumber, tenantProductId)
+        productByName.set(normalizedProductName, tenantProductId)
+        templateProductToTenantProduct.set(templateProduct.id, tenantProductId)
+      }
+    }
+
+    if (!options.importProductIngredients) {
+      return {
+        templateId: template.id,
+        tenantId: input.tenantId,
+        options,
+        categoriesCreated,
+        productsCreated,
+        productsUpdated,
+        ingredientsCreated,
+        productIngredientsCreated,
+        allergensApplied,
+        skippedExisting,
+        createdCategories: categoriesCreated,
+        createdIngredients: ingredientsCreated,
+        createdProducts: productsCreated,
+        createdProductIngredients: productIngredientsCreated,
+      }
     }
 
     const tenantProductIds = Array.from(templateProductToTenantProduct.values())
@@ -196,6 +354,7 @@ export async function importBusinessTemplateToTenant(
 
         const dedupeKey = `${tenantProductId}::${tenantIngredientId}`
         if (existingLinkSet.has(dedupeKey)) {
+          skippedExisting += 1
           continue
         }
 
@@ -207,17 +366,31 @@ export async function importBusinessTemplateToTenant(
           },
         })
         existingLinkSet.add(dedupeKey)
-        createdProductIngredients += 1
+        productIngredientsCreated += 1
       }
     }
 
     return {
       templateId: template.id,
       tenantId: input.tenantId,
-      createdCategories,
-      createdIngredients,
-      createdProducts,
-      createdProductIngredients,
+      options,
+      categoriesCreated,
+      productsCreated,
+      productsUpdated,
+      ingredientsCreated,
+      productIngredientsCreated,
+      allergensApplied,
+      skippedExisting,
+      createdCategories: categoriesCreated,
+      createdIngredients: ingredientsCreated,
+      createdProducts: productsCreated,
+      createdProductIngredients: productIngredientsCreated,
     }
-  })
+  }
+
+  if (dbClient) {
+    return runImport(dbClient)
+  }
+
+  return prisma.$transaction(async (tx) => runImport(tx))
 }
