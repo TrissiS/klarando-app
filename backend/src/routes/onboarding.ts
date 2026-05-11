@@ -3,10 +3,20 @@ import { UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { requireAuth } from '../middleware/auth'
 import { hashPassword } from '../auth/password'
-import { importBusinessTemplateToTenant, type ImportBusinessTemplateOptions } from '../lib/business-template-import'
+import { importBusinessTemplateToTenant } from '../lib/business-template-import'
 import { writeAuditLog } from '../lib/audit'
 
 const router = Router()
+
+type ImportBusinessTemplateOptions = {
+  importCategories: boolean
+  importProducts: boolean
+  importIngredients: boolean
+  importProductIngredients: boolean
+  importAllergens: boolean
+  importPriceSuggestions: boolean
+  overwriteExisting: boolean
+}
 
 type OnboardingPayload = {
   company: {
@@ -171,14 +181,11 @@ router.post('/business', requireAuth, async (req, res) => {
 
       let templateImportResult: Awaited<ReturnType<typeof importBusinessTemplateToTenant>> | null = null
       if (payload.templateImport?.enabled && payload.templateImport.templateId) {
-        templateImportResult = await importBusinessTemplateToTenant(
-          {
-            templateId: payload.templateImport.templateId,
-            tenantId: tenant.id,
-            options: payload.templateImport.options,
-          },
-          tx
-        )
+        templateImportResult = await importBusinessTemplateToTenant({
+          templateId: payload.templateImport.templateId,
+          tenantId: tenant.id,
+          options: payload.templateImport.options,
+        })
       }
 
       return {
