@@ -8,5 +8,10 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["src", "scripts/create-production-superadmin.ts", "prisma.config.ts"]
+  "include": [
+    "src",
+    "scripts/create-production-superadmin.ts",
+    "scripts/create-demo-tenant-safe.ts",
+    "prisma.config.ts"
+  ]
 }

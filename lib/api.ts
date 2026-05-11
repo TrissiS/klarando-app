@@ -4513,6 +4513,113 @@ export type ManagedTenant = {
   }
 }
 
+export type BusinessTemplateAllergenCode =
+  | 'A'
+  | 'B'
+  | 'C'
+  | 'D'
+  | 'E'
+  | 'F'
+  | 'G'
+  | 'H'
+  | 'I'
+  | 'J'
+  | 'K'
+  | 'L'
+  | 'M'
+  | 'N'
+
+export type BusinessTemplateType =
+  | 'DONER_KEBAP'
+  | 'PIZZERIA'
+  | 'BURGER_SMASHBURGER'
+  | 'GRILL_IMBISS'
+  | 'ASIAN'
+  | 'CAFE_BAKERY'
+  | 'BEVERAGE_DELIVERY'
+  | 'KIOSK_SPATI'
+  | 'RESTAURANT_GENERAL'
+  | 'STEAKHOUSE_GRILLHOUSE'
+  | 'SUSHI'
+  | 'VEGAN_HEALTHY'
+  | 'FOODTRUCK'
+  | 'ICECREAM_DESSERT'
+  | 'BAR_LOUNGE'
+
+export type BusinessTemplateOverview = {
+  id: string
+  key: string
+  type: BusinessTemplateType
+  name: string
+  description: string | null
+  sortOrder: number
+  _count: {
+    categories: number
+    ingredients: number
+    products: number
+  }
+}
+
+export type BusinessTemplateDetail = {
+  id: string
+  key: string
+  type: BusinessTemplateType
+  name: string
+  description: string | null
+  isActive: boolean
+  sortOrder: number
+  categories: Array<{
+    id: string
+    templateId: string
+    name: string
+    sortOrder: number
+  }>
+  ingredients: Array<{
+    id: string
+    templateId: string
+    name: string
+    category: 'FOOD' | 'PACKAGING'
+    unit: string
+    recipeUnit: string | null
+    allergens: BusinessTemplateAllergenCode[]
+    supplier: string | null
+    articleNumber: string | null
+  }>
+  products: Array<{
+    id: string
+    templateId: string
+    categoryId: string | null
+    productNumber: string
+    name: string
+    price: string
+    vatRate: string
+    available: boolean
+    category: {
+      id: string
+      name: string
+      sortOrder: number
+    } | null
+    ingredientLinks: Array<{
+      id: string
+      quantity: string
+      ingredient: {
+        id: string
+        name: string
+        allergens: BusinessTemplateAllergenCode[]
+      }
+    }>
+  }>
+}
+
+export type BusinessTemplateImportResult = {
+  templateId: string
+  tenantId: string
+  createdCategories: number
+  createdIngredients: number
+  createdProducts: number
+  createdProductIngredients: number
+}
+
 export type DatabaseAssignmentType = 'UNASSIGNED' | 'CHAIN' | 'TENANT'
 
 export type DatabaseManagementChain = {
@@ -5410,6 +5517,56 @@ export async function getManagedTenants(token: string): Promise<ManagedTenant[]>
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
     throw new Error(errorData?.error || 'Tenants konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getBusinessTemplates(token: string): Promise<BusinessTemplateOverview[]> {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Vorlagen konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getBusinessTemplateDetail(
+  token: string,
+  templateId: string
+): Promise<BusinessTemplateDetail> {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Vorlagen-Details konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function importBusinessTemplate(
+  token: string,
+  templateId: string,
+  tenantId: string
+): Promise<BusinessTemplateImportResult> {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/import`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      tenantId,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Vorlage konnte nicht importiert werden')
   }
 
   return res.json()

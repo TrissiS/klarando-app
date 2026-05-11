@@ -5,6 +5,7 @@ type BackofficeNavItem = ComponentProps<typeof BackofficeLayout>['navItems'][num
 
 export const CHAINADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/chainadmin', label: 'Benutzer & Pakete' },
+  { href: '/chainadmin/business-templates', label: 'Business-Vorlagen' },
   { href: '/chainadmin/display-devices', label: 'Displays' },
   { href: '/chainadmin/app-settings', label: 'App-Einstellungen' },
   { href: '/chainadmin/closings', label: 'Abschlüsse' },

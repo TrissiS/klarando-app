@@ -61,6 +61,7 @@ const navSections: NavSection[] = [
     label: 'Produkte',
     items: [
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/business-templates', label: 'Business-Vorlagen', moduleKey: 'products', requiredPermission: 'PRODUCTS_WRITE' },
       { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/ingredients', label: 'Zutaten & Allergene', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/calculation', label: 'Preise & Kalkulation', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
@@ -116,9 +117,10 @@ const subNavGroups: SubNavGroup[] = [
   {
     id: 'catalog',
     label: 'Unterkategorien: Produkte',
-    routePrefixes: ['/admin/products', '/admin/categories', '/admin/ingredients', '/admin/calculation', '/admin/actions'],
+    routePrefixes: ['/admin/products', '/admin/business-templates', '/admin/categories', '/admin/ingredients', '/admin/calculation', '/admin/actions'],
     items: [
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/business-templates', label: 'Business-Vorlagen', moduleKey: 'products', requiredPermission: 'PRODUCTS_WRITE' },
       { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/ingredients', label: 'Zutaten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/ingredients', label: 'Allergene', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
@@ -409,7 +411,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
   function inferPathModuleKey(path: string): AdminModuleKey | null {
     if (path === '/admin') return 'dashboard'
-    if (path.startsWith('/admin/products') || path.startsWith('/admin/categories') || path.startsWith('/admin/ingredients') || path.startsWith('/admin/suppliers') || path.startsWith('/admin/calculation')) {
+    if (path.startsWith('/admin/products') || path.startsWith('/admin/business-templates') || path.startsWith('/admin/categories') || path.startsWith('/admin/ingredients') || path.startsWith('/admin/suppliers') || path.startsWith('/admin/calculation')) {
       return 'products'
     }
     if (path.startsWith('/admin/stock')) return 'inventory'

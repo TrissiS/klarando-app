@@ -192,6 +192,127 @@ enum CommissionRuleType {
   THRESHOLD
 }
 
+enum BusinessTemplateType {
+  DONER_KEBAP
+  PIZZERIA
+  BURGER_SMASHBURGER
+  GRILL_IMBISS
+  ASIAN
+  CAFE_BAKERY
+  BEVERAGE_DELIVERY
+  KIOSK_SPATI
+  RESTAURANT_GENERAL
+  STEAKHOUSE_GRILLHOUSE
+  SUSHI
+  VEGAN_HEALTHY
+  FOODTRUCK
+  ICECREAM_DESSERT
+  BAR_LOUNGE
+}
+
+enum TemplateAllergenCode {
+  A
+  B
+  C
+  D
+  E
+  F
+  G
+  H
+  I
+  J
+  K
+  L
+  M
+  N
+}
+
+model BusinessTemplate {
+  id          String                      @id @default(uuid())
+  key         String                      @unique
+  type        BusinessTemplateType
+  name        String
+  description String?
+  isActive    Boolean                     @default(true)
+  sortOrder   Int                         @default(0)
+  categories  BusinessTemplateCategory[]
+  ingredients BusinessTemplateIngredient[]
+  products    BusinessTemplateProduct[]
+  createdAt   DateTime                    @default(now())
+  updatedAt   DateTime                    @updatedAt
+
+  @@index([type, isActive, sortOrder])
+}
+
+model BusinessTemplateCategory {
+  id         String            @id @default(uuid())
+  templateId String
+  name       String
+  sortOrder  Int               @default(0)
+  template   BusinessTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  products   BusinessTemplateProduct[]
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  @@unique([templateId, name])
+  @@index([templateId, sortOrder])
+}
+
+model BusinessTemplateIngredient {
+  id                   String                             @id @default(uuid())
+  templateId           String
+  name                 String
+  category             IngredientCategory                 @default(FOOD)
+  unit                 String
+  recipeUnit           String?
+  gramsPerPurchaseUnit Decimal?                           @db.Decimal(10, 3)
+  purchasePrice        Decimal                            @default(0) @db.Decimal(10, 2)
+  minimumStock         Decimal                            @default(0) @db.Decimal(12, 3)
+  allergens            TemplateAllergenCode[]
+  supplier             String?
+  articleNumber        String?
+  template             BusinessTemplate                   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  productRelations     BusinessTemplateProductIngredient[]
+  createdAt            DateTime                           @default(now())
+  updatedAt            DateTime                           @updatedAt
+
+  @@unique([templateId, name])
+  @@index([templateId, category])
+}
+
+model BusinessTemplateProduct {
+  id               String                             @id @default(uuid())
+  templateId       String
+  categoryId       String?
+  productNumber    String
+  name             String
+  imageUrl         String?
+  price            Decimal                            @db.Decimal(10, 2)
+  vatRate          Decimal                            @default(19.00) @db.Decimal(5, 2)
+  available        Boolean                            @default(true)
+  template         BusinessTemplate                   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  category         BusinessTemplateCategory?          @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  ingredientLinks  BusinessTemplateProductIngredient[]
+  createdAt        DateTime                           @default(now())
+  updatedAt        DateTime                           @updatedAt
+
+  @@unique([templateId, productNumber])
+  @@index([templateId, categoryId])
+}
+
+model BusinessTemplateProductIngredient {
+  id                 String                     @id @default(uuid())
+  templateProductId  String
+  templateIngredientId String
+  quantity           Decimal                    @db.Decimal(10, 3)
+  product            BusinessTemplateProduct    @relation(fields: [templateProductId], references: [id], onDelete: Cascade)
+  ingredient         BusinessTemplateIngredient @relation(fields: [templateIngredientId], references: [id], onDelete: Cascade)
+  createdAt          DateTime                   @default(now())
+
+  @@unique([templateProductId, templateIngredientId])
+  @@index([templateIngredientId])
+}
+
 model Chain {
   id        String   @id @default(uuid())
   name      String

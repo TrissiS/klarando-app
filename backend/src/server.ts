@@ -24,6 +24,7 @@ import orderDeskDeviceRoutes from './routes/orderdesk-devices'
 import businessSettingsRoutes from './routes/business-settings'
 import supplierRoutes from './routes/suppliers'
 import stockRoutes from './routes/stock'
+import businessTemplateRoutes from './routes/business-templates'
 import actionRoutes from './routes/actions'
 import staffRoutes from './routes/staff'
 import screenRoutes from './routes/screen'
@@ -179,6 +180,7 @@ app.use('/api/orderdesk-devices', orderDeskDeviceRoutes)
 app.use('/api/business-settings', businessSettingsRoutes)
 app.use('/api/suppliers', supplierRoutes)
 app.use('/api/stock', stockRoutes)
+app.use('/api/business-templates', businessTemplateRoutes)
 app.use('/api/actions', actionRoutes)
 app.use('/api/staff', staffRoutes)
 app.use('/api/screen', screenRoutes)
