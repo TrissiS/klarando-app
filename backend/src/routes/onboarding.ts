@@ -1,12 +1,46 @@
-import { Router } from 'express'
-import { UserRole } from '@prisma/client'
+import { Router, type Response } from 'express'
+import { Prisma, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { requireAuth } from '../middleware/auth'
 import { hashPassword } from '../auth/password'
-import { importBusinessTemplateToTenant } from '../lib/business-template-import'
+import {
+  importBusinessTemplateToTenant,
+  TenantImportError,
+} from '../lib/business-template-import'
 import { writeAuditLog } from '../lib/audit'
 
 const router = Router()
+
+type OnboardingErrorCode =
+  | 'TENANT_NOT_FOUND'
+  | 'TEMPLATE_IMPORT_FAILED'
+  | 'EMAIL_ALREADY_EXISTS'
+  | 'TENANT_CREATE_FAILED'
+  | 'DATABASE_PROVISIONING_FAILED'
+
+class OnboardingError extends Error {
+  constructor(
+    public readonly code: OnboardingErrorCode,
+    message: string,
+    public readonly details?: string
+  ) {
+    super(message)
+    this.name = 'OnboardingError'
+  }
+}
+
+function onboardingErrorResponse(
+  res: Response,
+  status: number,
+  error: OnboardingError
+) {
+  return res.status(status).json({
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    error: error.message,
+  })
+}
 
 type ImportBusinessTemplateOptions = {
   importCategories: boolean
@@ -138,7 +172,14 @@ router.post('/business', requireAuth, async (req, res) => {
       select: { id: true },
     })
     if (existingUser) {
-      return res.status(409).json({ error: 'Ein Benutzer mit dieser Admin-E-Mail existiert bereits.' })
+      return onboardingErrorResponse(
+        res,
+        409,
+        new OnboardingError(
+          'EMAIL_ALREADY_EXISTS',
+          'Ein Benutzer mit dieser Admin-E-Mail existiert bereits.'
+        )
+      )
     }
 
     const chainCode = await nextUniqueChainCode(payload.company.name)
@@ -157,15 +198,26 @@ router.post('/business', requireAuth, async (req, res) => {
         },
       })
 
-      const tenant = await tx.tenant.create({
-        data: {
-          chainId: chain.id,
-          name: payload.branch.name.trim(),
-          email: payload.branch.email?.trim() ? normalizeEmail(payload.branch.email) : companyEmail,
-          status: 'ACTIVE',
-          addressLine: payload.branch.addressLine?.trim() || null,
-        },
-      })
+      let tenant
+      try {
+        tenant = await tx.tenant.create({
+          data: {
+            chainId: chain.id,
+            name: payload.branch.name.trim(),
+            email: payload.branch.email?.trim()
+              ? normalizeEmail(payload.branch.email)
+              : companyEmail,
+            status: 'ACTIVE',
+            addressLine: payload.branch.addressLine?.trim() || null,
+          },
+        })
+      } catch (tenantCreateError) {
+        throw new OnboardingError(
+          'TENANT_CREATE_FAILED',
+          'Filiale konnte nicht erstellt werden.',
+          tenantCreateError instanceof Error ? tenantCreateError.message : undefined
+        )
+      }
 
       const adminUser = await tx.user.create({
         data: {
@@ -181,11 +233,29 @@ router.post('/business', requireAuth, async (req, res) => {
 
       let templateImportResult: Awaited<ReturnType<typeof importBusinessTemplateToTenant>> | null = null
       if (payload.templateImport?.enabled && payload.templateImport.templateId) {
-        templateImportResult = await importBusinessTemplateToTenant({
-          templateId: payload.templateImport.templateId,
-          tenantId: tenant.id,
-          options: payload.templateImport.options,
-        })
+        try {
+          templateImportResult = await importBusinessTemplateToTenant(
+            {
+              templateId: payload.templateImport.templateId,
+              tenantId: tenant.id,
+              options: payload.templateImport.options,
+            },
+            tx
+          )
+        } catch (importError) {
+          if (importError instanceof TenantImportError && importError.code === 'TENANT_NOT_FOUND') {
+            throw new OnboardingError(
+              'TENANT_NOT_FOUND',
+              importError.message,
+              importError.details
+            )
+          }
+          throw new OnboardingError(
+            'TEMPLATE_IMPORT_FAILED',
+            'Vorlage konnte nicht in die Filiale importiert werden.',
+            importError instanceof Error ? importError.message : undefined
+          )
+        }
       }
 
       return {
@@ -234,7 +304,43 @@ router.post('/business', requireAuth, async (req, res) => {
     })
   } catch (error) {
     console.error('ONBOARDING BUSINESS ERROR:', error)
-    return res.status(500).json({ error: 'Onboarding konnte nicht abgeschlossen werden.' })
+    if (error instanceof OnboardingError) {
+      const status = error.code === 'EMAIL_ALREADY_EXISTS' ? 409 : 400
+      return onboardingErrorResponse(res, status, error)
+    }
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        return onboardingErrorResponse(
+          res,
+          409,
+          new OnboardingError(
+            'EMAIL_ALREADY_EXISTS',
+            'E-Mail ist bereits vergeben.',
+            error.message
+          )
+        )
+      }
+      return onboardingErrorResponse(
+        res,
+        500,
+        new OnboardingError(
+          'DATABASE_PROVISIONING_FAILED',
+          'Datenbankvorgang im Onboarding fehlgeschlagen.',
+          error.message
+        )
+      )
+    }
+
+    return onboardingErrorResponse(
+      res,
+      500,
+      new OnboardingError(
+        'DATABASE_PROVISIONING_FAILED',
+        'Onboarding konnte nicht abgeschlossen werden.',
+        error instanceof Error ? error.message : undefined
+      )
+    )
   }
 })
 

@@ -1,6 +1,17 @@
 import { Prisma } from '@prisma/client'
 import { prisma } from './prisma'
 
+export class TenantImportError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly details?: string
+  ) {
+    super(message)
+    this.name = 'TenantImportError'
+  }
+}
+
 export type ImportBusinessTemplateInput = {
   templateId: string
   tenantId: string
@@ -97,6 +108,18 @@ export async function importBusinessTemplateToTenant(
 ): Promise<ImportBusinessTemplateResult> {
   const options = resolveImportOptions(input.options)
   const db = dbClient ?? prisma
+  const tenantExists = await db.tenant.findUnique({
+    where: { id: input.tenantId },
+    select: { id: true },
+  })
+  if (!tenantExists) {
+    throw new TenantImportError(
+      'TENANT_NOT_FOUND',
+      'Tenant für Template-Import nicht gefunden.',
+      `tenantId=${input.tenantId}`
+    )
+  }
+
   const template = await db.businessTemplate.findUnique({
     where: { id: input.templateId },
     include: {
@@ -116,7 +139,10 @@ export async function importBusinessTemplateToTenant(
   })
 
   if (!template || !template.isActive) {
-    throw new Error('Vorlage nicht gefunden oder deaktiviert')
+    throw new TenantImportError(
+      'TEMPLATE_IMPORT_FAILED',
+      'Vorlage nicht gefunden oder deaktiviert.'
+    )
   }
 
   const runImport = async (tx: Prisma.TransactionClient) => {

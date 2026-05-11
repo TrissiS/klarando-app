@@ -4553,6 +4553,7 @@ export type BusinessTemplateOverview = {
   name: string
   description: string | null
   sortOrder: number
+  updatedAt: string
   _count: {
     categories: number
     ingredients: number
@@ -4610,6 +4611,8 @@ export type BusinessTemplateDetail = {
     }>
   }>
 }
+
+export type BusinessTemplateFull = BusinessTemplateDetail
 
 export type BusinessTemplateImportResult = {
   templateId: string
@@ -5617,6 +5620,90 @@ export async function getBusinessTemplateDetail(
   return res.json()
 }
 
+export async function getBusinessTemplateFull(
+  token: string,
+  templateId: string
+): Promise<BusinessTemplateFull> {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/full`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Vorlagen-Details konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function createBusinessTemplateCategory(
+  token: string,
+  templateId: string,
+  payload: { name: string; sortOrder?: number }
+) {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/category`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Kategorie konnte nicht erstellt werden')
+  }
+  return res.json()
+}
+
+export async function createBusinessTemplateIngredient(
+  token: string,
+  templateId: string,
+  payload: { name: string; unit: string; category?: 'FOOD' | 'PACKAGING'; allergens?: string[] }
+) {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/ingredient`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Zutat konnte nicht erstellt werden')
+  }
+  return res.json()
+}
+
+export async function createBusinessTemplateProduct(
+  token: string,
+  templateId: string,
+  payload: { productNumber: string; name: string; categoryId?: string | null; price?: number }
+) {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/product`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Produkt konnte nicht erstellt werden')
+  }
+  return res.json()
+}
+
+export async function createBusinessTemplateProductIngredient(
+  token: string,
+  templateId: string,
+  payload: { templateProductId: string; templateIngredientId: string; quantity?: number }
+) {
+  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/product-ingredient`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Verknüpfung konnte nicht erstellt werden')
+  }
+  return res.json()
+}
+
 export async function importBusinessTemplate(
   token: string,
   templateId: string,
@@ -5652,7 +5739,11 @@ export async function onboardBusiness(
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Onboarding konnte nicht abgeschlossen werden')
+    throw new Error(
+      errorData?.message ||
+      errorData?.error ||
+      'Onboarding konnte nicht abgeschlossen werden'
+    )
   }
 
   return res.json()
