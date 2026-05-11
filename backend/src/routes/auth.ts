@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import crypto from 'crypto'
 import { PermissionKey, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { getDefaultPermissions, DEFAULT_ROLE_PERMISSIONS } from '../auth/permissions'
@@ -7,12 +8,42 @@ import { signAuthToken } from '../auth/token'
 import { requireAuth, requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import { rateLimitAuthLogin } from '../middleware/rate-limit'
+import { isMailConfigured, sendMail } from '../lib/mail'
 
 const router = Router()
 
 type LoginBody = {
   email?: string
   password?: string
+}
+
+type ForgotPasswordBody = {
+  email?: string
+}
+
+type ResetPasswordBody = {
+  token?: string
+  password?: string
+}
+
+function validatePasswordRules(value: string) {
+  const trimmed = value.trim()
+  if (trimmed.length < 10) {
+    return 'Passwort muss mindestens 10 Zeichen lang sein.'
+  }
+  if (!/[A-Z]/.test(trimmed) || !/[a-z]/.test(trimmed) || !/[0-9]/.test(trimmed)) {
+    return 'Passwort muss Groß-/Kleinbuchstaben und Zahlen enthalten.'
+  }
+  return null
+}
+
+function hashResetToken(token: string) {
+  return crypto.createHash('sha256').update(token).digest('hex')
+}
+
+function buildPasswordResetLink(token: string) {
+  const appUrl = (process.env.PUBLIC_APP_URL || 'http://localhost:3000').trim().replace(/\/+$/, '')
+  return `${appUrl}/reset-password?token=${encodeURIComponent(token)}`
 }
 
 async function loadSupportedUserRolesFromDatabase() {
@@ -205,6 +236,168 @@ router.post('/login', rateLimitAuthLogin, async (req, res) => {
   } catch (error) {
     console.error('LOGIN ERROR:', error)
     return res.status(500).json({ error: 'Login konnte nicht verarbeitet werden' })
+  }
+})
+
+router.post('/forgot-password', async (req, res) => {
+  const genericMessage =
+    'Wenn ein Konto mit dieser E-Mail existiert, wurde ein Link zum Zurücksetzen versendet.'
+  try {
+    const { email } = req.body as ForgotPasswordBody
+    const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+    if (!normalizedEmail) {
+      return res.json({ ok: true, message: genericMessage })
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: normalizedEmail },
+      select: {
+        id: true,
+        email: true,
+        isActive: true,
+        tenantId: true,
+        chainId: true,
+      },
+    })
+
+    if (user && user.isActive) {
+      const rawToken = crypto.randomBytes(32).toString('hex')
+      const tokenHash = hashResetToken(rawToken)
+      const expiresAt = new Date(Date.now() + 30 * 60 * 1000)
+
+      await prisma.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash,
+          expiresAt,
+          requestedIp: req.ip || req.socket.remoteAddress || null,
+          userAgent: req.get('user-agent') || null,
+        },
+      })
+
+      const resetLink = buildPasswordResetLink(rawToken)
+      const subject = 'Klarando Passwort zurücksetzen'
+      const text = `Hallo,\n\nhier ist dein Link zum Zurücksetzen deines Passworts:\n${resetLink}\n\nDer Link ist 30 Minuten gültig und nur einmal nutzbar.\nWenn du das nicht angefordert hast, ignoriere diese E-Mail.\n\nViele Grüße\nKlarando`
+      const html = `
+        <p>Hallo,</p>
+        <p>hier ist dein Link zum Zurücksetzen deines Passworts:</p>
+        <p><a href="${resetLink}">${resetLink}</a></p>
+        <p>Der Link ist <strong>30 Minuten</strong> gültig und nur einmal nutzbar.</p>
+        <p>Wenn du das nicht angefordert hast, ignoriere diese E-Mail.</p>
+        <p>Viele Grüße<br/>Klarando</p>
+      `
+
+      try {
+        if (isMailConfigured()) {
+          await sendMail({
+            to: user.email,
+            subject,
+            text,
+            html,
+          })
+        } else {
+          console.warn('FORGOT PASSWORD MAIL SKIPPED: SMTP nicht konfiguriert')
+        }
+      } catch (mailError) {
+        console.error('FORGOT PASSWORD MAIL ERROR:', mailError)
+      }
+
+      await writeAuditLog({
+        req,
+        module: 'auth',
+        action: 'password_reset_requested',
+        targetType: 'user',
+        targetId: user.id,
+        chainId: user.chainId,
+        tenantId: user.tenantId,
+      })
+    }
+
+    return res.json({ ok: true, message: genericMessage })
+  } catch (error) {
+    console.error('FORGOT PASSWORD ERROR:', error)
+    return res.json({ ok: true, message: genericMessage })
+  }
+})
+
+router.post('/reset-password', async (req, res) => {
+  try {
+    const { token, password } = req.body as ResetPasswordBody
+    if (!token || !password) {
+      return res.status(400).json({ error: 'Token und Passwort sind erforderlich.' })
+    }
+
+    const passwordValidationError = validatePasswordRules(password)
+    if (passwordValidationError) {
+      return res.status(400).json({ error: passwordValidationError })
+    }
+
+    const tokenHash = hashResetToken(token)
+    const resetToken = await prisma.passwordResetToken.findUnique({
+      where: { tokenHash },
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            chainId: true,
+            tenantId: true,
+            isActive: true,
+          },
+        },
+      },
+    })
+
+    if (
+      !resetToken ||
+      resetToken.usedAt ||
+      resetToken.expiresAt.getTime() < Date.now() ||
+      !resetToken.user?.isActive
+    ) {
+      return res.status(400).json({ error: 'Reset-Link ist ungültig oder abgelaufen.' })
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: resetToken.userId },
+        data: {
+          passwordHash: hashPassword(password),
+        },
+      })
+
+      await tx.passwordResetToken.update({
+        where: { id: resetToken.id },
+        data: {
+          usedAt: new Date(),
+        },
+      })
+
+      await tx.passwordResetToken.updateMany({
+        where: {
+          userId: resetToken.userId,
+          usedAt: null,
+          id: { not: resetToken.id },
+        },
+        data: {
+          usedAt: new Date(),
+        },
+      })
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'auth',
+      action: 'password_reset_success',
+      targetType: 'user',
+      targetId: resetToken.user.id,
+      chainId: resetToken.user.chainId,
+      tenantId: resetToken.user.tenantId,
+    })
+
+    return res.json({ ok: true, message: 'Passwort wurde erfolgreich zurückgesetzt.' })
+  } catch (error) {
+    console.error('RESET PASSWORD ERROR:', error)
+    return res.status(500).json({ error: 'Passwort konnte nicht zurückgesetzt werden.' })
   }
 })
 

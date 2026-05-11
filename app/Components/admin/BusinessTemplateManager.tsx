@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
+  type BusinessTemplateImportOptions,
   getBusinessTemplateDetail,
   getBusinessTemplates,
   getManagedTenants,
@@ -33,6 +34,16 @@ const TEMPLATE_ICONS: Record<BusinessTemplateType, string> = {
   FOODTRUCK: '🚚',
   ICECREAM_DESSERT: '🍨',
   BAR_LOUNGE: '🍸',
+}
+
+const DEFAULT_IMPORT_OPTIONS: BusinessTemplateImportOptions = {
+  importCategories: true,
+  importProducts: true,
+  importIngredients: true,
+  importProductIngredients: true,
+  importAllergens: true,
+  importPriceSuggestions: true,
+  overwriteExisting: false,
 }
 
 function toUserMessage(error: unknown, fallback: string) {
@@ -67,6 +78,8 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
+  const [importOptions, setImportOptions] =
+    useState<BusinessTemplateImportOptions>(DEFAULT_IMPORT_OPTIONS)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -196,35 +209,6 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
     admin: 'Business-Vorlagen',
   }[roleHint]
 
-  async function onImportConfirm() {
-    if (!token) {
-      return
-    }
-    if (!selectedTemplateId) {
-      setError('Bitte zuerst eine Vorlage auswaehlen.')
-      return
-    }
-    if (!selectedTenantId) {
-      setError('Bitte zuerst einen Tenant/Filiale auswaehlen.')
-      return
-    }
-
-    try {
-      setIsImporting(true)
-      setError('')
-      setSuccess('')
-      const result = await importBusinessTemplate(token, selectedTemplateId, selectedTenantId)
-      setSuccess(
-        `Import erfolgreich: ${result.createdCategories} Kategorien, ${result.createdProducts} Produkte, ${result.createdIngredients} Zutaten, ${result.createdProductIngredients} Verknuepfungen.`
-      )
-      setIsImportDialogOpen(false)
-    } catch (importError) {
-      setError(toUserMessage(importError, 'Import konnte nicht gestartet werden'))
-    } finally {
-      setIsImporting(false)
-    }
-  }
-
   return (
     <div className="space-y-5">
       {error ? (
@@ -243,22 +227,22 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
           <div>
             <h2 className="text-xl font-semibold text-[var(--brand-ink)]">{headingByRole}</h2>
             <p className="mt-1 text-sm text-rose-900/70">
-              Betriebsarten laden, pruefen und in eine Filiale importieren.
+              Betriebsarten laden, prüfen und in eine Filiale importieren.
             </p>
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex w-full flex-wrap gap-2 md:w-auto">
             <input
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
               placeholder="Suche nach Name..."
-              className="input-ui w-52"
+              className="input-ui min-w-0 flex-1 md:w-52 md:flex-none"
             />
             <select
               value={selectedTypeFilter}
               onChange={(event) =>
                 setSelectedTypeFilter(event.target.value as 'ALL' | BusinessTemplateType)
               }
-              className="input-ui w-56"
+              className="input-ui min-w-0 flex-1 md:w-56 md:flex-none"
             >
               <option value="ALL">Alle Betriebsarten</option>
               {Array.from(new Set(templates.map((entry) => entry.type))).map((type) => (
@@ -314,13 +298,16 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-semibold text-[var(--brand-ink)]">
-              {selectedTemplateSummary?.name || 'Vorlage waehlen'}
+              {selectedTemplateSummary?.name || 'Vorlage wählen'}
             </h3>
             <p className="mt-1 text-sm text-rose-900/70">Detailansicht mit Kategorien, Produkten, Zutaten und Allergenen.</p>
           </div>
           <button
             type="button"
-            onClick={() => setIsImportDialogOpen(true)}
+            onClick={() => {
+              setImportOptions(DEFAULT_IMPORT_OPTIONS)
+              setIsImportDialogOpen(true)
+            }}
             disabled={!selectedTemplateId || isLoadingDetail}
             className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
@@ -340,7 +327,7 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
               <h4 className="text-sm font-semibold text-[var(--brand-ink)]">Kategorien</h4>
               <ul className="mt-2 space-y-1 text-sm text-rose-900/85">
                 {detail.categories.slice(0, 12).map((category) => (
-                  <li key={category.id}>
+                  <li key={category.id} className="break-words">
                     {category.sortOrder}. {category.name}
                   </li>
                 ))}
@@ -351,7 +338,7 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
               <h4 className="text-sm font-semibold text-[var(--brand-ink)]">Beispielprodukte</h4>
               <ul className="mt-2 space-y-2 text-sm text-rose-900/85">
                 {detail.products.slice(0, 8).map((product) => (
-                  <li key={product.id}>
+                  <li key={product.id} className="break-words">
                     <span className="font-semibold">{product.name}</span> ({product.price} EUR)
                   </li>
                 ))}
@@ -362,7 +349,7 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
               <h4 className="text-sm font-semibold text-[var(--brand-ink)]">Zutaten</h4>
               <ul className="mt-2 space-y-1 text-sm text-rose-900/85">
                 {detail.ingredients.slice(0, 16).map((ingredient) => (
-                  <li key={ingredient.id}>
+                  <li key={ingredient.id} className="break-words">
                     {ingredient.name} ({ingredient.unit})
                   </li>
                 ))}
@@ -392,10 +379,10 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
 
       {isImportDialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-3">
-          <div className="w-full max-w-xl rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-xl">
+          <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-xl">
             <h4 className="text-lg font-semibold text-[var(--brand-ink)]">Vorlage importieren</h4>
             <p className="mt-1 text-sm text-rose-900/75">
-              Waehle den Ziel-Tenant fuer die Vorlage "{selectedTemplateSummary?.name || '-'}".
+              Wähle den Ziel-Tenant für die Vorlage "{selectedTemplateSummary?.name || '-'}".
             </p>
 
             <label className="mt-4 block">
@@ -406,7 +393,7 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
                 disabled={isTenantSelectorLocked}
                 className="input-ui w-full disabled:cursor-not-allowed disabled:opacity-70"
               >
-                <option value="">Filiale waehlen</option>
+                <option value="">Filiale wählen</option>
                 {tenants.map((tenant) => (
                   <option key={tenant.id} value={tenant.id}>
                     {tenant.name}
@@ -414,6 +401,40 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
                 ))}
               </select>
             </label>
+
+            <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 p-3">
+              <p className="text-sm font-semibold text-[var(--brand-ink)]">Import-Optionen</p>
+              <p className="mt-1 text-xs text-rose-900/75">
+                Bestehende Produkte werden standardmäßig nicht überschrieben.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    ['importCategories', 'Kategorien importieren'],
+                    ['importProducts', 'Produkte importieren'],
+                    ['importIngredients', 'Zutaten importieren'],
+                    ['importProductIngredients', 'Produkt-Zutaten-Verknüpfungen importieren'],
+                    ['importAllergens', 'Allergene übernehmen'],
+                    ['importPriceSuggestions', 'Preisvorschläge übernehmen'],
+                    ['overwriteExisting', 'Bestehende Daten überschreiben'],
+                  ] as Array<[keyof BusinessTemplateImportOptions, string]>
+                ).map(([key, label]) => (
+                  <label key={key} className="flex items-center gap-2 text-sm text-rose-900/90">
+                    <input
+                      type="checkbox"
+                      checked={importOptions[key]}
+                      onChange={(event) =>
+                        setImportOptions((current) => ({
+                          ...current,
+                          [key]: event.target.checked,
+                        }))
+                      }
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
 
             <div className="mt-5 flex justify-end gap-2">
               <button
@@ -426,11 +447,47 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
               </button>
               <button
                 type="button"
-                onClick={() => void onImportConfirm()}
+                onClick={async () => {
+                  if (!token) {
+                    return
+                  }
+                  if (!selectedTemplateId) {
+                    setError('Bitte zuerst eine Vorlage auswählen.')
+                    return
+                  }
+                  if (!selectedTenantId) {
+                    setError('Bitte zuerst einen Tenant/eine Filiale auswählen.')
+                    return
+                  }
+                  try {
+                    setIsImporting(true)
+                    setError('')
+                    setSuccess('')
+                    const result = await importBusinessTemplate(
+                      token,
+                      selectedTemplateId,
+                      selectedTenantId,
+                      importOptions
+                    )
+                    const importSummary = [
+                      `${result.categoriesCreated} Kategorien`,
+                      `${result.productsCreated} Produkte`,
+                      `${result.ingredientsCreated} Zutaten`,
+                    ].join(', ')
+                    setSuccess(
+                      `Import erfolgreich: ${importSummary}. ${result.productIngredientsCreated} Verknüpfungen, ${result.productsUpdated} aktualisiert, ${result.skippedExisting} übersprungen.`
+                    )
+                    setIsImportDialogOpen(false)
+                  } catch (importError) {
+                    setError(toUserMessage(importError, 'Import konnte nicht gestartet werden'))
+                  } finally {
+                    setIsImporting(false)
+                  }
+                }}
                 disabled={isImporting}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isImporting ? 'Import laeuft...' : 'Import starten'}
+                {isImporting ? 'Import läuft...' : 'Import starten'}
               </button>
             </div>
           </div>

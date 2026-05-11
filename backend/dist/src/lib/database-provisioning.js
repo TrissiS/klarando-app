@@ -21,34 +21,38 @@ const crypto_1 = require("crypto");
 const prisma_1 = require("./prisma");
 const POSTGRES_IDENTIFIER_MAX_LENGTH = 63;
 const PROVISIONING_REGISTRY_ADVISORY_LOCK_KEY = 824420511;
-const REGISTRY_TABLES_DDL = `
-  CREATE TABLE IF NOT EXISTS chain_database_registry (
-    chain_id TEXT PRIMARY KEY,
-    database_name TEXT NOT NULL UNIQUE,
-    database_url TEXT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  );
-
-  CREATE TABLE IF NOT EXISTS tenant_database_registry (
-    tenant_id TEXT PRIMARY KEY,
-    database_name TEXT NOT NULL UNIQUE,
-    database_url TEXT NOT NULL,
-    chain_code TEXT,
-    tenant_name TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  );
-
-  CREATE TABLE IF NOT EXISTS unassigned_database_registry (
-    id TEXT PRIMARY KEY,
-    database_name TEXT NOT NULL UNIQUE,
-    database_url TEXT NOT NULL,
-    label TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  );
-`;
+const REGISTRY_TABLES_DDL_STATEMENTS = [
+    `
+    CREATE TABLE IF NOT EXISTS chain_database_registry (
+      chain_id TEXT PRIMARY KEY,
+      database_name TEXT NOT NULL UNIQUE,
+      database_url TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `,
+    `
+    CREATE TABLE IF NOT EXISTS tenant_database_registry (
+      tenant_id TEXT PRIMARY KEY,
+      database_name TEXT NOT NULL UNIQUE,
+      database_url TEXT NOT NULL,
+      chain_code TEXT,
+      tenant_name TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `,
+    `
+    CREATE TABLE IF NOT EXISTS unassigned_database_registry (
+      id TEXT PRIMARY KEY,
+      database_name TEXT NOT NULL UNIQUE,
+      database_url TEXT NOT NULL,
+      label TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `,
+];
 function isProductionEnvironment() {
     return (process.env.NODE_ENV || '').trim().toLowerCase() === 'production';
 }
@@ -109,7 +113,9 @@ function deriveTenantDatabaseName(scope, tenantId) {
 }
 async function ensureRegistryTablesWithLock(tx) {
     await tx.$executeRaw `SELECT pg_advisory_xact_lock(${PROVISIONING_REGISTRY_ADVISORY_LOCK_KEY})`;
-    await tx.$executeRawUnsafe(REGISTRY_TABLES_DDL);
+    for (const statement of REGISTRY_TABLES_DDL_STATEMENTS) {
+        await tx.$executeRawUnsafe(statement);
+    }
 }
 async function ensureChainRegistryTable() {
     await prisma_1.prisma.$transaction(async (tx) => {

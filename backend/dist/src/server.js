@@ -61,13 +61,16 @@ const orderdesk_devices_1 = __importDefault(require("./routes/orderdesk-devices"
 const business_settings_1 = __importDefault(require("./routes/business-settings"));
 const suppliers_1 = __importDefault(require("./routes/suppliers"));
 const stock_1 = __importDefault(require("./routes/stock"));
+const business_templates_1 = __importDefault(require("./routes/business-templates"));
 const actions_1 = __importDefault(require("./routes/actions"));
 const staff_1 = __importDefault(require("./routes/staff"));
 const screen_1 = __importDefault(require("./routes/screen"));
+const display_runtime_1 = __importDefault(require("./routes/display-runtime"));
 const database_management_1 = __importDefault(require("./routes/database-management"));
 const cash_closings_1 = __importDefault(require("./routes/cash-closings"));
 const platform_branding_1 = __importDefault(require("./routes/platform-branding"));
 const mobile_updates_1 = __importDefault(require("./routes/mobile-updates"));
+const onboarding_1 = __importDefault(require("./routes/onboarding"));
 const auth_2 = require("./middleware/auth");
 const rate_limit_1 = require("./middleware/rate-limit");
 const prisma_1 = require("./lib/prisma");
@@ -133,6 +136,7 @@ app.use(express_1.default.json({ limit: '8mb' }));
 app.use(express_1.default.urlencoded({ extended: true, limit: '8mb' }));
 app.use(auth_2.optionalAuth);
 app.use('/api/auth/reset-password', rate_limit_1.rateLimitPasswordReset);
+app.use('/api/auth/forgot-password', rate_limit_1.rateLimitPasswordReset);
 app.use('/api/auth/refresh', rate_limit_1.rateLimitTokenRefresh);
 app.use('/api/app-auth/refresh', rate_limit_1.rateLimitTokenRefresh);
 app.get('/api/health', (_req, res) => {
@@ -196,13 +200,16 @@ app.use('/api/orderdesk-devices', orderdesk_devices_1.default);
 app.use('/api/business-settings', business_settings_1.default);
 app.use('/api/suppliers', suppliers_1.default);
 app.use('/api/stock', stock_1.default);
+app.use('/api/business-templates', business_templates_1.default);
 app.use('/api/actions', actions_1.default);
 app.use('/api/staff', staff_1.default);
 app.use('/api/screen', screen_1.default);
+app.use('/api/display-runtime', display_runtime_1.default);
 app.use('/api/database-management', database_management_1.default);
 app.use('/api/cash-closings', cash_closings_1.default);
 app.use('/api/platform-branding', platform_branding_1.default);
 app.use('/api/mobile-updates', mobile_updates_1.default);
+app.use('/api/onboarding', onboarding_1.default);
 app.use((req, res) => {
     res.status(404).json({
         error: `Route nicht gefunden: ${req.method} ${req.originalUrl}`,

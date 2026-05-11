@@ -111,6 +111,11 @@ export default function LoginFormComponent({ onLogin }: Props) {
               onChange={(e) => setPassword(e.target.value)}
               style={styles.input}
             />
+            <div style={{ marginTop: 8 }}>
+              <a href="/forgot-password" style={styles.forgotLink}>
+                Passwort vergessen?
+              </a>
+            </div>
           </div>
 
           {error && <div style={styles.error}>{error}</div>}
@@ -237,6 +242,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#8b2a56",
     textDecoration: "none",
     fontWeight: 700,
+  },
+  forgotLink: {
+    color: "#8b2a56",
+    textDecoration: "none",
+    fontWeight: 700,
+    fontSize: 13,
   },
   logoWrap: {
     display: "flex",

@@ -442,7 +442,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     : true
 
   return (
-    <main className="brand-shell min-h-screen overflow-x-hidden">
+    <main className="safe-area-padding brand-shell min-h-screen overflow-x-hidden">
       <div className="flex min-h-screen min-w-0">
         <aside
           className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${

@@ -1372,12 +1372,28 @@ model User {
   orderDeskDeviceBindingsAsResetter OrderDeskDeviceBinding[] @relation("OrderDeskBindingResetBy")
   staffMemberProfile StaffMember?  @relation("StaffMemberUser")
   createdStaffShifts StaffShift[]  @relation("StaffShiftActor")
+  passwordResetTokens PasswordResetToken[]
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
   @@index([role])
   @@index([chainId])
   @@index([tenantId])
+}
+
+model PasswordResetToken {
+  id         String   @id @default(uuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  usedAt     DateTime?
+  createdAt  DateTime @default(now())
+  requestedIp String?
+  userAgent  String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt, usedAt])
 }
 
 model ChainAdminTenantAccess {

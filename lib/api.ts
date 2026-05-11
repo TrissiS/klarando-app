@@ -5749,6 +5749,36 @@ export async function onboardBusiness(
   return res.json()
 }
 
+export async function requestPasswordReset(email: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  })
+
+  const payload = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new Error(payload?.error || payload?.message || 'Anfrage konnte nicht gesendet werden')
+  }
+  return payload as { ok: boolean; message: string }
+}
+
+export async function performPasswordReset(
+  token: string,
+  password: string
+): Promise<{ ok: boolean; message: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, password }),
+  })
+  const payload = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new Error(payload?.error || payload?.message || 'Passwort konnte nicht zurückgesetzt werden')
+  }
+  return payload as { ok: boolean; message: string }
+}
+
 export async function createManagedTenant(
   token: string,
   data: {

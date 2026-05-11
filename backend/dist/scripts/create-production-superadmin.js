@@ -20,7 +20,7 @@ function assertBootstrapGuards() {
         throw new Error('Bootstrap ist nur mit NODE_ENV=production erlaubt.');
     }
     if (process.env.ALLOW_PRODUCTION_ADMIN_BOOTSTRAP !== 'true') {
-        throw new Error('Bootstrap ist blockiert. Setze ALLOW_PRODUCTION_ADMIN_BOOTSTRAP=true fuer einen expliziten Run.');
+        throw new Error('Bootstrap ist blockiert. Setze ALLOW_PRODUCTION_ADMIN_BOOTSTRAP=true für einen expliziten Run.');
     }
 }
 function normalizeEmail(rawEmail) {
@@ -61,7 +61,7 @@ async function run() {
     if (existingUser) {
         if (!allowPasswordReset) {
             if (existingUser.role === client_1.UserRole.SUPERADMIN) {
-                console.log('Superadmin existiert bereits, keine Aenderung');
+                console.log('Superadmin existiert bereits, keine Änderung');
                 return;
             }
             throw new Error('Es existiert bereits ein User mit dieser E-Mail, aber ohne SUPERADMIN-Rolle.');
@@ -75,7 +75,7 @@ async function run() {
                 isActive: true,
             },
         });
-        console.log('Superadmin Passwort wurde zurueckgesetzt');
+        console.log('Superadmin Passwort wurde zurückgesetzt');
         return;
     }
     const existingSuperadminCount = await prisma_1.prisma.user.count({

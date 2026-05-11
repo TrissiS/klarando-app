@@ -28,6 +28,7 @@ import businessTemplateRoutes from './routes/business-templates'
 import actionRoutes from './routes/actions'
 import staffRoutes from './routes/staff'
 import screenRoutes from './routes/screen'
+import displayRuntimeRoutes from './routes/display-runtime'
 import databaseManagementRoutes from './routes/database-management'
 import cashClosingRoutes from './routes/cash-closings'
 import platformBrandingRoutes from './routes/platform-branding'
@@ -116,6 +117,7 @@ app.use(express.urlencoded({ extended: true, limit: '8mb' }))
 app.use(optionalAuth)
 
 app.use('/api/auth/reset-password', rateLimitPasswordReset)
+app.use('/api/auth/forgot-password', rateLimitPasswordReset)
 app.use('/api/auth/refresh', rateLimitTokenRefresh)
 app.use('/api/app-auth/refresh', rateLimitTokenRefresh)
 
@@ -185,6 +187,7 @@ app.use('/api/business-templates', businessTemplateRoutes)
 app.use('/api/actions', actionRoutes)
 app.use('/api/staff', staffRoutes)
 app.use('/api/screen', screenRoutes)
+app.use('/api/display-runtime', displayRuntimeRoutes)
 app.use('/api/database-management', databaseManagementRoutes)
 app.use('/api/cash-closings', cashClosingRoutes)
 app.use('/api/platform-branding', platformBrandingRoutes)

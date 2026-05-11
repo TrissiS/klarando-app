@@ -220,7 +220,7 @@ export function AdminTabs({
 export function AdminTable({ children }: { children: ReactNode }) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
-      <table className="min-w-[760px] w-full border-collapse">{children}</table>
+      <table className="min-w-[640px] w-full border-collapse md:min-w-[760px]">{children}</table>
     </div>
   )
 }

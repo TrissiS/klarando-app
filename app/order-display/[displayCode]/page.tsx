@@ -15,6 +15,14 @@ import {
   type PublicOrderDisplayFeed,
 } from '@/lib/api'
 import {
+  fetchDisplayRuntimeConfig,
+  readCachedDisplayRuntimeConfig,
+  type DisplayRuntimeConfig,
+  type DisplayRuntimeConnectionState,
+} from '@/lib/display-runtime'
+import { DisplayConnectionStatus } from '@/app/Components/display/DisplayConnectionStatus'
+import { DisplayRuntimeShell } from '@/app/Components/display/DisplayRuntimeShell'
+import {
   ageAlertStyle,
   displayRoleLabel,
   formatClock,
@@ -253,6 +261,9 @@ export default function OrderDisplayPage({ params }: Props) {
   const [activeComplaintOrderId, setActiveComplaintOrderId] = useState<string | null>(null)
   const [activeRouteMapOrderId, setActiveRouteMapOrderId] = useState<string | null>(null)
   const [showAllRouteMaps, setShowAllRouteMaps] = useState(false)
+  const [runtimeConfig, setRuntimeConfig] = useState<DisplayRuntimeConfig | null>(null)
+  const [connectionState, setConnectionState] = useState<DisplayRuntimeConnectionState>('online')
+  const isLowPerformanceMode = runtimeConfig?.performanceMode === 'LOW'
   const previousOrderStatusRef = useRef<Map<string, string>>(new Map())
   const previousSeenOrderIdsRef = useRef<Set<string>>(new Set())
   const dismissedAlertUntilRef = useRef<Map<string, number>>(new Map())
@@ -269,6 +280,56 @@ export default function OrderDisplayPage({ params }: Props) {
       setDisplayCode(resolved.displayCode.toUpperCase())
     })
   }, [params])
+
+  useEffect(() => {
+    if (!displayCode) {
+      return
+    }
+
+    let isMounted = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const loadRuntime = async () => {
+      try {
+        setConnectionState((current) => (current === 'offline_cached' ? 'reconnecting' : current))
+        const config = await fetchDisplayRuntimeConfig(displayCode)
+        if (!isMounted) {
+          return
+        }
+        setRuntimeConfig(config)
+        setConnectionState('online')
+        const retryMs = document.hidden
+          ? Math.max(25000, config.refreshIntervalMs * 2)
+          : Math.max(isLowPerformanceMode ? 12000 : 8000, config.refreshIntervalMs)
+        timer = setTimeout(() => {
+          void loadRuntime()
+        }, retryMs)
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        const cachedConfig = readCachedDisplayRuntimeConfig(displayCode)
+        if (cachedConfig) {
+          setRuntimeConfig(cachedConfig)
+          setConnectionState('offline_cached')
+        } else {
+          setConnectionState('reconnecting')
+        }
+        timer = setTimeout(() => {
+          void loadRuntime()
+        }, document.hidden ? 25000 : isLowPerformanceMode ? 14000 : 10000)
+      }
+    }
+
+    void loadRuntime()
+
+    return () => {
+      isMounted = false
+      if (timer) {
+        clearTimeout(timer)
+      }
+    }
+  }, [displayCode, isLowPerformanceMode])
 
   async function loadFeed() {
     if (!displayCode) {
@@ -320,13 +381,16 @@ export default function OrderDisplayPage({ params }: Props) {
       return
     }
 
-    const intervalMs = Math.max(feed.display.refreshIntervalSec, 3) * 1000
+    const baseIntervalMs = Math.max(feed.display.refreshIntervalSec, isLowPerformanceMode ? 6 : 4) * 1000
+    const intervalMs = document.hidden
+      ? Math.max(20000, baseIntervalMs * 2)
+      : baseIntervalMs
     const handle = window.setInterval(() => {
       void loadFeed()
     }, intervalMs)
 
     return () => window.clearInterval(handle)
-  }, [displayCode, feed?.display.refreshIntervalSec])
+  }, [displayCode, feed?.display.refreshIntervalSec, isLowPerformanceMode])
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -809,9 +873,11 @@ export default function OrderDisplayPage({ params }: Props) {
 
   return (
     <main
-      className="relative min-h-screen overflow-x-hidden overflow-y-auto px-3 py-4 text-white sm:px-4 sm:py-5 md:px-6"
+      className="safe-area-padding relative min-h-screen overflow-x-hidden overflow-y-auto px-3 py-4 text-white sm:px-4 sm:py-5 md:px-6"
       style={{ background: displayBackground }}
     >
+      <DisplayRuntimeShell runtimeConfig={runtimeConfig}>
+      <DisplayConnectionStatus state={connectionState} />
       {mediaMode === 'IMAGE' && mediaUrl ? (
         <div
           className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-35"
@@ -837,7 +903,7 @@ export default function OrderDisplayPage({ params }: Props) {
           <p className="text-xs uppercase tracking-[0.2em] text-cyan-300">Klarando Display</p>
           <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold sm:text-3xl">{feed.display.name}</h1>
+              <h1 className="break-words text-2xl font-bold sm:text-3xl">{feed.display.name}</h1>
               <p className="text-sm text-slate-300">
                 {displayRoleLabel(feed.display.displayRole)} | Code: {feed.display.displayCode} |
                 Standort: {feed.display.location || '-'}
@@ -865,7 +931,7 @@ export default function OrderDisplayPage({ params }: Props) {
                 <p className="text-xs uppercase tracking-[0.2em] text-amber-200">
                   Neue Bestellung
                 </p>
-                <h2 className="mt-1 text-xl font-bold">
+                <h2 className="mt-1 break-words text-xl font-bold">
                   #{activeAlertOrder.id.slice(0, 8).toUpperCase()} |{' '}
                   {resolveCustomerHint(activeAlertOrder).name}
                 </h2>
@@ -1549,7 +1615,7 @@ export default function OrderDisplayPage({ params }: Props) {
                               className={item.productionStatus === 'DONE' ? 'line-through opacity-70' : undefined}
                             >
                               <span className="mr-1.5 text-base font-black">{item.quantity}x</span>
-                              <span>{item.product.name}</span>
+                              <span className="break-words">{item.product.name}</span>
                             </span>
                             <div className="flex items-center gap-2">
                               <span>{Number(item.price).toFixed(2)} EUR</span>
@@ -1906,7 +1972,22 @@ export default function OrderDisplayPage({ params }: Props) {
             filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.7));
           }
         }
+
+        ${isLowPerformanceMode
+          ? `
+        .klarando-status-animated {
+          animation: none !important;
+        }`
+          : ''}
+
+        @media (prefers-reduced-motion: reduce) {
+          * {
+            animation: none !important;
+            transition: none !important;
+          }
+        }
       `}</style>
+      </DisplayRuntimeShell>
     </main>
   )
 }

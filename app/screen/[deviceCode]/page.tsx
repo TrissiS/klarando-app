@@ -8,6 +8,14 @@ import {
   type ScreenCardStyle,
   type ScreenPriceDisplayMode,
 } from '@/lib/api'
+import {
+  fetchDisplayRuntimeConfig,
+  readCachedDisplayRuntimeConfig,
+  type DisplayRuntimeConfig,
+  type DisplayRuntimeConnectionState,
+} from '@/lib/display-runtime'
+import { DisplayConnectionStatus } from '@/app/Components/display/DisplayConnectionStatus'
+import { DisplayRuntimeShell } from '@/app/Components/display/DisplayRuntimeShell'
 
 type Props = {
   params: Promise<{
@@ -429,6 +437,9 @@ export default function ScreenDevicePage({ params }: Props) {
   const [tickerText, setTickerText] = useState('')
   const [tickerClock, setTickerClock] = useState<Date>(() => new Date())
   const [viewportWidth, setViewportWidth] = useState(1920)
+  const [runtimeConfig, setRuntimeConfig] = useState<DisplayRuntimeConfig | null>(null)
+  const [connectionState, setConnectionState] = useState<DisplayRuntimeConnectionState>('online')
+  const isLowPerformanceMode = runtimeConfig?.performanceMode === 'LOW'
 
   useEffect(() => {
     params.then((resolved) => {
@@ -457,7 +468,11 @@ export default function ScreenDevicePage({ params }: Props) {
         setFeed(data)
         setError('')
 
-        const intervalMs = Math.max(5, data.device.refreshIntervalSec) * 1000
+        const configuredMinInterval = isLowPerformanceMode ? 15 : 8
+        const baseIntervalMs = Math.max(configuredMinInterval, data.device.refreshIntervalSec) * 1000
+        const intervalMs = document.hidden
+          ? Math.max(30000, baseIntervalMs * 2)
+          : baseIntervalMs
         timer = setTimeout(() => {
           loadFeed().catch(() => null)
         }, intervalMs)
@@ -468,7 +483,7 @@ export default function ScreenDevicePage({ params }: Props) {
         setError(loadError instanceof Error ? loadError.message : 'Feed konnte nicht geladen werden')
         timer = setTimeout(() => {
           loadFeed().catch(() => null)
-        }, 10000)
+        }, document.hidden ? 30000 : 12000)
       } finally {
         if (isMounted) {
           setLoading(false)
@@ -485,6 +500,56 @@ export default function ScreenDevicePage({ params }: Props) {
       }
     }
   }, [deviceCode])
+
+  useEffect(() => {
+    if (!deviceCode) {
+      return
+    }
+
+    let isMounted = true
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const loadRuntime = async () => {
+      try {
+        setConnectionState((current) => (current === 'offline_cached' ? 'reconnecting' : current))
+        const config = await fetchDisplayRuntimeConfig(deviceCode)
+        if (!isMounted) {
+          return
+        }
+        setRuntimeConfig(config)
+        setConnectionState('online')
+        const retryMs = document.hidden
+          ? Math.max(30000, config.refreshIntervalMs * 2)
+          : Math.max(isLowPerformanceMode ? 18000 : 12000, config.refreshIntervalMs)
+        timer = setTimeout(() => {
+          void loadRuntime()
+        }, retryMs)
+      } catch {
+        if (!isMounted) {
+          return
+        }
+        const cachedConfig = readCachedDisplayRuntimeConfig(deviceCode)
+        if (cachedConfig) {
+          setRuntimeConfig(cachedConfig)
+          setConnectionState('offline_cached')
+        } else {
+          setConnectionState('reconnecting')
+        }
+        timer = setTimeout(() => {
+          void loadRuntime()
+        }, document.hidden ? 30000 : isLowPerformanceMode ? 18000 : 12000)
+      }
+    }
+
+    void loadRuntime()
+
+    return () => {
+      isMounted = false
+      if (timer) {
+        clearTimeout(timer)
+      }
+    }
+  }, [deviceCode, isLowPerformanceMode])
 
   useEffect(() => {
     if (!feed || !feed.config.offerWindowEnabled) {
@@ -744,6 +809,11 @@ export default function ScreenDevicePage({ params }: Props) {
   )
   const offerWindowWidthPx = feed ? resolveOfferWindowWidthPx(feed.config) : 380
   const offerWindowHeightPx = feed ? resolveOfferWindowHeightPx(feed.config) : 280
+  const offerWindowWidthEffectivePx = Math.min(offerWindowWidthPx, Math.max(220, viewportWidth - 36))
+  const offerWindowHeightEffectivePx = Math.min(
+    offerWindowHeightPx,
+    Math.max(160, Math.round((viewportWidth < 768 ? 0.64 : 0.78) * offerWindowWidthEffectivePx))
+  )
   const offerWindowOpacity = clampInt(Number(feed?.config.offerWindowOpacity || 28), 0, 100)
   const offerWindowBackgroundColor = hexToRgba(
     feed?.config.offerWindowBackgroundColor || '#f97316',
@@ -788,8 +858,8 @@ export default function ScreenDevicePage({ params }: Props) {
           reserveSpace: Boolean(feed.config.offerWindowReserveSpace),
           xPercent: offerWindowCoordinates.x,
           yPercent: offerWindowCoordinates.y,
-          widthPx: offerWindowWidthPx,
-          heightPx: offerWindowHeightPx,
+          widthPx: offerWindowWidthEffectivePx,
+          heightPx: offerWindowHeightEffectivePx,
           viewportWidthPx: Number(feed.device.resolutionWidth || 1920),
           viewportHeightPx: contentViewportHeightPx,
         })
@@ -820,8 +890,10 @@ export default function ScreenDevicePage({ params }: Props) {
         ...backgroundStyle,
         fontFamily: feed.config.fontFamily,
       }}
-      className="relative flex min-h-screen flex-col overflow-hidden text-white"
+      className="safe-area-padding relative flex min-h-screen flex-col overflow-hidden text-white"
     >
+      <DisplayRuntimeShell runtimeConfig={runtimeConfig}>
+      <DisplayConnectionStatus state={connectionState} />
       {hasVideoBackground ? (
         <>
           {youtubeBackgroundEmbedUrl ? (
@@ -919,16 +991,16 @@ export default function ScreenDevicePage({ params }: Props) {
       ) : null}
 
       <div className="relative z-10 flex-1 px-3 py-4 sm:px-5 sm:py-5 md:px-6 md:py-6">
-        <div className="mx-auto flex max-w-[1800px] items-start justify-between gap-4">
-          <div>
+        <div className="mx-auto flex max-w-[1800px] flex-wrap items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
             <p className="text-xs uppercase tracking-[0.26em] text-white/70">
               Klarando Screen {feed.device.deviceCode}
             </p>
-            <h1 className="mt-1 text-3xl font-black tracking-tight sm:text-4xl xl:text-5xl" style={{ color: feed.config.textColor }}>
+            <h1 className="mt-1 break-words text-3xl font-black tracking-tight sm:text-4xl xl:text-5xl" style={{ color: feed.config.textColor }}>
               {feed.config.title}
             </h1>
             {feed.config.subtitle ? (
-              <p className="mt-2 text-base text-white/85 sm:text-lg xl:text-xl">{feed.config.subtitle}</p>
+              <p className="mt-2 break-words text-base text-white/85 sm:text-lg xl:text-xl">{feed.config.subtitle}</p>
             ) : null}
           </div>
 
@@ -936,12 +1008,12 @@ export default function ScreenDevicePage({ params }: Props) {
             <img
               src={feed.config.logoUrl}
               alt="Betreiber-Logo"
-              className="rounded-lg object-contain"
-              style={{
-                width: `${clampInt(Number(feed.config.logoSize || 72), 32, 220)}px`,
-                height: `${clampInt(Number(feed.config.logoSize || 72), 32, 220)}px`,
-              }}
-            />
+            className="rounded-lg object-contain"
+            style={{
+              width: `${clampInt(Number(feed.config.logoSize || 72), 28, viewportWidth < 640 ? 80 : 220)}px`,
+              height: `${clampInt(Number(feed.config.logoSize || 72), 28, viewportWidth < 640 ? 80 : 220)}px`,
+            }}
+          />
           ) : null}
 
         </div>
@@ -954,8 +1026,8 @@ export default function ScreenDevicePage({ params }: Props) {
               left: `${offerWindowCoordinates.x}%`,
               top: `${offerWindowCoordinates.y}%`,
               transform: 'translate(-50%, -50%)',
-              width: `${offerWindowWidthPx}px`,
-              minHeight: `${offerWindowHeightPx}px`,
+              width: `${offerWindowWidthEffectivePx}px`,
+              minHeight: `${offerWindowHeightEffectivePx}px`,
               maxWidth: '95vw',
               backgroundColor: offerWindowBackgroundColor,
               borderColor: offerWindowBorderColor,
@@ -1127,6 +1199,7 @@ export default function ScreenDevicePage({ params }: Props) {
                     style={{
                       fontSize: `${feed.config.productFontSize}px`,
                       color: feed.config.productNameColor || feed.config.textColor,
+                      overflowWrap: 'anywhere',
                     }}
                   >
                     {feed.config.showProductNumber ? (
@@ -1358,7 +1431,24 @@ export default function ScreenDevicePage({ params }: Props) {
           animation: klarandoTickerScroll 26s linear infinite;
           will-change: transform;
         }
+
+        ${isLowPerformanceMode
+          ? `
+        .klarando-screen-ticker-track {
+          animation: none !important;
+          transform: none !important;
+          white-space: normal !important;
+        }`
+          : ''}
+
+        @media (prefers-reduced-motion: reduce) {
+          * {
+            animation: none !important;
+            transition: none !important;
+          }
+        }
       `}</style>
+      </DisplayRuntimeShell>
     </main>
   )
 }
