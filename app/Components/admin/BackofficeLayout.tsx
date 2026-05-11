@@ -8,6 +8,7 @@ import {
   getPlatformBrandingSettings,
   type PlatformBrandingSettings,
 } from '@/lib/api'
+import { appVersion, buildDateIso, commitSha, environment, formatBuildDateForUi } from '@/lib/version'
 
 type BackofficeNavItem = {
   href: string
@@ -130,7 +131,7 @@ export default function BackofficeLayout({
   }
 
   return (
-    <main className="brand-shell min-h-screen">
+    <main className="safe-area-padding brand-shell min-h-screen">
       <div className="flex min-h-screen">
         <aside
           className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${
@@ -199,6 +200,14 @@ export default function BackofficeLayout({
             <div className="rounded-2xl bg-white/10 px-4 py-4 ring-1 ring-white/20">
               <p className="text-xs uppercase tracking-wide text-orange-100/80">Bereich</p>
               <p className="mt-2 text-sm text-white">{title}</p>
+              {!isSidebarCollapsed ? (
+                <div className="mt-3 border-t border-white/15 pt-3 text-[11px] text-orange-100/80">
+                  <p>Klarando v{appVersion}</p>
+                  <p>Build: {formatBuildDateForUi(buildDateIso)}</p>
+                  <p>{environment.toUpperCase()}</p>
+                  {commitSha ? <p>Commit: {commitSha.slice(0, 8)}</p> : null}
+                </div>
+              ) : null}
             </div>
           </div>
         </aside>

@@ -68,7 +68,7 @@ export default function SuperadminPage() {
     { id: 'kpi', label: 'Kennzahlen' },
     { id: 'sales', label: 'Umsatz & Bewertungen' },
     { id: 'quick', label: 'Schnellzugriff' },
-    { id: 'activity', label: 'Letzte Aktivitaet' },
+    { id: 'activity', label: 'Letzte Aktivität' },
   ] as const
 
   useEffect(() => {
@@ -294,7 +294,7 @@ export default function SuperadminPage() {
               href="/superadmin/security"
               className="mt-3 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] hover:bg-rose-100"
             >
-              Quelle oeffnen
+              Quelle öffnen
             </Link>
           </article>
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
@@ -304,7 +304,7 @@ export default function SuperadminPage() {
               href="/superadmin/security"
               className="mt-3 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] hover:bg-rose-100"
             >
-              Quelle oeffnen
+              Quelle öffnen
             </Link>
           </article>
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
@@ -314,7 +314,7 @@ export default function SuperadminPage() {
               href="/superadmin/security"
               className="mt-3 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] hover:bg-rose-100"
             >
-              Quelle oeffnen
+              Quelle öffnen
             </Link>
           </article>
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
@@ -324,7 +324,7 @@ export default function SuperadminPage() {
               href="/superadmin/security"
               className="mt-3 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] hover:bg-rose-100"
             >
-              Quelle oeffnen
+              Quelle öffnen
             </Link>
           </article>
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
@@ -334,7 +334,7 @@ export default function SuperadminPage() {
               href="/superadmin/security"
               className="mt-3 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] hover:bg-rose-100"
             >
-              Quelle oeffnen
+              Quelle öffnen
             </Link>
           </article>
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
@@ -345,7 +345,7 @@ export default function SuperadminPage() {
               href="/superadmin/drivers"
               className="mt-3 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] hover:bg-rose-100"
             >
-              Quelle oeffnen
+              Quelle öffnen
             </Link>
           </article>
         </section>
@@ -356,7 +356,7 @@ export default function SuperadminPage() {
       if (!salesDashboard) {
         return (
           <section className="rounded-3xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-4 py-4 text-sm text-rose-900/75">
-            Umsatzbereich laedt...
+            Umsatzbereich lädt...
           </section>
         )
       }
@@ -383,7 +383,7 @@ export default function SuperadminPage() {
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">Plattform-Umsatz</h2>
             <p className="mt-1 text-sm text-rose-900/70">
-              Letzte {salesDashboard.periodDays} Tage ueber alle angelegten Ketten und Admin-Filialen.
+              Letzte {salesDashboard.periodDays} Tage über alle angelegten Ketten und Admin-Filialen.
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3">
@@ -617,7 +617,7 @@ export default function SuperadminPage() {
     return (
       <section className="grid gap-6">
         <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-          <h2 className="text-xl font-semibold">Letzte Benutzer-Aenderungen</h2>
+          <h2 className="text-xl font-semibold">Letzte Benutzer-Änderungen</h2>
           <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
             <table className="w-full min-w-[760px] border-collapse">
               <thead>
@@ -679,7 +679,7 @@ export default function SuperadminPage() {
     <BackofficeLayout
       brand="Superadmin"
       title="Dashboard"
-      subtitle="Klarando Plattformueberblick fuer Rollen, Filialen und Sicherheitsaktivitaeten"
+      subtitle="Klarando Plattformüberblick für Rollen, Filialen und Sicherheitsaktivitäten"
       navItems={SUPERADMIN_NAV_ITEMS}
     >
       {error ? (

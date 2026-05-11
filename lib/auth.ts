@@ -16,6 +16,10 @@ export const demoUsers = [
 ]
 
 export function loginUser(email: string, password: string): SessionUser | null {
+  if (process.env.NODE_ENV === 'production') {
+    return null
+  }
+
   const found = demoUsers.find(
     (user) => user.email === email && user.password === password
   )

@@ -10,8 +10,8 @@ type Props = {
 };
 
 export default function LoginFormComponent({ onLogin }: Props) {
-  const [email, setEmail] = useState("admin@plattform.local");
-  const [password, setPassword] = useState("admin123");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -66,9 +66,11 @@ export default function LoginFormComponent({ onLogin }: Props) {
       return;
     } catch (error) {
       const backendMessage =
-        error instanceof Error ? error.message : "Login fehlgeschlagen. Bitte spaeter erneut versuchen."
+        error instanceof Error ? error.message : "Login fehlgeschlagen. Bitte später erneut versuchen."
       const demoUser = loginUser(email, password);
-      const allowDemoFallback = process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
+      const allowDemoFallback =
+        process.env.NODE_ENV !== "production" &&
+        process.env.NEXT_PUBLIC_ALLOW_DEMO_LOGIN === "true";
 
       if (!demoUser || !allowDemoFallback) {
         setError(backendMessage);
@@ -114,20 +116,12 @@ export default function LoginFormComponent({ onLogin }: Props) {
           {error && <div style={styles.error}>{error}</div>}
 
           <button style={styles.button} onClick={handleLogin} disabled={isLoading}>
-            {isLoading ? "Pruefe Login..." : "Einloggen"}
+            {isLoading ? "Prüfe Login..." : "Einloggen"}
           </button>
 
           <a href="/main-app" style={styles.linkButton}>
             Zur Haupt-App (Filialsuche)
           </a>
-
-          <div style={styles.demo}>
-            <strong>Demo-Zugaenge</strong>
-            <br />
-            Superadmin: admin@plattform.local / admin123
-            <br />
-            Mandant: inhaber@demo-klarando.de / imbiss123
-          </div>
 
           <div style={styles.legalLinks}>
             <a href="/impressum" style={styles.legalLink}>
@@ -230,15 +224,6 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     padding: 12,
     fontSize: 14,
-  },
-  demo: {
-    background: "#fff3ea",
-    border: "1px solid #ffd4be",
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 14,
-    color: "#7a2b27",
-    lineHeight: 1.6,
   },
   legalLinks: {
     display: "flex",

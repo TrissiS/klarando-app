@@ -4,16 +4,14 @@ import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 type BackofficeNavItem = ComponentProps<typeof BackofficeLayout>['navItems'][number]
 
 export const SUPERADMIN_NAV_ITEMS: BackofficeNavItem[] = [
-  { href: '/superadmin', label: 'Plattformübersicht' },
-  { href: '/superadmin/onboarding', label: 'Onboarding-Assistent' },
+  { href: '/superadmin', label: 'Übersicht' },
+  { href: '/superadmin/business-data', label: 'Unternehmen & Filialen' },
+  { href: '/superadmin/onboarding', label: 'Neues Unternehmen anlegen' },
+  { href: '/superadmin/business-templates', label: 'Vorlagen / Betriebsarten' },
+  { href: '/superadmin/template-editor', label: 'Template-Editor' },
+  { href: '/superadmin/security', label: 'Benutzer & Rechte' },
   { href: '/superadmin/orders', label: 'Bestellungen' },
-  { href: '/superadmin/business-templates', label: 'Business-Vorlagen' },
-  { href: '/superadmin/business-data', label: 'Betriebe & Chains' },
-  { href: '/superadmin/customers', label: 'Kunden' },
-  { href: '/superadmin/drivers', label: 'Fahrer' },
-  { href: '/superadmin/display-devices', label: 'Displays' },
-  { href: '/superadmin/module-billing', label: 'Module & Pakete' },
-  { href: '/superadmin/app-settings', label: 'App-Einstellungen' },
-  { href: '/superadmin/misc-settings', label: 'Plattform-Branding' },
-  { href: '/superadmin/security', label: 'Nutzer & Sicherheit' },
+  { href: '/superadmin/display-devices', label: 'Displays / Terminals' },
+  { href: '/superadmin/app-settings', label: 'Einstellungen' },
+  { href: '/superadmin/module-billing', label: 'Systemstatus' },
 ]
