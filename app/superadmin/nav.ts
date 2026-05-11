@@ -5,6 +5,7 @@ type BackofficeNavItem = ComponentProps<typeof BackofficeLayout>['navItems'][num
 
 export const SUPERADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/superadmin', label: 'Plattformübersicht' },
+  { href: '/superadmin/onboarding', label: 'Onboarding-Assistent' },
   { href: '/superadmin/orders', label: 'Bestellungen' },
   { href: '/superadmin/business-templates', label: 'Business-Vorlagen' },
   { href: '/superadmin/business-data', label: 'Betriebe & Chains' },

@@ -4614,10 +4614,76 @@ export type BusinessTemplateDetail = {
 export type BusinessTemplateImportResult = {
   templateId: string
   tenantId: string
+  options: BusinessTemplateImportOptions
+  categoriesCreated: number
+  productsCreated: number
+  productsUpdated: number
+  ingredientsCreated: number
+  productIngredientsCreated: number
+  allergensApplied: number
+  skippedExisting: number
   createdCategories: number
   createdIngredients: number
   createdProducts: number
   createdProductIngredients: number
+}
+
+export type BusinessTemplateImportOptions = {
+  importCategories: boolean
+  importProducts: boolean
+  importIngredients: boolean
+  importProductIngredients: boolean
+  importAllergens: boolean
+  importPriceSuggestions: boolean
+  overwriteExisting: boolean
+}
+
+export type OnboardingBusinessPayload = {
+  company: {
+    name: string
+    type: 'INDEPENDENT' | 'CHAIN' | 'FRANCHISE'
+    contactName: string
+    email: string
+    phone?: string | null
+  }
+  admin: {
+    name: string
+    email: string
+    password: string
+    role: 'CHAINADMIN' | 'ADMIN'
+  }
+  branch: {
+    name: string
+    addressLine?: string | null
+    email?: string | null
+  }
+  templateImport?: {
+    templateId?: string | null
+    enabled?: boolean
+    options?: Partial<BusinessTemplateImportOptions>
+  }
+}
+
+export type OnboardingBusinessResponse = {
+  chain: {
+    id: string
+    name: string
+    code: string
+    type: 'INDEPENDENT' | 'CHAIN' | 'FRANCHISE'
+    status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'LOCKED'
+  }
+  tenant: {
+    id: string
+    name: string
+    status: 'ACTIVE' | 'PAUSED' | 'ARCHIVED' | 'LOCKED'
+  }
+  admin: {
+    id: string
+    name: string
+    email: string
+    role: AccessRole
+  }
+  templateImport: BusinessTemplateImportResult | null
 }
 
 export type DatabaseAssignmentType = 'UNASSIGNED' | 'CHAIN' | 'TENANT'
@@ -5554,19 +5620,39 @@ export async function getBusinessTemplateDetail(
 export async function importBusinessTemplate(
   token: string,
   templateId: string,
-  tenantId: string
+  tenantId: string,
+  importOptions?: Partial<BusinessTemplateImportOptions>
 ): Promise<BusinessTemplateImportResult> {
   const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/import`, {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify({
       tenantId,
+      ...(importOptions ? { importOptions } : {}),
     }),
   })
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
     throw new Error(errorData?.error || 'Vorlage konnte nicht importiert werden')
+  }
+
+  return res.json()
+}
+
+export async function onboardBusiness(
+  token: string,
+  payload: OnboardingBusinessPayload
+): Promise<OnboardingBusinessResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/onboarding/business`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Onboarding konnte nicht abgeschlossen werden')
   }
 
   return res.json()

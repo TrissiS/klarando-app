@@ -542,22 +542,28 @@ export default function SuperadminPage() {
             </p>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <Link
+                href="/superadmin/onboarding"
+                className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3 text-sm font-medium text-[var(--brand-ink)] transition hover:border-orange-300 hover:bg-orange-50"
+              >
+                Neues Unternehmen anlegen
+              </Link>
+              <Link
                 href="/superadmin/security"
                 className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3 text-sm font-medium text-[var(--brand-ink)] transition hover:border-orange-300 hover:bg-orange-50"
               >
-                Admin Verwaltung öffnen
+                Benutzer verwalten
               </Link>
               <Link
-                href="/superadmin/app-settings"
+                href="/superadmin/business-data"
                 className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3 text-sm font-medium text-[var(--brand-ink)] transition hover:border-orange-300 hover:bg-orange-50"
               >
-                App Einstellungen öffnen
+                Neue Filiale anlegen
               </Link>
               <Link
-                href="/chainadmin"
+                href="/superadmin/business-templates"
                 className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3 text-sm font-medium text-[var(--brand-ink)] transition hover:border-orange-300 hover:bg-orange-50"
               >
-                Kettenadmin Ansicht
+                Templates verwalten
               </Link>
             </div>
 

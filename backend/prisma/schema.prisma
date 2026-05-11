@@ -210,6 +210,19 @@ enum BusinessTemplateType {
   BAR_LOUNGE
 }
 
+enum ChainType {
+  INDEPENDENT
+  CHAIN
+  FRANCHISE
+}
+
+enum EntityStatus {
+  ACTIVE
+  PAUSED
+  ARCHIVED
+  LOCKED
+}
+
 enum TemplateAllergenCode {
   A
   B
@@ -317,6 +330,11 @@ model Chain {
   id        String   @id @default(uuid())
   name      String
   code      String   @unique
+  type      ChainType    @default(INDEPENDENT)
+  status    EntityStatus @default(ACTIVE)
+  contactName String?
+  contactEmail String?
+  contactPhone String?
   payoutAccountHolder String?
   payoutBankName String?
   payoutIban String?
@@ -341,6 +359,8 @@ model Tenant {
   chainId    String?
   name       String
   email      String?   @unique
+  status     EntityStatus @default(ACTIVE)
+  addressLine String?
   businessSettings Json?
   chain      Chain?    @relation(fields: [chainId], references: [id], onDelete: SetNull)
 

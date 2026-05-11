@@ -32,6 +32,7 @@ import databaseManagementRoutes from './routes/database-management'
 import cashClosingRoutes from './routes/cash-closings'
 import platformBrandingRoutes from './routes/platform-branding'
 import mobileUpdatesRoutes from './routes/mobile-updates'
+import onboardingRoutes from './routes/onboarding'
 import { optionalAuth } from './middleware/auth'
 import { rateLimitPasswordReset, rateLimitTokenRefresh } from './middleware/rate-limit'
 import { prisma } from './lib/prisma'
@@ -188,6 +189,7 @@ app.use('/api/database-management', databaseManagementRoutes)
 app.use('/api/cash-closings', cashClosingRoutes)
 app.use('/api/platform-branding', platformBrandingRoutes)
 app.use('/api/mobile-updates', mobileUpdatesRoutes)
+app.use('/api/onboarding', onboardingRoutes)
 
 app.use((req, res) => {
   res.status(404).json({
