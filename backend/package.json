@@ -1,6 +1,6 @@
 {
   "name": "backend",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "main": "index.js",
   "scripts": {
     "dev": "node -r ts-node/register/transpile-only src/server.ts",
@@ -36,6 +36,6 @@
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.9.3"
   },
-  "klarandoVersion": "0.1.14",
-  "klarandoBuildDateUtc": "2026-05-11T17:45:11.217Z"
+  "klarandoVersion": "0.1.15",
+  "klarandoBuildDateUtc": "2026-05-11T17:46:23.223Z"
 }
