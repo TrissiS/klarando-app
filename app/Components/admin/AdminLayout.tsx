@@ -758,16 +758,21 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           </header>
 
-          <div
-            className={`fixed inset-0 z-[80] p-3 transition md:hidden ${
-              mobileNavOpen ? 'pointer-events-auto bg-slate-950/55 opacity-100' : 'pointer-events-none opacity-0'
-            }`}
-            onClick={() => setMobileNavOpen(false)}
-          >
+          {mobileNavOpen ? (
             <div
-              className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white"
-              onClick={(event) => event.stopPropagation()}
+              className="fixed inset-0 z-[80] bg-slate-950/55 p-3 md:hidden"
+              onClick={() => setMobileNavOpen(false)}
+              data-overlay="admin-mobile-nav"
             >
+              {process.env.NODE_ENV !== 'production' ? (
+                <div className="pointer-events-none fixed left-3 top-3 z-[81] rounded bg-amber-300 px-2 py-1 text-[10px] font-bold text-black">
+                  Overlay aktiv: admin-mobile-nav
+                </div>
+              ) : null}
+              <div
+                className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <div className="flex items-center justify-between border-b border-[var(--brand-border)] px-4 py-3">
                   <p className="text-sm font-semibold text-[var(--brand-ink)]">Navigation</p>
                   <button
@@ -849,7 +854,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   </div>
                 </div>
               </div>
-          </div>
+            </div>
+          ) : null}
 
           <div className="mx-auto w-full max-w-[1400px] min-w-0 px-3 py-6 sm:px-4 md:px-6 md:py-8">
             {!authChecked ? (

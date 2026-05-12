@@ -9,6 +9,7 @@ import {
   type PlatformBrandingSettings,
 } from '@/lib/api'
 import { appVersion, buildDateIso, commitSha, environment, formatBuildDateForUi } from '@/lib/version'
+import { clearSuperadminTenantContext } from '@/lib/superadmin-tenant-context'
 
 type BackofficeNavItem = {
   href: string
@@ -36,6 +37,8 @@ export default function BackofficeLayout({
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [hasValidSession, setHasValidSession] = useState(false)
   const normalizedRole = sessionRole.trim().toLowerCase()
   const canSwitchToAdmin = normalizedRole === 'superadmin' || normalizedRole === 'chainadmin'
 
@@ -43,20 +46,36 @@ export default function BackofficeLayout({
     try {
       const raw =
         typeof window !== 'undefined' ? window.localStorage.getItem('sessionUser') : null
+      const token = typeof window !== 'undefined' ? window.localStorage.getItem('accessToken') : null
       if (!raw) {
         setSessionName('')
         setSessionRole('')
+        setHasValidSession(false)
+        setAuthChecked(true)
         return
       }
 
       const parsed = JSON.parse(raw) as { name?: string; role?: string }
       setSessionName(parsed.name || '')
       setSessionRole(parsed.role || '')
+      setHasValidSession(Boolean(token))
+      setAuthChecked(true)
     } catch {
       setSessionName('')
       setSessionRole('')
+      setHasValidSession(false)
+      setAuthChecked(true)
     }
   }, [])
+
+  useEffect(() => {
+    if (!authChecked || hasValidSession) {
+      return
+    }
+    if (typeof window !== 'undefined') {
+      window.location.href = '/'
+    }
+  }, [authChecked, hasValidSession])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -78,6 +97,9 @@ export default function BackofficeLayout({
     }
 
     const onResize = () => {
+      if (window.innerWidth >= 768) {
+        setMobileNavOpen(false)
+      }
       if (window.innerWidth < 768) {
         return
       }
@@ -127,8 +149,36 @@ export default function BackofficeLayout({
     if (typeof window === 'undefined') return
     localStorage.removeItem('sessionUser')
     localStorage.removeItem('accessToken')
+    clearSuperadminTenantContext()
     window.location.href = '/'
   }
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      document.body.style.overflow = ''
+      return
+    }
+
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileNavOpen])
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNavOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileNavOpen])
 
   return (
     <main className="safe-area-padding brand-shell min-h-screen">
@@ -136,7 +186,7 @@ export default function BackofficeLayout({
         <aside
           className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${
             isSidebarCollapsed ? 'w-20' : 'w-72'
-          }`}
+          } relative z-40 pointer-events-auto`}
         >
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
@@ -212,7 +262,7 @@ export default function BackofficeLayout({
           </div>
         </aside>
 
-        <div className="min-w-0 flex-1">
+        <div className="relative z-10 min-w-0 flex-1">
           <header className="border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
             <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -265,8 +315,20 @@ export default function BackofficeLayout({
           </header>
 
           {mobileNavOpen ? (
-            <div className="fixed inset-0 z-50 bg-slate-950/55 p-3 md:hidden">
-              <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white">
+            <div
+              className="fixed inset-0 z-[80] bg-slate-950/55 p-3 md:hidden"
+              onClick={() => setMobileNavOpen(false)}
+              data-overlay="backoffice-mobile-nav"
+            >
+              {process.env.NODE_ENV !== 'production' ? (
+                <div className="pointer-events-none fixed left-3 top-3 z-[81] rounded bg-amber-300 px-2 py-1 text-[10px] font-bold text-black">
+                  Overlay aktiv: backoffice-mobile-nav
+                </div>
+              ) : null}
+              <div
+                className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <div className="flex items-center justify-between border-b border-[var(--brand-border)] px-4 py-3">
                   <p className="text-sm font-semibold text-[var(--brand-ink)]">Navigation</p>
                   <button
@@ -315,8 +377,19 @@ export default function BackofficeLayout({
               </div>
             </div>
           ) : null}
-
-          <div className="mx-auto w-full max-w-[1400px] px-3 py-6 sm:px-4 md:px-6 md:py-8">{children}</div>
+          <div className="mx-auto w-full max-w-[1400px] px-3 py-6 sm:px-4 md:px-6 md:py-8">
+            {!authChecked ? (
+              <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
+                Sitzung wird geprüft...
+              </section>
+            ) : !hasValidSession ? (
+              <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
+                Sitzung ist abgelaufen. Du wirst zum Login weitergeleitet.
+              </section>
+            ) : (
+              children
+            )}
+          </div>
         </div>
       </div>
     </main>
