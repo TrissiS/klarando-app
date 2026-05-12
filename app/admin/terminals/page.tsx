@@ -58,12 +58,13 @@ export default function AdminTerminalsPage() {
   const [sessionRole, setSessionRole] = useState('')
   const [orderDeskDisplayId, setOrderDeskDisplayId] = useState('')
   const [orderDeskDeviceAlias, setOrderDeskDeviceAlias] = useState('')
-  const [orderDeskExpiresMinutes, setOrderDeskExpiresMinutes] = useState('20')
   const [orderDeskQr, setOrderDeskQr] = useState<OrderDeskPairingSessionCreateResponse | null>(null)
   const [orderDeskBindings, setOrderDeskBindings] = useState<OrderDeskDeviceBinding[]>([])
   const [loadingOrderDeskBindings, setLoadingOrderDeskBindings] = useState(false)
   const [creatingOrderDeskQr, setCreatingOrderDeskQr] = useState(false)
   const [resettingOrderDeskBindingId, setResettingOrderDeskBindingId] = useState<string | null>(null)
+  const [recreatingOrderDeskBindingId, setRecreatingOrderDeskBindingId] = useState<string | null>(null)
+  const [orderDeskQrExpired, setOrderDeskQrExpired] = useState(false)
 
   const browserOrigin =
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
@@ -147,6 +148,24 @@ export default function AdminTerminalsPage() {
     loadData()
     void loadOrderDeskBindings()
   }, [])
+
+  useEffect(() => {
+    if (!orderDeskQr?.expiresAt) {
+      setOrderDeskQrExpired(false)
+      return
+    }
+    const expiresAtMs = new Date(orderDeskQr.expiresAt).getTime()
+    const now = Date.now()
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= now) {
+      setOrderDeskQrExpired(true)
+      return
+    }
+    setOrderDeskQrExpired(false)
+    const timeout = window.setTimeout(() => {
+      setOrderDeskQrExpired(true)
+    }, Math.max(0, expiresAtMs - now))
+    return () => window.clearTimeout(timeout)
+  }, [orderDeskQr])
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -337,12 +356,6 @@ export default function AdminTerminalsPage() {
       return
     }
 
-    const parsedMinutes = Number(orderDeskExpiresMinutes)
-    if (!Number.isFinite(parsedMinutes) || parsedMinutes < 5 || parsedMinutes > 180) {
-      setError('QR-Gueltigkeit muss zwischen 5 und 180 Minuten liegen.')
-      return
-    }
-
     try {
       setCreatingOrderDeskQr(true)
       setError('')
@@ -350,9 +363,9 @@ export default function AdminTerminalsPage() {
       const response = await createOrderDeskPairingSession({
         displayId: orderDeskDisplayId,
         deviceAlias: normalizeText(orderDeskDeviceAlias),
-        expiresMinutes: Math.round(parsedMinutes),
       })
       setOrderDeskQr(response)
+      setOrderDeskQrExpired(false)
       setSuccess('OrderDesk-QR wurde erstellt.')
       await loadOrderDeskBindings()
     } catch (createError) {
@@ -363,6 +376,31 @@ export default function AdminTerminalsPage() {
       )
     } finally {
       setCreatingOrderDeskQr(false)
+    }
+  }
+
+  async function handleRecreateBindingPairing(binding: OrderDeskDeviceBinding) {
+    try {
+      setRecreatingOrderDeskBindingId(binding.id)
+      setError('')
+      setSuccess('')
+      const response = await createOrderDeskPairingSession({
+        displayId: binding.displayId,
+        deviceAlias: normalizeText(binding.deviceAlias ?? ''),
+      })
+      setOrderDeskQr(response)
+      setOrderDeskQrExpired(false)
+      setOrderDeskDisplayId(binding.displayId)
+      setOrderDeskDeviceAlias(binding.deviceAlias || '')
+      setSuccess(`Neuer Pairing-Code für ${binding.deviceAlias || binding.deviceSerial} erstellt.`)
+    } catch (createError) {
+      setError(
+        createError instanceof Error
+          ? createError.message
+          : 'Neuer Pairing-Code konnte nicht erstellt werden'
+      )
+    } finally {
+      setRecreatingOrderDeskBindingId(null)
     }
   }
 
@@ -470,16 +508,6 @@ export default function AdminTerminalsPage() {
                   className="input-ui"
                 />
               </Field>
-              <Field label="QR gueltig (Minuten)">
-                <input
-                  type="number"
-                  min={5}
-                  max={180}
-                  value={orderDeskExpiresMinutes}
-                  onChange={(event) => setOrderDeskExpiresMinutes(event.target.value)}
-                  className="input-ui"
-                />
-              </Field>
               <button
                 type="button"
                 onClick={() => void handleCreateOrderDeskQr()}
@@ -502,9 +530,25 @@ export default function AdminTerminalsPage() {
                   <p className="mt-2 text-xs font-semibold text-slate-900">
                     {orderDeskQr.displayCode} | {orderDeskQr.deviceAlias}
                   </p>
-                  <p className="text-xs text-rose-900/70">
-                    Gueltig bis {new Date(orderDeskQr.expiresAt).toLocaleString('de-DE')}
-                  </p>
+                  {orderDeskQrExpired ? (
+                    <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-800">
+                      Code abgelaufen – neuen Code erstellen.
+                    </div>
+                  ) : (
+                    <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-800">
+                      Code ist aktiv.
+                    </div>
+                  )}
+                  {orderDeskQrExpired ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleCreateOrderDeskQr()}
+                      disabled={creatingOrderDeskQr || !orderDeskDisplayId}
+                      className="mt-2 w-full rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Neuen QR-Code generieren
+                    </button>
+                  ) : null}
                 </div>
               ) : (
                 <p className="text-xs text-rose-900/70">Noch kein QR erzeugt.</p>
@@ -532,6 +576,7 @@ export default function AdminTerminalsPage() {
                       <th className="th-ui">Display</th>
                       <th className="th-ui">Status</th>
                       <th className="th-ui">Zuletzt online</th>
+                      <th className="th-ui">Verbunden seit</th>
                       <th className="th-ui">Aktion</th>
                     </tr>
                   </thead>
@@ -569,21 +614,38 @@ export default function AdminTerminalsPage() {
                             ? new Date(binding.lastSeenAt).toLocaleString('de-DE')
                             : '-'}
                         </td>
+                        <td className="td-ui text-xs">
+                          {binding.boundAt
+                            ? new Date(binding.boundAt).toLocaleString('de-DE')
+                            : '-'}
+                        </td>
                         <td className="td-ui">
-                          <button
-                            type="button"
-                            disabled={
-                              !binding.isActive ||
-                              !isSuperadmin ||
-                              resettingOrderDeskBindingId === binding.id
-                            }
-                            onClick={() => void handleResetOrderDeskBinding(binding)}
-                            className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {resettingOrderDeskBindingId === binding.id
-                              ? 'Trennt...'
-                              : 'Reset (Superadmin)'}
-                          </button>
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              disabled={recreatingOrderDeskBindingId === binding.id}
+                              onClick={() => void handleRecreateBindingPairing(binding)}
+                              className="rounded-lg border border-blue-300 px-2 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {recreatingOrderDeskBindingId === binding.id
+                                ? 'Erstellt...'
+                                : 'Neuen Pairing-Code'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={
+                                !binding.isActive ||
+                                !isSuperadmin ||
+                                resettingOrderDeskBindingId === binding.id
+                              }
+                              onClick={() => void handleResetOrderDeskBinding(binding)}
+                              className="rounded-lg border border-red-300 px-2 py-1 text-xs font-medium text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {resettingOrderDeskBindingId === binding.id
+                                ? 'Trennt...'
+                                : 'Geraet trennen'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

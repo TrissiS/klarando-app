@@ -14,6 +14,7 @@ const router = Router()
 const ORDERDESK_DEVICE_MODULE = 'orderdesk_device'
 const ORDERDESK_DEVICE_TARGET_TYPE = 'orderdesk_device_binding'
 const ORDERDESK_PAIRING_TARGET_TYPE = 'orderdesk_pairing_session'
+const ORDERDESK_PAIRING_EXPIRES_MINUTES = 5
 
 function normalizeText(value: unknown) {
   if (typeof value !== 'string') {
@@ -155,17 +156,12 @@ router.post(
       displayId?: string | null
       displayCode?: string | null
       deviceAlias?: string | null
-      expiresMinutes?: number | null
     }
 
     const tenantId = normalizeText(payload.tenantId)
     const displayId = normalizeText(payload.displayId)
     const displayCode = normalizeText(payload.displayCode)?.toUpperCase() ?? null
     const deviceAlias = normalizeText(payload.deviceAlias) ?? createDefaultAlias()
-    const expiresMinutes = Math.min(
-      180,
-      Math.max(5, parsePositiveInteger(payload.expiresMinutes) ?? 20)
-    )
 
     if (!tenantId) {
       return res.status(400).json({ error: 'tenantId fehlt' })
@@ -201,7 +197,7 @@ router.post(
     }
 
     const sessionId = createPairingSessionId()
-    const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000)
+    const expiresAt = new Date(Date.now() + ORDERDESK_PAIRING_EXPIRES_MINUTES * 60 * 1000)
 
     await prisma.orderDeskPairingSession.create({
       data: {
@@ -239,6 +235,7 @@ router.post(
         displayCode: display.displayCode,
         deviceAlias,
         expiresAt: expiresAt.toISOString(),
+        expiresMinutes: ORDERDESK_PAIRING_EXPIRES_MINUTES,
       },
     })
 
@@ -255,6 +252,7 @@ router.post(
       qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(
         pairingPayload
       )}`,
+      expiresMinutes: ORDERDESK_PAIRING_EXPIRES_MINUTES,
     })
   } catch (error) {
     const scopeError = asTenantScopeError(error)
