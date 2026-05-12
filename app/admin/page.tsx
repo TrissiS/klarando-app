@@ -28,7 +28,48 @@ import {
 } from '@/lib/api'
 import { isModuleEnabled } from '@/lib/admin-module-visibility'
 
+function readSessionTokenFromBrowser() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  const directToken = (window.localStorage.getItem('accessToken') || '').trim()
+  if (
+    directToken &&
+    directToken.toLowerCase() !== 'undefined' &&
+    directToken.toLowerCase() !== 'null'
+  ) {
+    return directToken
+  }
+
+  try {
+    const rawSession = window.localStorage.getItem('sessionUser')
+    if (!rawSession) {
+      return ''
+    }
+    const parsed = JSON.parse(rawSession) as { accessToken?: string }
+    const sessionToken = (parsed.accessToken || '').trim()
+    if (
+      sessionToken &&
+      sessionToken.toLowerCase() !== 'undefined' &&
+      sessionToken.toLowerCase() !== 'null'
+    ) {
+      window.localStorage.setItem('accessToken', sessionToken)
+      return sessionToken
+    }
+  } catch {
+    return ''
+  }
+
+  return ''
+}
+
 export default function AdminPage() {
+  const [sessionReady, setSessionReady] = useState(false)
+  const [accessToken, setAccessToken] = useState<string | null>(null)
+  const [hasAccessToken, setHasAccessToken] = useState(false)
+  const [sessionRole, setSessionRole] = useState('')
+  const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
   const [categoriesCount, setCategoriesCount] = useState(0)
   const [productsCount, setProductsCount] = useState(0)
   const [ingredientsCount, setIngredientsCount] = useState(0)
@@ -107,13 +148,66 @@ export default function AdminPage() {
     ...(displaysModuleEnabled ? ['screens-active', 'screen-products', 'terminals', 'order-displays'] : []),
     ...(ordersModuleEnabled ? ['checkout-ready'] : []),
   ]
+  const canLoadTenantDashboard = Boolean(accessToken) && Boolean(sessionTenantId)
 
   useEffect(() => {
+    try {
+      const rawSession = window.localStorage.getItem('sessionUser')
+      const token = readSessionTokenFromBrowser()
+      setAccessToken(token || null)
+      setHasAccessToken(Boolean(token))
+      if (!rawSession) {
+        setSessionRole('')
+        setSessionTenantId(null)
+        setSessionReady(true)
+        return
+      }
+      const parsed = JSON.parse(rawSession) as { role?: string; tenantId?: string | null }
+      setSessionRole(parsed.role || '')
+      setSessionTenantId(
+        typeof parsed.tenantId === 'string' && parsed.tenantId.trim().length > 0
+          ? parsed.tenantId.trim()
+          : null
+      )
+      setSessionReady(true)
+    } catch {
+      setHasAccessToken(false)
+      setAccessToken(null)
+      setSessionRole('')
+      setSessionTenantId(null)
+      setSessionReady(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!sessionReady || process.env.NODE_ENV === 'production') {
+      return
+    }
+    console.debug('[AdminPage] Session-Status', {
+      hasToken: hasAccessToken,
+      tenantId: sessionTenantId || null,
+      role: sessionRole || null,
+    })
+  }, [sessionReady, hasAccessToken, sessionTenantId, sessionRole])
+
+  useEffect(() => {
+    if (!sessionReady || !canLoadTenantDashboard) {
+      setIsRefreshing(false)
+      return
+    }
     let cancelled = false
 
     async function loadData(options: { silent?: boolean } = {}) {
       setLoadWarning(null)
       setIsRefreshing(true)
+
+      if (process.env.NODE_ENV !== 'production') {
+        console.debug('[AdminPage] Dashboard-Request startet', {
+          hasToken: hasAccessToken,
+          tenantId: sessionTenantId || null,
+          role: sessionRole || null,
+        })
+      }
 
       const result = await Promise.allSettled([
         getCategories(),
@@ -125,12 +219,13 @@ export default function AdminPage() {
         getScreenProducts({ showOnScreen: true }),
         getOrderTerminals(),
         getOrderDisplays(),
-        getAdminOrderDashboard(30),
-        getAdminOrderRatingsDashboard(180),
+        getAdminOrderDashboard(30, sessionTenantId ?? undefined, accessToken ?? undefined),
+        getAdminOrderRatingsDashboard(180, sessionTenantId ?? undefined, accessToken ?? undefined),
         getOrderManagementList({ status: 'all', source: 'ALL', limit: 300 }),
       ])
 
       const failedSections: string[] = []
+      const failedReasonTexts: string[] = []
       const fromResult = <T,>(entry: PromiseSettledResult<T>, fallback: T, section: string) => {
         if (entry.status === 'fulfilled') {
           return entry.value
@@ -140,6 +235,7 @@ export default function AdminPage() {
           entry.reason instanceof Error ? entry.reason.message : String(entry.reason)
         console.warn(`ADMIN DASHBOARD LOAD WARNING (${section}): ${reasonText}`)
         failedSections.push(section)
+        failedReasonTexts.push(reasonText)
         return fallback
       }
 
@@ -222,6 +318,17 @@ export default function AdminPage() {
 
       if (failedSections.length > 0) {
         setLoadWarning(`Teilweise geladen: ${failedSections.join(', ')}`)
+        const hasAuthFailure = failedReasonTexts.some((reason) => {
+          const normalized = reason.toLowerCase()
+          return (
+            normalized.includes('nicht eingeloggt') ||
+            normalized.includes('unauthorized') ||
+            normalized.includes('401')
+          )
+        })
+        if (hasAuthFailure) {
+          setAutoRefreshEnabled(false)
+        }
       } else {
         setLoadWarning(null)
       }
@@ -246,7 +353,7 @@ export default function AdminPage() {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [refreshTick, autoRefreshEnabled])
+  }, [refreshTick, autoRefreshEnabled, canLoadTenantDashboard, sessionReady, accessToken, sessionTenantId, hasAccessToken, sessionRole])
 
   useEffect(() => {
     try {
@@ -273,11 +380,19 @@ export default function AdminPage() {
   }, [])
 
   useEffect(() => {
+    if (!sessionReady || !canLoadTenantDashboard) {
+      setFeatureScope(null)
+      return
+    }
+
     let cancelled = false
 
     async function loadFeatureScope() {
       try {
-        const effective = await getMyEffectiveFeatureModules()
+        const effective = await getMyEffectiveFeatureModules(
+          sessionTenantId ?? undefined,
+          accessToken ?? undefined
+        )
         if (!cancelled) {
           setFeatureScope(effective)
         }
@@ -292,7 +407,7 @@ export default function AdminPage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [sessionReady, canLoadTenantDashboard, sessionTenantId, accessToken])
 
   useEffect(() => {
     try {

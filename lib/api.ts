@@ -1566,9 +1566,8 @@ export async function getCategories(): Promise<Category[]> {
   if (!tenantId) {
     return []
   }
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/categories?tenantId=${tenantId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -1624,9 +1623,8 @@ export async function getProducts(options?: { availableOnly?: boolean }): Promis
     query.set('availableOnly', 'true')
   }
 
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/products?${query.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -1753,7 +1751,58 @@ function readBrowserAccessToken() {
     return ''
   }
 
-  return window.localStorage.getItem('accessToken') || ''
+  const directToken = (window.localStorage.getItem('accessToken') || '').trim()
+  const normalizedDirectToken =
+    directToken &&
+    directToken.toLowerCase() !== 'undefined' &&
+    directToken.toLowerCase() !== 'null'
+      ? directToken
+      : ''
+
+  try {
+    const sessionRaw = window.localStorage.getItem('sessionUser')
+    if (!sessionRaw) {
+      return normalizedDirectToken
+    }
+    const parsed = JSON.parse(sessionRaw) as { accessToken?: string }
+    const sessionToken = (parsed.accessToken || '').trim()
+    if (
+      sessionToken &&
+      sessionToken.toLowerCase() !== 'undefined' &&
+      sessionToken.toLowerCase() !== 'null'
+    ) {
+      if (sessionToken !== normalizedDirectToken) {
+        window.localStorage.setItem('accessToken', sessionToken)
+      }
+      return sessionToken
+    }
+  } catch {
+    // ignore malformed session payload
+  }
+
+  return normalizedDirectToken
+}
+
+async function apiAuthJson<T>(url: string, options: RequestInit = {}, fallbackError: string): Promise<T> {
+  const token = readBrowserAccessToken()
+  if (!token) {
+    throw new Error('Nicht eingeloggt')
+  }
+
+  const headers = new Headers(options.headers || undefined)
+  headers.set('Authorization', `Bearer ${token}`)
+
+  const res = await fetch(url, {
+    ...options,
+    headers,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || fallbackError)
+  }
+
+  return res.json()
 }
 
 function formatBusinessSettingsValidationError(
@@ -1845,13 +1894,18 @@ export async function getBusinessSettingsForTenant(
   return res.json()
 }
 
-export async function getMyEffectiveFeatureModules(): Promise<EffectiveFeatureSetResponse> {
-  const token = readBrowserAccessToken()
+export async function getMyEffectiveFeatureModules(
+  tenantId = resolveTenantId(),
+  token = readBrowserAccessToken()
+): Promise<EffectiveFeatureSetResponse> {
   if (!token) {
     throw new Error('Kein Access-Token gefunden')
   }
+  if (!tenantId) {
+    throw new Error('Bitte zuerst eine Filiale auswählen.')
+  }
 
-  return getEffectiveFeatureModules(token)
+  return getEffectiveFeatureModules(token, tenantId)
 }
 
 export async function updateBusinessSettingsForTenant(
@@ -2091,9 +2145,8 @@ export async function getScreenProducts(options?: {
     query.set('showOnScreen', options.showOnScreen ? 'true' : 'false')
   }
 
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/screen/products?${query.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -2139,9 +2192,8 @@ export async function updateScreenProduct(
 
 export async function getScreenDevices(): Promise<ScreenDevice[]> {
   const tenantId = resolveTenantId()
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/screen/devices?tenantId=${tenantId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -2288,9 +2340,8 @@ export async function getIngredients(): Promise<Ingredient[]> {
   if (!tenantId) {
     return []
   }
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/ingredients?tenantId=${tenantId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -2306,11 +2357,10 @@ export async function getSuppliers(): Promise<SupplierMaster[]> {
   if (!tenantId) {
     return []
   }
-  const token = readBrowserAccessToken()
   const res = await fetch(
     `${API_BASE_URL}/api/suppliers?tenantId=${tenantId}&includeIngredients=true`,
     {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      headers: authHeaders(),
     }
   )
 
@@ -2631,9 +2681,8 @@ export async function getActions(): Promise<ActionCampaign[]> {
   if (!tenantId) {
     return []
   }
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/actions?tenantId=${tenantId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -3227,7 +3276,6 @@ export async function getOrderManagementList(params?: {
   status?: string
   limit?: number
 }): Promise<OrderManagementResponse> {
-  const token = readBrowserAccessToken()
   const query = new URLSearchParams()
   if (params?.tenantId) {
     query.set('tenantId', params.tenantId)
@@ -3245,16 +3293,11 @@ export async function getOrderManagementList(params?: {
     query.set('limit', String(Math.trunc(params.limit)))
   }
 
-  const res = await fetch(`${API_BASE_URL}/api/orders/management?${query.toString()}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Bestelluebersicht konnte nicht geladen werden')
-  }
-
-  return res.json()
+  return apiAuthJson<OrderManagementResponse>(
+    `${API_BASE_URL}/api/orders/management?${query.toString()}`,
+    {},
+    'Bestelluebersicht konnte nicht geladen werden'
+  )
 }
 
 export async function getCashClosingDaily(params: {
@@ -3442,14 +3485,22 @@ export async function submitCashClosingMonthly(data: {
   return res.json()
 }
 
-export async function getAdminOrderDashboard(days = 30): Promise<AdminOrderDashboard> {
-  const tenantId = resolveTenantId()
+export async function getAdminOrderDashboard(
+  days = 30,
+  tenantId = resolveTenantId(),
+  token?: string
+): Promise<AdminOrderDashboard> {
+  if (!tenantId) {
+    throw new Error('Bitte zuerst eine Filiale auswählen.')
+  }
   const query = new URLSearchParams({
     tenantId,
     days: String(days),
   })
 
-  const res = await fetch(`${API_BASE_URL}/api/orders/dashboard/admin?${query.toString()}`)
+  const res = await fetch(`${API_BASE_URL}/api/orders/dashboard/admin?${query.toString()}`, {
+    headers: authHeaders(token),
+  })
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
@@ -3461,14 +3512,20 @@ export async function getAdminOrderDashboard(days = 30): Promise<AdminOrderDashb
 
 export async function getAdminOrderRatingsDashboard(
   days = 180,
-  tenantId = resolveTenantId()
+  tenantId = resolveTenantId(),
+  token?: string
 ): Promise<AdminOrderRatingsDashboard> {
+  if (!tenantId) {
+    throw new Error('Bitte zuerst eine Filiale auswählen.')
+  }
   const query = new URLSearchParams({
     tenantId,
     days: String(days),
   })
 
-  const res = await fetch(`${API_BASE_URL}/api/orders/ratings/admin?${query.toString()}`)
+  const res = await fetch(`${API_BASE_URL}/api/orders/ratings/admin?${query.toString()}`, {
+    headers: authHeaders(token),
+  })
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
@@ -3599,9 +3656,8 @@ export async function deleteProductModifier(id: string): Promise<void> {
 
 export async function getOrderTerminals(): Promise<OrderTerminal[]> {
   const tenantId = resolveTenantId()
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/order-terminals?tenantId=${tenantId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -3614,9 +3670,8 @@ export async function getOrderTerminals(): Promise<OrderTerminal[]> {
 
 export async function getOrderDisplays(): Promise<OrderDisplay[]> {
   const tenantId = resolveTenantId()
-  const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/order-displays?tenantId=${tenantId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    headers: authHeaders(),
   })
 
   if (!res.ok) {
@@ -5170,10 +5225,25 @@ export type AccessUserPermissionsResponse = {
   permissions: AccessPermission[]
 }
 
-function authHeaders(token: string) {
+function resolveAuthToken(token?: string) {
+  const normalized = (token || '').trim()
+  if (normalized) {
+    return normalized
+  }
+
+  const browserToken = readBrowserAccessToken()
+  if (browserToken) {
+    return browserToken
+  }
+
+  throw new Error('Nicht eingeloggt')
+}
+
+function authHeaders(token?: string) {
+  const resolvedToken = resolveAuthToken(token)
   return {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
+    Authorization: `Bearer ${resolvedToken}`,
   }
 }
 
