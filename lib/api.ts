@@ -4674,6 +4674,8 @@ export type BusinessTemplateFull = BusinessTemplateDetail
 export type BusinessTemplateImportResult = {
   templateId: string
   tenantId: string
+  templateVersion: string
+  importedAt: string
   options: BusinessTemplateImportOptions
   categoriesCreated: number
   productsCreated: number

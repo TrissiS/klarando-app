@@ -4,7 +4,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
-import { importBusinessTemplateToTenant } from '../lib/business-template-import'
+import { importBusinessTemplateToTenant, TenantImportError } from '../lib/business-template-import'
 import { writeAuditLog } from '../lib/audit'
 
 const router = Router()
@@ -423,6 +423,13 @@ router.post('/:id/import', requirePermission(PermissionKey.PRODUCTS_WRITE), asyn
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    if (error instanceof TenantImportError && error.code === 'TEMPLATE_ALREADY_IMPORTED') {
+      return res.status(409).json({
+        error: error.message,
+        warning: true,
+        code: error.code,
+      })
     }
     if (error instanceof Error && error.message.includes('Vorlage nicht gefunden')) {
       return res.status(404).json({ error: error.message })

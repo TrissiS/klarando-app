@@ -46,6 +46,33 @@ function isExplicitlyAllowed(value: string | undefined) {
   return (value || '').trim().toLowerCase() === 'true'
 }
 
+export const PROVISIONING_BLOCKED_MESSAGE =
+  'Datenbank-Provisionierung ist in Production deaktiviert.'
+
+export class DatabaseProvisioningBlockedError extends Error {
+  readonly code = 'DATABASE_PROVISIONING_DISABLED'
+
+  constructor(message = PROVISIONING_BLOCKED_MESSAGE) {
+    super(message)
+    this.name = 'DatabaseProvisioningBlockedError'
+  }
+}
+
+export function isDatabaseProvisioningBlockedError(
+  error: unknown
+): error is DatabaseProvisioningBlockedError {
+  return error instanceof DatabaseProvisioningBlockedError
+}
+
+function assertProvisioningDatabaseActionAllowed(_actionName: string) {
+  if (
+    isProductionEnvironment() &&
+    !isExplicitlyAllowed(process.env.ALLOW_PRODUCTION_DB_PROVISIONING)
+  ) {
+    throw new DatabaseProvisioningBlockedError()
+  }
+}
+
 function assertDestructiveDatabaseActionAllowed(actionName: string) {
   if (
     isProductionEnvironment() &&
@@ -185,7 +212,7 @@ async function createDatabaseIfMissing(options: {
     `
 
     if (existingDatabase.length === 0) {
-      assertDestructiveDatabaseActionAllowed('CREATE DATABASE')
+      assertProvisioningDatabaseActionAllowed('CREATE DATABASE')
 
       const createWithDefaultTemplate = async () => {
         try {

@@ -11,6 +11,7 @@ import {
   type BusinessSettings,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
+import { setSuperadminTenantContext } from '@/lib/superadmin-tenant-context'
 
 type ScopeType = 'TENANT' | 'CHAIN'
 
@@ -143,6 +144,19 @@ export default function SuperadminBusinessDataPage() {
     () => tenants.filter((entry) => entry.chainId === chainId),
     [tenants, chainId]
   )
+  const selectedTenant = useMemo(
+    () => tenants.find((entry) => entry.id === tenantId) || null,
+    [tenants, tenantId]
+  )
+
+  function openTenantAsAdmin(tenant: { id: string; name: string; chainId: string | null }) {
+    try {
+      setSuperadminTenantContext(tenant)
+      window.location.href = '/admin'
+    } catch {
+      setError('Sitzung konnte nicht vorbereitet werden. Bitte erneut einloggen.')
+    }
+  }
 
   async function loadFromTenant(targetTenantId: string) {
     if (!token || !targetTenantId) {
@@ -322,21 +336,31 @@ export default function SuperadminBusinessDataPage() {
             </label>
 
             {scopeType === 'TENANT' ? (
-              <label className="block sm:col-span-2">
+              <div className="block sm:col-span-2">
                 <span className="mb-1 block text-sm font-medium text-rose-900/85">Filiale</span>
-                <select
-                  value={tenantId}
-                  onChange={(event) => setTenantId(event.target.value)}
-                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-                >
-                  <option value="">Filiale waehlen</option>
-                  {tenants.map((tenant) => (
-                    <option key={tenant.id} value={tenant.id}>
-                      {tenant.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={tenantId}
+                    onChange={(event) => setTenantId(event.target.value)}
+                    className="min-w-0 flex-1 rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                  >
+                    <option value="">Filiale waehlen</option>
+                    {tenants.map((tenant) => (
+                      <option key={tenant.id} value={tenant.id}>
+                        {tenant.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={!selectedTenant}
+                    onClick={() => selectedTenant && openTenantAsAdmin(selectedTenant)}
+                    className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Als Filiale öffnen
+                  </button>
+                </div>
+              </div>
             ) : (
               <label className="block sm:col-span-2">
                 <span className="mb-1 block text-sm font-medium text-rose-900/85">Kette</span>

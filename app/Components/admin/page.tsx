@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -219,7 +219,7 @@ export default function AdminPage() {
               </div>
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-orange-400">
-                  Doener SaaS
+                  Döner SaaS
                 </p>
                 <h1 className="text-xl font-bold">Admin Panel</h1>
               </div>
@@ -362,7 +362,7 @@ export default function AdminPage() {
                   <div className="grid gap-4 md:grid-cols-3">
                     <QuickActionCard
                       title="Kategorie anlegen"
-                      text="Neue Menuegruppe wie Doener, Pizza oder Getraenke."
+                      text="Neue Menuegruppe wie Döner, Pizza oder Getränke."
                       buttonLabel="Zu Kategorien"
                       onClick={() => setActiveTab('categories')}
                       color="orange"
@@ -471,7 +471,7 @@ export default function AdminPage() {
                         onChange={(e) => setCategoryName(e.target.value)}
                         required
                         className="input-ui"
-                        placeholder="z. B. Doener"
+                        placeholder="z. B. Döner"
                       />
                     </FormField>
 
@@ -548,7 +548,7 @@ export default function AdminPage() {
                         onChange={(e) => setProductName(e.target.value)}
                         required
                         className="input-ui"
-                        placeholder="z. B. Doener mit Kaese"
+                        placeholder="z. B. Döner mit Kaese"
                       />
                     </FormField>
 
@@ -639,7 +639,7 @@ export default function AdminPage() {
                         onChange={(e) => setIngredientName(e.target.value)}
                         required
                         className="input-ui"
-                        placeholder="z. B. Doenerbrot"
+                        placeholder="z. B. Dönerbrot"
                       />
                     </FormField>
 
@@ -1156,4 +1156,5 @@ function SimpleIngredientCard({ ingredient }: { ingredient: Ingredient }) {
     </div>
   )
 }
+
 

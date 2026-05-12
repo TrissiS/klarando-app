@@ -8,6 +8,7 @@ import {
   TenantImportError,
 } from '../lib/business-template-import'
 import { writeAuditLog } from '../lib/audit'
+import { isDatabaseProvisioningBlockedError } from '../lib/database-provisioning'
 
 const router = Router()
 
@@ -307,6 +308,13 @@ router.post('/business', requireAuth, async (req, res) => {
     if (error instanceof OnboardingError) {
       const status = error.code === 'EMAIL_ALREADY_EXISTS' ? 409 : 400
       return onboardingErrorResponse(res, status, error)
+    }
+    if (isDatabaseProvisioningBlockedError(error)) {
+      return onboardingErrorResponse(
+        res,
+        403,
+        new OnboardingError('DATABASE_PROVISIONING_FAILED', error.message)
+      )
     }
 
     if (error instanceof Prisma.PrismaClientKnownRequestError) {

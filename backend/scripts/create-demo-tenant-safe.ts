@@ -228,7 +228,7 @@ async function ensureDemoData() {
   const demoProducts = [
     {
       productNumber: 'D-100',
-      name: 'Demo Doener',
+      name: 'Demo Döner',
       price: new Prisma.Decimal('8.90'),
     },
     {
@@ -346,3 +346,4 @@ run()
   .finally(async () => {
     await prisma.$disconnect()
   })
+

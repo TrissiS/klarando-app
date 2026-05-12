@@ -300,30 +300,30 @@ async function seedCatalog(tenantId, catalog) {
 
 function doenerCatalog() {
   return {
-    categories: ['Doener Klassiker', 'Tuerkische Pizza', 'Beilagen', 'Getraenke'],
+    categories: ['Döner Klassiker', 'Tuerkische Pizza', 'Beilagen', 'Getränke'],
     ingredients: [
-      { name: 'Doenerfleisch Kalb', unit: 'kg', purchasePrice: 11.9, supplier: 'Klarando Food' },
-      { name: 'Doenerfleisch Haehnchen', unit: 'kg', purchasePrice: 10.8, supplier: 'Klarando Food' },
-      { name: 'Doenerbrot', unit: 'Stueck', purchasePrice: 0.42, supplier: 'Baeckerei Partner' },
-      { name: 'Lahmacun Teig', unit: 'Stueck', purchasePrice: 0.58, supplier: 'Baeckerei Partner' },
+      { name: 'Dönerfleisch Kalb', unit: 'kg', purchasePrice: 11.9, supplier: 'Klarando Food' },
+      { name: 'Dönerfleisch Haehnchen', unit: 'kg', purchasePrice: 10.8, supplier: 'Klarando Food' },
+      { name: 'Dönerbrot', unit: 'Stueck', purchasePrice: 0.42, supplier: 'Bäckerei Partner' },
+      { name: 'Lahmacun Teig', unit: 'Stueck', purchasePrice: 0.58, supplier: 'Bäckerei Partner' },
       { name: 'Pommes', unit: 'kg', purchasePrice: 2.4, supplier: 'Klarando TK' },
       { name: 'Salatmix', unit: 'kg', purchasePrice: 2.3, supplier: 'Frischemarkt' },
       { name: 'Tomaten', unit: 'kg', purchasePrice: 2.9, supplier: 'Frischemarkt' },
       { name: 'Zwiebeln', unit: 'kg', purchasePrice: 1.9, supplier: 'Frischemarkt' },
       { name: 'Joghurtsosse', unit: 'kg', purchasePrice: 3.8, allergens: 'G', supplier: 'Saucenwerk' },
-      { name: 'Cola 0,33l', unit: 'Stueck', purchasePrice: 0.64, deposit: 0.25, supplier: 'Getraenkehandel' },
+      { name: 'Cola 0,33l', unit: 'Stueck', purchasePrice: 0.64, deposit: 0.25, supplier: 'Getränkehandel' },
     ],
     products: [
       {
         productNumber: 'D1001',
-        name: 'Doener Kalb',
-        category: 'Doener Klassiker',
+        name: 'Döner Kalb',
+        category: 'Döner Klassiker',
         price: 7.5,
         imageUrl:
           'https://images.unsplash.com/photo-1529006557810-274b9b2fc783?auto=format&fit=crop&w=1200&q=80',
         ingredients: [
-          { name: 'Doenerbrot', quantity: 1 },
-          { name: 'Doenerfleisch Kalb', quantity: 0.18 },
+          { name: 'Dönerbrot', quantity: 1 },
+          { name: 'Dönerfleisch Kalb', quantity: 0.18 },
           { name: 'Salatmix', quantity: 0.06 },
           { name: 'Tomaten', quantity: 0.03 },
           { name: 'Joghurtsosse', quantity: 0.03 },
@@ -331,14 +331,14 @@ function doenerCatalog() {
       },
       {
         productNumber: 'D1002',
-        name: 'Doener Haehnchen',
-        category: 'Doener Klassiker',
+        name: 'Döner Haehnchen',
+        category: 'Döner Klassiker',
         price: 7.0,
         imageUrl:
           'https://images.unsplash.com/photo-1526318472351-c75fcf070305?auto=format&fit=crop&w=1200&q=80',
         ingredients: [
-          { name: 'Doenerbrot', quantity: 1 },
-          { name: 'Doenerfleisch Haehnchen', quantity: 0.18 },
+          { name: 'Dönerbrot', quantity: 1 },
+          { name: 'Dönerfleisch Haehnchen', quantity: 0.18 },
           { name: 'Salatmix', quantity: 0.06 },
           { name: 'Tomaten', quantity: 0.03 },
           { name: 'Joghurtsosse', quantity: 0.03 },
@@ -353,7 +353,7 @@ function doenerCatalog() {
           'https://images.unsplash.com/photo-1532636875304-0c89119d9b3b?auto=format&fit=crop&w=1200&q=80',
         ingredients: [
           { name: 'Lahmacun Teig', quantity: 1 },
-          { name: 'Doenerfleisch Kalb', quantity: 0.2 },
+          { name: 'Dönerfleisch Kalb', quantity: 0.2 },
           { name: 'Salatmix', quantity: 0.06 },
           { name: 'Zwiebeln', quantity: 0.02 },
           { name: 'Joghurtsosse', quantity: 0.03 },
@@ -376,13 +376,13 @@ function doenerCatalog() {
       },
       {
         productNumber: 'D1005',
-        name: 'Doener Teller Kalb',
-        category: 'Doener Klassiker',
+        name: 'Döner Teller Kalb',
+        category: 'Döner Klassiker',
         price: 12.9,
         imageUrl:
           'https://images.unsplash.com/photo-1541518763669-27fef04b14ea?auto=format&fit=crop&w=1200&q=80',
         ingredients: [
-          { name: 'Doenerfleisch Kalb', quantity: 0.24 },
+          { name: 'Dönerfleisch Kalb', quantity: 0.24 },
           { name: 'Pommes', quantity: 0.2 },
           { name: 'Salatmix', quantity: 0.08 },
           { name: 'Joghurtsosse', quantity: 0.04 },
@@ -422,7 +422,7 @@ function doenerCatalog() {
       {
         productNumber: 'D1009',
         name: 'Cola 0,33l',
-        category: 'Getraenke',
+        category: 'Getränke',
         price: 2.7,
         imageUrl:
           'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?auto=format&fit=crop&w=1200&q=80',
@@ -430,14 +430,14 @@ function doenerCatalog() {
       },
       {
         productNumber: 'D1010',
-        name: 'Menue Doener + Pommes + Cola',
-        category: 'Doener Klassiker',
+        name: 'Menue Döner + Pommes + Cola',
+        category: 'Döner Klassiker',
         price: 13.5,
         imageUrl:
           'https://images.unsplash.com/photo-1550547660-d9450f859349?auto=format&fit=crop&w=1200&q=80',
         ingredients: [
-          { name: 'Doenerbrot', quantity: 1 },
-          { name: 'Doenerfleisch Kalb', quantity: 0.18 },
+          { name: 'Dönerbrot', quantity: 1 },
+          { name: 'Dönerfleisch Kalb', quantity: 0.18 },
           { name: 'Pommes', quantity: 0.16 },
           { name: 'Cola 0,33l', quantity: 1 },
           { name: 'Joghurtsosse', quantity: 0.02 },
@@ -449,10 +449,10 @@ function doenerCatalog() {
 
 function greekCatalog() {
   return {
-    categories: ['Gyros Spezial', 'Grillteller', 'Beilagen', 'Getraenke'],
+    categories: ['Gyros Spezial', 'Grillteller', 'Beilagen', 'Getränke'],
     ingredients: [
       { name: 'Gyros Fleisch', unit: 'kg', purchasePrice: 12.6, supplier: 'Mittelmeer Food' },
-      { name: 'Pita Brot', unit: 'Stueck', purchasePrice: 0.5, supplier: 'Baeckerei Partner' },
+      { name: 'Pita Brot', unit: 'Stueck', purchasePrice: 0.5, supplier: 'Bäckerei Partner' },
       { name: 'Reis', unit: 'kg', purchasePrice: 2.1, supplier: 'Mittelmeer Food' },
       { name: 'Pommes', unit: 'kg', purchasePrice: 2.4, supplier: 'Klarando TK' },
       { name: 'Tzatziki', unit: 'kg', purchasePrice: 4.2, allergens: 'G', supplier: 'Saucenwerk' },
@@ -460,7 +460,7 @@ function greekCatalog() {
       { name: 'Feta', unit: 'kg', purchasePrice: 7.9, allergens: 'G', supplier: 'Molkerei' },
       { name: 'Zwiebeln', unit: 'kg', purchasePrice: 1.8, supplier: 'Frischemarkt' },
       { name: 'Peperoni', unit: 'kg', purchasePrice: 4.4, supplier: 'Frischemarkt' },
-      { name: 'Mineralwasser 0,5l', unit: 'Stueck', purchasePrice: 0.46, deposit: 0.25, supplier: 'Getraenkehandel' },
+      { name: 'Mineralwasser 0,5l', unit: 'Stueck', purchasePrice: 0.46, deposit: 0.25, supplier: 'Getränkehandel' },
     ],
     products: [
       {
@@ -574,7 +574,7 @@ function greekCatalog() {
       {
         productNumber: 'G2009',
         name: 'Mineralwasser 0,5l',
-        category: 'Getraenke',
+        category: 'Getränke',
         price: 2.5,
         imageUrl:
           'https://images.unsplash.com/photo-1536935338788-846bb9981813?auto=format&fit=crop&w=1200&q=80',
@@ -609,7 +609,7 @@ async function main() {
   })
 
   const doenerTenant = await upsertTenant(chain.id, {
-    name: 'Doenerbude Kreuztal',
+    name: 'Dönerbude Kreuztal',
     email: 'doener57223@klarando.local',
     street: 'Marburger Strasse 12',
   })
@@ -637,3 +637,4 @@ main()
   .finally(async () => {
     await prisma.$disconnect()
   })
+

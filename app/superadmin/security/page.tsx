@@ -42,6 +42,7 @@ import {
 } from '@/lib/access-packages'
 import type { SessionUser } from '@/lib/app-data'
 import { safeParse } from '@/lib/storage'
+import { setSuperadminTenantContext } from '@/lib/superadmin-tenant-context'
 
 type NewUserForm = {
   name: string
@@ -858,6 +859,15 @@ export default function SuperadminSecurityPage() {
     scrollToCard('tenant-create-card')
   }
 
+  function openTenantAsAdmin(tenantId: string, tenantName: string, chainId: string | null) {
+    try {
+      setSuperadminTenantContext({ id: tenantId, name: tenantName, chainId })
+      window.location.href = '/admin'
+    } catch {
+      setError('Sitzung konnte nicht vorbereitet werden. Bitte erneut einloggen.')
+    }
+  }
+
   async function handleEditChainSettings(chainId: string, currentName: string, currentCode: string) {
     const enteredName = window.prompt('Kettenname anpassen', currentName)
     if (enteredName === null) {
@@ -1654,6 +1664,13 @@ function validateEditForm(current: EditUserForm) {
                               <div className="flex flex-wrap gap-2">
                                 <button
                                   type="button"
+                                  className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                                  onClick={() => openTenantAsAdmin(tenant.id, tenant.name, tenant.chainId)}
+                                >
+                                  Als Filiale öffnen
+                                </button>
+                                <button
+                                  type="button"
                                   className="rounded-lg border border-[var(--brand-border)] bg-white px-3 py-1.5 text-xs font-medium text-rose-900/85 hover:bg-rose-50/60"
                                   onClick={() =>
                                     void handleEditTenantSettings(
@@ -1705,6 +1722,13 @@ function validateEditForm(current: EditUserForm) {
                               </p>
                             </div>
                             <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                                onClick={() => openTenantAsAdmin(tenant.id, tenant.name, tenant.chainId)}
+                              >
+                                Als Filiale öffnen
+                              </button>
                               <button
                                 type="button"
                                 className="rounded-lg border border-[var(--brand-border)] bg-white px-3 py-1.5 text-xs font-medium text-rose-900/85 hover:bg-rose-50/60"
@@ -1863,10 +1887,17 @@ function validateEditForm(current: EditUserForm) {
                           </code>
                         </td>
                         <td className="td-ui">
-                          <div className="flex flex-wrap gap-2">
-                            <button
-                              type="button"
-                              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-500"
+                                onClick={() => openTenantAsAdmin(entry.id, entry.name, entry.chainId)}
+                              >
+                                Als Filiale öffnen
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
                               onClick={() => prepareDatabaseAssignForTenant(entry.id, entry.chainId)}
                             >
                               DB-Ziel setzen

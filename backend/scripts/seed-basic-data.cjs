@@ -18,14 +18,14 @@ const tenantIdArg = process.argv[2]
 const tenantId = tenantIdArg || '32628da6-b057-4647-b27f-280c4fc3d6e7'
 
 const categorySeed = [
-  { name: 'Doener', sortOrder: 1 },
+  { name: 'Döner', sortOrder: 1 },
   { name: 'Dueruem', sortOrder: 2 },
   { name: 'Tellergerichte', sortOrder: 3 },
   { name: 'Boxen', sortOrder: 4 },
   { name: 'Vegetarisch', sortOrder: 5 },
   { name: 'Beilagen', sortOrder: 6 },
   { name: 'Saucen', sortOrder: 7 },
-  { name: 'Getraenke', sortOrder: 8 },
+  { name: 'Getränke', sortOrder: 8 },
 ]
 
 const supplierSeed = [
@@ -48,13 +48,13 @@ const supplierSeed = [
     contactName: 'Lena Hoffmann',
     phone: '+49 30 556677',
     email: 'order@drinkdepot.example',
-    notes: 'Getraenke und Becher',
+    notes: 'Getränke und Becher',
   },
 ]
 
 const ingredientSeed = [
   {
-    name: 'Doenerbrot',
+    name: 'Dönerbrot',
     unit: 'Stueck',
     purchasePrice: 0.45,
     deposit: 0,
@@ -178,12 +178,12 @@ const ingredientSeed = [
 const productSeed = [
   {
     productNumber: 'P-1001',
-    name: 'Doener Kalb',
+    name: 'Döner Kalb',
     price: 7.5,
     vatRate: 7,
     available: true,
-    category: 'Doener',
-    displayCategory: 'Doener',
+    category: 'Döner',
+    displayCategory: 'Döner',
     sortOrder: 10,
     isFeatured: true,
     badgeText: 'Top Seller',
@@ -191,12 +191,12 @@ const productSeed = [
   },
   {
     productNumber: 'P-1002',
-    name: 'Doener Haehnchen',
+    name: 'Döner Haehnchen',
     price: 7.2,
     vatRate: 7,
     available: true,
-    category: 'Doener',
-    displayCategory: 'Doener',
+    category: 'Döner',
+    displayCategory: 'Döner',
     sortOrder: 11,
     isFeatured: false,
     badgeText: null,
@@ -230,7 +230,7 @@ const productSeed = [
   },
   {
     productNumber: 'P-1201',
-    name: 'Doener Teller Kalb',
+    name: 'Döner Teller Kalb',
     price: 12.5,
     vatRate: 7,
     available: true,
@@ -299,8 +299,8 @@ const productSeed = [
     price: 2.8,
     vatRate: 19,
     available: true,
-    category: 'Getraenke',
-    displayCategory: 'Getraenke',
+    category: 'Getränke',
+    displayCategory: 'Getränke',
     sortOrder: 70,
     isFeatured: false,
     badgeText: null,
@@ -310,7 +310,7 @@ const productSeed = [
 
 const productRecipes = {
   'P-1001': [
-    { ingredient: 'Doenerbrot', quantity: 1.0 },
+    { ingredient: 'Dönerbrot', quantity: 1.0 },
     { ingredient: 'Kalbfleisch-Spiess', quantity: 0.18 },
     { ingredient: 'Blattsalat Mix', quantity: 0.05 },
     { ingredient: 'Tomaten', quantity: 0.04 },
@@ -319,7 +319,7 @@ const productRecipes = {
     { ingredient: 'Joghurtsauce', quantity: 0.03 },
   ],
   'P-1002': [
-    { ingredient: 'Doenerbrot', quantity: 1.0 },
+    { ingredient: 'Dönerbrot', quantity: 1.0 },
     { ingredient: 'Haehnchen-Spiess', quantity: 0.18 },
     { ingredient: 'Blattsalat Mix', quantity: 0.05 },
     { ingredient: 'Tomaten', quantity: 0.04 },
@@ -354,7 +354,7 @@ const productRecipes = {
     { ingredient: 'Joghurtsauce', quantity: 0.04 },
   ],
   'P-1301': [
-    { ingredient: 'Doenerbrot', quantity: 1.0 },
+    { ingredient: 'Dönerbrot', quantity: 1.0 },
     { ingredient: 'Blattsalat Mix', quantity: 0.06 },
     { ingredient: 'Tomaten', quantity: 0.05 },
     { ingredient: 'Rotkohl', quantity: 0.04 },
@@ -596,7 +596,7 @@ async function seed() {
       showUnavailable: false,
       offerWindowEnabled: true,
       offerWindowTitle: 'Mittagsangebot',
-      offerWindowText: 'Mo-Fr 11:00-14:00: Alle Doener -10%',
+      offerWindowText: 'Mo-Fr 11:00-14:00: Alle Döner -10%',
     },
   })
 
@@ -654,3 +654,4 @@ seed()
   .finally(async () => {
     await prisma.$disconnect()
   })
+

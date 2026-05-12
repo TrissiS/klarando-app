@@ -54,7 +54,7 @@ Rollen:
 ## MVP-Umfang
 - Struktur fuer alle 15 Betriebsarten vorhanden.
 - Seed-Daten initial fuer 4 Typen:
-  - Doener / Kebap
+  - Döner / Kebap
   - Pizzeria
   - Burger / Smashburger
   - Grill / Imbiss
@@ -68,3 +68,4 @@ Rollen:
 - Konflikt-UI (was bei bestehenden Produkten passieren soll).
 - Optionales Allergen-Normalisierungsmodell als eigene Tabelle.
 - Optionales Modul fuer tenant-spezifische Vorlagenkopien (custom templates).
+

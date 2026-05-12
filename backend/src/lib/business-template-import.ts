@@ -31,6 +31,8 @@ export type ImportBusinessTemplateOptions = {
 export type ImportBusinessTemplateResult = {
   templateId: string
   tenantId: string
+  templateVersion: string
+  importedAt: string
   options: ImportBusinessTemplateOptions
   categoriesCreated: number
   productsCreated: number
@@ -43,6 +45,14 @@ export type ImportBusinessTemplateResult = {
   createdIngredients: number
   createdProducts: number
   createdProductIngredients: number
+}
+
+type TenantImportRegistryEntry = {
+  templateId: string
+  templateKey: string
+  templateName: string
+  templateVersion: string
+  importedAt: string
 }
 
 function normalizeKey(value: string) {
@@ -110,7 +120,7 @@ export async function importBusinessTemplateToTenant(
   const db = dbClient ?? prisma
   const tenantExists = await db.tenant.findUnique({
     where: { id: input.tenantId },
-    select: { id: true },
+    select: { id: true, businessSettings: true },
   })
   if (!tenantExists) {
     throw new TenantImportError(
@@ -142,6 +152,25 @@ export async function importBusinessTemplateToTenant(
     throw new TenantImportError(
       'TEMPLATE_IMPORT_FAILED',
       'Vorlage nicht gefunden oder deaktiviert.'
+    )
+  }
+
+  const templateVersion = template.updatedAt.toISOString()
+  const importRegistryRaw =
+    tenantExists.businessSettings &&
+    typeof tenantExists.businessSettings === 'object' &&
+    !Array.isArray(tenantExists.businessSettings)
+      ? (tenantExists.businessSettings as Record<string, unknown>)['templateImports']
+      : null
+
+  const importRegistry = Array.isArray(importRegistryRaw)
+    ? (importRegistryRaw as TenantImportRegistryEntry[])
+    : []
+  const alreadyImported = importRegistry.find((entry) => entry.templateId === template.id)
+  if (alreadyImported) {
+    throw new TenantImportError(
+      'TEMPLATE_ALREADY_IMPORTED',
+      `Vorlage wurde in dieser Filiale bereits importiert (${alreadyImported.importedAt}). Re-Import ist gesperrt.`
     )
   }
 
@@ -334,6 +363,8 @@ export async function importBusinessTemplateToTenant(
       return {
         templateId: template.id,
         tenantId: input.tenantId,
+        templateVersion,
+        importedAt: new Date().toISOString(),
         options,
         categoriesCreated,
         productsCreated,
@@ -399,6 +430,8 @@ export async function importBusinessTemplateToTenant(
     return {
       templateId: template.id,
       tenantId: input.tenantId,
+      templateVersion,
+      importedAt: new Date().toISOString(),
       options,
       categoriesCreated,
       productsCreated,
@@ -415,8 +448,62 @@ export async function importBusinessTemplateToTenant(
   }
 
   if (dbClient) {
-    return runImport(dbClient)
+    const result = await runImport(dbClient)
+    const currentSettings =
+      tenantExists.businessSettings &&
+      typeof tenantExists.businessSettings === 'object' &&
+      !Array.isArray(tenantExists.businessSettings)
+        ? (tenantExists.businessSettings as Record<string, unknown>)
+        : {}
+    const nextImports = [
+      ...importRegistry,
+      {
+        templateId: template.id,
+        templateKey: template.key,
+        templateName: template.name,
+        templateVersion,
+        importedAt: result.importedAt,
+      } satisfies TenantImportRegistryEntry,
+    ]
+    await dbClient.tenant.update({
+      where: { id: input.tenantId },
+      data: {
+        businessSettings: {
+          ...currentSettings,
+          templateImports: nextImports,
+        },
+      },
+    })
+    return result
   }
 
-  return prisma.$transaction(async (tx) => runImport(tx))
+  return prisma.$transaction(async (tx) => {
+    const result = await runImport(tx)
+    const currentSettings =
+      tenantExists.businessSettings &&
+      typeof tenantExists.businessSettings === 'object' &&
+      !Array.isArray(tenantExists.businessSettings)
+        ? (tenantExists.businessSettings as Record<string, unknown>)
+        : {}
+    const nextImports = [
+      ...importRegistry,
+      {
+        templateId: template.id,
+        templateKey: template.key,
+        templateName: template.name,
+        templateVersion,
+        importedAt: result.importedAt,
+      } satisfies TenantImportRegistryEntry,
+    ]
+    await tx.tenant.update({
+      where: { id: input.tenantId },
+      data: {
+        businessSettings: {
+          ...currentSettings,
+          templateImports: nextImports,
+        },
+      },
+    })
+    return result
+  })
 }

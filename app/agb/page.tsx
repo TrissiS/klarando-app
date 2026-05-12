@@ -25,7 +25,7 @@ export default function AgbPage() {
         <section>
           <h2 className="text-lg font-bold text-[var(--brand-ink)]">2. Vertragspartner</h2>
           <p>
-            Bei Bestellungen kommt der Vertrag ueber Speisen und Getraenke zwischen Endkunde und
+            Bei Bestellungen kommt der Vertrag ueber Speisen und Getränke zwischen Endkunde und
             jeweiliger Filiale zustande. Klarando stellt die technische Plattform bereit.
           </p>
         </section>
@@ -72,3 +72,4 @@ export default function AgbPage() {
     </LegalShell>
   )
 }
+
