@@ -375,6 +375,29 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'production') {
+      return
+    }
+    const probeLink = document.querySelector<HTMLElement>('[data-nav-anchor="admin-sidebar-link"]')
+    if (!probeLink) {
+      return
+    }
+    const rect = probeLink.getBoundingClientRect()
+    const probeX = rect.left + Math.max(8, Math.min(rect.width - 8, rect.width / 2))
+    const probeY = rect.top + Math.max(8, Math.min(rect.height - 8, rect.height / 2))
+    const hit = document.elementFromPoint(probeX, probeY)
+    const hitTag = hit?.tagName?.toLowerCase() || 'none'
+    const hitClass = hit?.className || ''
+    console.debug('[AdminLayout] elementFromPoint probe', {
+      probeX,
+      probeY,
+      hitTag,
+      hitClass,
+      expectedTag: 'a',
+    })
+  }, [pathname, mobileNavOpen])
+
   function handleLogout() {
     if (typeof window === 'undefined') return
     localStorage.removeItem('sessionUser')
@@ -536,11 +559,11 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </p>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-4 py-6">
+          <nav className="relative z-40 flex-1 overflow-y-auto px-4 py-6 pointer-events-auto">
             <div className="space-y-4">
               {visibleNavSections.map((section) => (
                 <div key={section.id}>
-                  <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+                  <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
                     {section.label}
                   </p>
                   <div className="mt-2 space-y-2">
@@ -553,9 +576,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                           href={item.href}
                           aria-current={isActive ? 'page' : undefined}
                           title={item.label}
-                          className={`brand-nav-link block rounded-2xl px-4 py-3 text-sm font-medium ${
+                          className={`brand-nav-link relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto ${
                             isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
                           }`}
+                          data-nav-anchor="admin-sidebar-link"
                         >
                           {item.label}
                         </Link>
@@ -568,7 +592,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
             {showSubNavGroup && activeSubNavGroup ? (
               <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-3">
-                <p className="px-1 text-[11px] uppercase tracking-[0.18em] text-orange-100/75">
+                <p className="pointer-events-none px-1 text-[11px] uppercase tracking-[0.18em] text-orange-100/75">
                   {activeSubNavGroup.label}
                 </p>
                 <div className="mt-2 space-y-2">
@@ -579,9 +603,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                       <Link
                         key={`sidebar-sub-${item.href}`}
                         href={item.href}
-                        className={`brand-nav-link block rounded-xl px-3 py-2 text-xs font-medium ${
+                        className={`brand-nav-link relative z-50 block w-full rounded-xl px-3 py-2 text-xs font-medium pointer-events-auto ${
                           isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
                         }`}
+                        data-nav-anchor="admin-sidebar-sublink"
                       >
                         {item.label}
                       </Link>
@@ -592,7 +617,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             ) : null}
 
             <div className="mt-4 border-t border-white/15 pt-4">
-              <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+              <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
                 Schnellzugriff
               </p>
               <div className="mt-2 space-y-2">
@@ -600,7 +625,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   <Link
                     href={switchTarget.href}
                     title={switchTarget.label}
-                    className="brand-nav-link brand-nav-link-inactive block rounded-2xl px-4 py-3 text-sm font-medium"
+                    className="brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto"
+                    data-nav-anchor="admin-sidebar-quicklink"
                   >
                     {switchTarget.label}
                   </Link>

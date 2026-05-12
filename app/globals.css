@@ -54,7 +54,22 @@ body {
 }
 
 .brand-nav-link {
+  display: block;
+  width: 100%;
+  position: relative;
+  z-index: 30;
+  pointer-events: auto;
+  touch-action: manipulation;
   transition: all 0.18s ease;
+}
+
+.brand-sidebar nav,
+.brand-sidebar nav * {
+  pointer-events: auto;
+}
+
+.brand-sidebar nav > div > div > p {
+  pointer-events: none;
 }
 
 .brand-nav-link-active {

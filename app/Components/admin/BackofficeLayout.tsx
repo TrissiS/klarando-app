@@ -113,6 +113,29 @@ export default function BackofficeLayout({
   }, [])
 
   useEffect(() => {
+    if (process.env.NODE_ENV === 'production') {
+      return
+    }
+    const probeLink = document.querySelector<HTMLElement>('[data-nav-anchor="backoffice-sidebar-link"]')
+    if (!probeLink) {
+      return
+    }
+    const rect = probeLink.getBoundingClientRect()
+    const probeX = rect.left + Math.max(8, Math.min(rect.width - 8, rect.width / 2))
+    const probeY = rect.top + Math.max(8, Math.min(rect.height - 8, rect.height / 2))
+    const hit = document.elementFromPoint(probeX, probeY)
+    const hitTag = hit?.tagName?.toLowerCase() || 'none'
+    const hitClass = hit?.className || ''
+    console.debug('[BackofficeLayout] elementFromPoint probe', {
+      probeX,
+      probeY,
+      hitTag,
+      hitClass,
+      expectedTag: 'a',
+    })
+  }, [pathname, mobileNavOpen, isSidebarCollapsed])
+
+  useEffect(() => {
     try {
       window.localStorage.setItem(
         'klarando.backoffice.sidebar.collapsed.v1',
@@ -201,7 +224,7 @@ export default function BackofficeLayout({
             ) : null}
           </div>
 
-          <nav className="flex-1 px-4 py-6">
+          <nav className="relative z-40 flex-1 px-4 py-6 pointer-events-auto">
             <div className="space-y-2">
               {navItems.map((item) => {
                 const isActive = pathname === item.href
@@ -210,9 +233,10 @@ export default function BackofficeLayout({
                     key={item.href}
                     href={item.href}
                     title={item.label}
-                    className={`brand-nav-link block rounded-2xl px-4 py-3 text-sm font-medium ${
+                    className={`brand-nav-link relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto ${
                       isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
                     }`}
+                    data-nav-anchor="backoffice-sidebar-link"
                   >
                     {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
                   </Link>
@@ -221,7 +245,7 @@ export default function BackofficeLayout({
             </div>
 
             <div className="mt-4 border-t border-white/15 pt-4">
-              <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+              <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
                 Schnellzugriff
               </p>
               <div className="mt-2 space-y-2">
@@ -229,7 +253,8 @@ export default function BackofficeLayout({
                   <Link
                     href="/admin"
                     title="Zum Adminbereich"
-                    className="brand-nav-link brand-nav-link-inactive block rounded-2xl px-4 py-3 text-sm font-medium"
+                    className="brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto"
+                    data-nav-anchor="backoffice-sidebar-quicklink"
                   >
                     {isSidebarCollapsed ? '>>' : 'Zum Adminbereich'}
                   </Link>
