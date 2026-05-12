@@ -7,6 +7,8 @@ import PlatformBranding from '@/app/Components/admin/PlatformBranding'
 import {
   getBusinessSettings,
   getMyEffectiveFeatureModules,
+  getStoredAccessToken,
+  getStoredTenantId,
   getPlatformBrandingSettings,
   type AccessPermission,
   type BusinessSettings,
@@ -14,6 +16,10 @@ import {
   type PlatformBrandingSettings,
 } from '@/lib/api'
 import { isModuleEnabled, type AdminModuleKey } from '@/lib/admin-module-visibility'
+import {
+  clearSuperadminTenantContext,
+  isSuperadminTenantPreviewEnabled,
+} from '@/lib/superadmin-tenant-context'
 
 type Props = {
   title: string
@@ -185,6 +191,11 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
+  const [hasValidSession, setHasValidSession] = useState(false)
+  const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
+  const [sessionActiveTenantName, setSessionActiveTenantName] = useState<string | null>(null)
+  const [allowSuperadminTenantView, setAllowSuperadminTenantView] = useState(false)
   const enabledFeatureKeys = useMemo(() => {
     if (!featureScope) {
       return null
@@ -205,6 +216,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
         typeof window !== 'undefined' ? window.localStorage.getItem('sessionUser') : null
       if (!rawSession) {
         setPermissions(null)
+        setHasValidSession(false)
+        setSessionTenantId(null)
+        setAllowSuperadminTenantView(false)
+        setAuthChecked(true)
         return
       }
 
@@ -212,23 +227,69 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
         permissions?: string[]
         name?: string
         role?: string
+        tenantId?: string | null
+        activeTenantName?: string | null
       }
+      const token = getStoredAccessToken()
+      const tenantId = getStoredTenantId()
       setSessionName(parsed.name || '')
       setSessionRole(parsed.role || '')
+      setSessionTenantId(tenantId || null)
+      setSessionActiveTenantName(
+        typeof parsed.activeTenantName === 'string' && parsed.activeTenantName.trim().length > 0
+          ? parsed.activeTenantName.trim()
+          : null
+      )
+      setHasValidSession(Boolean(token))
+      setAllowSuperadminTenantView(isSuperadminTenantPreviewEnabled())
       if (!Array.isArray(parsed.permissions)) {
         setPermissions(null)
+        setAuthChecked(true)
         return
       }
 
       setPermissions(new Set<string>(parsed.permissions))
+      setAuthChecked(true)
     } catch {
       setPermissions(new Set<string>())
       setSessionName('')
       setSessionRole('')
+      setSessionTenantId(null)
+      setSessionActiveTenantName(null)
+      setHasValidSession(false)
+      setAllowSuperadminTenantView(false)
+      setAuthChecked(true)
     }
   }, [])
 
   useEffect(() => {
+    if (!authChecked || hasValidSession) {
+      return
+    }
+    if (typeof window !== 'undefined') {
+      window.location.href = '/'
+    }
+  }, [authChecked, hasValidSession])
+
+  useEffect(() => {
+    if (!authChecked || !hasValidSession || !sessionTenantId) {
+      return
+    }
+    if (
+      normalizedRole === 'superadmin' &&
+      pathname.startsWith('/admin') &&
+      (!allowSuperadminTenantView || !sessionTenantId)
+    ) {
+      if (typeof window !== 'undefined') {
+        window.location.href = '/superadmin'
+      }
+    }
+  }, [authChecked, hasValidSession, normalizedRole, pathname, allowSuperadminTenantView, sessionTenantId])
+
+  useEffect(() => {
+    if (!authChecked || !hasValidSession) {
+      return
+    }
     let cancelled = false
 
     async function loadPlatformBranding() {
@@ -248,9 +309,12 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authChecked, hasValidSession, sessionTenantId])
 
   useEffect(() => {
+    if (!authChecked || !hasValidSession || !sessionTenantId) {
+      return
+    }
     let cancelled = false
 
     async function loadBusinessSettings() {
@@ -270,9 +334,12 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authChecked, hasValidSession, sessionTenantId])
 
   useEffect(() => {
+    if (!authChecked || !hasValidSession || !sessionTenantId) {
+      return
+    }
     let cancelled = false
 
     async function loadFeatureScope() {
@@ -292,7 +359,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [authChecked, hasValidSession, sessionTenantId])
 
   useEffect(() => {
     setMobileNavOpen(false)
@@ -314,6 +381,9 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     }
 
     const onResize = () => {
+      if (window.innerWidth >= 768) {
+        setMobileNavOpen(false)
+      }
       if (window.innerWidth < 768) {
         return
       }
@@ -338,8 +408,42 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     if (typeof window === 'undefined') return
     localStorage.removeItem('sessionUser')
     localStorage.removeItem('accessToken')
+    clearSuperadminTenantContext()
     window.location.href = '/'
   }
+
+  function handleLeaveTenant() {
+    if (typeof window === 'undefined') return
+    clearSuperadminTenantContext()
+    window.location.href = '/superadmin'
+  }
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      document.body.style.overflow = ''
+      return
+    }
+
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [mobileNavOpen])
+
+  useEffect(() => {
+    if (!mobileNavOpen) {
+      return
+    }
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileNavOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [mobileNavOpen])
 
   function isItemEnabled(item: NavItem) {
     if (
@@ -440,6 +544,9 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
         enabledFeatureKeys,
       })
     : true
+  const requiresTenantContext =
+    pathname === '/admin' || pathname.startsWith('/admin/')
+  const missingTenantContext = requiresTenantContext && !sessionTenantId
 
   return (
     <main className="safe-area-padding brand-shell min-h-screen overflow-x-hidden">
@@ -447,7 +554,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
         <aside
           className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${
             isSidebarCollapsed ? 'w-20' : 'w-72'
-          }`}
+          } relative z-40 pointer-events-auto`}
         >
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
@@ -481,9 +588,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                         <Link
                           key={item.href}
                           href={item.href}
+                          aria-current={isActive ? 'page' : undefined}
                           title={item.label}
                           className={`brand-nav-link block rounded-2xl px-4 py-3 text-sm font-medium ${
-                            isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
+                            isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
                           }`}
                         >
                           {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
@@ -554,7 +662,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
           </div>
         </aside>
 
-        <div className="min-w-0 flex-1">
+        <div className="relative z-10 min-w-0 flex-1">
           <header className="border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
             <div className="w-full min-w-0 px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6">
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -630,12 +738,36 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   </div>
                 </div>
               ) : null}
+              {normalizedRole === 'superadmin' && sessionTenantId ? (
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-900/70">
+                    Superadmin-Tenantmodus
+                  </p>
+                  <p className="mt-1 text-sm text-emerald-900">
+                    Sie verwalten aktuell: {sessionActiveTenantName || sessionTenantId}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleLeaveTenant}
+                    className="mt-2 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                  >
+                    Filiale verlassen
+                  </button>
+                </div>
+              ) : null}
             </div>
           </header>
 
-          {mobileNavOpen ? (
-            <div className="fixed inset-0 z-50 bg-slate-950/55 p-3 md:hidden">
-              <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white">
+          <div
+            className={`fixed inset-0 z-[80] p-3 transition md:hidden ${
+              mobileNavOpen ? 'pointer-events-auto bg-slate-950/55 opacity-100' : 'pointer-events-none opacity-0'
+            }`}
+            onClick={() => setMobileNavOpen(false)}
+          >
+            <div
+              className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white"
+              onClick={(event) => event.stopPropagation()}
+            >
                 <div className="flex items-center justify-between border-b border-[var(--brand-border)] px-4 py-3">
                   <p className="text-sm font-semibold text-[var(--brand-ink)]">Navigation</p>
                   <button
@@ -717,11 +849,33 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   </div>
                 </div>
               </div>
-            </div>
-          ) : null}
+          </div>
 
           <div className="mx-auto w-full max-w-[1400px] min-w-0 px-3 py-6 sm:px-4 md:px-6 md:py-8">
-            {routeModuleAllowed ? (
+            {!authChecked ? (
+              <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
+                Sitzung wird geprüft...
+              </section>
+            ) : !hasValidSession ? (
+              <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
+                Sitzung ist abgelaufen. Du wirst zum Login weitergeleitet.
+              </section>
+            ) : missingTenantContext ? (
+              <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-6 text-sm text-amber-900">
+                <p>Bitte zuerst eine Filiale im Superadminbereich auswählen.</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== 'undefined') {
+                      window.location.href = '/superadmin'
+                    }
+                  }}
+                  className="mt-3 rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+                >
+                  Zurück zum Superadmin
+                </button>
+              </section>
+            ) : routeModuleAllowed ? (
               children
             ) : (
               <section className="rounded-3xl border border-amber-200 bg-amber-50 px-5 py-6 text-sm text-amber-900">

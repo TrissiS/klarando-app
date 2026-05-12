@@ -21,48 +21,14 @@ import {
   getProducts,
   getScreenDevices,
   getScreenProducts,
+  getStoredAccessToken,
+  getStoredTenantId,
   type OrderDisplay,
   type OrderTerminal,
   type ScreenDevice,
   getSuppliers,
 } from '@/lib/api'
 import { isModuleEnabled } from '@/lib/admin-module-visibility'
-
-function readSessionTokenFromBrowser() {
-  if (typeof window === 'undefined') {
-    return ''
-  }
-
-  const directToken = (window.localStorage.getItem('accessToken') || '').trim()
-  if (
-    directToken &&
-    directToken.toLowerCase() !== 'undefined' &&
-    directToken.toLowerCase() !== 'null'
-  ) {
-    return directToken
-  }
-
-  try {
-    const rawSession = window.localStorage.getItem('sessionUser')
-    if (!rawSession) {
-      return ''
-    }
-    const parsed = JSON.parse(rawSession) as { accessToken?: string }
-    const sessionToken = (parsed.accessToken || '').trim()
-    if (
-      sessionToken &&
-      sessionToken.toLowerCase() !== 'undefined' &&
-      sessionToken.toLowerCase() !== 'null'
-    ) {
-      window.localStorage.setItem('accessToken', sessionToken)
-      return sessionToken
-    }
-  } catch {
-    return ''
-  }
-
-  return ''
-}
 
 export default function AdminPage() {
   const [sessionReady, setSessionReady] = useState(false)
@@ -153,22 +119,19 @@ export default function AdminPage() {
   useEffect(() => {
     try {
       const rawSession = window.localStorage.getItem('sessionUser')
-      const token = readSessionTokenFromBrowser()
+      const token = getStoredAccessToken()
+      const tenantId = getStoredTenantId()
       setAccessToken(token || null)
       setHasAccessToken(Boolean(token))
       if (!rawSession) {
         setSessionRole('')
-        setSessionTenantId(null)
+        setSessionTenantId(tenantId || null)
         setSessionReady(true)
         return
       }
       const parsed = JSON.parse(rawSession) as { role?: string; tenantId?: string | null }
       setSessionRole(parsed.role || '')
-      setSessionTenantId(
-        typeof parsed.tenantId === 'string' && parsed.tenantId.trim().length > 0
-          ? parsed.tenantId.trim()
-          : null
-      )
+      setSessionTenantId(tenantId || null)
       setSessionReady(true)
     } catch {
       setHasAccessToken(false)

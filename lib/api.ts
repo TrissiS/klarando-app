@@ -1746,41 +1746,80 @@ export async function deleteProduct(id: string): Promise<void> {
   }
 }
 
-function readBrowserAccessToken() {
+export function getStoredAccessToken() {
   if (typeof window === 'undefined') {
     return ''
   }
 
-  const directToken = (window.localStorage.getItem('accessToken') || '').trim()
-  const normalizedDirectToken =
-    directToken &&
-    directToken.toLowerCase() !== 'undefined' &&
-    directToken.toLowerCase() !== 'null'
-      ? directToken
-      : ''
-
   try {
     const sessionRaw = window.localStorage.getItem('sessionUser')
-    if (!sessionRaw) {
-      return normalizedDirectToken
-    }
-    const parsed = JSON.parse(sessionRaw) as { accessToken?: string }
-    const sessionToken = (parsed.accessToken || '').trim()
-    if (
-      sessionToken &&
-      sessionToken.toLowerCase() !== 'undefined' &&
-      sessionToken.toLowerCase() !== 'null'
-    ) {
-      if (sessionToken !== normalizedDirectToken) {
+    if (sessionRaw) {
+      const parsed = JSON.parse(sessionRaw) as { accessToken?: string }
+      const sessionToken = (parsed.accessToken || '').trim()
+      if (
+        sessionToken &&
+        sessionToken.toLowerCase() !== 'undefined' &&
+        sessionToken.toLowerCase() !== 'null'
+      ) {
         window.localStorage.setItem('accessToken', sessionToken)
+        return sessionToken
       }
-      return sessionToken
     }
   } catch {
     // ignore malformed session payload
   }
 
-  return normalizedDirectToken
+  const localToken = (window.localStorage.getItem('accessToken') || '').trim()
+  if (
+    localToken &&
+    localToken.toLowerCase() !== 'undefined' &&
+    localToken.toLowerCase() !== 'null'
+  ) {
+    return localToken
+  }
+
+  return ''
+}
+
+function readBrowserAccessToken() {
+  return getStoredAccessToken()
+}
+
+export function getStoredTenantId() {
+  if (typeof window === 'undefined') {
+    return resolveTenantId()
+  }
+
+  try {
+    const sessionRaw = window.localStorage.getItem('sessionUser')
+    if (sessionRaw) {
+      const parsed = JSON.parse(sessionRaw) as {
+        tenantId?: string | null
+        activeTenantId?: string | null
+      }
+      const sessionTenantId = (parsed.tenantId || '').trim()
+      if (sessionTenantId) {
+        return sessionTenantId
+      }
+      const activeTenantId = (parsed.activeTenantId || '').trim()
+      if (activeTenantId) {
+        return activeTenantId
+      }
+    }
+  } catch {
+    // ignore malformed session payload
+  }
+
+  const localTenantId = (window.localStorage.getItem('tenantId') || '').trim()
+  if (localTenantId) {
+    return localTenantId
+  }
+  const defaultTenantId = (window.localStorage.getItem('klarando.defaultTenantId') || '').trim()
+  if (defaultTenantId) {
+    return defaultTenantId
+  }
+
+  return resolveTenantId()
 }
 
 async function apiAuthJson<T>(url: string, options: RequestInit = {}, fallbackError: string): Promise<T> {
