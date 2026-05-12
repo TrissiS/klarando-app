@@ -1,4 +1,5 @@
 import { API_BASE_URL, resolveTenantId } from './config'
+import { apiFetch, apiJson, normalizeApiPath } from './api-client'
 
 export type Category = {
   id: string
@@ -1549,54 +1550,8 @@ export type BackendHealthOverview = {
   serverTime: string
 }
 
-const REQUEST_TIMEOUT_MS = 15000
-
-function toUserFriendlyNetworkMessage(error: unknown): string {
-  if (error instanceof Error && error.name === 'AbortError') {
-    return `Server antwortet nicht (Timeout nach ${REQUEST_TIMEOUT_MS / 1000}s). Bitte Backend prüfen.`
-  }
-
-  return `Verbindung zum Server fehlgeschlagen. Bitte Backend und API URL prüfen (${API_BASE_URL}).`
-}
-
-async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-  const timeoutController = new AbortController()
-  const timeoutHandle = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS)
-  const debugUrl =
-    typeof input === 'string'
-      ? input
-      : input instanceof URL
-        ? input.toString()
-        : input instanceof Request
-          ? input.url
-          : String(input)
-
-  if (process.env.NODE_ENV === 'development') {
-    console.debug(`[safeFetch] ${init?.method ?? 'GET'} ${debugUrl}`)
-  }
-
-  if (init?.signal) {
-    if (init.signal.aborted) {
-      timeoutController.abort()
-    } else {
-      init.signal.addEventListener('abort', () => timeoutController.abort(), { once: true })
-    }
-  }
-
-  try {
-    return await globalThis.fetch(input, {
-      ...init,
-      signal: timeoutController.signal,
-    })
-  } catch (error) {
-    throw new Error(toUserFriendlyNetworkMessage(error))
-  } finally {
-    clearTimeout(timeoutHandle)
-  }
-}
-
-const fetch = safeFetch
-const buildApiUrl = (path: string) => `${API_BASE_URL}${path}`
+const fetch = apiFetch
+const buildApiUrl = (path: string) => normalizeApiPath(path)
 
 export async function getBackendHealthOverview(): Promise<BackendHealthOverview> {
   const res = await fetch(`${API_BASE_URL}/api/health`)
@@ -3215,16 +3170,11 @@ export async function deleteProductIngredient(id: string): Promise<void> {
 export async function getOrders(): Promise<Order[]> {
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
-  const res = await fetch(`${API_BASE_URL}/api/orders?tenantId=${tenantId}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Bestellungen konnten nicht geladen werden')
-  }
-
-  return res.json()
+  return apiJson<Order[]>(
+    buildApiUrl(`/api/orders?tenantId=${tenantId}`),
+    { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
+    'Bestellungen konnten nicht geladen werden'
+  )
 }
 
 export async function createOrder(
@@ -5228,18 +5178,15 @@ function authHeaders(token: string) {
 }
 
 export async function loginAccess(email: string, password: string): Promise<AccessLoginResponse> {
-  const res = await fetch(buildApiUrl('/api/auth/login'), {
+  return apiJson<AccessLoginResponse>(
+    buildApiUrl('/api/auth/login'),
+    {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Login fehlgeschlagen')
-  }
-
-  return res.json()
+    },
+    'Login fehlgeschlagen'
+  )
 }
 
 export async function bootstrapSuperadmin(data: {
@@ -5262,29 +5209,19 @@ export async function bootstrapSuperadmin(data: {
 }
 
 export async function getAccessUsers(token: string): Promise<AccessUser[]> {
-  const res = await fetch(`${API_BASE_URL}/api/access/users`, {
-    headers: authHeaders(token),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Benutzer konnten nicht geladen werden')
-  }
-
-  return res.json()
+  return apiJson<AccessUser[]>(
+    buildApiUrl('/api/access/users'),
+    { headers: authHeaders(token) },
+    'Benutzer konnten nicht geladen werden'
+  )
 }
 
 export async function getAccessContext(token: string): Promise<AccessContext> {
-  const res = await fetch(`${API_BASE_URL}/api/access/context`, {
-    headers: authHeaders(token),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Kontext konnte nicht geladen werden')
-  }
-
-  return res.json()
+  return apiJson<AccessContext>(
+    buildApiUrl('/api/access/context'),
+    { headers: authHeaders(token) },
+    'Kontext konnte nicht geladen werden'
+  )
 }
 
 export async function getFeatureModuleCatalog(token: string): Promise<{
@@ -5592,45 +5529,30 @@ export async function syncTenantBillingUsage(
 }
 
 export async function getManagedTenants(token: string): Promise<ManagedTenant[]> {
-  const res = await fetch(`${API_BASE_URL}/api/tenants`, {
-    headers: authHeaders(token),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Tenants konnten nicht geladen werden')
-  }
-
-  return res.json()
+  return apiJson<ManagedTenant[]>(
+    buildApiUrl('/api/tenants'),
+    { headers: authHeaders(token) },
+    'Tenants konnten nicht geladen werden'
+  )
 }
 
 export async function getBusinessTemplates(token: string): Promise<BusinessTemplateOverview[]> {
-  const res = await fetch(`${API_BASE_URL}/api/business-templates`, {
-    headers: authHeaders(token),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Vorlagen konnten nicht geladen werden')
-  }
-
-  return res.json()
+  return apiJson<BusinessTemplateOverview[]>(
+    buildApiUrl('/api/business-templates'),
+    { headers: authHeaders(token) },
+    'Vorlagen konnten nicht geladen werden'
+  )
 }
 
 export async function getBusinessTemplateDetail(
   token: string,
   templateId: string
 ): Promise<BusinessTemplateDetail> {
-  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}`, {
-    headers: authHeaders(token),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Vorlagen-Details konnten nicht geladen werden')
-  }
-
-  return res.json()
+  return apiJson<BusinessTemplateDetail>(
+    buildApiUrl(`/api/business-templates/${encodeURIComponent(templateId)}`),
+    { headers: authHeaders(token) },
+    'Vorlagen-Details konnten nicht geladen werden'
+  )
 }
 
 export async function getBusinessTemplateFull(
@@ -5723,73 +5645,60 @@ export async function importBusinessTemplate(
   tenantId: string,
   importOptions?: Partial<BusinessTemplateImportOptions>
 ): Promise<BusinessTemplateImportResult> {
-  const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/import`, {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify({
-      tenantId,
-      ...(importOptions ? { importOptions } : {}),
-    }),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Vorlage konnte nicht importiert werden')
-  }
-
-  return res.json()
+  return apiJson<BusinessTemplateImportResult>(
+    buildApiUrl(`/api/business-templates/${encodeURIComponent(templateId)}/import`),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        tenantId,
+        ...(importOptions ? { importOptions } : {}),
+      }),
+    },
+    'Vorlage konnte nicht importiert werden'
+  )
 }
 
 export async function onboardBusiness(
   token: string,
   payload: OnboardingBusinessPayload
 ): Promise<OnboardingBusinessResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/onboarding/business`, {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(
-      errorData?.message ||
-      errorData?.error ||
-      'Onboarding konnte nicht abgeschlossen werden'
-    )
-  }
-
-  return res.json()
+  return apiJson<OnboardingBusinessResponse>(
+    buildApiUrl('/api/onboarding/business'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    'Onboarding konnte nicht abgeschlossen werden'
+  )
 }
 
 export async function requestPasswordReset(email: string): Promise<{ ok: boolean; message: string }> {
-  const res = await fetch(buildApiUrl('/api/auth/forgot-password'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  })
-
-  const payload = await res.json().catch(() => null)
-  if (!res.ok) {
-    throw new Error(payload?.error || payload?.message || 'Anfrage konnte nicht gesendet werden')
-  }
-  return payload as { ok: boolean; message: string }
+  return apiJson<{ ok: boolean; message: string }>(
+    buildApiUrl('/api/auth/forgot-password'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    },
+    'Anfrage konnte nicht gesendet werden'
+  )
 }
 
 export async function performPasswordReset(
   token: string,
   password: string
 ): Promise<{ ok: boolean; message: string }> {
-  const res = await fetch(buildApiUrl('/api/auth/reset-password'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, password }),
-  })
-  const payload = await res.json().catch(() => null)
-  if (!res.ok) {
-    throw new Error(payload?.error || payload?.message || 'Passwort konnte nicht zurückgesetzt werden')
-  }
-  return payload as { ok: boolean; message: string }
+  return apiJson<{ ok: boolean; message: string }>(
+    buildApiUrl('/api/auth/reset-password'),
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, password }),
+    },
+    'Passwort konnte nicht zurückgesetzt werden'
+  )
 }
 
 export async function createManagedTenant(
@@ -5801,18 +5710,15 @@ export async function createManagedTenant(
     copyFromTenantId?: string | null
   }
 ): Promise<ManagedTenant> {
-  const res = await fetch(`${API_BASE_URL}/api/tenants`, {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(data),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Tenant konnte nicht erstellt werden')
-  }
-
-  return res.json()
+  return apiJson<ManagedTenant>(
+    buildApiUrl('/api/tenants'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(data),
+    },
+    'Tenant konnte nicht erstellt werden'
+  )
 }
 
 export async function updateManagedTenant(
@@ -6287,18 +6193,15 @@ export async function createAccessUser(
     tenantId?: string | null
   }
 ) {
-  const res = await fetch(`${API_BASE_URL}/api/access/users`, {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(data),
-  })
-
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
-    throw new Error(errorData?.error || 'Benutzer konnte nicht erstellt werden')
-  }
-
-  return res.json()
+  return apiJson(
+    buildApiUrl('/api/access/users'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(data),
+    },
+    'Benutzer konnte nicht erstellt werden'
+  )
 }
 
 export async function updateAccessUser(

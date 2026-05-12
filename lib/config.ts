@@ -1,12 +1,39 @@
-const browserAutoApiBaseUrl =
-  typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:4000`
-    : 'http://localhost:4000'
+function resolveBrowserApiBaseUrl() {
+  if (typeof window === 'undefined') {
+    return process.env.NODE_ENV === 'production' ? 'https://api.klarando.com' : 'http://localhost:4000'
+  }
 
-export const API_BASE_URL = (process.env.NEXT_PUBLIC_API_BASE_URL || browserAutoApiBaseUrl).replace(
-  /\/+$/,
-  ''
-)
+  const hostname = window.location.hostname.toLowerCase()
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]'
+
+  if (isLocalHost) {
+    return 'http://localhost:4000'
+  }
+
+  if (
+    hostname === 'klarando.com' ||
+    hostname === 'www.klarando.com' ||
+    hostname === 'app.klarando.com' ||
+    hostname === 'admin.klarando.com' ||
+    hostname === 'orderdesk.klarando.com' ||
+    hostname === 'driver.klarando.com' ||
+    hostname === 'api.klarando.com'
+  ) {
+    return 'https://api.klarando.com'
+  }
+
+  return process.env.NODE_ENV === 'production'
+    ? 'https://api.klarando.com'
+    : `${window.location.protocol}//${hostname}:4000`
+}
+
+const envApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || ''
+
+export const API_BASE_URL = (
+  process.env.NODE_ENV === 'production'
+    ? 'https://api.klarando.com'
+    : envApiBaseUrl || resolveBrowserApiBaseUrl()
+).replace(/\/+$/, '')
 export const TENANT_ID = (
   process.env.NEXT_PUBLIC_DEFAULT_TENANT_ID ||
   process.env.NEXT_PUBLIC_TENANT_ID ||
