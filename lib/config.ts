@@ -9,25 +9,13 @@ function resolveBrowserApiBaseUrl() {
   if (isLocalHost) {
     return 'http://localhost:4000'
   }
-
-  if (
-    hostname === 'klarando.com' ||
-    hostname === 'www.klarando.com' ||
-    hostname === 'app.klarando.com' ||
-    hostname === 'admin.klarando.com' ||
-    hostname === 'orderdesk.klarando.com' ||
-    hostname === 'driver.klarando.com' ||
-    hostname === 'api.klarando.com'
-  ) {
-    return 'https://api.klarando.com'
-  }
-
-  return process.env.NODE_ENV === 'production'
-    ? 'https://api.klarando.com'
-    : `${window.location.protocol}//${hostname}:4000`
+  return 'https://api.klarando.com'
 }
 
-const envApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || ''
+const envApiBaseUrl =
+  process.env.NEXT_PUBLIC_API_BASE_URL?.trim() ||
+  process.env.NEXT_PUBLIC_API_URL?.trim() ||
+  ''
 
 export const API_BASE_URL = (
   process.env.NODE_ENV === 'production'

@@ -83,7 +83,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
       console.debug('[apiFetch] Netzwerkfehler', { url, error })
     }
 
-    throw new Error('Die Verbindung zum Server ist aktuell nicht verfügbar. Bitte später erneut versuchen.')
+    throw new Error('Verbindung zum Server fehlgeschlagen. Bitte später erneut versuchen.')
   } finally {
     clearTimeout(timeoutId)
   }
@@ -99,4 +99,3 @@ export async function apiJson<T>(path: string, options: RequestInit = {}, fallba
 
   return (payload ?? {}) as T
 }
-
