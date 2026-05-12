@@ -190,7 +190,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [featureScope, setFeatureScope] = useState<EffectiveFeatureSetResponse | null>(null)
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   const [hasValidSession, setHasValidSession] = useState(false)
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
@@ -366,43 +365,15 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   }, [pathname, searchKey])
 
   useEffect(() => {
-    const storageKey = 'klarando.admin.sidebar.collapsed.v1'
-    try {
-      const raw = window.localStorage.getItem(storageKey)
-      if (raw === '1' || raw === '0') {
-        setIsSidebarCollapsed(raw === '1')
-      } else if (window.innerWidth < 1280) {
-        setIsSidebarCollapsed(true)
-      }
-    } catch {
-      if (window.innerWidth < 1280) {
-        setIsSidebarCollapsed(true)
-      }
-    }
-
     const onResize = () => {
       if (window.innerWidth >= 768) {
         setMobileNavOpen(false)
-      }
-      if (window.innerWidth < 768) {
-        return
-      }
-      if (window.innerWidth < 1280) {
-        setIsSidebarCollapsed(true)
       }
     }
 
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem('klarando.admin.sidebar.collapsed.v1', isSidebarCollapsed ? '1' : '0')
-    } catch {
-      // ignore write failures
-    }
-  }, [isSidebarCollapsed])
 
   function handleLogout() {
     if (typeof window === 'undefined') return
@@ -552,34 +523,26 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     <main className="safe-area-padding brand-shell min-h-screen overflow-x-hidden">
       <div className="flex min-h-screen min-w-0">
         <aside
-          className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${
-            isSidebarCollapsed ? 'w-20' : 'w-72'
-          } relative z-40 pointer-events-auto`}
+          className="brand-sidebar relative z-30 hidden w-72 shrink-0 border-r border-white/10 md:flex md:flex-col"
         >
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
-            {!isSidebarCollapsed ? (
-              <>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
-                  Klarando Plattform
-                </p>
-                <h1 className="mt-2 text-2xl font-bold">Admin Panel</h1>
-                <p className="mt-2 text-sm text-orange-100/80">
-                  Zentrale Verwaltung für Produkte, Mitarbeiter und Prozesse.
-                </p>
-              </>
-            ) : null}
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
+              Klarando Plattform
+            </p>
+            <h1 className="mt-2 text-2xl font-bold">Admin Panel</h1>
+            <p className="mt-2 text-sm text-orange-100/80">
+              Zentrale Verwaltung für Produkte, Mitarbeiter und Prozesse.
+            </p>
           </div>
 
           <nav className="flex-1 overflow-y-auto px-4 py-6">
             <div className="space-y-4">
               {visibleNavSections.map((section) => (
                 <div key={section.id}>
-                  {!isSidebarCollapsed ? (
-                    <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
-                      {section.label}
-                    </p>
-                  ) : null}
+                  <p className="px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+                    {section.label}
+                  </p>
                   <div className="mt-2 space-y-2">
                     {section.items.map((item) => {
                       const isActive = isItemActive(item)
@@ -594,7 +557,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                             isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
                           }`}
                         >
-                          {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
+                          {item.label}
                         </Link>
                       )
                     })}
@@ -603,7 +566,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               ))}
             </div>
 
-            {!isSidebarCollapsed && showSubNavGroup && activeSubNavGroup ? (
+            {showSubNavGroup && activeSubNavGroup ? (
               <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-3">
                 <p className="px-1 text-[11px] uppercase tracking-[0.18em] text-orange-100/75">
                   {activeSubNavGroup.label}
@@ -639,7 +602,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                     title={switchTarget.label}
                     className="brand-nav-link brand-nav-link-inactive block rounded-2xl px-4 py-3 text-sm font-medium"
                   >
-                    {isSidebarCollapsed ? '>>' : switchTarget.label}
+                    {switchTarget.label}
                   </Link>
                 ) : null}
                 <button
@@ -648,7 +611,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   title="Logout"
                   className="block w-full rounded-2xl border border-red-300 bg-red-500/15 px-4 py-3 text-left text-sm font-medium text-red-100 transition hover:bg-red-500/25"
                 >
-                  {isSidebarCollapsed ? 'X' : 'Logout'}
+                  Logout
                 </button>
               </div>
             </div>
@@ -675,13 +638,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsSidebarCollapsed((current) => !current)}
-                    className="hidden rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 md:inline-flex"
-                  >
-                    {isSidebarCollapsed ? 'Sidebar öffnen' : 'Sidebar einklappen'}
-                  </button>
                   <button
                     type="button"
                     onClick={() => setMobileNavOpen(true)}
