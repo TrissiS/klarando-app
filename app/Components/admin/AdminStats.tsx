@@ -16,6 +16,7 @@ type Props = {
   checkoutReadyTerminalCount: number
   storageScope?: string
   visibleCardIds?: string[]
+  reorderEnabled?: boolean
 }
 
 type StatItem = {
@@ -42,6 +43,7 @@ export default function AdminStats({
   checkoutReadyTerminalCount,
   storageScope,
   visibleCardIds,
+  reorderEnabled = false,
 }: Props) {
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null)
   const items = useMemo<StatItem[]>(
@@ -228,19 +230,25 @@ export default function AdminStats({
         return (
           <div
             key={item.id}
-            draggable
-            onDragStart={() => setDraggingCardId(item.id)}
-            onDragEnd={() => setDraggingCardId(null)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              if (!draggingCardId) return
-              moveCard(draggingCardId, item.id)
-              setDraggingCardId(null)
-            }}
+            draggable={reorderEnabled}
+            onDragStart={reorderEnabled ? () => setDraggingCardId(item.id) : undefined}
+            onDragEnd={reorderEnabled ? () => setDraggingCardId(null) : undefined}
+            onDragOver={reorderEnabled ? (event) => event.preventDefault() : undefined}
+            onDrop={
+              reorderEnabled
+                ? () => {
+                    if (!draggingCardId) return
+                    moveCard(draggingCardId, item.id)
+                    setDraggingCardId(null)
+                  }
+                : undefined
+            }
             className={`rounded-3xl border-2 p-5 shadow-sm ring-1 transition ${
-              draggingCardId === item.id
+              reorderEnabled && draggingCardId === item.id
                 ? 'border-orange-300 bg-orange-50/50 ring-orange-100'
-                : 'border-transparent bg-white ring-[var(--brand-border)] hover:border-[var(--brand-border)]'
+                : `border-transparent bg-white ring-[var(--brand-border)] ${
+                    reorderEnabled ? 'hover:border-[var(--brand-border)]' : ''
+                  }`
             }`}
           >
             <p className="text-sm text-rose-900/70">{item.label}</p>

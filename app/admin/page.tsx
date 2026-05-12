@@ -67,6 +67,7 @@ export default function AdminPage() {
   ])
   const [refreshTick, setRefreshTick] = useState(0)
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
+  const [reorderModeEnabled, setReorderModeEnabled] = useState(false)
   const [sectionOrder, setSectionOrder] = useState<string[]>([
     'stats',
     'sales',
@@ -482,6 +483,7 @@ export default function AdminPage() {
           checkoutReadyTerminalCount={checkoutReadyTerminalCount}
           storageScope={dashboardStorageScope}
           visibleCardIds={visibleStatCardIds}
+          reorderEnabled={reorderModeEnabled}
         />
       )
     }
@@ -814,9 +816,27 @@ export default function AdminPage() {
         </div>
       </section>
 
-      <p className="mb-4 text-xs uppercase tracking-wide text-rose-900/70">
-        Dashboard per Drag and Drop anpassen
-      </p>
+      <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-wide text-rose-900/70">
+            Dashboard per Drag and Drop anpassen
+          </p>
+          <button
+            type="button"
+            onClick={() => setReorderModeEnabled((current) => !current)}
+            className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
+              reorderModeEnabled
+                ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100'
+                : 'border-[var(--brand-border)] bg-rose-50/60 text-rose-900 hover:bg-rose-100'
+            }`}
+          >
+            {reorderModeEnabled ? 'Reorder beenden' : 'Reorder starten'}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-rose-900/70">
+          Reorder ist {reorderModeEnabled ? 'aktiv' : 'inaktiv'}. Nur im aktiven Modus sind Drag-and-Drop-Handler eingeschaltet.
+        </p>
+      </section>
       <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
         <p className="text-xs uppercase tracking-wide text-rose-900/70">Widgets ein-/ausblenden</p>
         <div className="mt-2 flex flex-wrap gap-2">
@@ -858,19 +878,23 @@ export default function AdminPage() {
           visibleSectionIds.includes(sectionId) ? (
           <section
             key={sectionId}
-            draggable
-            onDragStart={() => setDraggingSection(sectionId)}
-            onDragEnd={() => setDraggingSection(null)}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              if (!draggingSection) return
-              moveSection(draggingSection, sectionId)
-              setDraggingSection(null)
-            }}
+            draggable={reorderModeEnabled}
+            onDragStart={reorderModeEnabled ? () => setDraggingSection(sectionId) : undefined}
+            onDragEnd={reorderModeEnabled ? () => setDraggingSection(null) : undefined}
+            onDragOver={reorderModeEnabled ? (event) => event.preventDefault() : undefined}
+            onDrop={
+              reorderModeEnabled
+                ? () => {
+                    if (!draggingSection) return
+                    moveSection(draggingSection, sectionId)
+                    setDraggingSection(null)
+                  }
+                : undefined
+            }
             className={`rounded-3xl border-2 border-dashed bg-transparent p-1 transition ${
-              draggingSection === sectionId
+              reorderModeEnabled && draggingSection === sectionId
                 ? 'border-orange-300'
-                : 'border-transparent hover:border-[var(--brand-border)]'
+                : `${reorderModeEnabled ? 'hover:border-[var(--brand-border)]' : ''} border-transparent`
             }`}
           >
             {renderSection(sectionId)}
