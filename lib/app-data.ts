@@ -8,6 +8,8 @@ export type SessionUser = {
   backendRole?: "SUPERADMIN" | "CHAINADMIN" | "ADMIN" | "STAFF" | "DRIVER";
   chainId?: string | null;
   tenantId?: string | null;
+  activeTenantId?: string | null;
+  activeTenantName?: string | null;
   accessToken?: string;
   permissions?: string[];
 };
