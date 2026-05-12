@@ -1553,15 +1553,27 @@ const REQUEST_TIMEOUT_MS = 15000
 
 function toUserFriendlyNetworkMessage(error: unknown): string {
   if (error instanceof Error && error.name === 'AbortError') {
-    return `Server antwortet nicht (Timeout nach ${REQUEST_TIMEOUT_MS / 1000}s). Bitte Backend pruefen.`
+    return `Server antwortet nicht (Timeout nach ${REQUEST_TIMEOUT_MS / 1000}s). Bitte Backend prüfen.`
   }
 
-  return `Verbindung zum Server fehlgeschlagen. Bitte Backend und API URL pruefen (${API_BASE_URL}).`
+  return `Verbindung zum Server fehlgeschlagen. Bitte Backend und API URL prüfen (${API_BASE_URL}).`
 }
 
 async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const timeoutController = new AbortController()
   const timeoutHandle = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS)
+  const debugUrl =
+    typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.toString()
+        : input instanceof Request
+          ? input.url
+          : String(input)
+
+  if (process.env.NODE_ENV === 'development') {
+    console.debug(`[safeFetch] ${init?.method ?? 'GET'} ${debugUrl}`)
+  }
 
   if (init?.signal) {
     if (init.signal.aborted) {
@@ -1584,6 +1596,7 @@ async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<
 }
 
 const fetch = safeFetch
+const buildApiUrl = (path: string) => `${API_BASE_URL}${path}`
 
 export async function getBackendHealthOverview(): Promise<BackendHealthOverview> {
   const res = await fetch(`${API_BASE_URL}/api/health`)
@@ -5215,7 +5228,7 @@ function authHeaders(token: string) {
 }
 
 export async function loginAccess(email: string, password: string): Promise<AccessLoginResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/login`, {
+  const res = await fetch(buildApiUrl('/api/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
@@ -5750,7 +5763,7 @@ export async function onboardBusiness(
 }
 
 export async function requestPasswordReset(email: string): Promise<{ ok: boolean; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/forgot-password`, {
+  const res = await fetch(buildApiUrl('/api/auth/forgot-password'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
@@ -5767,7 +5780,7 @@ export async function performPasswordReset(
   token: string,
   password: string
 ): Promise<{ ok: boolean; message: string }> {
-  const res = await fetch(`${API_BASE_URL}/api/auth/reset-password`, {
+  const res = await fetch(buildApiUrl('/api/auth/reset-password'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, password }),
