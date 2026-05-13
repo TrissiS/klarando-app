@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
@@ -105,47 +106,44 @@ class _StartPageState extends State<StartPage> {
         .where((entry) => !widget.favoriteTenantIds.contains(entry.tenantId))
         .toList(growable: false);
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _BrandHero(
-          languageCode: widget.languageCode,
-          userAddress: widget.userAddress,
-          zipCode: widget.activeZipCode,
-        ),
-        const SizedBox(height: 14),
-        _SearchPanel(
-          languageCode: widget.languageCode,
-          loading: widget.loading,
-          mode: _mode,
-          searchController: _searchController,
-          collapsed: _searchCollapsed,
-          onExpand: () {
-            setState(() {
-              _searchCollapsed = false;
-            });
-          },
-          onSubmit: _submitSearch,
-          onModeChanged: (nextMode) {
-            setState(() {
-              _mode = nextMode;
-            });
-            widget.onSearchByZip(widget.activeZipCode, nextMode);
-          },
-        ),
-        if (widget.loading) ...[
-          const SizedBox(height: 10),
-          const LinearProgressIndicator(
-            minHeight: 3,
-            borderRadius: BorderRadius.all(Radius.circular(999)),
-            color: Color(0xFFFF5A1F),
-            backgroundColor: Color(0x1AFF5A1F),
+    return CustomScrollView(
+      slivers: [
+        SliverPersistentHeader(
+          pinned: true,
+          delegate: _StartHeaderDelegate(
+            minHeight: 96,
+            maxHeight: 224,
+            builder: (context, collapse) {
+              return _StartHeaderContent(
+                collapse: collapse,
+                languageCode: widget.languageCode,
+                loading: widget.loading,
+                mode: _mode,
+                userAddress: widget.userAddress,
+                zipCode: widget.activeZipCode,
+                searchController: _searchController,
+                collapsedSearch: _searchCollapsed,
+                onExpandSearch: () {
+                  setState(() {
+                    _searchCollapsed = false;
+                  });
+                },
+                onSubmitSearch: _submitSearch,
+                onModeChanged: (nextMode) {
+                  setState(() {
+                    _mode = nextMode;
+                  });
+                  widget.onSearchByZip(widget.activeZipCode, nextMode);
+                },
+              );
+            },
           ),
-        ],
-        const SizedBox(height: 10),
-        Expanded(
-          child: ListView(
-            children: [
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 10)),
+        SliverPadding(
+          padding: const EdgeInsets.only(bottom: 16),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate.fixed([
               if (favorites.isNotEmpty) ...[
                 _SectionTitle(title: _t(widget.languageCode, 'favorites_nearby')),
                 const SizedBox(height: 8),
@@ -180,7 +178,7 @@ class _StartPageState extends State<StartPage> {
                     onOpen: () => widget.onSelectTenant(item),
                   ),
                 ),
-            ],
+            ]),
           ),
         ),
       ],
@@ -188,85 +186,143 @@ class _StartPageState extends State<StartPage> {
   }
 }
 
-class _BrandHero extends StatelessWidget {
-  const _BrandHero({
+class _StartHeaderContent extends StatelessWidget {
+  const _StartHeaderContent({
+    required this.collapse,
     required this.languageCode,
+    required this.loading,
+    required this.mode,
     required this.userAddress,
     required this.zipCode,
+    required this.searchController,
+    required this.collapsedSearch,
+    required this.onExpandSearch,
+    required this.onSubmitSearch,
+    required this.onModeChanged,
   });
 
+  final double collapse;
   final String languageCode;
+  final bool loading;
+  final DiscoveryMode mode;
   final String userAddress;
   final String zipCode;
+  final TextEditingController searchController;
+  final bool collapsedSearch;
+  final VoidCallback onExpandSearch;
+  final Future<void> Function() onSubmitSearch;
+  final ValueChanged<DiscoveryMode> onModeChanged;
 
   @override
   Widget build(BuildContext context) {
+    final subtitleOpacity = (1 - collapse * 1.25).clamp(0, 1).toDouble();
+    final headerPadding = EdgeInsets.fromLTRB(
+      12,
+      lerpDouble(12, 6, collapse) ?? 8,
+      12,
+      lerpDouble(10, 6, collapse) ?? 8,
+    );
+
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(24),
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFFE6007E), Color(0xFFFF5A1F), Color(0xFFFFBC00)],
-        ),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x24FF5A1F),
-            blurRadius: 28,
-            offset: Offset(0, 12),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(children: [
-            Expanded(
-              child: Image.asset(
-                'assets/klarando_logo_wordmark.png',
-                height: 34,
-                alignment: Alignment.centerLeft,
-                fit: BoxFit.contain,
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: Padding(
+        padding: headerPadding,
+        child: Column(
+          children: [
+            Container(
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(
+                horizontal: lerpDouble(12, 10, collapse) ?? 10,
+                vertical: lerpDouble(10, 6, collapse) ?? 8,
               ),
-            ),
-          ]),
-          const SizedBox(height: 10),
-          Text(
-            _t(languageCode, 'home_subtitle'),
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.24),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.location_on_rounded, color: Colors.white, size: 18),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '$zipCode | $userAddress',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w700,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(16),
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [Color(0xFFE6007E), Color(0xFFFF5A1F), Color(0xFFFFBC00)],
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0x24FF5A1F).withOpacity(1 - (collapse * 0.5)),
+                    blurRadius: 24,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (subtitleOpacity > 0.05)
+                    Opacity(
+                      opacity: subtitleOpacity,
+                      child: Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          _t(languageCode, 'home_subtitle'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+                  Container(
+                    width: double.infinity,
+                    padding: EdgeInsets.symmetric(
+                      horizontal: lerpDouble(10, 8, collapse) ?? 8,
+                      vertical: lerpDouble(8, 6, collapse) ?? 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.location_on_rounded, color: Colors.white, size: 16),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '$zipCode | $userAddress',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w700,
+                              fontSize: lerpDouble(14, 12, collapse),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
+            SizedBox(height: lerpDouble(10, 6, collapse)),
+            _SearchPanel(
+              languageCode: languageCode,
+              loading: loading,
+              mode: mode,
+              searchController: searchController,
+              collapsed: collapsedSearch,
+              compact: collapse > 0.5,
+              onExpand: onExpandSearch,
+              onSubmit: onSubmitSearch,
+              onModeChanged: onModeChanged,
+            ),
+            if (loading) ...[
+              const SizedBox(height: 8),
+              const LinearProgressIndicator(
+                minHeight: 3,
+                borderRadius: BorderRadius.all(Radius.circular(999)),
+                color: Color(0xFFFF5A1F),
+                backgroundColor: Color(0x1AFF5A1F),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -279,6 +335,7 @@ class _SearchPanel extends StatelessWidget {
     required this.mode,
     required this.searchController,
     required this.collapsed,
+    required this.compact,
     required this.onSubmit,
     required this.onExpand,
     required this.onModeChanged,
@@ -289,6 +346,7 @@ class _SearchPanel extends StatelessWidget {
   final DiscoveryMode mode;
   final TextEditingController searchController;
   final bool collapsed;
+  final bool compact;
   final Future<void> Function() onSubmit;
   final VoidCallback onExpand;
   final ValueChanged<DiscoveryMode> onModeChanged;
@@ -300,7 +358,7 @@ class _SearchPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         onTap: onExpand,
         child: Ink(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14, vertical: compact ? 10 : 12),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(16),
             color: Colors.white,
@@ -332,7 +390,7 @@ class _SearchPanel extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(12),
+      padding: EdgeInsets.all(compact ? 10 : 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
@@ -376,13 +434,18 @@ class _SearchPanel extends StatelessWidget {
               side: const BorderSide(color: Color(0xFFE5E7EB)),
             ),
           ),
-          const SizedBox(height: 10),
+          SizedBox(height: compact ? 8 : 10),
           TextField(
             controller: searchController,
             onSubmitted: (_) => onSubmit(),
             decoration: InputDecoration(
               hintText: _t(languageCode, 'home_search_hint'),
-              prefixIcon: const Icon(Icons.search),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(
+                horizontal: compact ? 10 : 12,
+                vertical: compact ? 10 : 12,
+              ),
+              prefixIcon: Icon(Icons.search, size: compact ? 20 : 22),
               suffixIcon: IconButton(
                 onPressed: loading ? null : onSubmit,
                 icon: const Icon(Icons.arrow_forward),
@@ -402,6 +465,38 @@ class _SearchPanel extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _StartHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _StartHeaderDelegate({
+    required this.minHeight,
+    required this.maxHeight,
+    required this.builder,
+  });
+
+  final double minHeight;
+  final double maxHeight;
+  final Widget Function(BuildContext context, double collapse) builder;
+
+  @override
+  double get minExtent => minHeight;
+
+  @override
+  double get maxExtent => maxHeight;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final extentDelta = (maxExtent - minExtent).clamp(1, double.infinity);
+    final collapse = (shrinkOffset / extentDelta).clamp(0.0, 1.0);
+    return builder(context, collapse);
+  }
+
+  @override
+  bool shouldRebuild(covariant _StartHeaderDelegate oldDelegate) {
+    return oldDelegate.minHeight != minHeight ||
+        oldDelegate.maxHeight != maxHeight ||
+        oldDelegate.builder != builder;
   }
 }
 
