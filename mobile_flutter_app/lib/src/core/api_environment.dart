@@ -5,6 +5,10 @@ enum ApiEnvironment {
 }
 
 const String _envName = String.fromEnvironment('ENV', defaultValue: 'live');
+const String _googleMapsApiKeyFromEnv = String.fromEnvironment(
+  'GOOGLE_MAPS_API_KEY',
+  defaultValue: 'AIzaSyAbXD8er0vnHSyzfg3sBI-eYwB7Euov3go',
+);
 
 ApiEnvironment get apiEnvironment {
   switch (_envName.trim().toLowerCase()) {
@@ -46,3 +50,5 @@ String _stripApiSuffix(String value) {
   }
   return value;
 }
+
+String get googleMapsApiKey => _googleMapsApiKeyFromEnv.trim();

@@ -803,6 +803,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   String _buildGoogleMapsEmbedUrl(String query) {
     final encoded = Uri.encodeComponent(query);
+    if (googleMapsApiKey.isNotEmpty) {
+      return 'https://www.google.com/maps/embed/v1/place?key=${Uri.encodeComponent(googleMapsApiKey)}&q=$encoded';
+    }
     return 'https://www.google.com/maps?q=$encoded&output=embed';
   }
 
@@ -828,6 +831,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       default:
         return value;
     }
+  }
+
+  String _formatTimeAgo(DateTime timestamp) {
+    final diff = DateTime.now().difference(timestamp);
+    if (diff.inSeconds < 60) {
+      return 'gerade eben';
+    }
+    if (diff.inMinutes < 60) {
+      return 'vor ${diff.inMinutes} min';
+    }
+    return 'vor ${diff.inHours} h';
   }
 
   String _paymentStatusLabel(String value) {
@@ -1073,6 +1087,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         : isStale
         ? const Color(0xFFEAB308)
         : const Color(0xFF16A34A);
+    final isOperationalView = _bindingLocked && _connected;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -1185,21 +1200,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           child: ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              _buildConnectionCard(),
-              const SizedBox(height: 10),
+              if (isOperationalView)
+                _buildOperationalStatusCard(statusText: statusText, statusColor: statusColor)
+              else
+                _buildConnectionCard(),
+              const SizedBox(height: 8),
               if (_error != null)
                 Text(
                   _error!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
-              if (_info != null)
+              if (_info != null && !isOperationalView)
                 Text(_info!, style: const TextStyle(color: Colors.white)),
-              if (_updateInfo != null)
+              if (_updateInfo != null && !isOperationalView)
                 Text(
                   _updateInfo!,
                   style: const TextStyle(color: Color(0xFFFFF7ED)),
                 ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -1223,7 +1241,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   child: Padding(
                     padding: EdgeInsets.all(14),
                     child: Text(
-                      'Noch nicht verbunden. Bitte zuerst per QR mit dem Admin-System koppeln und dann verbinden.',
+                      'Gerät ist noch nicht verbunden. Bitte auf „Gerät verbinden“ tippen und den QR-Code aus dem Adminbereich scannen.',
                     ),
                   ),
                 )
@@ -1238,6 +1256,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Widget _buildConnectionCard() {
+    if (_bindingLocked && !_connected) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Gerät verbinden',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Dieses Gerät ist bereits gekoppelt. Verbindung wird jetzt aufgebaut.',
+              ),
+              const SizedBox(height: 10),
+              FilledButton.icon(
+                onPressed: _loading ? null : _connect,
+                icon: const Icon(Icons.link),
+                label: Text(_loading ? 'Bitte warten…' : 'Jetzt verbinden'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     if (_bindingLocked) {
       return Card(
         child: Padding(
@@ -1268,10 +1313,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 style: TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 10),
-              FilledButton.icon(
-                onPressed: _loading ? null : _connect,
-                icon: const Icon(Icons.link),
-                label: Text(_loading ? 'Bitte warten…' : 'Jetzt verbinden'),
+              const Text(
+                'Gerät ist verbunden.',
+                style: TextStyle(fontWeight: FontWeight.w600),
               ),
             ],
           ),
@@ -1335,7 +1379,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 FilledButton.icon(
                   onPressed: _loading ? null : _bindWithPairingToken,
                   icon: const Icon(Icons.link),
-                  label: const Text('Per QR verbinden'),
+                  label: const Text('Gerät verbinden'),
                 ),
               ],
             ),
@@ -1439,6 +1483,52 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   label: const Text('Update prüfen'),
                 ),
               ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOperationalStatusCard({
+    required String statusText,
+    required Color statusColor,
+  }) {
+    final tenantName = (_connectedTenantName ?? '').trim();
+    final lastSync = _lastSuccessfulSyncAt == null
+        ? 'Noch kein Sync'
+        : _formatTimeAgo(_lastSuccessfulSyncAt!);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    tenantName.isEmpty ? 'Filiale verbunden' : tenantName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$statusText • Letzter Sync: $lastSync',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
