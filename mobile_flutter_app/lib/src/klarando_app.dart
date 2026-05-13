@@ -3,12 +3,17 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'core/app_update_service.dart';
 import 'core/klarando_api.dart';
+import 'core/api_environment.dart';
 import 'features/home/start_page.dart';
 import 'features/order/order_page.dart';
 import 'features/orders/orders_page.dart';
@@ -22,14 +27,16 @@ const _prefsKeyUserZipCode = 'klarando_user_zip_code';
 const _prefsKeyLanguageCode = 'klarando_language_code';
 const _prefsKeyAppAuthToken = 'klarando_app_auth_token';
 const _prefsKeyAppCustomer = 'klarando_app_customer';
+const _prefsKeyUserLatitude = 'klarando_user_latitude';
+const _prefsKeyUserLongitude = 'klarando_user_longitude';
+const _googleServerClientId =
+    '198427463115-m6u039q4ive21u9gjrg9v61hk4nqkejn.apps.googleusercontent.com';
 const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
 const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
 const _klarandoTermsUrl = 'https://www.klarando.com/agb';
 const _klarandoSupportEmail = 'support@klarando.com';
 const _klarandoAccountDeletionEmail = 'konto-loeschen@klarando.com';
 const _googleMapsStaticApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
-const _customerCurrentVersionName = '1.0.0';
-const _customerCurrentVersionCode = 1;
 
 class KlarandoApp extends StatelessWidget {
   const KlarandoApp({super.key});
@@ -53,11 +60,17 @@ class _AppBootstrapGate extends StatefulWidget {
 }
 
 class _AppBootstrapGateState extends State<_AppBootstrapGate> {
+  final _api = const KlarandoApi();
   bool _loading = true;
   bool _legalAccepted = false;
   String? _userAddress;
   String? _userZipCode;
+  double? _userLatitude;
+  double? _userLongitude;
   String _languageCode = 'de';
+  String _baseUrl = _defaultBaseUrl();
+  String? _appAuthToken;
+  AppCustomerUser? _appCustomer;
 
   @override
   void initState() {
@@ -74,8 +87,164 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
       _legalAccepted = prefs.getBool(_prefsKeyLegalAccepted) ?? false;
       _userAddress = prefs.getString(_prefsKeyUserAddress);
       _userZipCode = prefs.getString(_prefsKeyUserZipCode);
+      _userLatitude = prefs.getDouble(_prefsKeyUserLatitude);
+      _userLongitude = prefs.getDouble(_prefsKeyUserLongitude);
       _languageCode = _normalizedLanguageCode(prefs.getString(_prefsKeyLanguageCode));
+      _baseUrl = _normalizedBaseUrl(defaultApiBaseUrl);
       _loading = false;
+    });
+    await _restoreAppAuth();
+  }
+
+  Future<void> _restoreAppAuth() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString(_prefsKeyAppAuthToken);
+    final userRaw = prefs.getString(_prefsKeyAppCustomer);
+    if (!mounted) {
+      return;
+    }
+    if (token == null || token.trim().isEmpty || userRaw == null || userRaw.trim().isEmpty) {
+      setState(() {
+        _appAuthToken = null;
+        _appCustomer = null;
+      });
+      return;
+    }
+    try {
+      final parsed = jsonDecode(userRaw);
+      if (parsed is! Map<String, dynamic>) {
+        throw const FormatException('invalid');
+      }
+      setState(() {
+        _appAuthToken = token;
+        _appCustomer = AppCustomerUser.fromJson(parsed);
+      });
+    } catch (_) {
+      await prefs.remove(_prefsKeyAppAuthToken);
+      await prefs.remove(_prefsKeyAppCustomer);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _appAuthToken = null;
+        _appCustomer = null;
+      });
+    }
+  }
+
+  Future<void> _persistAppAuth({
+    required String token,
+    required AppCustomerUser user,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsKeyAppAuthToken, token);
+    await prefs.setString(
+      _prefsKeyAppCustomer,
+      jsonEncode({
+        'id': user.id,
+        'email': user.email,
+        'fullName': user.fullName,
+        'phone': user.phone,
+        'street': user.street,
+        'zipCode': user.zipCode,
+        'city': user.city,
+        'marketingOptIn': user.marketingOptIn,
+        'deletionRequestedAt': user.deletionRequestedAt?.toIso8601String(),
+      }),
+    );
+  }
+
+  Future<void> _onAuthSuccess({
+    required String token,
+    required AppCustomerUser user,
+  }) async {
+    await _persistAppAuth(token: token, user: user);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _appAuthToken = token;
+      _appCustomer = user;
+    });
+    final profileZip = user.zipCode?.trim();
+    final profileStreet = user.street?.trim();
+    final profileCity = user.city?.trim();
+    if ((_userZipCode == null || _userZipCode!.trim().isEmpty) &&
+        profileZip != null &&
+        _isValidZipCode(profileZip)) {
+      final mergedAddress = [
+        profileStreet ?? '',
+        profileCity ?? '',
+      ].where((entry) => entry.trim().isNotEmpty).join(', ');
+      if (mergedAddress.trim().isNotEmpty) {
+        await _saveAddressData(mergedAddress, profileZip);
+      }
+    }
+  }
+
+  Future<void> _loginFromAuth({
+    required String email,
+    required String password,
+  }) async {
+    final response = await _api.loginAppCustomer(
+      baseUrl: _baseUrl,
+      email: email,
+      password: password,
+    );
+    await _onAuthSuccess(token: response.token, user: response.user);
+  }
+
+  Future<void> _registerFromAuth({
+    required String email,
+    required String fullName,
+    required String password,
+    String? phone,
+    required String street,
+    required String zipCode,
+    required String city,
+    required bool termsAccepted,
+    required bool privacyAccepted,
+  }) async {
+    final response = await _api.registerAppCustomer(
+      baseUrl: _baseUrl,
+      email: email,
+      fullName: fullName,
+      password: password,
+      phone: phone,
+      street: street,
+      zipCode: zipCode,
+      city: city,
+      termsAccepted: termsAccepted,
+      privacyAccepted: privacyAccepted,
+      marketingOptIn: false,
+    );
+    await _onAuthSuccess(token: response.token, user: response.user);
+  }
+
+  Future<AppCustomerEmailStatus> _checkEmailStatus(String email) async {
+    try {
+      return await _api.checkAppCustomerEmailStatus(
+        baseUrl: _baseUrl,
+        email: email,
+      );
+    } on ApiException catch (error) {
+      if (error.statusCode == 404) {
+        return const AppCustomerEmailStatus(exists: false, known: false);
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> _handleLogoutToAuthGate() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsKeyAppAuthToken);
+    await prefs.remove(_prefsKeyAppCustomer);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _appAuthToken = null;
+      _appCustomer = null;
     });
   }
 
@@ -103,6 +272,45 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
     });
   }
 
+  Future<void> _saveLocationCoordinates(double latitude, double longitude) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_prefsKeyUserLatitude, latitude);
+    await prefs.setDouble(_prefsKeyUserLongitude, longitude);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _userLatitude = latitude;
+      _userLongitude = longitude;
+    });
+  }
+
+  Future<void> _loginWithGoogle({
+    required String idToken,
+    String? email,
+    String? name,
+  }) async {
+    final response = await _api.loginAppCustomerWithGoogle(
+      baseUrl: _baseUrl,
+      idToken: idToken,
+      email: email,
+      name: name,
+    );
+    await _onAuthSuccess(token: response.token, user: response.user);
+  }
+
+  Future<void> _loginWithFacebook({
+    required String accessToken,
+    String? email,
+  }) async {
+    final response = await _api.loginAppCustomerWithFacebook(
+      baseUrl: _baseUrl,
+      accessToken: accessToken,
+      email: email,
+    );
+    await _onAuthSuccess(token: response.token, user: response.user);
+  }
+
   Future<void> _saveLanguage(String languageCode) async {
     final normalized = _normalizedLanguageCode(languageCode);
     final prefs = await SharedPreferences.getInstance();
@@ -127,12 +335,23 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
       return _LegalConsentPage(onAccepted: _acceptLegal);
     }
 
+    if (_appAuthToken == null || _appCustomer == null) {
+      return _CustomerAuthStartPage(
+        onCheckEmailStatus: _checkEmailStatus,
+        onLogin: _loginFromAuth,
+        onRegister: _registerFromAuth,
+        onGoogleLogin: _loginWithGoogle,
+        onFacebookLogin: _loginWithFacebook,
+      );
+    }
+
     final address = _userAddress?.trim();
     final zipCode = _userZipCode?.trim();
     if (address == null || address.isEmpty || zipCode == null || !_isValidZipCode(zipCode)) {
       return _AddressCapturePage(
         initialLanguageCode: _languageCode,
         onAddressSaved: _saveAddressData,
+        onCoordinatesSaved: _saveLocationCoordinates,
       );
     }
 
@@ -141,6 +360,7 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
       userZipCode: zipCode,
       languageCode: _languageCode,
       onLanguageChanged: _saveLanguage,
+      onRequireAuth: _handleLogoutToAuthGate,
     );
   }
 }
@@ -151,6 +371,7 @@ class HomeShell extends StatefulWidget {
     required this.userZipCode,
     required this.languageCode,
     required this.onLanguageChanged,
+    required this.onRequireAuth,
     super.key,
   });
 
@@ -158,13 +379,521 @@ class HomeShell extends StatefulWidget {
   final String userZipCode;
   final String languageCode;
   final Future<void> Function(String languageCode) onLanguageChanged;
+  final Future<void> Function() onRequireAuth;
 
   @override
   State<HomeShell> createState() => _HomeShellState();
 }
 
+enum _AuthEmailMode { undecided, login, register }
+
+class _CustomerAuthStartPage extends StatefulWidget {
+  const _CustomerAuthStartPage({
+    required this.onCheckEmailStatus,
+    required this.onLogin,
+    required this.onRegister,
+    required this.onGoogleLogin,
+    required this.onFacebookLogin,
+  });
+
+  final Future<AppCustomerEmailStatus> Function(String email) onCheckEmailStatus;
+  final Future<void> Function({
+    required String email,
+    required String password,
+  })
+  onLogin;
+  final Future<void> Function({
+    required String email,
+    required String fullName,
+    required String password,
+    String? phone,
+    required String street,
+    required String zipCode,
+    required String city,
+    required bool termsAccepted,
+    required bool privacyAccepted,
+  })
+  onRegister;
+  final Future<void> Function({
+    required String idToken,
+    String? email,
+    String? name,
+  })
+  onGoogleLogin;
+  final Future<void> Function({
+    required String accessToken,
+    String? email,
+  })
+  onFacebookLogin;
+
+  @override
+  State<_CustomerAuthStartPage> createState() => _CustomerAuthStartPageState();
+}
+
+class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _passwordRepeatController = TextEditingController();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _streetController = TextEditingController();
+  final _zipController = TextEditingController();
+  final _cityController = TextEditingController();
+
+  _AuthEmailMode _mode = _AuthEmailMode.undecided;
+  bool _busy = false;
+  bool _privacyAccepted = false;
+  bool _termsAccepted = false;
+  String? _infoMessage;
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _passwordRepeatController.dispose();
+    _nameController.dispose();
+    _phoneController.dispose();
+    _streetController.dispose();
+    _zipController.dispose();
+    _cityController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitGoogleLogin() async {
+    if (_busy) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+    });
+    try {
+      final signIn = GoogleSignIn(
+        serverClientId: _googleServerClientId,
+      );
+      final account = await signIn.signIn();
+      if (account == null) {
+        _showMessage('Google-Anmeldung wurde abgebrochen.');
+        return;
+      }
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+      if (idToken == null || idToken.trim().isEmpty) {
+        _showMessage('Google-ID-Token fehlt. Bitte Google Client ID / SHA-1 prüfen.');
+        return;
+      }
+      await widget.onGoogleLogin(
+        idToken: idToken,
+        email: account.email,
+        name: account.displayName,
+      );
+    } on ApiException catch (error) {
+      debugPrint('GOOGLE LOGIN API ERROR: ${error.message} (status=${error.statusCode})');
+      _showMessage('Google Login vom Server abgelehnt: ${error.message}');
+    } catch (error, stackTrace) {
+      debugPrint('GOOGLE LOGIN ERROR: $error');
+      debugPrint(stackTrace.toString());
+      _showMessage('Google Login fehlgeschlagen: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _submitFacebookLogin() async {
+    if (_busy) {
+      return;
+    }
+    setState(() {
+      _busy = true;
+    });
+    try {
+      final result = await FacebookAuth.instance.login();
+      if (result.status != LoginStatus.success || result.accessToken == null) {
+        _showMessage('Facebook-Anmeldung wurde abgebrochen.');
+        return;
+      }
+      final userData = await FacebookAuth.instance.getUserData(fields: 'email,name');
+      await widget.onFacebookLogin(
+        accessToken: result.accessToken!.tokenString,
+        email: userData['email'] is String ? userData['email'] as String : null,
+      );
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage('Facebook Login konnte nicht gestartet werden.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _continueWithEmail() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      _showMessage('Bitte eine gültige E-Mail-Adresse eingeben.');
+      return;
+    }
+    setState(() {
+      _busy = true;
+      _infoMessage = null;
+    });
+    try {
+      final status = await widget.onCheckEmailStatus(email);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (status.known) {
+          _mode = status.exists ? _AuthEmailMode.login : _AuthEmailMode.register;
+        } else {
+          _mode = _AuthEmailMode.login;
+          _infoMessage =
+              'E-Mail-Prüfung wird vorbereitet. Du kannst dich einloggen oder unten registrieren.';
+        }
+      });
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _submit() async {
+    final email = _emailController.text.trim();
+    final password = _passwordController.text;
+    if (email.isEmpty || password.isEmpty) {
+      _showMessage('Bitte E-Mail-Adresse und Passwort eingeben.');
+      return;
+    }
+
+    if (_mode == _AuthEmailMode.login) {
+      setState(() => _busy = true);
+      try {
+        await widget.onLogin(email: email, password: password);
+      } on ApiException catch (error) {
+        _showMessage(error.message);
+      } finally {
+        if (mounted) {
+          setState(() => _busy = false);
+        }
+      }
+      return;
+    }
+
+    final fullName = _nameController.text.trim();
+    final repeat = _passwordRepeatController.text;
+    final street = _streetController.text.trim();
+    final zip = _zipController.text.trim();
+    final city = _cityController.text.trim();
+
+    if (fullName.isEmpty) {
+      _showMessage('Bitte deinen Namen eingeben.');
+      return;
+    }
+    if (password.length < 6) {
+      _showMessage('Passwort muss mindestens 6 Zeichen haben.');
+      return;
+    }
+    if (password != repeat) {
+      _showMessage('Passwörter stimmen nicht überein.');
+      return;
+    }
+    if (!_looksLikeStreetWithHouseNumber(street) || !_isValidZipCode(zip) || city.length < 2) {
+      _showMessage('Bitte eine vollständige Standard-Lieferadresse eingeben.');
+      return;
+    }
+    if (!_privacyAccepted || !_termsAccepted) {
+      _showMessage('Bitte Datenschutz und AGB akzeptieren.');
+      return;
+    }
+
+    setState(() => _busy = true);
+    try {
+      await widget.onRegister(
+        email: email,
+        fullName: fullName,
+        password: password,
+        phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+        street: street,
+        zipCode: zip,
+        city: city,
+        termsAccepted: _termsAccepted,
+        privacyAccepted: _privacyAccepted,
+      );
+    } on ApiException catch (error) {
+      _showMessage(error.message);
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _openLink(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) {
+      return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  void _showMessage(String message) {
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isRegister = _mode == _AuthEmailMode.register;
+    final canSubmit = _mode == _AuthEmailMode.login || _mode == _AuthEmailMode.register;
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Image.asset(
+                          'assets/klarando_logo.png',
+                          height: 56,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => const Text(
+                            'Klarando',
+                            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Einloggen oder Konto erstellen',
+                    style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, height: 1.15),
+                  ),
+                  const SizedBox(height: 20),
+                  ElevatedButton.icon(
+                    onPressed: _busy ? null : _submitGoogleLogin,
+                    icon: const Icon(Icons.g_mobiledata, size: 26),
+                    label: const Text('Mit Google fortfahren'),
+                  ),
+                  const SizedBox(height: 10),
+                  ElevatedButton.icon(
+                    onPressed: _busy ? null : _submitFacebookLogin,
+                    icon: const Icon(Icons.facebook),
+                    label: const Text('Mit Facebook fortfahren'),
+                  ),
+                  const SizedBox(height: 16),
+                  const Row(
+                    children: [
+                      Expanded(child: Divider()),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 10),
+                        child: Text('oder'),
+                      ),
+                      Expanded(child: Divider()),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    decoration: const InputDecoration(
+                      labelText: 'E-Mail-Adresse',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  OutlinedButton(
+                    onPressed: _busy ? null : _continueWithEmail,
+                    child: Text(_busy ? 'Bitte warten...' : 'Mit E-Mail fortfahren'),
+                  ),
+                  if (_infoMessage != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      _infoMessage!,
+                      style: const TextStyle(color: Colors.black54, fontSize: 12.5),
+                    ),
+                  ],
+                  if (canSubmit) ...[
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _passwordController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Passwort',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                  ],
+                  if (_mode == _AuthEmailMode.login) ...[
+                    const SizedBox(height: 8),
+                    TextButton(
+                      onPressed: _busy
+                          ? null
+                          : () => setState(() {
+                              _mode = _AuthEmailMode.register;
+                            }),
+                      child: const Text('Noch kein Konto? Registrierung starten'),
+                    ),
+                  ],
+                  if (isRegister) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _nameController,
+                      decoration: const InputDecoration(
+                        labelText: 'Name',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _passwordRepeatController,
+                      obscureText: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Passwort wiederholen',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _phoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: const InputDecoration(
+                        labelText: 'Telefon (optional)',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _streetController,
+                      decoration: const InputDecoration(
+                        labelText: 'Straße und Hausnummer',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _zipController,
+                            keyboardType: TextInputType.number,
+                            decoration: const InputDecoration(
+                              labelText: 'PLZ',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: TextField(
+                            controller: _cityController,
+                            decoration: const InputDecoration(
+                              labelText: 'Ort',
+                              border: OutlineInputBorder(),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    CheckboxListTile(
+                      value: _privacyAccepted,
+                      onChanged: _busy
+                          ? null
+                          : (value) => setState(() => _privacyAccepted = value ?? false),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Datenschutz akzeptieren'),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                    CheckboxListTile(
+                      value: _termsAccepted,
+                      onChanged: _busy
+                          ? null
+                          : (value) => setState(() => _termsAccepted = value ?? false),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('AGB akzeptieren'),
+                      controlAffinity: ListTileControlAffinity.leading,
+                    ),
+                  ],
+                  if (canSubmit) ...[
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: _busy ? null : _submit,
+                      child: Text(
+                        _busy
+                            ? 'Bitte warten...'
+                            : (_mode == _AuthEmailMode.login ? 'Einloggen' : 'Konto erstellen'),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 22),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    children: [
+                      const Text(
+                        'Wenn du fortfährst, stimmst du unseren ',
+                        style: TextStyle(fontSize: 12.5, color: Colors.black54),
+                      ),
+                      InkWell(
+                        onTap: () => _openLink(_klarandoTermsUrl),
+                        child: const Text(
+                          'AGB',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const Text(' und ', style: TextStyle(fontSize: 12.5, color: Colors.black54)),
+                      InkWell(
+                        onTap: () => _openLink(_klarandoPrivacyUrl),
+                        child: const Text(
+                          'Datenschutzerklärung',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const Text('. ', style: TextStyle(fontSize: 12.5, color: Colors.black54)),
+                      InkWell(
+                        onTap: () => _openLink(_klarandoImpressumUrl),
+                        child: const Text(
+                          'Impressum',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _HomeShellState extends State<HomeShell> {
   final _api = const KlarandoApi();
+  final _appUpdateService = AppUpdateService();
 
   int _currentIndex = 0;
   String _baseUrl = _defaultBaseUrl();
@@ -200,6 +929,7 @@ class _HomeShellState extends State<HomeShell> {
     _restoreAppAuthFromPrefs();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _searchTenants(_activeZipCode, DiscoveryMode.delivery);
+      unawaited(_checkForCustomerAppUpdate(silentWhenCurrent: true));
     });
   }
 
@@ -439,13 +1169,7 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _logoutAppCustomer() async {
     await _clearAppAuth();
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _appAuthToken = null;
-      _appCustomer = null;
-    });
+    await widget.onRequireAuth();
   }
 
   Future<void> _socialQuickstartAppCustomer({
@@ -607,10 +1331,7 @@ class _HomeShellState extends State<HomeShell> {
     try {
       final baseCandidates = <String>[
         _normalizedBaseUrl(_baseUrl),
-        'http://localhost:4000',
-        'http://127.0.0.1:4000',
-        'http://10.0.2.2:4000',
-        'http://192.168.178.71:4000',
+        normalizeApiBaseUrl(defaultApiBaseUrl),
       ];
       final uniqueCandidates = <String>[];
       for (final entry in baseCandidates) {
@@ -760,30 +1481,37 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
-  Future<void> _checkForCustomerAppUpdate() async {
+  Future<void> _checkForCustomerAppUpdate({bool silentWhenCurrent = false}) async {
     setState(() {
       _customerUpdateBusy = true;
-      _customerUpdateInfo = 'Pruefe Update...';
+      if (!silentWhenCurrent) {
+        _customerUpdateInfo = 'Prüfe Update...';
+      }
     });
 
     try {
-      final manifest = await _api.fetchCustomerUpdateManifest(baseUrl: _baseUrl);
-      final hasUpdate = manifest.isUpdateAvailableFor(_customerCurrentVersionCode);
-      if (!hasUpdate) {
+      final result = await _appUpdateService.checkForUpdate(
+        baseUrl: _baseUrl,
+        expectedFlavor: MobileAppFlavor.customer,
+      );
+      if (!result.updateAvailable) {
         setState(() {
-          _customerUpdateInfo =
-              'App ist aktuell (${_customerCurrentVersionName}+${_customerCurrentVersionCode}).';
+          if (!silentWhenCurrent) {
+            _customerUpdateInfo =
+                'App ist aktuell (${result.currentVersion}+${result.currentBuildNumber}).';
+          }
         });
         return;
       }
 
-      final mandatory = manifest.isMandatoryFor(_customerCurrentVersionCode);
-      final mode = mandatory ? 'Pflichtupdate' : 'Optionales Update';
-      final url = manifest.apkUrl.trim().isEmpty ? '-' : manifest.apkUrl.trim();
+      final mode = result.forceUpdate ? 'Pflichtupdate' : 'Optionales Update';
       setState(() {
         _customerUpdateInfo =
-            '$mode verfuegbar: ${manifest.latestVersionName}+${manifest.latestVersionCode} | APK: $url';
+            '$mode verfügbar: ${result.manifest.latestVersion}+${result.manifest.buildNumber}';
       });
+      if (mounted) {
+        await _showCustomerUpdateDialog(result);
+      }
     } on ApiException catch (error) {
       setState(() {
         _customerUpdateInfo = 'Update-Check fehlgeschlagen: ${error.message}';
@@ -798,6 +1526,77 @@ class _HomeShellState extends State<HomeShell> {
           _customerUpdateBusy = false;
         });
       }
+    }
+  }
+
+  Future<void> _showCustomerUpdateDialog(UpdateCheckResult result) async {
+    final manifest = result.manifest;
+    final installNow = await showDialog<bool>(
+      context: context,
+      barrierDismissible: !result.forceUpdate,
+      builder: (context) => AlertDialog(
+        title: Text(result.forceUpdate ? 'Pflichtupdate verfügbar' : 'Update verfügbar'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Neue Version: ${manifest.latestVersion}+${manifest.buildNumber}'),
+            const SizedBox(height: 8),
+            Text(_appUpdateService.formatReleaseNotes(manifest.releaseNotes)),
+          ],
+        ),
+        actions: [
+          if (!result.forceUpdate)
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Später'),
+            ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Jetzt aktualisieren'),
+          ),
+        ],
+      ),
+    );
+
+    if (installNow != true) {
+      return;
+    }
+
+    final apkUri = Uri.tryParse(manifest.apkUrl);
+    if (apkUri == null) {
+      setState(() {
+        _customerUpdateInfo = 'Update-Link ist ungültig.';
+      });
+      return;
+    }
+
+    try {
+      final apkFile = await _appUpdateService.downloadAndVerifyApk(
+        apkUri: apkUri,
+        sha256Hex: manifest.sha256,
+      );
+      await _appUpdateService.startApkInstallation(apkFile);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _customerUpdateInfo = 'Installationsdialog wurde geöffnet.';
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _customerUpdateInfo = 'Installation fehlgeschlagen: ${error.message}';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _customerUpdateInfo = 'Installation fehlgeschlagen: $error';
+      });
     }
   }
 
@@ -2220,10 +3019,12 @@ class _AddressCapturePage extends StatefulWidget {
   const _AddressCapturePage({
     required this.initialLanguageCode,
     required this.onAddressSaved,
+    required this.onCoordinatesSaved,
   });
 
   final String initialLanguageCode;
   final Future<void> Function(String address, String zipCode) onAddressSaved;
+  final Future<void> Function(double latitude, double longitude) onCoordinatesSaved;
 
   @override
   State<_AddressCapturePage> createState() => _AddressCapturePageState();
@@ -2289,6 +3090,8 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
         _zipController.text = resolvedZip;
       }
 
+      await widget.onCoordinatesSaved(location.latitude, location.longitude);
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -2347,7 +3150,7 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Bitte gib deine Adresse und PLZ ein oder nutze deinen Standort.',
+              'Bitte gib deine Adresse und PLZ ein oder erlaube den Standortzugriff.',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
@@ -2387,7 +3190,23 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : const Icon(Icons.my_location),
-                label: Text(_locationBusy ? 'Standort wird ermittelt...' : 'Standort nutzen'),
+                label: Text(_locationBusy ? 'Standort wird ermittelt...' : 'Standort erlauben'),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _saving || _locationBusy
+                    ? null
+                    : () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Du kannst später jederzeit den Standort freigeben.'),
+                          ),
+                        );
+                      },
+                child: const Text('Später'),
               ),
             ),
             const SizedBox(height: 18),
@@ -3265,23 +4084,11 @@ _NavLabels _labelsForLanguage(String languageCode) {
 }
 
 String _defaultBaseUrl() {
-  if (kIsWeb) {
-    return 'http://localhost:4000';
-  }
-
-  if (defaultTargetPlatform == TargetPlatform.android) {
-    return 'http://10.0.2.2:4000';
-  }
-
-  return 'http://localhost:4000';
+  return normalizeApiBaseUrl(defaultApiBaseUrl);
 }
 
 String _normalizedBaseUrl(String value) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) {
-    return _defaultBaseUrl();
-  }
-  return trimmed.endsWith('/') ? trimmed.substring(0, trimmed.length - 1) : trimmed;
+  return normalizeApiBaseUrl(value);
 }
 
 String _cartLineId(String productId, List<TenantCatalogModifier> selectedModifiers) {
