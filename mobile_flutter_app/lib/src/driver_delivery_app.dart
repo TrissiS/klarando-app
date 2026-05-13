@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:html' as html;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signature/signature.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'core/klarando_api.dart';
+import 'core/api_environment.dart';
+import 'core/pairing_payload.dart';
 import 'theme/klarando_theme.dart';
 
 const _prefsDriverBaseUrl = 'klarando_driver_base_url';
@@ -84,12 +87,10 @@ Widget _detailRow(String label, String value) {
   );
 }
 
-String _defaultBaseUrl() => 'http://localhost:4000';
+String _defaultBaseUrl() => defaultApiBaseUrl;
 
 String _normalizedBaseUrl(String value) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) return _defaultBaseUrl();
-  return trimmed.endsWith('/') ? trimmed.substring(0, trimmed.length - 1) : trimmed;
+  return normalizeApiBaseUrl(value);
 }
 
 String _displayOrderNumber(PublicOrderSummary order) {
@@ -469,14 +470,25 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   }
 
   Future<void> _loginWithPairing() async {
-    final baseUrl = _normalizedBaseUrl(_baseUrlController.text);
-    final pairingToken = _pairingTokenController.text.trim();
-    if (pairingToken.isEmpty) {
+    final rawPairingInput = _pairingTokenController.text.trim();
+    if (rawPairingInput.isEmpty) {
       setState(() {
         _message = 'Bitte QR-Pairing-Token eingeben oder scannen.';
       });
       return;
     }
+    final parsedPairing = parsePairingPayload(
+      rawPairingInput,
+      expectedType: PairingPayloadType.driver,
+    );
+    if (parsedPairing == null) {
+      setState(() {
+        _message = 'Dieser QR-Code ist nicht für die Fahrer-App geeignet.';
+      });
+      return;
+    }
+
+    final baseUrl = parsedPairing.apiBaseUrl;
 
     final driverEmail = _emailController.text.trim();
     final driverPassword = _passwordController.text;
@@ -490,7 +502,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
 
       final response = await _api.loginDriverDevice(
         baseUrl: baseUrl,
-        pairingTokenOrPayload: pairingToken,
+        pairingTokenOrPayload: parsedPairing.rawPayload,
         driverEmail: driverEmail.isEmpty ? null : driverEmail,
         driverPassword: driverPassword.isEmpty ? null : driverPassword,
         driverName: driverName.isEmpty ? null : driverName,
@@ -503,6 +515,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       );
 
       setState(() {
+        _baseUrlController.text = parsedPairing.apiBaseUrl;
         _authToken = response.authToken;
         _driverUser = AccessUser(
           id: response.driverUserId ?? response.session.sessionId,
@@ -543,9 +556,21 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       return;
     }
 
+    final parsedPairing = parsePairingPayload(
+      token,
+      expectedType: PairingPayloadType.driver,
+    );
+    if (parsedPairing == null) {
+      setState(() {
+        _message = 'Dieser QR-Code ist nicht für die Fahrer-App geeignet.';
+      });
+      return;
+    }
+
     setState(() {
-      _pairingTokenController.text = token;
-      _message = 'QR-Code erkannt. Bitte jetzt Fahrergeraet verbinden.';
+      _pairingTokenController.text = parsedPairing.rawPayload;
+      _baseUrlController.text = parsedPairing.apiBaseUrl;
+      _message = 'QR-Code erkannt. Bitte jetzt Fahrergerät verbinden.';
     });
   }
 
@@ -659,13 +684,27 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   }
 
   Future<_BrowserPosition> _resolveCurrentPosition() async {
-    final geolocation = html.window.navigator.geolocation;
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      throw const ApiException('Standortdienst ist auf diesem Gerät deaktiviert.');
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      throw const ApiException('Standortfreigabe wurde nicht erteilt.');
+    }
+
     try {
-      final position = await geolocation
-          .getCurrentPosition(
-            enableHighAccuracy: true,
-            timeout: const Duration(seconds: 12),
-            maximumAge: Duration.zero,
+      final position = await Geolocator.getCurrentPosition(
+            locationSettings: const LocationSettings(
+              accuracy: LocationAccuracy.high,
+              timeLimit: Duration(seconds: 12),
+            ),
           )
           .timeout(
             const Duration(seconds: 15),
@@ -674,18 +713,14 @@ class _DriverHomePageState extends State<_DriverHomePage> {
             ),
           );
 
-      final coords = position.coords;
-      final latitude = (coords?.latitude as num?)?.toDouble();
-      final longitude = (coords?.longitude as num?)?.toDouble();
-      if (latitude == null || longitude == null) {
-        throw const ApiException('Standort konnte nicht gelesen werden.');
-      }
+      final latitude = position.latitude;
+      final longitude = position.longitude;
       return _BrowserPosition(
         latitude: latitude,
         longitude: longitude,
-        accuracyMeters: (coords?.accuracy as num?)?.toDouble(),
-        heading: (coords?.heading as num?)?.toDouble(),
-        speedKmh: ((coords?.speed as num?)?.toDouble() ?? 0) * 3.6,
+        accuracyMeters: position.accuracy,
+        heading: position.heading,
+        speedKmh: position.speed * 3.6,
       );
     } catch (error) {
       final message = error.toString().trim();
@@ -829,10 +864,18 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       return;
     }
     final encoded = Uri.encodeComponent(query);
-    html.window.open(
-      'https://www.google.com/maps/search/?api=1&query=$encoded',
-      '_blank',
-    );
+    final url = Uri.parse('https://www.google.com/maps/search/?api=1&query=$encoded');
+    unawaited(_launchMapsUrl(url));
+  }
+
+  Future<void> _launchMapsUrl(Uri url) async {
+    final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
+    if (opened || !mounted) {
+      return;
+    }
+    setState(() {
+      _message = 'Google Maps konnte nicht geöffnet werden.';
+    });
   }
 
   Future<void> _setSelectedOrderStatus(String status) async {

@@ -80,6 +80,17 @@ function normalizeComplaintText(value: unknown) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function resolvePublicApiBaseUrl() {
+  const candidate =
+    normalizeText(process.env.PUBLIC_API_BASE_URL) ??
+    normalizeText(process.env.NEXT_PUBLIC_API_BASE_URL) ??
+    normalizeText(process.env.NEXT_PUBLIC_API_URL)
+  if (candidate) {
+    return candidate.replace(/\/+$/, '')
+  }
+  return 'https://api.klarando.com'
+}
+
 function sanitizeComplaintImagePayload(input: unknown) {
   if (typeof input !== 'string') {
     return null
@@ -1412,7 +1423,16 @@ router.post('/public/:displayCode/driver-devices/session', rateLimitDisplayPairi
       kind: 'PAIRING',
       expiresAtMs,
     })
-    const pairingPayload = `klarando-driver-pair:${display.displayCode}:${pairingToken}`
+    const apiBaseUrl = resolvePublicApiBaseUrl()
+    const pairingPayload = JSON.stringify({
+      type: 'DRIVER_PAIRING',
+      apiBaseUrl,
+      tenantId: display.tenantId,
+      displayCode: display.displayCode,
+      pairingToken,
+      expiresAt: expiresAtIso,
+    })
+    const legacyPairingPayload = `klarando-driver-pair:${display.displayCode}:${pairingToken}`
 
     await writeAuditLog({
       req,
@@ -1441,6 +1461,7 @@ router.post('/public/:displayCode/driver-devices/session', rateLimitDisplayPairi
       expiresAt: expiresAtIso,
       pairingToken,
       pairingPayload,
+      legacyPairingPayload,
       qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=340x340&data=${encodeURIComponent(
         pairingPayload
       )}`,

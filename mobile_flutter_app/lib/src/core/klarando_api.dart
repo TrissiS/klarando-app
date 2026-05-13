@@ -700,6 +700,16 @@ class AppAuthResponse {
   }
 }
 
+class AppCustomerEmailStatus {
+  const AppCustomerEmailStatus({
+    required this.exists,
+    required this.known,
+  });
+
+  final bool exists;
+  final bool known;
+}
+
 class PublicOrderItemSummary {
   const PublicOrderItemSummary({
     required this.productId,
@@ -1315,6 +1325,24 @@ class KlarandoApi {
       body: {'email': email, 'password': password},
     );
     return AppAuthResponse.fromJson(response);
+  }
+
+  Future<AppCustomerEmailStatus> checkAppCustomerEmailStatus({
+    required String baseUrl,
+    required String email,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/app-auth/email-status',
+      body: {
+        'email': email,
+      },
+    );
+    return AppCustomerEmailStatus(
+      exists: _readBool(response['exists']),
+      known: true,
+    );
   }
 
   Future<AppCustomerUser> fetchCurrentAppCustomer({
@@ -2003,11 +2031,11 @@ class KlarandoApi {
       return await responseFuture.timeout(timeout);
     } on TimeoutException {
       throw const ApiException(
-        'Zeitüberschreitung bei der Serveranfrage. Bitte API-URL prüfen.',
+        'Verbindung konnte nicht hergestellt werden.',
       );
     } on http.ClientException {
       throw const ApiException(
-        'Backend nicht erreichbar. Bitte API-URL prüfen und Server starten.',
+        'Verbindung konnte nicht hergestellt werden.',
       );
     } on FormatException {
       throw const ApiException('Ungültige Antwort vom Server');
@@ -2015,7 +2043,7 @@ class KlarandoApi {
       rethrow;
     } catch (_) {
       throw const ApiException(
-        'Backend nicht erreichbar. Bitte API-URL prüfen und Server starten.',
+        'Verbindung konnte nicht hergestellt werden.',
       );
     }
   }
@@ -2024,7 +2052,7 @@ class KlarandoApi {
 String _normalizeBaseUrl(String value) {
   final trimmed = value.trim();
   if (trimmed.isEmpty) {
-    return 'http://localhost:4000';
+    return defaultApiBaseUrl;
   }
   return trimmed.endsWith('/')
       ? trimmed.substring(0, trimmed.length - 1)

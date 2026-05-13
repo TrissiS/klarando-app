@@ -75,6 +75,36 @@ function parsePairingPayload(rawValue: unknown) {
     return null
   }
 
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw) as {
+        type?: unknown
+        pairingToken?: unknown
+        token?: unknown
+        displayCode?: unknown
+      }
+      const type = normalizeText(parsed.type)?.toUpperCase()
+      if (type && type !== 'ORDER_DESK_PAIRING') {
+        return {
+          token: null,
+          displayCode: null,
+          invalidType: type,
+        }
+      }
+      const token = normalizeText(parsed.pairingToken) ?? normalizeText(parsed.token)
+      if (!token) {
+        return null
+      }
+      return {
+        token,
+        displayCode: normalizeText(parsed.displayCode)?.toUpperCase() ?? null,
+        invalidType: null,
+      }
+    } catch {
+      return null
+    }
+  }
+
   if (raw.startsWith('klarando-orderdesk-pair:')) {
     const parts = raw.split(':')
     if (parts.length < 3) {
@@ -83,13 +113,26 @@ function parsePairingPayload(rawValue: unknown) {
     return {
       token: parts.slice(2).join(':'),
       displayCode: normalizeText(parts[1])?.toUpperCase() ?? null,
+      invalidType: null,
     }
   }
 
   return {
     token: raw,
     displayCode: null,
+    invalidType: null,
   }
+}
+
+function resolvePublicApiBaseUrl() {
+  const candidate =
+    normalizeText(process.env.PUBLIC_API_BASE_URL) ??
+    normalizeText(process.env.NEXT_PUBLIC_API_BASE_URL) ??
+    normalizeText(process.env.NEXT_PUBLIC_API_URL)
+  if (candidate) {
+    return candidate.replace(/\/+$/, '')
+  }
+  return 'https://api.klarando.com'
 }
 
 function createPairingSessionId() {
@@ -221,7 +264,16 @@ router.post(
       kind: 'PAIRING',
       expiresAtMs: expiresAt.getTime(),
     })
-    const pairingPayload = `klarando-orderdesk-pair:${display.displayCode}:${pairingToken}`
+    const apiBaseUrl = resolvePublicApiBaseUrl()
+    const pairingPayload = JSON.stringify({
+      type: 'ORDER_DESK_PAIRING',
+      apiBaseUrl,
+      tenantId: display.tenantId,
+      displayCode: display.displayCode,
+      pairingToken,
+      expiresAt: expiresAt.toISOString(),
+    })
+    const legacyPairingPayload = `klarando-orderdesk-pair:${display.displayCode}:${pairingToken}`
 
     await writeAuditLog({
       req,
@@ -249,6 +301,7 @@ router.post(
       expiresAt: expiresAt.toISOString(),
       pairingToken,
       pairingPayload,
+      legacyPairingPayload,
       qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(
         pairingPayload
       )}`,
@@ -361,8 +414,13 @@ router.post('/public/bind', rateLimitOrderDeskPairing, async (req, res) => {
     if (!parsedPair) {
       return res.status(400).json({ error: 'pairingToken oder QR-Payload fehlt' })
     }
+    if (parsedPair.invalidType) {
+      return res.status(400).json({
+        error: 'Dieser QR-Code ist nicht für die OrderDesk-App geeignet.',
+      })
+    }
 
-    const tokenPayload = verifyOrderDeskDeviceToken(parsedPair.token)
+    const tokenPayload = verifyOrderDeskDeviceToken(parsedPair.token as string)
     if (!tokenPayload || tokenPayload.kind !== 'PAIRING') {
       return res.status(401).json({ error: 'OrderDesk-QR ist ungültig oder abgelaufen' })
     }

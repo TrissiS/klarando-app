@@ -9,6 +9,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'core/klarando_api.dart';
+import 'core/api_environment.dart';
+import 'core/pairing_payload.dart';
 import 'core/receipt_printing.dart';
 import 'theme/klarando_theme.dart';
 
@@ -49,7 +51,7 @@ class _CashierDisplayHomePage extends StatefulWidget {
 class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   final _api = const KlarandoApi();
   final _baseUrlController = TextEditingController(
-    text: 'http://localhost:4000',
+    text: defaultApiBaseUrl,
   );
   final _displayCodeController = TextEditingController();
   final _pairingTokenController = TextEditingController();
@@ -484,9 +486,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _bindWithPairingToken() async {
-    final pairingToken = _pairingTokenController.text.trim();
+    final rawPairingInput = _pairingTokenController.text.trim();
     final deviceSerial = _deviceSerialController.text.trim().toUpperCase();
-    if (pairingToken.isEmpty) {
+    if (rawPairingInput.isEmpty) {
       setState(() {
         _error = 'Bitte Pairing-Token eintragen oder QR scannen.';
       });
@@ -499,10 +501,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return;
     }
 
+    final parsedPairing = parsePairingPayload(
+      rawPairingInput,
+      expectedType: PairingPayloadType.orderDesk,
+    );
+    if (parsedPairing == null) {
+      setState(() {
+        _error = 'Dieser QR-Code ist nicht für diese App geeignet.';
+      });
+      return;
+    }
+
     await _runOrderMutation(() async {
       final response = await _api.bindOrderDeskDevice(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        pairingTokenOrPayload: pairingToken,
+        baseUrl: parsedPairing.apiBaseUrl,
+        pairingTokenOrPayload: parsedPairing.rawPayload,
         deviceSerial: deviceSerial,
         deviceAlias: _deviceAliasController.text.trim(),
         deviceModel: 'unknown',
@@ -532,6 +545,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
 
       setState(() {
+        _baseUrlController.text = parsedPairing.apiBaseUrl;
         _displayCodeController.text = response.displayCode;
         _deviceAuthToken = response.authToken;
         _bindingId = response.binding.id;
@@ -558,9 +572,22 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (token == null || token.isEmpty || !mounted) {
       return;
     }
+    final parsedPairing = parsePairingPayload(
+      token,
+      expectedType: PairingPayloadType.orderDesk,
+    );
+    if (parsedPairing == null) {
+      setState(() {
+        _error = 'Dieser QR-Code ist nicht für diese App geeignet.';
+      });
+      return;
+    }
+
     setState(() {
-      _pairingTokenController.text = token;
+      _pairingTokenController.text = parsedPairing.rawPayload;
+      _baseUrlController.text = parsedPairing.apiBaseUrl;
       _info = 'QR-Code erkannt. Jetzt "Per QR verbinden" tippen.';
+      _error = null;
     });
   }
 
@@ -1680,11 +1707,5 @@ class _DispatchTarget {
 }
 
 String _normalizeBaseUrl(String value) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) {
-    return 'http://localhost:4000';
-  }
-  return trimmed.endsWith('/')
-      ? trimmed.substring(0, trimmed.length - 1)
-      : trimmed;
+  return normalizeApiBaseUrl(value);
 }
