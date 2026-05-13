@@ -1085,7 +1085,7 @@ function ProductCard({ product }: { product: Product }) {
           </div>
           <div>
             <h4 className="font-semibold">{product.name}</h4>
-            <p className="text-sm text-rose-900/70">Nr. {product.productNumber}</p>
+            <p className="text-sm text-rose-900/70">Nr. {product.productNumber || "-"}</p>
           </div>
         </div>
         <div className="rounded-xl bg-white px-3 py-1.5 text-sm font-semibold ring-1 ring-[var(--brand-border)]">

@@ -41,7 +41,7 @@ const TICKER_DATA_SOURCES = new Set(['CUSTOM', 'NEWS_API', 'WEATHER_API', 'TRAFF
 type ProductWithRelations = {
   id: string
   tenantId: string
-  productNumber: string
+  productNumber: string | null
   name: string
   price: unknown
   beverageContainerType: 'NONE' | 'EINWEG' | 'MEHRWEG'

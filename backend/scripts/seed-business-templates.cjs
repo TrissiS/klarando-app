@@ -24,14 +24,14 @@ const TEMPLATE_TYPES = [
 
 const i = (name, unit, purchasePrice, allergens = [], category = 'FOOD') => ({ name, unit, purchasePrice, allergens, category })
 const pi = (name, quantity) => ({ name, quantity })
-const p = (productNumber, name, category, price, ingredients) => ({ productNumber, name, category, price, ingredients })
+const p = (name, category, price, ingredients) => ({ productNumber: null, name, category, price, ingredients })
 
 function baseTemplate(prefix, categories, ingredients, productDefs, modifiers) {
   return {
     categories,
     ingredients,
     products: productDefs.map((row, idx) =>
-      p(`${prefix}-${String(idx + 1).padStart(3, '0')}`, row.name, row.category, row.price, row.ingredients)
+      p(row.name, row.category, row.price, row.ingredients)
     ),
     modifiers,
   }
@@ -43,7 +43,7 @@ function deriveTemplate(base, nextPrefix, categoryMap = {}, rename = () => null,
     const nextName = rename(product.name) || product.name
     return {
       ...product,
-      productNumber: `${nextPrefix}-${String(index + 1).padStart(3, '0')}`,
+      productNumber: null,
       name: nextName,
       category: categoryMap[product.category] || product.category,
     }
@@ -379,11 +379,37 @@ async function upsertTemplateData(template, data) {
   }
 
   for (const prod of data.products) {
-    const productRow = await prisma.businessTemplateProduct.upsert({
-      where: { templateId_productNumber: { templateId: template.id, productNumber: prod.productNumber } },
-      update: { name: prod.name, categoryId: categoryByName.get(prod.category) || null, price: prod.price, vatRate: '7.00', available: true },
-      create: { templateId: template.id, categoryId: categoryByName.get(prod.category) || null, productNumber: prod.productNumber, name: prod.name, price: prod.price, vatRate: '7.00', available: true },
+    const existingProduct = await prisma.businessTemplateProduct.findFirst({
+      where: {
+        templateId: template.id,
+        name: prod.name,
+        categoryId: categoryByName.get(prod.category) || null,
+      },
+      select: { id: true },
     })
+    const productRow = existingProduct
+      ? await prisma.businessTemplateProduct.update({
+          where: { id: existingProduct.id },
+          data: {
+            name: prod.name,
+            categoryId: categoryByName.get(prod.category) || null,
+            price: prod.price,
+            vatRate: '7.00',
+            available: true,
+            productNumber: null,
+          },
+        })
+      : await prisma.businessTemplateProduct.create({
+          data: {
+            templateId: template.id,
+            categoryId: categoryByName.get(prod.category) || null,
+            productNumber: null,
+            name: prod.name,
+            price: prod.price,
+            vatRate: '7.00',
+            available: true,
+          },
+        })
 
     for (const link of prod.ingredients) {
       const ingredientId = ingredientByName.get(link.name)

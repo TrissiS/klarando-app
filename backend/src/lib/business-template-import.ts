@@ -55,8 +55,10 @@ type TenantImportRegistryEntry = {
   importedAt: string
 }
 
-function normalizeKey(value: string) {
-  return value.trim().toLowerCase()
+function normalizeKey(value?: string | null) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
 }
 
 function toAllergenCodeString(allergens: string[]) {
@@ -190,10 +192,12 @@ export async function importBusinessTemplateToTenant(
 
     const categoryByName = new Map(existingCategories.map((item) => [normalizeKey(item.name), item.id]))
     const ingredientByName = new Map(existingIngredients.map((item) => [normalizeKey(item.name), item.id]))
-    const productByNumber = new Map(
-      existingProducts.map((item) => [normalizeKey(item.productNumber), item.id])
+    const productByNameAndCategory = new Map(
+      existingProducts.map((item) => [
+        `${normalizeKey(item.name)}::${item.categoryId || ''}`,
+        item.id,
+      ])
     )
-    const productByName = new Map(existingProducts.map((item) => [normalizeKey(item.name), item.id]))
 
     const templateCategoryToTenantCategory = new Map<string, string>()
     const templateIngredientToTenantIngredient = new Map<string, string>()
@@ -302,19 +306,20 @@ export async function importBusinessTemplateToTenant(
     }
 
     for (const templateProduct of template.products) {
-      const normalizedProductNumber = normalizeKey(templateProduct.productNumber)
       const normalizedProductName = normalizeKey(templateProduct.name)
+      const mappedCategoryId = templateProduct.categoryId
+        ? templateCategoryToTenantCategory.get(templateProduct.categoryId) || null
+        : null
       let tenantProductId =
-        productByNumber.get(normalizedProductNumber) || productByName.get(normalizedProductName)
+        productByNameAndCategory.get(`${normalizedProductName}::${mappedCategoryId || ''}`) ||
+        productByNameAndCategory.get(`${normalizedProductName}::`)
 
       if (!tenantProductId && options.importProducts) {
         const createdProduct = await tx.product.create({
           data: {
             tenantId: input.tenantId,
-            categoryId: templateProduct.categoryId
-              ? templateCategoryToTenantCategory.get(templateProduct.categoryId) || null
-              : null,
-            productNumber: templateProduct.productNumber,
+            categoryId: mappedCategoryId,
+            productNumber: null,
             name: templateProduct.name,
             imageUrl: templateProduct.imageUrl,
             price: options.importPriceSuggestions
@@ -333,9 +338,7 @@ export async function importBusinessTemplateToTenant(
         await tx.product.update({
           where: { id: tenantProductId },
           data: {
-            categoryId: templateProduct.categoryId
-              ? templateCategoryToTenantCategory.get(templateProduct.categoryId) || null
-              : null,
+            categoryId: mappedCategoryId,
             name: templateProduct.name,
             imageUrl: templateProduct.imageUrl,
             available: templateProduct.available,
@@ -353,8 +356,10 @@ export async function importBusinessTemplateToTenant(
       }
 
       if (tenantProductId) {
-        productByNumber.set(normalizedProductNumber, tenantProductId)
-        productByName.set(normalizedProductName, tenantProductId)
+        productByNameAndCategory.set(
+          `${normalizedProductName}::${mappedCategoryId || ''}`,
+          tenantProductId
+        )
         templateProductToTenantProduct.set(templateProduct.id, tenantProductId)
       }
     }

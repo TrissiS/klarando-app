@@ -28,7 +28,7 @@ type Props = {
   products: Array<{
     id: string
     name: string
-    productNumber: string
+    productNumber: string | null
   }>
 }
 
@@ -339,7 +339,7 @@ export default function ProductIngredientsManager({ productId, productName, prod
                 options={
                   products.length > 0
                     ? products.map((product) => ({
-                        label: `${product.productNumber} - ${product.name}`,
+                        label: `${product.productNumber || '-'} - ${product.name}`,
                         value: product.id,
                       }))
                     : [{ label: 'Keine Produkte vorhanden', value: '' }]

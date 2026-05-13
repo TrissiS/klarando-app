@@ -26,7 +26,6 @@ type Props = {
   nutritionInfo: string
   setNutritionInfo: (value: string) => void
   onProductImageFileChange: (file: File | null) => void
-  nextProductNumberSuggestion: string
   price: string
   setPrice: (value: string) => void
   vatRate: string
@@ -73,7 +72,6 @@ export default function AdminProductsSection({
   nutritionInfo,
   setNutritionInfo,
   onProductImageFileChange,
-  nextProductNumberSuggestion,
   price,
   setPrice,
   vatRate,
@@ -118,7 +116,7 @@ export default function AdminProductsSection({
       if (query) {
         const matchesQuery =
           product.name.toLowerCase().includes(query) ||
-          product.productNumber.toLowerCase().includes(query)
+          (product.productNumber || '').toLowerCase().includes(query)
         if (!matchesQuery) {
           return false
         }
@@ -197,33 +195,16 @@ export default function AdminProductsSection({
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-rose-900/85">
               Produktnummer
-              {!editingProductId ? (
-                <button
-                  type="button"
-                  onClick={() => setProductNumber(nextProductNumberSuggestion)}
-                  className="ml-2 rounded-md border border-[var(--brand-border)] px-2 py-0.5 text-xs font-medium text-rose-900/85 transition hover:bg-rose-50"
-                >
-                  Vorschlag {nextProductNumberSuggestion}
-                </button>
-              ) : null}
             </span>
             <input
               value={productNumber}
               onChange={(event) => setProductNumber(event.target.value)}
-              placeholder="z. B. 101"
-              required
-              disabled={Boolean(editingProductId)}
+              placeholder="Optional"
               className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60 disabled:cursor-not-allowed disabled:bg-rose-50"
             />
-            {editingProductId ? (
-              <p className="mt-1 text-xs text-rose-900/70">
-                Produktnummer bleibt im Bearbeitungsmodus unveraendert.
-              </p>
-            ) : (
-              <p className="mt-1 text-xs text-rose-900/70">
-                Tipp: Mit "Vorschlag" wird automatisch die naechste Nummer gesetzt.
-              </p>
-            )}
+            <p className="mt-1 text-xs text-rose-900/70">
+              Artikelnummer optional – muss innerhalb der Filiale eindeutig sein.
+            </p>
           </label>
 
           <label className="block">
@@ -634,7 +615,7 @@ export default function AdminProductsSection({
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <p className="font-medium text-[var(--brand-ink)]">{product.name}</p>
-                      <p className="text-xs text-rose-900/70">Nr. {product.productNumber}</p>
+                      <p className="text-xs text-rose-900/70">Nr. {product.productNumber || '-'}</p>
                       {formatBeverageContainerType(product.beverageContainerType) ? (
                         <p className="mt-1 text-xs text-rose-900/70">
                           {formatBeverageContainerType(product.beverageContainerType)}

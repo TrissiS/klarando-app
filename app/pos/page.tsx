@@ -173,7 +173,7 @@ export default function PosPage() {
                     </div>
 
                     <p className="mt-3 text-sm text-slate-500">
-                      Nr. {product.productNumber}
+                      Nr. {product.productNumber || "-"}
                     </p>
                   </button>
                 ))}

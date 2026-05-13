@@ -238,32 +238,39 @@ router.post('/:id/product', requirePermission(PermissionKey.PRODUCTS_WRITE), asy
     if (!auth.ok) return auth.response
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
     const payload = req.body as {
-      productNumber?: string
       name?: string
       categoryId?: string | null
       price?: number
     }
-    if (!id || !payload.productNumber?.trim() || !payload.name?.trim()) {
-      return res.status(400).json({ error: 'Template-ID, Produktnummer und Produktname sind erforderlich' })
+    if (!id || !payload.name?.trim()) {
+      return res.status(400).json({ error: 'Template-ID und Produktname sind erforderlich' })
     }
+
+    const normalizedName = payload.name.trim()
+    const categoryId = payload.categoryId || null
+    const existingProduct = await prisma.businessTemplateProduct.findFirst({
+      where: {
+        templateId: id,
+        name: normalizedName,
+        categoryId,
+      },
+      select: { id: true },
+    })
 
     const product = await prisma.businessTemplateProduct.upsert({
       where: {
-        templateId_productNumber: {
-          templateId: id,
-          productNumber: payload.productNumber.trim(),
-        },
+        id: existingProduct?.id || '__no-match__',
       },
       update: {
-        name: payload.name.trim(),
-        categoryId: payload.categoryId || null,
+        name: normalizedName,
+        categoryId,
         price: Number.isFinite(payload.price) ? Number(payload.price) : 0,
       },
       create: {
         templateId: id,
-        productNumber: payload.productNumber.trim(),
-        name: payload.name.trim(),
-        categoryId: payload.categoryId || null,
+        productNumber: null,
+        name: normalizedName,
+        categoryId,
         price: Number.isFinite(payload.price) ? Number(payload.price) : 0,
         vatRate: 7,
         available: true,

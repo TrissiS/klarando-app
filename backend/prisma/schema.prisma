@@ -297,7 +297,7 @@ model BusinessTemplateProduct {
   id               String                             @id @default(uuid())
   templateId       String
   categoryId       String?
-  productNumber    String
+  productNumber    String?
   name             String
   imageUrl         String?
   price            Decimal                            @db.Decimal(10, 2)
@@ -309,7 +309,7 @@ model BusinessTemplateProduct {
   createdAt        DateTime                           @default(now())
   updatedAt        DateTime                           @updatedAt
 
-  @@unique([templateId, productNumber])
+  @@unique([templateId, name, categoryId])
   @@index([templateId, categoryId])
 }
 
@@ -474,7 +474,7 @@ model Product {
   id            String              @id @default(uuid())
   tenantId      String
   categoryId    String?
-  productNumber String
+  productNumber String?
   name          String
   imageUrl      String?
   ean           String?
@@ -497,6 +497,8 @@ model Product {
   modifiers     ProductModifier[]
 
   createdAt     DateTime            @default(now())
+
+  @@unique([tenantId, productNumber])
 }
 
 model ScreenSetting {

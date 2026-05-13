@@ -96,7 +96,7 @@ function mapTerminalProduct(product: {
   id: string
   tenantId: string
   categoryId: string | null
-  productNumber: string
+  productNumber: string | null
   name: string
   imageUrl: string | null
   beverageContainerType: 'NONE' | 'EINWEG' | 'MEHRWEG'

@@ -43,49 +43,6 @@ function isProductTab(value: string | null): value is ProductTab {
   return value === 'products' || value === 'categories' || value === 'ingredients' || value === 'pricing'
 }
 
-function suggestNextProductNumber(products: Product[]) {
-  const numericValues = products
-    .map((entry) => Number(entry.productNumber))
-    .filter((entry) => Number.isInteger(entry) && entry >= 0)
-
-  if (numericValues.length === 0) {
-    return '100'
-  }
-
-  return String(Math.max(...numericValues) + 1)
-}
-
-function suggestUniqueProductNumberForCopy(products: Product[], sourceNumber: string) {
-  const used = new Set(
-    products
-      .map((entry) => entry.productNumber.trim())
-      .filter((entry) => entry.length > 0)
-  )
-
-  const normalized = sourceNumber.trim()
-  if (!normalized) {
-    return suggestNextProductNumber(products)
-  }
-
-  if (/^\d+$/.test(normalized)) {
-    let candidate = Number(normalized) + 1
-    while (used.has(String(candidate))) {
-      candidate += 1
-    }
-    return String(candidate)
-  }
-
-  const suffixMatch = normalized.match(/^(.*)-K(\d+)$/i)
-  const base = suffixMatch ? suffixMatch[1] : normalized
-  let counter = suffixMatch ? Number(suffixMatch[2]) + 1 : 1
-  let candidate = `${base}-K${counter}`
-  while (used.has(candidate)) {
-    counter += 1
-    candidate = `${base}-K${counter}`
-  }
-  return candidate
-}
-
 function suggestUniqueProductNameForCopy(products: Product[], sourceName: string) {
   const used = new Set(
     products.map((entry) => entry.name.trim().toLowerCase()).filter((entry) => entry.length > 0)
@@ -280,12 +237,6 @@ function AdminProductsPageContent() {
     }
   }, [activeTab])
 
-  useEffect(() => {
-    if (!editingProductId && !productNumber) {
-      setProductNumber(suggestNextProductNumber(products))
-    }
-  }, [editingProductId, productNumber, products])
-
   function setTab(tab: ProductTab) {
     setActiveTab(tab)
     const params = new URLSearchParams(searchParams.toString())
@@ -299,7 +250,7 @@ function AdminProductsPageContent() {
   }
 
   function resetProductForm() {
-    setProductNumber(suggestNextProductNumber(products))
+    setProductNumber('')
     setProductName('')
     setProductImageUrl('')
     setProductEan('')
@@ -491,7 +442,7 @@ function AdminProductsPageContent() {
         ean: product.ean || null,
         unitEans: product.unitEans || [],
         supplier: '',
-        articleNumber: product.productNumber,
+        articleNumber: product.productNumber || '',
         allergens: (product.allergens || []).join(','),
       })
       setSuccess(`Produkt "${product.name}" wurde als Zutat angelegt.`)
@@ -518,7 +469,7 @@ function AdminProductsPageContent() {
 
       const copiedProduct = await createProduct({
         categoryId: product.categoryId || null,
-        productNumber: suggestUniqueProductNumberForCopy(products, product.productNumber),
+        productNumber: '',
         name: suggestUniqueProductNameForCopy(products, product.name),
         imageUrl: product.imageUrl || null,
         ean: product.ean || null,
@@ -640,7 +591,7 @@ function AdminProductsPageContent() {
     setIngredientEan(product.ean || '')
     setIngredientUnitEans(product.unitEans || [])
     setAllergens((product.allergens || []).join(','))
-    setArticleNumber(product.productNumber)
+    setArticleNumber(product.productNumber || '')
     setError('')
     setSuccess(`Produktvorlage "${product.name}" wurde uebernommen.`)
   }
@@ -741,7 +692,8 @@ function AdminProductsPageContent() {
     return products.filter((product) => {
       if (query) {
         const matchesQuery =
-          product.name.toLowerCase().includes(query) || product.productNumber.toLowerCase().includes(query)
+          product.name.toLowerCase().includes(query) ||
+          (product.productNumber || '').toLowerCase().includes(query)
         if (!matchesQuery) return false
       }
       if (pricingCategoryFilter !== 'ALL' && product.categoryId !== pricingCategoryFilter) {
@@ -895,7 +847,6 @@ function AdminProductsPageContent() {
             nutritionInfo={nutritionInfo}
             setNutritionInfo={setNutritionInfo}
             onProductImageFileChange={(file) => void handleProductImageFile(file)}
-            nextProductNumberSuggestion={suggestNextProductNumber(products)}
             price={price}
             setPrice={setPrice}
             vatRate={vatRate}
@@ -912,7 +863,7 @@ function AdminProductsPageContent() {
             onSubmit={handleProductSubmit}
             onEdit={(product) => {
               setEditingProductId(product.id)
-              setProductNumber(product.productNumber)
+              setProductNumber(product.productNumber || '')
               setProductName(product.name)
               setProductImageUrl(product.imageUrl || '')
               setProductEan(product.ean || '')
@@ -1122,7 +1073,7 @@ function AdminProductsPageContent() {
                       <tr key={product.id}>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">
                           <p className="font-medium text-[var(--brand-ink)]">{product.name}</p>
-                          <p className="text-xs text-rose-900/70">Nr. {product.productNumber}</p>
+                          <p className="text-xs text-rose-900/70">Nr. {product.productNumber || '-'}</p>
                         </td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
                           {product.category?.name || '-'}

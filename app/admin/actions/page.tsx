@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
@@ -485,7 +485,7 @@ export default function AdminActionsPage() {
                           }}
                         />
                         <span>
-                          {product.name} (Nr. {product.productNumber})
+                          {product.name} (Nr. {product.productNumber || "-"})
                         </span>
                       </label>
                     )

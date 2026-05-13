@@ -116,11 +116,11 @@ function normalizeMoney(value: unknown, fallback = 0) {
 }
 
 function collectAllergens(product: {
-  ingredients: Array<{ ingredient: { allergens: string | null } }>
+  ingredients?: Array<{ ingredient: { allergens: string | null } }>
 }) {
   const codes = new Set<string>()
 
-  for (const item of product.ingredients) {
+  for (const item of product.ingredients || []) {
     const raw = item.ingredient.allergens
 
     if (!raw) {
@@ -145,7 +145,7 @@ function mapProductOutput(
     articleInfo?: string | null
     foodBusinessOperator?: string | null
     nutritionInfo?: string | null
-    ingredients: Array<{ ingredient: { allergens: string | null } }>
+    ingredients?: Array<{ ingredient: { allergens: string | null } }>
   } & Record<string, unknown>
 ) {
   return {
@@ -321,7 +321,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
     const normalizedProductNumber = normalizeProductNumber(productNumber)
     const normalizedName = normalizeText(name)
 
-    if (!normalizedProductNumber || !normalizedName || price === undefined) {
+    if (!normalizedName || price === undefined) {
       return res.status(400).json({ error: 'Pflichtfelder fehlen' })
     }
     const scope = await resolveTenantScope(req, tenantId)
@@ -332,20 +332,22 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       return res.status(400).json({ error: 'Kategorie gehoert nicht zur Filiale' })
     }
 
-    const existingWithProductNumber = await prisma.product.findFirst({
-      where: {
-        tenantId: scopedTenantId,
-        productNumber: normalizedProductNumber,
-      },
-      select: {
-        id: true,
-      },
-    })
-
-    if (existingWithProductNumber) {
-      return res.status(409).json({
-        error: 'Produktnummer ist bereits vergeben',
+    if (normalizedProductNumber) {
+      const existingWithProductNumber = await prisma.product.findFirst({
+        where: {
+          tenantId: scopedTenantId,
+          productNumber: normalizedProductNumber,
+        },
+        select: {
+          id: true,
+        },
       })
+
+      if (existingWithProductNumber) {
+        return res.status(409).json({
+          error: 'Diese Artikelnummer ist bereits vergeben.',
+        })
+      }
     }
 
     const normalizedUnitEans = normalizeUnitEans(unitEans)
@@ -356,7 +358,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
         data: {
           tenantId: scopedTenantId,
           categoryId: resolvedCategoryId,
-          productNumber: normalizedProductNumber,
+          productNumber: normalizedProductNumber ?? null,
           name: normalizedName,
           imageUrl: normalizeText(imageUrl),
           ean: normalizeEan(ean),
@@ -426,6 +428,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
     const {
       name,
+      productNumber,
       imageUrl,
       ean,
       unitEans,
@@ -452,6 +455,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       vatRate?: number
       categoryId?: string | null
       available?: boolean
+      productNumber?: string | null
     }
 
     if (!id) {
@@ -480,6 +484,26 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
 
     const normalizedUnitEans = unitEans === undefined ? undefined : normalizeUnitEans(unitEans)
     const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType)
+    const normalizedProductNumber = normalizeProductNumber(productNumber)
+
+    if (normalizedProductNumber) {
+      const existingWithProductNumber = await prisma.product.findFirst({
+        where: {
+          tenantId: existingProduct.tenantId,
+          productNumber: normalizedProductNumber,
+          NOT: { id },
+        },
+        select: {
+          id: true,
+        },
+      })
+
+      if (existingWithProductNumber) {
+        return res.status(409).json({
+          error: 'Diese Artikelnummer ist bereits vergeben.',
+        })
+      }
+    }
 
     const updateProductRecord = () =>
       prisma.product.update({
@@ -499,6 +523,8 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
           foodBusinessOperator:
             foodBusinessOperator === undefined ? undefined : normalizeText(foodBusinessOperator),
           nutritionInfo: nutritionInfo === undefined ? undefined : normalizeText(nutritionInfo),
+          productNumber:
+            productNumber === undefined ? undefined : (normalizedProductNumber ?? null),
           price: price === undefined ? undefined : Number(price),
           vatRate: vatRate === undefined ? undefined : Number(vatRate),
           categoryId: categoryId === undefined ? undefined : categoryId || null,

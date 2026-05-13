@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
@@ -3643,7 +3643,7 @@ export default function AdminScreenPage() {
                       >
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">
                           <p className="font-medium text-[var(--brand-ink)]">{product.name}</p>
-                          <p className="text-xs text-rose-900/70">Nr. {product.productNumber}</p>
+                          <p className="text-xs text-rose-900/70">Nr. {product.productNumber || "-"}</p>
                         </td>
                         <td className="border-t border-slate-100 px-3 py-2 text-xs text-rose-900/85">
                           {product.ingredients.length > 0 ? ingredientPreview(product.ingredients, true) : '-'}

@@ -30,7 +30,7 @@ export type Product = {
   id: string
   tenantId: string
   categoryId: string | null
-  productNumber: string
+  productNumber: string | null
   name: string
   imageUrl: string | null
   ean: string | null
@@ -160,7 +160,7 @@ export type ScreenConfig = {
 export type ScreenProduct = {
   id: string
   tenantId: string
-  productNumber: string
+  productNumber: string | null
   name: string
   price: string
   beverageContainerType: 'NONE' | 'EINWEG' | 'MEHRWEG'
@@ -254,7 +254,7 @@ export type PublicScreenFeed = {
     products: Array<{
       productId: string
       name: string
-      productNumber: string
+      productNumber: string | null
       available: boolean
       price: string
       imageUrl: string | null
@@ -634,7 +634,7 @@ export type ActionProductLink = {
   product: {
     id: string
     name: string
-    productNumber: string
+    productNumber: string | null
     price: string
     available: boolean
   }
@@ -1637,7 +1637,7 @@ export async function getProducts(options?: { availableOnly?: boolean }): Promis
 
 export async function createProduct(data: {
   categoryId: string | null
-  productNumber: string
+  productNumber?: string | null
   name: string
   imageUrl?: string | null
   ean?: string | null
@@ -1692,6 +1692,7 @@ export async function createProduct(data: {
 export async function updateProduct(
   id: string,
   data: {
+    productNumber?: string | null
     name: string
     imageUrl?: string | null
     ean?: string | null
@@ -4647,7 +4648,7 @@ export type BusinessTemplateDetail = {
     id: string
     templateId: string
     categoryId: string | null
-    productNumber: string
+    productNumber: string | null
     name: string
     price: string
     vatRate: string
@@ -5719,7 +5720,7 @@ export async function createBusinessTemplateIngredient(
 export async function createBusinessTemplateProduct(
   token: string,
   templateId: string,
-  payload: { productNumber: string; name: string; categoryId?: string | null; price?: number }
+  payload: { productNumber?: string | null; name: string; categoryId?: string | null; price?: number }
 ) {
   const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/product`, {
     method: 'POST',
