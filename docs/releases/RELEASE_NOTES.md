@@ -98,3 +98,9 @@ Automatisch erzeugte Release-Historie für lokale Desktop-Deployments.
 - Commit-Message: release: klarando v0.1.16 (live)
 - Quelle: lokales Desktop-Deploy-Script
 
+## v0.1.17 (2026-05-13 21:43:30 UTC)
+- Modus: test
+- Basis-Commit: 878aadb
+- Commit-Message: release: klarando v0.1.17 (test)
+- Quelle: lokales Desktop-Deploy-Script
+
