@@ -214,6 +214,8 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   bool _sendingLocation = false;
   bool _capturingSignature = false;
   bool _rememberSession = true;
+  bool _showManualLoginFallback = false;
+  bool _showManualPairingFallback = false;
 
   String _message = 'Bitte als Fahrer einloggen.';
   String? _updateInfo;
@@ -292,7 +294,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         await _refreshOrders(forceMessage: false);
         _startOrdersPolling();
         _message = _deviceSessionMode
-            ? 'Fahrergeraet-Sitzung wiederhergestellt.'
+            ? 'Fahrergerät-Sitzung wiederhergestellt.'
             : 'Fahrersitzung wiederhergestellt.';
       } on ApiException catch (error) {
         await _clearPersistedSession();
@@ -515,7 +517,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     try {
       setState(() {
         _isBusy = true;
-        _message = 'Login laeuft...';
+        _message = 'Login läuft...';
       });
       final response = await _api.login(baseUrl: baseUrl, email: email, password: password);
       if (response.user.role.toUpperCase() != 'DRIVER') {
@@ -554,7 +556,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     final rawPairingInput = _pairingTokenController.text.trim();
     if (rawPairingInput.isEmpty) {
       setState(() {
-        _message = 'Bitte QR-Pairing-Token eingeben oder scannen.';
+        _message = 'Bitte zuerst den QR-Code scannen.';
       });
       return;
     }
@@ -578,7 +580,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     try {
       setState(() {
         _isBusy = true;
-        _message = 'Fahrergeraet wird verbunden...';
+        _message = 'Fahrergerät wird verbunden...';
       });
 
       final response = await _api.loginDriverDevice(
@@ -611,7 +613,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _deviceLabel = response.session.deviceLabel;
         _deviceSessionExpiresAt = response.session.expiresAt;
         _isBusy = false;
-        _message = 'Fahrergeraet verbunden.';
+        _message = 'Fahrergerät verbunden.';
       });
 
       await _refreshOrders(forceMessage: false);
@@ -619,7 +621,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     } on ApiException catch (error) {
       setState(() {
         _isBusy = false;
-        _message = error.message;
+        _message = _mapPairingErrorMessage(error.message);
       });
     }
   }
@@ -651,8 +653,20 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     setState(() {
       _pairingTokenController.text = parsedPairing.rawPayload;
       _baseUrlController.text = parsedPairing.apiBaseUrl;
-      _message = 'QR-Code erkannt. Bitte jetzt Fahrergerät verbinden.';
+      _message = 'QR-Code erkannt. Verbindung wird gestartet ...';
     });
+    await _loginWithPairing();
+  }
+
+  String _mapPairingErrorMessage(String message) {
+    final normalized = message.toLowerCase();
+    if (normalized.contains('expired') || normalized.contains('abgelaufen')) {
+      return 'QR-Code abgelaufen. Bitte neuen Code im Adminbereich erzeugen.';
+    }
+    if (normalized.contains('timeout') || normalized.contains('network') || normalized.contains('verbindung')) {
+      return 'Verbindung konnte nicht hergestellt werden.';
+    }
+    return message;
   }
 
   Future<void> _logout() async {
@@ -729,7 +743,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       shouldSyncTracking = true;
 
       if (forceMessage) {
-        _message = '${feed.orders.length} Fahrerauftraege geladen.';
+        _message = '${feed.orders.length} Fahreraufträge geladen.';
       }
     });
     if (shouldSyncTracking) {
@@ -828,7 +842,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
 
     if (!_canTrackSelectedOrder) {
       setState(() {
-        _locationInfo = 'Bitte eine Lieferbestellung auswaehlen, um Standortdaten zu senden.';
+        _locationInfo = 'Bitte eine Lieferbestellung auswählen, um Standortdaten zu senden.';
       });
       return;
     }
@@ -925,7 +939,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       if (!mounted) return;
       setState(() {
         _locationSharingActive = false;
-        _locationInfo = 'Bitte Lieferauftrag auswaehlen.';
+        _locationInfo = 'Bitte Lieferauftrag auswählen.';
       });
       return;
     }
@@ -1244,7 +1258,8 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         child: Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: Column(
+            child: SingleChildScrollView(
+              child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -1253,97 +1268,144 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: _baseUrlController,
-                  decoration: const InputDecoration(
-                    labelText: 'Backend API URL',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (_) {
-                    unawaited(_saveBaseUrlPreference());
-                  },
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(
-                    labelText: 'E-Mail',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _passwordController,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Passwort',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                CheckboxListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  value: _rememberSession,
-                  onChanged: (value) {
-                    setState(() {
-                      _rememberSession = value ?? true;
-                    });
-                  },
-                  title: const Text('Sitzung auf diesem Geraet merken'),
-                ),
-                const SizedBox(height: 8),
-                FilledButton(
-                  onPressed: _isBusy ? null : _login,
-                  child: Text(_isBusy ? 'Bitte warten...' : 'Als Fahrer einloggen'),
-                ),
-                const SizedBox(height: 16),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
                 const Text(
-                  'Oder per QR mit Klarando OrderDesk verbinden',
+                  'Gerät verbinden',
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _pairingTokenController,
-                  minLines: 1,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    labelText: 'QR-Pairing-Token / QR-Inhalt',
-                    hintText: 'klarando-driver-pair:DISPLAY:TOKEN',
-                    border: OutlineInputBorder(),
-                  ),
+                const SizedBox(height: 4),
+                const Text(
+                  'QR-Code scannen zum Verbinden.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: _isBusy ? null : _scanPairingTokenWithCamera,
                   icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('QR mit Kamera scannen'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: _pairingDriverNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Fahrername (optional bei Geraetemodus)',
-                    border: OutlineInputBorder(),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(42),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
+                  label: const Text('QR-Code scannen zum Verbinden'),
                 ),
                 const SizedBox(height: 8),
-                FilledButton.tonal(
-                  onPressed: _isBusy ? null : _loginWithPairing,
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size.fromHeight(44),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                TextButton(
+                  onPressed: _isBusy
+                      ? null
+                      : () {
+                          setState(() {
+                            _showManualLoginFallback = !_showManualLoginFallback;
+                          });
+                        },
+                  child: Text(
+                    _showManualLoginFallback
+                        ? 'Manuellen Login ausblenden'
+                        : 'Manuellen Login anzeigen',
                   ),
-                  child: Text(_isBusy ? 'Bitte warten...' : 'Fahrergeraet per QR verbinden'),
                 ),
+                if (_showManualLoginFallback) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _baseUrlController,
+                    decoration: const InputDecoration(
+                      labelText: 'Backend API URL',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (_) {
+                      unawaited(_saveBaseUrlPreference());
+                    },
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _emailController,
+                    decoration: const InputDecoration(
+                      labelText: 'E-Mail',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: _passwordController,
+                    obscureText: true,
+                    decoration: const InputDecoration(
+                      labelText: 'Passwort',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    value: _rememberSession,
+                    onChanged: (value) {
+                      setState(() {
+                        _rememberSession = value ?? true;
+                      });
+                    },
+                    title: const Text('Sitzung auf diesem Gerät merken'),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton(
+                    onPressed: _isBusy ? null : _login,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(42),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    child: Text(_isBusy ? 'Bitte warten...' : 'Als Fahrer einloggen'),
+                  ),
+                ],
+                TextButton(
+                  onPressed: _isBusy
+                      ? null
+                      : () {
+                          setState(() {
+                            _showManualPairingFallback = !_showManualPairingFallback;
+                          });
+                        },
+                  child: Text(
+                    _showManualPairingFallback
+                        ? 'Manuelle Eingabe ausblenden'
+                        : 'Manuelle Eingabe (Fallback) anzeigen',
+                  ),
+                ),
+                if (_showManualPairingFallback) ...[
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _pairingTokenController,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'QR-Pairing-Token / QR-Inhalt',
+                      hintText: 'klarando-driver-pair:DISPLAY:TOKEN',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _pairingDriverNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Fahrername (optional bei Gerätemodus)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  FilledButton.tonal(
+                    onPressed: _isBusy ? null : _loginWithPairing,
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(42),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    child: Text(_isBusy ? 'Bitte warten...' : 'Mit manuellem Token verbinden'),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: (_isBusy || _checkingUpdate) ? null : _checkForAppUpdate,
                   icon: const Icon(Icons.system_update),
-                  label: Text(_checkingUpdate ? 'Bitte warten...' : 'Update pruefen'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(40),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  label: Text(_checkingUpdate ? 'Bitte warten...' : 'Update prüfen'),
                 ),
                 const SizedBox(height: 8),
                 Text(
@@ -1358,6 +1420,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                   ),
                 ],
               ],
+            ),
             ),
           ),
         ),
@@ -1382,24 +1445,33 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              'Geraetemodus${_deviceLabel != null ? ' | $_deviceLabel' : ''}${_deviceDisplayCode != null ? ' | Display $_deviceDisplayCode' : ''}${_deviceSessionExpiresAt != null ? ' | Ablauf: ${_formatDateTime(_deviceSessionExpiresAt!)}' : ''}',
+              'Gerätemodus${_deviceLabel != null ? ' | $_deviceLabel' : ''}${_deviceDisplayCode != null ? ' | Display $_deviceDisplayCode' : ''}${_deviceSessionExpiresAt != null ? ' | Ablauf: ${_formatDateTime(_deviceSessionExpiresAt!)}' : ''}',
               style: const TextStyle(fontSize: 12, color: Color(0xFF0F766E), fontWeight: FontWeight.w600),
             ),
           ),
         const SizedBox(height: 12),
-        Row(
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
           children: [
             OutlinedButton.icon(
               onPressed: () {
                 unawaited(_refreshOrders());
               },
               icon: const Icon(Icons.refresh),
-              label: const Text('Auftraege aktualisieren'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
+              label: const Text('Aufträge aktualisieren'),
             ),
-            const SizedBox(width: 10),
             OutlinedButton.icon(
               onPressed: _sendLocationPing,
               icon: const Icon(Icons.my_location),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 40),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              ),
               label: const Text('Standort jetzt senden'),
             ),
           ],
@@ -1463,7 +1535,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Aktive Fahrerauftraege (${_orders.length})',
+              'Aktive Fahreraufträge (${_orders.length})',
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
@@ -1471,7 +1543,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               child: _orders.isEmpty
                   ? const Center(
                       child: Text(
-                        'Keine aktiven Fahrerauftraege vorhanden.',
+                        'Keine aktiven Fahreraufträge vorhanden.',
                         style: TextStyle(color: Color(0xFF475569)),
                       ),
                     )
@@ -1558,7 +1630,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       return const Card(
         child: Center(
           child: Text(
-            'Bitte einen Auftrag auswaehlen.',
+            'Bitte einen Auftrag auswählen.',
             style: TextStyle(color: Color(0xFF475569)),
           ),
         ),
@@ -1600,7 +1672,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                   child: OutlinedButton.icon(
                     onPressed: () => _openGoogleMapsForOrder(order),
                     icon: const Icon(Icons.map_outlined),
-                    label: const Text('Adresse in Google Maps oeffnen'),
+                    label: const Text('Adresse in Google Maps öffnen'),
                   ),
                 ),
               ),
@@ -1701,7 +1773,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               ),
               child: Text(
                 _locationTrackingEnabled
-                    ? 'Auto-Tracking aktiv | Intervall zentral: $_locationIntervalSeconds Sekunden${_customerLiveTrackingEnabled ? ' | Live-Tracking fuer Kunde aktiv' : ''}'
+                    ? 'Auto-Tracking aktiv | Intervall zentral: $_locationIntervalSeconds Sekunden${_customerLiveTrackingEnabled ? ' | Live-Tracking für Kunde aktiv' : ''}'
                     : 'Auto-Tracking zentral deaktiviert',
                 style: const TextStyle(
                   fontSize: 13,
@@ -1714,7 +1786,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
-                  'Bitte eine Lieferbestellung auswaehlen.',
+                  'Bitte eine Lieferbestellung auswählen.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                 ),
               ),
@@ -1847,23 +1919,6 @@ class _QRScannerPageState extends State<QRScannerPage> {
     _isProcessing = true;
     await _controller.stop();
     if (!mounted) return;
-
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('QR-Code erkannt'),
-        content: SelectableText(raw),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
-
-    if (!mounted) return;
     Navigator.of(context).pop(raw);
   }
 
@@ -1899,7 +1954,7 @@ class _QRScannerPageState extends State<QRScannerPage> {
               child: const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 child: Text(
-                  'QR-Code von Klarando OrderDesk in den Rahmen halten.',
+                  'QR-Code für die Fahrer-App in den Rahmen halten.',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     color: Colors.white,
