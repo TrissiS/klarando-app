@@ -30,6 +30,7 @@ COPY prisma ./prisma
 RUN npx prisma generate
 
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/scripts ./scripts
 
 EXPOSE 4000
 

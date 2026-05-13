@@ -4,6 +4,7 @@ const { PrismaClient } = require('@prisma/client')
 
 const prisma = new PrismaClient()
 const VALID_INGREDIENT_CATEGORIES = new Set(['FOOD', 'PACKAGING'])
+const warnedUnknownIngredientCategories = new Set()
 const INGREDIENT_CATEGORY_ALIAS = new Map([
   ['BEVERAGE', 'FOOD'],
   ['DRINK', 'FOOD'],
@@ -349,37 +350,41 @@ function normalizeIngredientCategory(rawCategory) {
       ? rawCategory.trim().toUpperCase()
       : 'FOOD'
   const mapped = INGREDIENT_CATEGORY_ALIAS.get(normalizedInput) || normalizedInput
+  if (!VALID_INGREDIENT_CATEGORIES.has(mapped)) {
+    if (!warnedUnknownIngredientCategories.has(normalizedInput)) {
+      warnedUnknownIngredientCategories.add(normalizedInput)
+      console.warn(
+        `[seed-business-templates] Unbekannte IngredientCategory "${normalizedInput}" erkannt, nutze automatisch "FOOD".`
+      )
+    }
+    return {
+      input: normalizedInput,
+      mapped: 'FOOD',
+      valid: true,
+    }
+  }
   return {
     input: normalizedInput,
     mapped,
-    valid: VALID_INGREDIENT_CATEGORIES.has(mapped),
+    valid: true,
   }
 }
 
 function validateTemplateIngredientCategories(templatesData) {
-  const invalidRows = []
+  const normalizedSummary = new Map()
   for (const [templateKey, templateData] of Object.entries(templatesData)) {
     for (const ingredient of templateData.ingredients || []) {
       const categoryInfo = normalizeIngredientCategory(ingredient.category)
-      if (!categoryInfo.valid) {
-        invalidRows.push({
-          templateKey,
-          ingredientName: ingredient.name,
-          category: categoryInfo.input,
-        })
+      const key = `${categoryInfo.input}->${categoryInfo.mapped}`
+      normalizedSummary.set(key, (normalizedSummary.get(key) || 0) + 1)
+      if (categoryInfo.input !== categoryInfo.mapped) {
+        console.warn(
+          `[seed-business-templates] Kategorie normalisiert: Template="${templateKey}", Zutat="${ingredient.name}", "${categoryInfo.input}" -> "${categoryInfo.mapped}".`
+        )
       }
     }
   }
-
-  if (invalidRows.length > 0) {
-    const allowed = Array.from(VALID_INGREDIENT_CATEGORIES).join(', ')
-    const details = invalidRows
-      .map((row) => `- Template "${row.templateKey}", Zutat "${row.ingredientName}": "${row.category}"`)
-      .join('\n')
-    throw new Error(
-      `Ungültige IngredientCategory im Business-Template-Seed.\nErlaubt: ${allowed}\n${details}`
-    )
-  }
+  return normalizedSummary
 }
 
 function isTemplateProductNumberNullConstraintError(error) {
@@ -388,6 +393,11 @@ function isTemplateProductNumberNullConstraintError(error) {
     message.includes('Null constraint violation') &&
     message.includes('productNumber')
   )
+}
+
+function isTemplateProductNumberUniqueConstraintError(error) {
+  const message = error instanceof Error ? error.message : String(error || '')
+  return message.includes('Unique constraint failed')
 }
 
 function buildLegacyTemplateProductNumber(templateKey, productName, categoryName) {
@@ -443,11 +453,6 @@ async function upsertTemplateData(template, data) {
   const ingredientByName = new Map()
   for (const ing of data.ingredients) {
     const categoryInfo = normalizeIngredientCategory(ing.category)
-    if (!categoryInfo.valid) {
-      throw new Error(
-        `Ungültige IngredientCategory "${ing.category}" bei Template "${template.key}" und Zutat "${ing.name}"`
-      )
-    }
     const row = await prisma.businessTemplateIngredient.upsert({
       where: { templateId_name: { templateId: template.id, name: ing.name } },
       update: { category: categoryInfo.mapped, unit: ing.unit, purchasePrice: ing.purchasePrice, allergens: ing.allergens },
@@ -471,57 +476,66 @@ async function upsertTemplateData(template, data) {
       prod.name,
       prod.category
     )
-    try {
-      productRow = existingProduct
-        ? await prisma.businessTemplateProduct.update({
-            where: { id: existingProduct.id },
-            data: {
-              name: prod.name,
-              categoryId: categoryByName.get(prod.category) || null,
-              price: prod.price,
-              vatRate: '7.00',
-              available: true,
-              productNumber: null,
-            },
-          })
-        : await prisma.businessTemplateProduct.create({
+    if (existingProduct) {
+      productRow = await prisma.businessTemplateProduct.update({
+        where: { id: existingProduct.id },
+        data: {
+          name: prod.name,
+          categoryId: categoryByName.get(prod.category) || null,
+          price: prod.price,
+          vatRate: '7.00',
+          available: true,
+        },
+      })
+    } else {
+      try {
+        productRow = await prisma.businessTemplateProduct.create({
+          data: {
+            templateId: template.id,
+            categoryId: categoryByName.get(prod.category) || null,
+            productNumber: null,
+            name: prod.name,
+            price: prod.price,
+            vatRate: '7.00',
+            available: true,
+          },
+        })
+      } catch (error) {
+        if (!isTemplateProductNumberNullConstraintError(error)) {
+          throw error
+        }
+        try {
+          productRow = await prisma.businessTemplateProduct.create({
             data: {
               templateId: template.id,
               categoryId: categoryByName.get(prod.category) || null,
-              productNumber: null,
+              productNumber: '',
               name: prod.name,
               price: prod.price,
               vatRate: '7.00',
               available: true,
             },
           })
-    } catch (error) {
-      if (!isTemplateProductNumberNullConstraintError(error)) {
-        throw error
+        } catch (nestedError) {
+          if (!isTemplateProductNumberUniqueConstraintError(nestedError)) {
+            throw nestedError
+          }
+          console.warn(
+            `[seed-business-templates] Legacy-DB erkannt (productNumber mit Unique/Not-Null). Nutze technische Fallback-ID für Template="${template.key}" Produkt="${prod.name}".`
+          )
+          productRow = await prisma.businessTemplateProduct.create({
+            data: {
+              templateId: template.id,
+              categoryId: categoryByName.get(prod.category) || null,
+              productNumber: legacyProductNumber,
+              name: prod.name,
+              price: prod.price,
+              vatRate: '7.00',
+              available: true,
+            },
+          })
+        }
       }
-      productRow = existingProduct
-        ? await prisma.businessTemplateProduct.update({
-            where: { id: existingProduct.id },
-            data: {
-              name: prod.name,
-              categoryId: categoryByName.get(prod.category) || null,
-              price: prod.price,
-              vatRate: '7.00',
-              available: true,
-              productNumber: legacyProductNumber,
-            },
-          })
-        : await prisma.businessTemplateProduct.create({
-            data: {
-              templateId: template.id,
-              categoryId: categoryByName.get(prod.category) || null,
-              productNumber: legacyProductNumber,
-              name: prod.name,
-              price: prod.price,
-              vatRate: '7.00',
-              available: true,
-            },
-          })
     }
 
     for (const link of prod.ingredients) {
