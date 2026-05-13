@@ -11,11 +11,71 @@ const prisma_1 = require("../lib/prisma");
 const permissions_1 = require("../auth/permissions");
 const password_1 = require("../auth/password");
 const token_1 = require("../auth/token");
+const app_token_1 = require("../auth/app-token");
 const auth_1 = require("../middleware/auth");
 const audit_1 = require("../lib/audit");
 const rate_limit_1 = require("../middleware/rate-limit");
 const mail_1 = require("../lib/mail");
 const router = (0, express_1.Router)();
+function normalizeText(value) {
+    if (typeof value !== 'string') {
+        return null;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+}
+function normalizeEmail(value) {
+    const text = normalizeText(value);
+    if (!text) {
+        return null;
+    }
+    return text.toLowerCase();
+}
+function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+function mapAppCustomerUser(account) {
+    return {
+        id: account.id,
+        email: account.email,
+        fullName: account.fullName,
+        phone: account.phone,
+        street: account.street,
+        zipCode: account.zipCode,
+        city: account.city,
+        marketingOptIn: account.marketingOptIn,
+        deletionRequestedAt: account.deletionRequestedAt,
+    };
+}
+async function verifyGoogleIdToken(idToken) {
+    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    if (!response.ok) {
+        throw new Error('GOOGLE_TOKEN_INVALID');
+    }
+    const payload = (await response.json());
+    const providerUserId = normalizeText(payload.sub);
+    if (!providerUserId) {
+        throw new Error('GOOGLE_TOKEN_INVALID');
+    }
+    const expectedAud = normalizeText(process.env.GOOGLE_OAUTH_CLIENT_ID);
+    if (expectedAud) {
+        const tokenAud = normalizeText(payload.aud);
+        if (!tokenAud || tokenAud !== expectedAud) {
+            throw new Error('GOOGLE_AUDIENCE_MISMATCH');
+        }
+    }
+    const issuer = normalizeText(payload.iss);
+    if (issuer && issuer != 'accounts.google.com' && issuer != 'https://accounts.google.com') {
+        throw new Error('GOOGLE_ISSUER_INVALID');
+    }
+    return {
+        providerUserId,
+        email: normalizeEmail(payload.email),
+        fullName: normalizeText(payload.name),
+        emailVerified: payload.email_verified === true ||
+            normalizeText(payload.email_verified)?.toLowerCase() === 'true',
+    };
+}
 function validatePasswordRules(value) {
     const trimmed = value.trim();
     if (trimmed.length < 10) {
@@ -190,6 +250,117 @@ router.post('/login', rate_limit_1.rateLimitAuthLogin, async (req, res) => {
     catch (error) {
         console.error('LOGIN ERROR:', error);
         return res.status(500).json({ error: 'Login konnte nicht verarbeitet werden' });
+    }
+});
+router.post('/social/google', rate_limit_1.rateLimitAuthLogin, async (req, res) => {
+    try {
+        const idToken = normalizeText(req.body.idToken);
+        const fallbackEmail = normalizeEmail(req.body.email);
+        const fallbackName = normalizeText(req.body.name);
+        if (!idToken) {
+            return res.status(400).json({ error: 'idToken fehlt' });
+        }
+        const verified = await verifyGoogleIdToken(idToken);
+        const email = verified.email ?? fallbackEmail;
+        if (!email || !isValidEmail(email)) {
+            return res.status(400).json({ error: 'Google-Konto liefert keine gültige E-Mail-Adresse' });
+        }
+        const account = await prisma_1.prisma.$transaction(async (tx) => {
+            const providerLink = await tx.appCustomerAuthProvider.findUnique({
+                where: {
+                    provider_providerUserId: {
+                        provider: client_1.AppAuthProvider.GOOGLE,
+                        providerUserId: verified.providerUserId,
+                    },
+                },
+                include: {
+                    appCustomer: true,
+                },
+            });
+            let linkedAccount = providerLink?.appCustomer ?? null;
+            if (!linkedAccount) {
+                linkedAccount = await tx.appCustomerAccount.findUnique({
+                    where: { email },
+                });
+            }
+            if (!linkedAccount) {
+                linkedAccount = await tx.appCustomerAccount.create({
+                    data: {
+                        email,
+                        fullName: verified.fullName ?? fallbackName ?? email.split('@')[0] ?? 'Klarando Kunde',
+                        passwordHash: (0, password_1.hashPassword)(`${crypto_1.default.randomBytes(24).toString('hex')}!Kla1`),
+                        isActive: true,
+                        lastLoginAt: new Date(),
+                    },
+                });
+            }
+            else {
+                linkedAccount = await tx.appCustomerAccount.update({
+                    where: { id: linkedAccount.id },
+                    data: {
+                        fullName: verified.fullName ?? fallbackName ?? linkedAccount.fullName,
+                        isActive: true,
+                        lastLoginAt: new Date(),
+                    },
+                });
+            }
+            await tx.appCustomerAuthProvider.upsert({
+                where: {
+                    provider_providerUserId: {
+                        provider: client_1.AppAuthProvider.GOOGLE,
+                        providerUserId: verified.providerUserId,
+                    },
+                },
+                update: {
+                    appCustomerId: linkedAccount.id,
+                    email,
+                    emailVerified: verified.emailVerified,
+                    metadata: {
+                        linkedAt: new Date().toISOString(),
+                    },
+                },
+                create: {
+                    appCustomerId: linkedAccount.id,
+                    provider: client_1.AppAuthProvider.GOOGLE,
+                    providerUserId: verified.providerUserId,
+                    email,
+                    emailVerified: verified.emailVerified,
+                    metadata: {
+                        linkedAt: new Date().toISOString(),
+                    },
+                },
+            });
+            return linkedAccount;
+        });
+        const token = (0, app_token_1.signAppAuthToken)({
+            sub: account.id,
+            email: account.email,
+        });
+        await (0, audit_1.writeAuditLog)({
+            req,
+            module: 'app-auth',
+            action: 'app_customer_social_google_login',
+            targetType: 'appCustomerAccount',
+            targetId: account.id,
+            metadata: {
+                email: account.email,
+            },
+        });
+        return res.json({
+            token,
+            user: mapAppCustomerUser(account),
+        });
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            if (error.message === 'GOOGLE_TOKEN_INVALID' ||
+                error.message === 'GOOGLE_AUDIENCE_MISMATCH' ||
+                error.message === 'GOOGLE_ISSUER_INVALID') {
+                return res.status(401).json({ error: 'Google-Anmeldung konnte nicht verifiziert werden' });
+            }
+        }
+        console.error('SOCIAL GOOGLE LOGIN ERROR:', error);
+        return res.status(500).json({ error: 'Google-Anmeldung konnte nicht verarbeitet werden' });
     }
 });
 router.post('/forgot-password', async (req, res) => {

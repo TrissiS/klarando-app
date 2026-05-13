@@ -34,13 +34,11 @@ type VisibilityFilter = 'ALL' | 'VISIBLE' | 'HIDDEN' | 'FEATURED'
 type TickerApiCheckState = 'IDLE' | 'CHECKING' | 'OK' | 'ERROR'
 
 const COMMON_RESOLUTIONS = [
-  { width: 1024, height: 768, label: '1024 x 768 (XGA)' },
   { width: 1280, height: 720, label: '1280 x 720 (HD)' },
-  { width: 1366, height: 768, label: '1366 x 768' },
-  { width: 1600, height: 900, label: '1600 x 900' },
   { width: 1920, height: 1080, label: '1920 x 1080 (Full HD)' },
-  { width: 2560, height: 1440, label: '2560 x 1440 (QHD)' },
   { width: 3840, height: 2160, label: '3840 x 2160 (4K UHD)' },
+  { width: 1080, height: 1920, label: '1080 x 1920 (Hochformat)' },
+  { width: 720, height: 1280, label: '720 x 1280 (Hochformat)' },
 ] as const
 
 const CUSTOM_RESOLUTION_VALUE = 'CUSTOM'
@@ -541,6 +539,8 @@ export default function AdminScreenPage() {
   const [deviceColumnCount, setDeviceColumnCount] = useState('')
   const [deviceSelectedCategoryIds, setDeviceSelectedCategoryIds] = useState<string[]>([])
   const [deviceSelectedProductIds, setDeviceSelectedProductIds] = useState<string[]>([])
+  const [deviceProductSearch, setDeviceProductSearch] = useState('')
+  const [deviceProductCategoryFilter, setDeviceProductCategoryFilter] = useState('ALL')
   const [deviceBackgroundMediaUrl, setDeviceBackgroundMediaUrl] = useState('')
   const [deviceAccentColor, setDeviceAccentColor] = useState('#ea580c')
   const [deviceTextColor, setDeviceTextColor] = useState('#ffffff')
@@ -598,6 +598,22 @@ export default function AdminScreenPage() {
       ),
     [deviceResolutionHeight, deviceResolutionWidth]
   )
+  const filteredDeviceProducts = useMemo(() => {
+    const query = deviceProductSearch.trim().toLowerCase()
+    return products.filter((product) => {
+      if (
+        deviceProductCategoryFilter !== 'ALL' &&
+        (product.category?.id || '') !== deviceProductCategoryFilter
+      ) {
+        return false
+      }
+      if (!query) {
+        return true
+      }
+      const haystack = `${product.name} ${product.category?.name || ''}`.toLowerCase()
+      return haystack.includes(query)
+    })
+  }, [deviceProductCategoryFilter, deviceProductSearch, products])
 
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -3024,7 +3040,7 @@ export default function AdminScreenPage() {
                   Kategorien auf diesen Bildschirm verschieben
                 </p>
                 <p className="mt-1 text-xs text-rose-900/70">
-                  Wenn Produkte ausgewaehlt sind, haben Produkt-Zuordnungen Vorrang.
+                  Wenn Produkte ausgewählt sind, haben Produkt-Zuordnungen Vorrang.
                 </p>
                 <div className="mt-2 grid max-h-36 grid-cols-1 gap-1 overflow-y-auto pr-1">
                   {categories.map((category) => (
@@ -3040,6 +3056,13 @@ export default function AdminScreenPage() {
                 </div>
                 <button
                   type="button"
+                  onClick={() => setDeviceSelectedCategoryIds(categories.map((entry) => entry.id))}
+                  className="mt-2 mr-2 rounded-lg border border-[var(--brand-border)] bg-white px-2.5 py-1 text-xs font-medium text-rose-900/85 transition hover:bg-rose-50"
+                >
+                  Alle Kategorien wählen
+                </button>
+                <button
+                  type="button"
                   onClick={() => setDeviceSelectedCategoryIds([])}
                   className="mt-2 rounded-lg border border-[var(--brand-border)] bg-white px-2.5 py-1 text-xs font-medium text-rose-900/85 transition hover:bg-rose-50"
                 >
@@ -3052,10 +3075,30 @@ export default function AdminScreenPage() {
                   Produkte direkt auf diesen Bildschirm verschieben
                 </p>
                 <p className="mt-1 text-xs text-rose-900/70">
-                  Ausgewaehlte Produkte erscheinen nur auf diesem Bildschirm-Feed.
+                  Ausgewählte Produkte erscheinen nur auf diesem Bildschirm-Feed.
                 </p>
+                <div className="mt-2 grid gap-2 md:grid-cols-2">
+                  <input
+                    value={deviceProductSearch}
+                    onChange={(event) => setDeviceProductSearch(event.target.value)}
+                    placeholder="Produkt suchen"
+                    className="input-ui"
+                  />
+                  <select
+                    value={deviceProductCategoryFilter}
+                    onChange={(event) => setDeviceProductCategoryFilter(event.target.value)}
+                    className="input-ui"
+                  >
+                    <option value="ALL">Alle Kategorien</option>
+                    {categories.map((category) => (
+                      <option key={`device-filter-category-${category.id}`} value={category.id}>
+                        {category.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
                 <div className="mt-2 grid max-h-44 grid-cols-1 gap-1 overflow-y-auto pr-1">
-                  {products.map((product) => (
+                  {filteredDeviceProducts.map((product) => (
                     <label key={`device-product-${product.id}`} className="flex items-center gap-2 text-xs text-rose-900/85">
                       <input
                         type="checkbox"
@@ -3067,7 +3110,22 @@ export default function AdminScreenPage() {
                       </span>
                     </label>
                   ))}
+                  {filteredDeviceProducts.length === 0 ? (
+                    <p className="text-xs text-rose-900/60">Keine passenden Produkte gefunden.</p>
+                  ) : null}
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const visibleIds = filteredDeviceProducts.map((entry) => entry.id)
+                    setDeviceSelectedProductIds((current) =>
+                      Array.from(new Set([...current, ...visibleIds]))
+                    )
+                  }}
+                  className="mt-2 mr-2 rounded-lg border border-[var(--brand-border)] bg-white px-2.5 py-1 text-xs font-medium text-rose-900/85 transition hover:bg-rose-50"
+                >
+                  Gefilterte Produkte wählen ({filteredDeviceProducts.length})
+                </button>
                 <button
                   type="button"
                   onClick={() => setDeviceSelectedProductIds([])}

@@ -78,6 +78,19 @@ enum PaymentProvider {
   ADYEN
 }
 
+enum PaypalOnboardingStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  RESTRICTED
+  DISABLED
+}
+
+enum PaypalEnvironment {
+  SANDBOX
+  LIVE
+}
+
 enum PaymentMethodType {
   CARD
   PAYPAL
@@ -183,6 +196,13 @@ enum BillingUsageCounterKey {
   ORDERS_CANCELED
   REVENUE_GROSS_CENTS
   REVENUE_COUNTED_CENTS
+}
+
+enum AppAuthProvider {
+  EMAIL
+  GOOGLE
+  FACEBOOK
+  APPLE
 }
 
 enum CommissionRuleType {
@@ -450,11 +470,28 @@ model AppCustomerAccount {
   lastLoginAt         DateTime?
   orders              Order[]
   tipTransactions     TipTransaction[]
+  authProviders       AppCustomerAuthProvider[]
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
   @@index([isActive, createdAt])
   @@index([deletionRequestedAt])
+}
+
+model AppCustomerAuthProvider {
+  id             String          @id @default(uuid())
+  appCustomerId  String
+  provider       AppAuthProvider
+  providerUserId String
+  email          String?
+  emailVerified  Boolean         @default(false)
+  metadata       Json?
+  appCustomer    AppCustomerAccount @relation(fields: [appCustomerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@unique([provider, providerUserId])
+  @@index([appCustomerId, provider])
 }
 
 model Category {
@@ -750,6 +787,13 @@ model TenantPaymentConfig {
   id                               String          @id @default(uuid())
   tenantId                         String          @unique
   defaultProvider                  PaymentProvider @default(STRIPE)
+  paypalMerchantId                 String?
+  paypalEmail                      String?
+  paypalOnboardingStatus           PaypalOnboardingStatus @default(NOT_STARTED)
+  paypalEnvironment                PaypalEnvironment @default(SANDBOX)
+  paypalPaymentsEnabled            Boolean         @default(false)
+  klarandoPlatformFeePercent       Decimal?        @db.Decimal(6, 3)
+  klarandoPlatformFeeFixed         Int?
   commissionPercent                Decimal         @default(0) @db.Decimal(6, 3)
   fixedFeeCents                    Int             @default(0)
   paymentFeeBearer                 FeeBearer       @default(TENANT)

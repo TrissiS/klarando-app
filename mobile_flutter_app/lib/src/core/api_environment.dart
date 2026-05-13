@@ -4,7 +4,7 @@ enum ApiEnvironment {
   live,
 }
 
-const String _envName = String.fromEnvironment('ENV', defaultValue: 'dev');
+const String _envName = String.fromEnvironment('ENV', defaultValue: 'live');
 
 ApiEnvironment get apiEnvironment {
   switch (_envName.trim().toLowerCase()) {

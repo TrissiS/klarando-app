@@ -1,5 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.DatabaseProvisioningBlockedError = exports.PROVISIONING_BLOCKED_MESSAGE = void 0;
+exports.isDatabaseProvisioningBlockedError = isDatabaseProvisioningBlockedError;
 exports.ensureProvisioningRegistryTables = ensureProvisioningRegistryTables;
 exports.provisionChainDatabase = provisionChainDatabase;
 exports.provisionTenantDatabase = provisionTenantDatabase;
@@ -58,6 +60,24 @@ function isProductionEnvironment() {
 }
 function isExplicitlyAllowed(value) {
     return (value || '').trim().toLowerCase() === 'true';
+}
+exports.PROVISIONING_BLOCKED_MESSAGE = 'Datenbank-Provisionierung ist in Production deaktiviert.';
+class DatabaseProvisioningBlockedError extends Error {
+    constructor(message = exports.PROVISIONING_BLOCKED_MESSAGE) {
+        super(message);
+        this.code = 'DATABASE_PROVISIONING_DISABLED';
+        this.name = 'DatabaseProvisioningBlockedError';
+    }
+}
+exports.DatabaseProvisioningBlockedError = DatabaseProvisioningBlockedError;
+function isDatabaseProvisioningBlockedError(error) {
+    return error instanceof DatabaseProvisioningBlockedError;
+}
+function assertProvisioningDatabaseActionAllowed(_actionName) {
+    if (isProductionEnvironment() &&
+        !isExplicitlyAllowed(process.env.ALLOW_PRODUCTION_DB_PROVISIONING)) {
+        throw new DatabaseProvisioningBlockedError();
+    }
 }
 function assertDestructiveDatabaseActionAllowed(actionName) {
     if (isProductionEnvironment() &&
@@ -154,7 +174,7 @@ async function createDatabaseIfMissing(options) {
       LIMIT 1
     `;
         if (existingDatabase.length === 0) {
-            assertDestructiveDatabaseActionAllowed('CREATE DATABASE');
+            assertProvisioningDatabaseActionAllowed('CREATE DATABASE');
             const createWithDefaultTemplate = async () => {
                 try {
                     await adminPrisma.$executeRawUnsafe(`CREATE DATABASE ${quotePostgresIdentifier(options.databaseName)} TEMPLATE template0`);

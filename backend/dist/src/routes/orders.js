@@ -115,6 +115,32 @@ function parseDriverPairPayload(value) {
     if (!raw) {
         return null;
     }
+    if (raw.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(raw);
+            const normalizedText = (input) => typeof input === 'string' && input.trim().length > 0 ? input.trim() : null;
+            const type = normalizedText(parsed.type)?.toUpperCase();
+            if (type && type !== 'DRIVER_PAIRING') {
+                return {
+                    token: null,
+                    displayCode: null,
+                    invalidType: type,
+                };
+            }
+            const token = normalizedText(parsed.pairingToken) ?? normalizedText(parsed.token);
+            if (!token) {
+                return null;
+            }
+            return {
+                token,
+                displayCode: normalizedText(parsed.displayCode)?.toUpperCase() ?? null,
+                invalidType: null,
+            };
+        }
+        catch {
+            return null;
+        }
+    }
     if (raw.startsWith('klarando-driver-pair:')) {
         const parts = raw.split(':');
         if (parts.length < 3) {
@@ -123,11 +149,13 @@ function parseDriverPairPayload(value) {
         return {
             token: parts.slice(2).join(':'),
             displayCode: normalizeText(parts[1])?.toUpperCase() ?? null,
+            invalidType: null,
         };
     }
     return {
         token: raw,
         displayCode: null,
+        invalidType: null,
     };
 }
 async function resolveDriverActor(req) {
@@ -2505,6 +2533,11 @@ router.post('/driver/device-login', rate_limit_1.rateLimitDriverDeviceLogin, asy
         const parsedPair = parseDriverPairPayload(payload.pairingToken ?? payload.pairingPayload ?? payload.qrPayload);
         if (!parsedPair) {
             return res.status(400).json({ error: 'pairingToken oder QR-Payload fehlt' });
+        }
+        if (parsedPair.invalidType) {
+            return res.status(400).json({
+                error: 'Dieser QR-Code ist nicht für die Fahrer-App geeignet.',
+            });
         }
         const pairingPayload = (0, driver_device_token_1.verifyDriverDeviceToken)(parsedPair.token);
         if (!pairingPayload || pairingPayload.kind !== 'PAIRING') {

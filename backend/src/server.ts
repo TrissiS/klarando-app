@@ -34,6 +34,7 @@ import cashClosingRoutes from './routes/cash-closings'
 import platformBrandingRoutes from './routes/platform-branding'
 import mobileUpdatesRoutes from './routes/mobile-updates'
 import onboardingRoutes from './routes/onboarding'
+import paypalPaymentRoutes from './routes/payments-paypal'
 import { optionalAuth } from './middleware/auth'
 import { rateLimitPasswordReset, rateLimitTokenRefresh } from './middleware/rate-limit'
 import { prisma } from './lib/prisma'
@@ -193,6 +194,7 @@ app.use('/api/cash-closings', cashClosingRoutes)
 app.use('/api/platform-branding', platformBrandingRoutes)
 app.use('/api/mobile-updates', mobileUpdatesRoutes)
 app.use('/api/onboarding', onboardingRoutes)
+app.use('/api/payments/paypal', paypalPaymentRoutes)
 
 app.use((req, res) => {
   res.status(404).json({

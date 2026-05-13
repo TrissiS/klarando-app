@@ -1,5 +1,6 @@
 import 'current_location_stub.dart'
-    if (dart.library.html) 'current_location_web.dart' as impl;
+    if (dart.library.html) 'current_location_web.dart'
+    if (dart.library.io) 'current_location_mobile.dart' as impl;
 
 class CurrentLocationData {
   const CurrentLocationData({

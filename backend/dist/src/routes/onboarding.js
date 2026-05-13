@@ -7,6 +7,7 @@ const auth_1 = require("../middleware/auth");
 const password_1 = require("../auth/password");
 const business_template_import_1 = require("../lib/business-template-import");
 const audit_1 = require("../lib/audit");
+const database_provisioning_1 = require("../lib/database-provisioning");
 const router = (0, express_1.Router)();
 class OnboardingError extends Error {
     constructor(code, message, details) {
@@ -219,6 +220,9 @@ router.post('/business', auth_1.requireAuth, async (req, res) => {
         if (error instanceof OnboardingError) {
             const status = error.code === 'EMAIL_ALREADY_EXISTS' ? 409 : 400;
             return onboardingErrorResponse(res, status, error);
+        }
+        if ((0, database_provisioning_1.isDatabaseProvisioningBlockedError)(error)) {
+            return onboardingErrorResponse(res, 403, new OnboardingError('DATABASE_PROVISIONING_FAILED', error.message));
         }
         if (error instanceof client_1.Prisma.PrismaClientKnownRequestError) {
             if (error.code === 'P2002') {

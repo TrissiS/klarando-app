@@ -436,7 +436,6 @@ export default function ScreenDevicePage({ params }: Props) {
   const [offerMediaIndex, setOfferMediaIndex] = useState(0)
   const [tickerText, setTickerText] = useState('')
   const [tickerClock, setTickerClock] = useState<Date>(() => new Date())
-  const [viewportWidth, setViewportWidth] = useState(1920)
   const [runtimeConfig, setRuntimeConfig] = useState<DisplayRuntimeConfig | null>(null)
   const [connectionState, setConnectionState] = useState<DisplayRuntimeConnectionState>('online')
   const isLowPerformanceMode = runtimeConfig?.performanceMode === 'LOW'
@@ -584,15 +583,6 @@ export default function ScreenDevicePage({ params }: Props) {
 
     return () => window.clearInterval(handle)
   }, [feed?.config.tickerEnabled, feed?.config.tickerShowClock])
-
-  useEffect(() => {
-    const applyWidth = () => {
-      setViewportWidth(window.innerWidth)
-    }
-    applyWidth()
-    window.addEventListener('resize', applyWidth)
-    return () => window.removeEventListener('resize', applyWidth)
-  }, [])
 
   useEffect(() => {
     if (!feed?.config.tickerEnabled) {
@@ -777,10 +767,19 @@ export default function ScreenDevicePage({ params }: Props) {
 
     return rows
   }, [feed])
+  const deviceResolutionWidth = Number(feed?.device.resolutionWidth || 1920)
   const columnCount = feed ? clampInt(Number(feed.config.defaultColumnCount || 4), 1, 6) : 4
   const isListMode = feed?.config.cardStyle === 'LIST'
   const responsiveColumnLimit =
-    viewportWidth < 700 ? 1 : viewportWidth < 1040 ? 2 : viewportWidth < 1460 ? 3 : viewportWidth < 1780 ? 4 : 6
+    deviceResolutionWidth < 700
+      ? 1
+      : deviceResolutionWidth < 1040
+        ? 2
+        : deviceResolutionWidth < 1460
+          ? 3
+          : deviceResolutionWidth < 1780
+            ? 4
+            : 6
   const effectiveColumnCount = isListMode
     ? 1
     : Math.max(1, Math.min(columnCount, responsiveColumnLimit))
@@ -809,10 +808,16 @@ export default function ScreenDevicePage({ params }: Props) {
   )
   const offerWindowWidthPx = feed ? resolveOfferWindowWidthPx(feed.config) : 380
   const offerWindowHeightPx = feed ? resolveOfferWindowHeightPx(feed.config) : 280
-  const offerWindowWidthEffectivePx = Math.min(offerWindowWidthPx, Math.max(220, viewportWidth - 36))
+  const offerWindowWidthEffectivePx = Math.min(
+    offerWindowWidthPx,
+    Math.max(220, deviceResolutionWidth - 36)
+  )
   const offerWindowHeightEffectivePx = Math.min(
     offerWindowHeightPx,
-    Math.max(160, Math.round((viewportWidth < 768 ? 0.64 : 0.78) * offerWindowWidthEffectivePx))
+    Math.max(
+      160,
+      Math.round((deviceResolutionWidth < 768 ? 0.64 : 0.78) * offerWindowWidthEffectivePx)
+    )
   )
   const offerWindowOpacity = clampInt(Number(feed?.config.offerWindowOpacity || 28), 0, 100)
   const offerWindowBackgroundColor = hexToRgba(
@@ -864,7 +869,8 @@ export default function ScreenDevicePage({ params }: Props) {
           viewportHeightPx: contentViewportHeightPx,
         })
       : {}
-  const effectiveOfferReservePaddingStyle = viewportWidth < 1280 ? {} : offerReservePaddingStyle
+  const effectiveOfferReservePaddingStyle =
+    deviceResolutionWidth < 1280 ? {} : offerReservePaddingStyle
 
   if (loading && !feed) {
     return (
@@ -1010,8 +1016,8 @@ export default function ScreenDevicePage({ params }: Props) {
               alt="Betreiber-Logo"
             className="rounded-lg object-contain"
             style={{
-              width: `${clampInt(Number(feed.config.logoSize || 72), 28, viewportWidth < 640 ? 80 : 220)}px`,
-              height: `${clampInt(Number(feed.config.logoSize || 72), 28, viewportWidth < 640 ? 80 : 220)}px`,
+              width: `${clampInt(Number(feed.config.logoSize || 72), 28, deviceResolutionWidth < 640 ? 80 : 220)}px`,
+              height: `${clampInt(Number(feed.config.logoSize || 72), 28, deviceResolutionWidth < 640 ? 80 : 220)}px`,
             }}
           />
           ) : null}

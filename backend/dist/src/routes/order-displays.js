@@ -26,6 +26,15 @@ function normalizeComplaintText(value) {
     const trimmed = value.trim();
     return trimmed.length > 0 ? trimmed : null;
 }
+function resolvePublicApiBaseUrl() {
+    const candidate = (0, order_display_utils_1.normalizeText)(process.env.PUBLIC_API_BASE_URL) ??
+        (0, order_display_utils_1.normalizeText)(process.env.NEXT_PUBLIC_API_BASE_URL) ??
+        (0, order_display_utils_1.normalizeText)(process.env.NEXT_PUBLIC_API_URL);
+    if (candidate) {
+        return candidate.replace(/\/+$/, '');
+    }
+    return 'https://api.klarando.com';
+}
 function sanitizeComplaintImagePayload(input) {
     if (typeof input !== 'string') {
         return null;
@@ -1048,7 +1057,16 @@ router.post('/public/:displayCode/driver-devices/session', rate_limit_1.rateLimi
             kind: 'PAIRING',
             expiresAtMs,
         });
-        const pairingPayload = `klarando-driver-pair:${display.displayCode}:${pairingToken}`;
+        const apiBaseUrl = resolvePublicApiBaseUrl();
+        const pairingPayload = JSON.stringify({
+            type: 'DRIVER_PAIRING',
+            apiBaseUrl,
+            tenantId: display.tenantId,
+            displayCode: display.displayCode,
+            pairingToken,
+            expiresAt: expiresAtIso,
+        });
+        const legacyPairingPayload = `klarando-driver-pair:${display.displayCode}:${pairingToken}`;
         await (0, audit_1.writeAuditLog)({
             req,
             module: driver_device_sessions_1.DRIVER_DEVICE_SESSION_MODULE,
@@ -1075,6 +1093,7 @@ router.post('/public/:displayCode/driver-devices/session', rate_limit_1.rateLimi
             expiresAt: expiresAtIso,
             pairingToken,
             pairingPayload,
+            legacyPairingPayload,
             qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=340x340&data=${encodeURIComponent(pairingPayload)}`,
         });
     }

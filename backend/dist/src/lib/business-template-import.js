@@ -14,7 +14,9 @@ class TenantImportError extends Error {
 }
 exports.TenantImportError = TenantImportError;
 function normalizeKey(value) {
-    return value.trim().toLowerCase();
+    return String(value || '')
+        .trim()
+        .toLowerCase();
 }
 function toAllergenCodeString(allergens) {
     if (allergens.length === 0) {
@@ -61,7 +63,7 @@ async function importBusinessTemplateToTenant(input, dbClient) {
     const db = dbClient ?? prisma_1.prisma;
     const tenantExists = await db.tenant.findUnique({
         where: { id: input.tenantId },
-        select: { id: true },
+        select: { id: true, businessSettings: true },
     });
     if (!tenantExists) {
         throw new TenantImportError('TENANT_NOT_FOUND', 'Tenant für Template-Import nicht gefunden.', `tenantId=${input.tenantId}`);
@@ -86,6 +88,19 @@ async function importBusinessTemplateToTenant(input, dbClient) {
     if (!template || !template.isActive) {
         throw new TenantImportError('TEMPLATE_IMPORT_FAILED', 'Vorlage nicht gefunden oder deaktiviert.');
     }
+    const templateVersion = template.updatedAt.toISOString();
+    const importRegistryRaw = tenantExists.businessSettings &&
+        typeof tenantExists.businessSettings === 'object' &&
+        !Array.isArray(tenantExists.businessSettings)
+        ? tenantExists.businessSettings['templateImports']
+        : null;
+    const importRegistry = Array.isArray(importRegistryRaw)
+        ? importRegistryRaw
+        : [];
+    const alreadyImported = importRegistry.find((entry) => entry.templateId === template.id);
+    if (alreadyImported) {
+        throw new TenantImportError('TEMPLATE_ALREADY_IMPORTED', `Vorlage wurde in dieser Filiale bereits importiert (${alreadyImported.importedAt}). Re-Import ist gesperrt.`);
+    }
     const runImport = async (tx) => {
         const existingCategories = await tx.category.findMany({
             where: { tenantId: input.tenantId },
@@ -101,8 +116,10 @@ async function importBusinessTemplateToTenant(input, dbClient) {
         });
         const categoryByName = new Map(existingCategories.map((item) => [normalizeKey(item.name), item.id]));
         const ingredientByName = new Map(existingIngredients.map((item) => [normalizeKey(item.name), item.id]));
-        const productByNumber = new Map(existingProducts.map((item) => [normalizeKey(item.productNumber), item.id]));
-        const productByName = new Map(existingProducts.map((item) => [normalizeKey(item.name), item.id]));
+        const productByNameAndCategory = new Map(existingProducts.map((item) => [
+            `${normalizeKey(item.name)}::${item.categoryId || ''}`,
+            item.id,
+        ]));
         const templateCategoryToTenantCategory = new Map();
         const templateIngredientToTenantIngredient = new Map();
         const templateProductToTenantProduct = new Map();
@@ -206,17 +223,18 @@ async function importBusinessTemplateToTenant(input, dbClient) {
             }
         }
         for (const templateProduct of template.products) {
-            const normalizedProductNumber = normalizeKey(templateProduct.productNumber);
             const normalizedProductName = normalizeKey(templateProduct.name);
-            let tenantProductId = productByNumber.get(normalizedProductNumber) || productByName.get(normalizedProductName);
+            const mappedCategoryId = templateProduct.categoryId
+                ? templateCategoryToTenantCategory.get(templateProduct.categoryId) || null
+                : null;
+            let tenantProductId = productByNameAndCategory.get(`${normalizedProductName}::${mappedCategoryId || ''}`) ||
+                productByNameAndCategory.get(`${normalizedProductName}::`);
             if (!tenantProductId && options.importProducts) {
                 const createdProduct = await tx.product.create({
                     data: {
                         tenantId: input.tenantId,
-                        categoryId: templateProduct.categoryId
-                            ? templateCategoryToTenantCategory.get(templateProduct.categoryId) || null
-                            : null,
-                        productNumber: templateProduct.productNumber,
+                        categoryId: mappedCategoryId,
+                        productNumber: null,
                         name: templateProduct.name,
                         imageUrl: templateProduct.imageUrl,
                         price: options.importPriceSuggestions
@@ -236,9 +254,7 @@ async function importBusinessTemplateToTenant(input, dbClient) {
                 await tx.product.update({
                     where: { id: tenantProductId },
                     data: {
-                        categoryId: templateProduct.categoryId
-                            ? templateCategoryToTenantCategory.get(templateProduct.categoryId) || null
-                            : null,
+                        categoryId: mappedCategoryId,
                         name: templateProduct.name,
                         imageUrl: templateProduct.imageUrl,
                         available: templateProduct.available,
@@ -256,8 +272,7 @@ async function importBusinessTemplateToTenant(input, dbClient) {
                 skippedExisting += 1;
             }
             if (tenantProductId) {
-                productByNumber.set(normalizedProductNumber, tenantProductId);
-                productByName.set(normalizedProductName, tenantProductId);
+                productByNameAndCategory.set(`${normalizedProductName}::${mappedCategoryId || ''}`, tenantProductId);
                 templateProductToTenantProduct.set(templateProduct.id, tenantProductId);
             }
         }
@@ -265,6 +280,8 @@ async function importBusinessTemplateToTenant(input, dbClient) {
             return {
                 templateId: template.id,
                 tenantId: input.tenantId,
+                templateVersion,
+                importedAt: new Date().toISOString(),
                 options,
                 categoriesCreated,
                 productsCreated,
@@ -321,6 +338,8 @@ async function importBusinessTemplateToTenant(input, dbClient) {
         return {
             templateId: template.id,
             tenantId: input.tenantId,
+            templateVersion,
+            importedAt: new Date().toISOString(),
             options,
             categoriesCreated,
             productsCreated,
@@ -336,7 +355,59 @@ async function importBusinessTemplateToTenant(input, dbClient) {
         };
     };
     if (dbClient) {
-        return runImport(dbClient);
+        const result = await runImport(dbClient);
+        const currentSettings = tenantExists.businessSettings &&
+            typeof tenantExists.businessSettings === 'object' &&
+            !Array.isArray(tenantExists.businessSettings)
+            ? tenantExists.businessSettings
+            : {};
+        const nextImports = [
+            ...importRegistry,
+            {
+                templateId: template.id,
+                templateKey: template.key,
+                templateName: template.name,
+                templateVersion,
+                importedAt: result.importedAt,
+            },
+        ];
+        await dbClient.tenant.update({
+            where: { id: input.tenantId },
+            data: {
+                businessSettings: {
+                    ...currentSettings,
+                    templateImports: nextImports,
+                },
+            },
+        });
+        return result;
     }
-    return prisma_1.prisma.$transaction(async (tx) => runImport(tx));
+    return prisma_1.prisma.$transaction(async (tx) => {
+        const result = await runImport(tx);
+        const currentSettings = tenantExists.businessSettings &&
+            typeof tenantExists.businessSettings === 'object' &&
+            !Array.isArray(tenantExists.businessSettings)
+            ? tenantExists.businessSettings
+            : {};
+        const nextImports = [
+            ...importRegistry,
+            {
+                templateId: template.id,
+                templateKey: template.key,
+                templateName: template.name,
+                templateVersion,
+                importedAt: result.importedAt,
+            },
+        ];
+        await tx.tenant.update({
+            where: { id: input.tenantId },
+            data: {
+                businessSettings: {
+                    ...currentSettings,
+                    templateImports: nextImports,
+                },
+            },
+        });
+        return result;
+    });
 }

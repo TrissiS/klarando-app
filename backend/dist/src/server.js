@@ -71,6 +71,7 @@ const cash_closings_1 = __importDefault(require("./routes/cash-closings"));
 const platform_branding_1 = __importDefault(require("./routes/platform-branding"));
 const mobile_updates_1 = __importDefault(require("./routes/mobile-updates"));
 const onboarding_1 = __importDefault(require("./routes/onboarding"));
+const payments_paypal_1 = __importDefault(require("./routes/payments-paypal"));
 const auth_2 = require("./middleware/auth");
 const rate_limit_1 = require("./middleware/rate-limit");
 const prisma_1 = require("./lib/prisma");
@@ -210,6 +211,7 @@ app.use('/api/cash-closings', cash_closings_1.default);
 app.use('/api/platform-branding', platform_branding_1.default);
 app.use('/api/mobile-updates', mobile_updates_1.default);
 app.use('/api/onboarding', onboarding_1.default);
+app.use('/api/payments/paypal', payments_paypal_1.default);
 app.use((req, res) => {
     res.status(404).json({
         error: `Route nicht gefunden: ${req.method} ${req.originalUrl}`,

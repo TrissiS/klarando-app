@@ -443,6 +443,18 @@ router.post('/create-empty', (0, auth_1.requirePermission)(client_1.PermissionKe
         });
     }
     catch (error) {
+        if ((0, database_provisioning_1.isDatabaseProvisioningBlockedError)(error)) {
+            await (0, audit_1.writeAuditLog)({
+                req,
+                module: 'database_management',
+                action: 'database_provisioning_blocked',
+                targetType: 'database',
+                metadata: {
+                    reason: 'ALLOW_PRODUCTION_DB_PROVISIONING_DISABLED',
+                },
+            });
+            return res.status(403).json({ error: error.message, code: error.code });
+        }
         console.error('CREATE EMPTY DATABASE ERROR:', error);
         return res.status(500).json({ error: 'Leere Datenbank konnte nicht erstellt werden' });
     }
@@ -587,60 +599,20 @@ router.delete('/:databaseName', (0, auth_1.requirePermission)(client_1.Permissio
         if (!databaseName) {
             return res.status(400).json({ error: 'databaseName ist ungueltig' });
         }
-        const exists = await (0, database_provisioning_1.databaseExists)(databaseName);
-        if (!exists) {
-            return res.status(404).json({ error: 'Datenbank nicht gefunden' });
-        }
-        const assignments = await (0, database_provisioning_1.findDatabaseAssignmentsByName)(databaseName);
-        if (actor?.role === client_1.UserRole.CHAINADMIN) {
-            if (assignments.unassignedEntries.length > 0) {
-                return res.status(403).json({ error: 'CHAINADMIN darf keine unzugeordnete DB loeschen' });
-            }
-            const outOfScopeChainAssignment = assignments.chainAssignments.some((entry) => entry.chainId !== actor.chainId);
-            if (outOfScopeChainAssignment) {
-                return res.status(403).json({ error: 'Kein Zugriff auf diese Datenbank' });
-            }
-            const tenantIds = assignments.tenantAssignments.map((entry) => entry.tenantId);
-            if (tenantIds.length > 0) {
-                const scopedTenants = await prisma_1.prisma.tenant.findMany({
-                    where: {
-                        id: {
-                            in: tenantIds,
-                        },
-                    },
-                    select: {
-                        id: true,
-                        chainId: true,
-                    },
-                });
-                const tenantById = new Map(scopedTenants.map((entry) => [entry.id, entry]));
-                const outOfScopeTenantAssignment = assignments.tenantAssignments.some((entry) => {
-                    const tenant = tenantById.get(entry.tenantId);
-                    return !tenant || tenant.chainId !== actor.chainId;
-                });
-                if (outOfScopeTenantAssignment) {
-                    return res.status(403).json({ error: 'Kein Zugriff auf diese Datenbank' });
-                }
-            }
-        }
-        await (0, database_provisioning_1.dropDatabasePermanently)(databaseName);
-        const removedAssignments = await (0, database_provisioning_1.removeDatabaseAssignmentsByName)(databaseName);
         await (0, audit_1.writeAuditLog)({
             req,
             module: 'database_management',
-            action: 'database_deleted',
+            action: 'database_delete_blocked',
             targetType: 'database',
             targetId: databaseName,
             metadata: {
-                removedAssignments,
+                reason: 'UI_DATABASE_DELETE_DISABLED',
                 actorRole: actor?.role || null,
             },
         });
-        return res.json({
-            ok: true,
-            databaseName,
-            removedAssignments,
-        });
+        return res
+            .status(403)
+            .json({ error: 'Datenbanken koennen nicht ueber die UI geloescht werden.' });
     }
     catch (error) {
         console.error('DELETE DATABASE ERROR:', error);

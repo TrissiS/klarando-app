@@ -1975,6 +1975,110 @@ export async function updateBusinessSettingsForTenant(
   return res.json()
 }
 
+export type TenantPaypalPaymentConfig = {
+  id: string
+  tenantId: string
+  paypalMerchantId: string | null
+  paypalEmail: string | null
+  paypalOnboardingStatus: 'NOT_STARTED' | 'PENDING' | 'VERIFIED' | 'RESTRICTED' | 'DISABLED'
+  paypalEnvironment: 'SANDBOX' | 'LIVE'
+  paypalPaymentsEnabled: boolean
+  klarandoPlatformFeePercent: string | null
+  klarandoPlatformFeeFixed: number | null
+  currency: string
+}
+
+export async function getTenantPaypalPaymentConfig(
+  token: string,
+  tenantId: string
+): Promise<TenantPaypalPaymentConfig> {
+  const query = new URLSearchParams({ tenantId })
+  return apiJson<TenantPaypalPaymentConfig>(
+    buildApiUrl(`/api/payments/paypal/config?${query.toString()}`),
+    { headers: authHeaders(token) },
+    'PayPal-Einstellungen konnten nicht geladen werden'
+  )
+}
+
+export async function updateTenantPaypalPaymentConfig(
+  token: string,
+  tenantId: string,
+  settings: Partial<{
+    paypalMerchantId: string | null
+    paypalEmail: string | null
+    paypalOnboardingStatus: string | null
+    paypalEnvironment: string | null
+    paypalPaymentsEnabled: boolean
+    klarandoPlatformFeePercent: number | string | null
+    klarandoPlatformFeeFixed: number | null
+  }>
+): Promise<TenantPaypalPaymentConfig> {
+  return apiJson<TenantPaypalPaymentConfig>(
+    buildApiUrl('/api/payments/paypal/config'),
+    {
+      method: 'PUT',
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        tenantId,
+        settings,
+      }),
+    },
+    'PayPal-Einstellungen konnten nicht gespeichert werden'
+  )
+}
+
+export async function createPaypalCheckoutOrder(input: {
+  token: string
+  orderId: string
+}): Promise<{
+  orderId: string
+  paypalOrderId: string
+  approvalUrl: string
+  status: string
+  environment: 'sandbox' | 'live'
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/paypal/create-order'),
+    {
+      method: 'POST',
+      headers: authHeaders(input.token),
+      body: JSON.stringify({
+        orderId: input.orderId,
+      }),
+    },
+    'PayPal-Order konnte nicht erstellt werden'
+  )
+}
+
+export async function capturePaypalCheckoutOrder(input: {
+  token?: string
+  orderId?: string
+  paypalOrderId: string
+}): Promise<{
+  ok: boolean
+  orderId: string
+  paypalOrderId: string
+  captureId: string | null
+  status: string | null
+  paymentStatus: 'PAID' | 'FAILED'
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/paypal/capture-order'),
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(input.token ? { Authorization: `Bearer ${input.token}` } : {}),
+      },
+      body: JSON.stringify({
+        orderId: input.orderId,
+        paypalOrderId: input.paypalOrderId,
+      }),
+    },
+    'PayPal-Order konnte nicht bestätigt werden'
+  )
+}
+
 export async function getPlatformBrandingSettings(
   token?: string
 ): Promise<PlatformBrandingSettings> {

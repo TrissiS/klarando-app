@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:signature/signature.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'core/app_update_service.dart';
 import 'core/klarando_api.dart';
 import 'core/api_environment.dart';
 import 'core/pairing_payload.dart';
@@ -25,8 +26,6 @@ const _prefsDriverChainId = 'klarando_driver_user_chain_id';
 const _prefsDriverSessionMode = 'klarando_driver_session_mode';
 const _prefsDriverDisplayCode = 'klarando_driver_display_code';
 const _prefsDriverDeviceLabel = 'klarando_driver_device_label';
-const _driverCurrentVersionName = '1.0.0';
-const _driverCurrentVersionCode = 1;
 
 class KlarandoDeliveryApp extends StatelessWidget {
   const KlarandoDeliveryApp({super.key});
@@ -202,6 +201,7 @@ class _DriverHomePage extends StatefulWidget {
 
 class _DriverHomePageState extends State<_DriverHomePage> {
   final _api = const KlarandoApi();
+  final _appUpdateService = AppUpdateService();
   final _baseUrlController = TextEditingController(text: _defaultBaseUrl());
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -241,6 +241,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   void initState() {
     super.initState();
     unawaited(_restoreSession());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_checkForAppUpdate(silentWhenCurrent: true));
+    });
   }
 
   @override
@@ -378,31 +381,38 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     await prefs.setString(_prefsDriverBaseUrl, _normalizedBaseUrl(_baseUrlController.text));
   }
 
-  Future<void> _checkForAppUpdate() async {
+  Future<void> _checkForAppUpdate({bool silentWhenCurrent = false}) async {
     final baseUrl = _normalizedBaseUrl(_baseUrlController.text);
     setState(() {
       _checkingUpdate = true;
-      _updateInfo = 'Pruefe Update...';
+      if (!silentWhenCurrent) {
+        _updateInfo = 'Prüfe Update...';
+      }
     });
 
     try {
-      final manifest = await _api.fetchDriverUpdateManifest(baseUrl: baseUrl);
-      final hasUpdate = manifest.isUpdateAvailableFor(_driverCurrentVersionCode);
-      if (!hasUpdate) {
+      final result = await _appUpdateService.checkForUpdate(
+        baseUrl: baseUrl,
+        expectedFlavor: MobileAppFlavor.driver,
+      );
+      if (!result.updateAvailable) {
         setState(() {
-          _updateInfo =
-              'App ist aktuell (${_driverCurrentVersionName}+${_driverCurrentVersionCode}).';
+          if (!silentWhenCurrent) {
+            _updateInfo =
+                'App ist aktuell (${result.currentVersion}+${result.currentBuildNumber}).';
+          }
         });
         return;
       }
 
-      final mandatory = manifest.isMandatoryFor(_driverCurrentVersionCode);
-      final mode = mandatory ? 'Pflichtupdate' : 'Optionales Update';
-      final url = manifest.apkUrl.trim().isEmpty ? '-' : manifest.apkUrl.trim();
+      final mode = result.forceUpdate ? 'Pflichtupdate' : 'Optionales Update';
       setState(() {
         _updateInfo =
-            '$mode verfuegbar: ${manifest.latestVersionName}+${manifest.latestVersionCode} | APK: $url';
+            '$mode verfügbar: ${result.manifest.latestVersion}+${result.manifest.buildNumber}';
       });
+      if (mounted) {
+        await _showUpdateDialog(result);
+      }
     } on ApiException catch (error) {
       setState(() {
         _updateInfo = 'Update-Check fehlgeschlagen: ${error.message}';
@@ -417,6 +427,77 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           _checkingUpdate = false;
         });
       }
+    }
+  }
+
+  Future<void> _showUpdateDialog(UpdateCheckResult result) async {
+    final manifest = result.manifest;
+    final installNow = await showDialog<bool>(
+      context: context,
+      barrierDismissible: !result.forceUpdate,
+      builder: (context) => AlertDialog(
+        title: Text(result.forceUpdate ? 'Pflichtupdate verfügbar' : 'Update verfügbar'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Neue Version: ${manifest.latestVersion}+${manifest.buildNumber}'),
+            const SizedBox(height: 8),
+            Text(_appUpdateService.formatReleaseNotes(manifest.releaseNotes)),
+          ],
+        ),
+        actions: [
+          if (!result.forceUpdate)
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Später'),
+            ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Jetzt aktualisieren'),
+          ),
+        ],
+      ),
+    );
+
+    if (installNow != true) {
+      return;
+    }
+
+    final apkUri = Uri.tryParse(manifest.apkUrl);
+    if (apkUri == null) {
+      setState(() {
+        _updateInfo = 'Update-Link ist ungültig.';
+      });
+      return;
+    }
+
+    try {
+      final apkFile = await _appUpdateService.downloadAndVerifyApk(
+        apkUri: apkUri,
+        sha256Hex: manifest.sha256,
+      );
+      await _appUpdateService.startApkInstallation(apkFile);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _updateInfo = 'Installationsdialog wurde geöffnet.';
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _updateInfo = 'Installation fehlgeschlagen: ${error.message}';
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _updateInfo = 'Installation fehlgeschlagen: $error';
+      });
     }
   }
 

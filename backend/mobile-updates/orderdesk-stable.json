@@ -1,0 +1,13 @@
+{
+  "appKey": "orderdesk",
+  "platform": "android",
+  "latestVersion": "1.0.0",
+  "minRequiredVersion": "1.0.0",
+  "buildNumber": 1,
+  "apkUrl": "",
+  "sha256": null,
+  "releaseNotes": "Initiale OrderDesk-Version",
+  "forceUpdate": false,
+  "publishedAt": "2026-05-13T00:00:00.000Z",
+  "enabled": false
+}

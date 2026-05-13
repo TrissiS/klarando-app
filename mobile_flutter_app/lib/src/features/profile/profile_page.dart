@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/klarando_api.dart';
 
@@ -96,6 +97,7 @@ class _ProfilePageState extends State<ProfilePage> {
   late final TextEditingController _baseUrlController;
   late final TextEditingController _emailController;
   late final TextEditingController _passwordController;
+  late final TextEditingController _emailCodeController;
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _streetController;
@@ -109,6 +111,9 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _marketingOptIn = false;
   bool _savingProfile = false;
   bool _socialBusy = false;
+  bool _codeRequested = false;
+  bool _requestingCode = false;
+  bool _submittingCode = false;
 
   @override
   void initState() {
@@ -116,6 +121,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _baseUrlController = TextEditingController(text: widget.baseUrl);
     _emailController = TextEditingController();
     _passwordController = TextEditingController();
+    _emailCodeController = TextEditingController();
     _nameController = TextEditingController();
     _phoneController = TextEditingController();
     _streetController = TextEditingController();
@@ -144,6 +150,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _baseUrlController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _emailCodeController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
     _streetController.dispose();
@@ -280,6 +287,64 @@ class _ProfilePageState extends State<ProfilePage> {
           _socialBusy = false;
         });
       }
+    }
+  }
+
+  Future<void> _requestEmailCode() async {
+    final email = _emailController.text.trim();
+    if (email.isEmpty || !email.contains('@')) {
+      _showMessage('Bitte eine gültige E-Mail-Adresse eingeben.');
+      return;
+    }
+    setState(() {
+      _requestingCode = true;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _requestingCode = false;
+      _codeRequested = true;
+    });
+    _showMessage(
+      'Bestätigungscode angefordert. Die Backend-Anbindung folgt als nächster Schritt.',
+    );
+  }
+
+  Future<void> _submitEmailCode() async {
+    final code = _emailCodeController.text.trim();
+    if (code.length < 4) {
+      _showMessage('Bitte einen gültigen Code eingeben.');
+      return;
+    }
+    setState(() {
+      _submittingCode = true;
+    });
+    await Future<void>.delayed(const Duration(milliseconds: 350));
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _submittingCode = false;
+    });
+    _showMessage(
+      'Code-Login ist vorbereitet. Sobald die API aktiv ist, wird der Code hier geprüft.',
+    );
+  }
+
+  Future<void> _openExternalLink(String rawUrl) async {
+    final url = Uri.tryParse(rawUrl);
+    if (url == null) {
+      _showMessage('Link ist ungültig.');
+      return;
+    }
+    final launched = await launchUrl(
+      url,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched) {
+      _showMessage('Link konnte nicht geöffnet werden.');
     }
   }
 
@@ -479,23 +544,116 @@ class _ProfilePageState extends State<ProfilePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              _registerMode ? 'Neues Kundenkonto' : 'Konto Login',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-              ),
+            const Text(
+              'Einloggen oder Konto erstellen',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Schnell, sicher und in wenigen Sekunden startklar.',
+              style: TextStyle(fontSize: 13, color: Color(0xFF52525B)),
             ),
             const SizedBox(height: 10),
+            _SocialLoginButton(
+              label: 'Mit Google fortfahren',
+              icon: Icons.g_mobiledata_rounded,
+              onPressed: _socialBusy || widget.appAuthBusy
+                  ? null
+                  : () => _submitSocialQuickstart('GOOGLE'),
+            ),
+            const SizedBox(height: 8),
+            _SocialLoginButton(
+              label: 'Mit Apple fortfahren',
+              icon: Icons.apple_rounded,
+              onPressed: _socialBusy || widget.appAuthBusy
+                  ? null
+                  : () => _submitSocialQuickstart('APPLE'),
+            ),
+            const SizedBox(height: 8),
+            _SocialLoginButton(
+              label: 'Mit Facebook fortfahren',
+              icon: Icons.facebook_rounded,
+              onPressed: _socialBusy || widget.appAuthBusy
+                  ? null
+                  : () => _submitSocialQuickstart('FACEBOOK'),
+            ),
+            if (_socialBusy)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Konto wird eingerichtet...',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                ),
+              ),
+            const SizedBox(height: 12),
+            const Row(
+              children: [
+                Expanded(child: Divider(height: 1)),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('oder'),
+                ),
+                Expanded(child: Divider(height: 1)),
+              ],
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               decoration: const InputDecoration(
-                labelText: 'E-Mail',
+                labelText: 'E-Mail-Adresse',
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF5A1F),
+                ),
+                onPressed: _requestingCode || widget.appAuthBusy ? null : _requestEmailCode,
+                child: Text(
+                  _requestingCode ? 'Wird angefordert...' : 'Bestätigungscode abrufen',
+                ),
+              ),
+            ),
+            if (_codeRequested) ...[
+              const SizedBox(height: 8),
+              TextField(
+                controller: _emailCodeController,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Bestätigungscode',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: _submittingCode || widget.appAuthBusy ? null : _submitEmailCode,
+                  child: Text(_submittingCode ? 'Prüfe Code...' : 'Mit Code anmelden'),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Hinweis: Der Code-Login ist als MVP vorbereitet. Die echte API-Anbindung folgt als nächster Schritt.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF52525B)),
+              ),
+            ],
+            const SizedBox(height: 12),
+            const Row(
+              children: [
+                Expanded(child: Divider(height: 1)),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('oder mit Passwort'),
+                ),
+                Expanded(child: Divider(height: 1)),
+              ],
+            ),
+            const SizedBox(height: 12),
             if (_registerMode) ...[
               TextField(
                 controller: _nameController,
@@ -633,52 +791,46 @@ class _ProfilePageState extends State<ProfilePage> {
                 ),
               ),
             ),
-            const Divider(height: 20),
-            const Text(
-              'Einloggen oder Konto erstellen',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            const Text(
-              'Mit Google, Facebook oder Apple schnell einloggen oder Konto erstellen.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF52525B)),
-            ),
             const SizedBox(height: 8),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
               children: [
-                OutlinedButton.icon(
-                  onPressed: _socialBusy || widget.appAuthBusy
-                      ? null
-                      : () => _submitSocialQuickstart('GOOGLE'),
-                  icon: const Icon(Icons.g_mobiledata_rounded),
-                  label: const Text('Google'),
+                const Text(
+                  'Wenn Sie fortfahren, erklären Sie sich mit unseren ',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                 ),
-                OutlinedButton.icon(
-                  onPressed: _socialBusy || widget.appAuthBusy
-                      ? null
-                      : () => _submitSocialQuickstart('FACEBOOK'),
-                  icon: const Icon(Icons.facebook_rounded),
-                  label: const Text('Facebook'),
+                GestureDetector(
+                  onTap: () => _openExternalLink(widget.termsUrl),
+                  child: const Text(
+                    'Allgemeinen Geschäftsbedingungen',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF0EA5E9),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-                OutlinedButton.icon(
-                  onPressed: _socialBusy || widget.appAuthBusy
-                      ? null
-                      : () => _submitSocialQuickstart('APPLE'),
-                  icon: const Icon(Icons.apple_rounded),
-                  label: const Text('Apple'),
+                const Text(
+                  ' und der ',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                ),
+                GestureDetector(
+                  onTap: () => _openExternalLink(widget.privacyUrl),
+                  child: const Text(
+                    'Datenschutzerklärung',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF0EA5E9),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                const Text(
+                  ' einverstanden.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                 ),
               ],
             ),
-            if (_socialBusy)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Konto wird eingerichtet...',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-                ),
-              ),
           ],
         ),
       ),
@@ -896,6 +1048,41 @@ class _ProfilePageState extends State<ProfilePage> {
             onCopy: () => _copyToClipboard('Kontolöschung E-Mail', widget.accountDeletionEmail),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SocialLoginButton extends StatelessWidget {
+  const _SocialLoginButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          side: const BorderSide(color: Color(0xFFE4E4E7)),
+        ),
+        onPressed: onPressed,
+        icon: Icon(icon, size: 22),
+        label: Align(
+          alignment: Alignment.centerLeft,
+          child: Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+        ),
       ),
     );
   }

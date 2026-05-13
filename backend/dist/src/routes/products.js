@@ -89,7 +89,7 @@ function normalizeMoney(value, fallback = 0) {
 }
 function collectAllergens(product) {
     const codes = new Set();
-    for (const item of product.ingredients) {
+    for (const item of product.ingredients || []) {
         const raw = item.ingredient.allergens;
         if (!raw) {
             continue;
@@ -224,7 +224,7 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
         const { tenantId, categoryId, productNumber, name, imageUrl, ean, unitEans, beverageContainerType, deposit, articleInfo, foodBusinessOperator, nutritionInfo, price, vatRate, available, } = req.body;
         const normalizedProductNumber = normalizeProductNumber(productNumber);
         const normalizedName = normalizeText(name);
-        if (!normalizedProductNumber || !normalizedName || price === undefined) {
+        if (!normalizedName || price === undefined) {
             return res.status(400).json({ error: 'Pflichtfelder fehlen' });
         }
         const scope = await (0, tenant_scope_1.resolveTenantScope)(req, tenantId);
@@ -234,19 +234,21 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
         if (!categoryInScope) {
             return res.status(400).json({ error: 'Kategorie gehoert nicht zur Filiale' });
         }
-        const existingWithProductNumber = await prisma_1.prisma.product.findFirst({
-            where: {
-                tenantId: scopedTenantId,
-                productNumber: normalizedProductNumber,
-            },
-            select: {
-                id: true,
-            },
-        });
-        if (existingWithProductNumber) {
-            return res.status(409).json({
-                error: 'Produktnummer ist bereits vergeben',
+        if (normalizedProductNumber) {
+            const existingWithProductNumber = await prisma_1.prisma.product.findFirst({
+                where: {
+                    tenantId: scopedTenantId,
+                    productNumber: normalizedProductNumber,
+                },
+                select: {
+                    id: true,
+                },
             });
+            if (existingWithProductNumber) {
+                return res.status(409).json({
+                    error: 'Diese Artikelnummer ist bereits vergeben.',
+                });
+            }
         }
         const normalizedUnitEans = normalizeUnitEans(unitEans);
         const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType);
@@ -254,7 +256,7 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
             data: {
                 tenantId: scopedTenantId,
                 categoryId: resolvedCategoryId,
-                productNumber: normalizedProductNumber,
+                productNumber: normalizedProductNumber ?? null,
                 name: normalizedName,
                 imageUrl: normalizeText(imageUrl),
                 ean: normalizeEan(ean),
@@ -319,7 +321,7 @@ router.post('/', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_W
 router.put('/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS_WRITE), async (req, res) => {
     try {
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-        const { name, imageUrl, ean, unitEans, beverageContainerType, deposit, articleInfo, foodBusinessOperator, nutritionInfo, price, vatRate, categoryId, available, } = req.body;
+        const { name, productNumber, imageUrl, ean, unitEans, beverageContainerType, deposit, articleInfo, foodBusinessOperator, nutritionInfo, price, vatRate, categoryId, available, } = req.body;
         if (!id) {
             return res.status(400).json({ error: 'Produkt-ID fehlt' });
         }
@@ -343,6 +345,24 @@ router.put('/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS
         }
         const normalizedUnitEans = unitEans === undefined ? undefined : normalizeUnitEans(unitEans);
         const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType);
+        const normalizedProductNumber = normalizeProductNumber(productNumber);
+        if (normalizedProductNumber) {
+            const existingWithProductNumber = await prisma_1.prisma.product.findFirst({
+                where: {
+                    tenantId: existingProduct.tenantId,
+                    productNumber: normalizedProductNumber,
+                    NOT: { id },
+                },
+                select: {
+                    id: true,
+                },
+            });
+            if (existingWithProductNumber) {
+                return res.status(409).json({
+                    error: 'Diese Artikelnummer ist bereits vergeben.',
+                });
+            }
+        }
         const updateProductRecord = () => prisma_1.prisma.product.update({
             where: { id },
             data: {
@@ -357,6 +377,7 @@ router.put('/:id', (0, auth_1.requirePermission)(client_1.PermissionKey.PRODUCTS
                 articleInfo: articleInfo === undefined ? undefined : normalizeText(articleInfo),
                 foodBusinessOperator: foodBusinessOperator === undefined ? undefined : normalizeText(foodBusinessOperator),
                 nutritionInfo: nutritionInfo === undefined ? undefined : normalizeText(nutritionInfo),
+                productNumber: productNumber === undefined ? undefined : (normalizedProductNumber ?? null),
                 price: price === undefined ? undefined : Number(price),
                 vatRate: vatRate === undefined ? undefined : Number(vatRate),
                 categoryId: categoryId === undefined ? undefined : categoryId || null,

@@ -222,26 +222,33 @@ router.post('/:id/product', (0, auth_1.requirePermission)(client_1.PermissionKey
             return auth.response;
         const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
         const payload = req.body;
-        if (!id || !payload.productNumber?.trim() || !payload.name?.trim()) {
-            return res.status(400).json({ error: 'Template-ID, Produktnummer und Produktname sind erforderlich' });
+        if (!id || !payload.name?.trim()) {
+            return res.status(400).json({ error: 'Template-ID und Produktname sind erforderlich' });
         }
+        const normalizedName = payload.name.trim();
+        const categoryId = payload.categoryId || null;
+        const existingProduct = await prisma_1.prisma.businessTemplateProduct.findFirst({
+            where: {
+                templateId: id,
+                name: normalizedName,
+                categoryId,
+            },
+            select: { id: true },
+        });
         const product = await prisma_1.prisma.businessTemplateProduct.upsert({
             where: {
-                templateId_productNumber: {
-                    templateId: id,
-                    productNumber: payload.productNumber.trim(),
-                },
+                id: existingProduct?.id || '__no-match__',
             },
             update: {
-                name: payload.name.trim(),
-                categoryId: payload.categoryId || null,
+                name: normalizedName,
+                categoryId,
                 price: Number.isFinite(payload.price) ? Number(payload.price) : 0,
             },
             create: {
                 templateId: id,
-                productNumber: payload.productNumber.trim(),
-                name: payload.name.trim(),
-                categoryId: payload.categoryId || null,
+                productNumber: null,
+                name: normalizedName,
+                categoryId,
                 price: Number.isFinite(payload.price) ? Number(payload.price) : 0,
                 vatRate: 7,
                 available: true,
@@ -371,6 +378,13 @@ router.post('/:id/import', (0, auth_1.requirePermission)(client_1.PermissionKey.
         const scopeError = (0, tenant_scope_1.asTenantScopeError)(error);
         if (scopeError) {
             return res.status(scopeError.status).json({ error: scopeError.message });
+        }
+        if (error instanceof business_template_import_1.TenantImportError && error.code === 'TEMPLATE_ALREADY_IMPORTED') {
+            return res.status(409).json({
+                error: error.message,
+                warning: true,
+                code: error.code,
+            });
         }
         if (error instanceof Error && error.message.includes('Vorlage nicht gefunden')) {
             return res.status(404).json({ error: error.message });

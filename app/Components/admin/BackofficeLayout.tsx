@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import PlatformBranding from '@/app/Components/admin/PlatformBranding'
 import {
   getPlatformBrandingSettings,
@@ -14,21 +14,33 @@ import { clearSuperadminTenantContext } from '@/lib/superadmin-tenant-context'
 type BackofficeNavItem = {
   href: string
   label: string
+  tooltip?: string
+}
+
+type BackofficeNavGroup = {
+  id: string
+  label: string
+  defaultOpen?: boolean
+  items: BackofficeNavItem[]
 }
 
 type Props = {
   brand: string
   title: string
   subtitle?: string
-  navItems: BackofficeNavItem[]
+  navItems?: BackofficeNavItem[]
+  navGroups?: BackofficeNavGroup[]
   children: React.ReactNode
 }
+
+type AdminUiMode = 'compact' | 'touch'
 
 export default function BackofficeLayout({
   brand,
   title,
   subtitle,
   navItems,
+  navGroups,
   children,
 }: Props) {
   const pathname = usePathname()
@@ -37,10 +49,143 @@ export default function BackofficeLayout({
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [uiMode, setUiMode] = useState<AdminUiMode>('compact')
+  const [uiModeReady, setUiModeReady] = useState(false)
+  const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set())
   const [authChecked, setAuthChecked] = useState(false)
   const [hasValidSession, setHasValidSession] = useState(false)
   const normalizedRole = sessionRole.trim().toLowerCase()
   const canSwitchToAdmin = normalizedRole === 'superadmin' || normalizedRole === 'chainadmin'
+  const lowerBrand = brand.trim().toLowerCase()
+  const sourceItems = navItems || []
+  function pickItemsByHref(candidates: string[]) {
+    return sourceItems.filter((item) => candidates.includes(item.href))
+  }
+  const resolvedNavGroups: BackofficeNavGroup[] = useMemo(
+    () =>
+      navGroups && navGroups.length > 0
+      ? navGroups
+      : lowerBrand.includes('superadmin')
+        ? [
+            {
+              id: 'overview',
+              label: 'Übersicht',
+              defaultOpen: true,
+              items: pickItemsByHref(['/superadmin']),
+            },
+            {
+              id: 'companies',
+              label: 'Unternehmen & Filialen',
+              defaultOpen: true,
+              items: pickItemsByHref(['/superadmin/business-data', '/superadmin/onboarding']),
+            },
+            {
+              id: 'templates',
+              label: 'Vorlagen',
+              items: pickItemsByHref(['/superadmin/business-templates', '/superadmin/template-editor']),
+            },
+            {
+              id: 'security',
+              label: 'Benutzer & Rechte',
+              items: pickItemsByHref(['/superadmin/security', '/superadmin/customers', '/superadmin/drivers']),
+            },
+            {
+              id: 'system',
+              label: 'System',
+              items: pickItemsByHref([
+                '/superadmin/orders',
+                '/superadmin/display-devices',
+                '/superadmin/app-settings',
+                '/superadmin/misc-settings',
+                '/superadmin/module-billing',
+              ]),
+            },
+          ].filter((group) => group.items.length > 0)
+        : lowerBrand.includes('kettenadmin') || lowerBrand.includes('chainadmin')
+          ? [
+              {
+                id: 'overview',
+                label: 'Übersicht',
+                defaultOpen: true,
+                items: pickItemsByHref(['/chainadmin']),
+              },
+              {
+                id: 'operations',
+                label: 'Unternehmen',
+                defaultOpen: true,
+                items: pickItemsByHref(['/chainadmin/app-settings', '/chainadmin/closings']),
+              },
+              {
+                id: 'templates',
+                label: 'Vorlagen',
+                items: pickItemsByHref(['/chainadmin/business-templates']),
+              },
+              {
+                id: 'devices',
+                label: 'Geräte',
+                items: pickItemsByHref(['/chainadmin/display-devices']),
+              },
+              {
+                id: 'links',
+                label: 'Schnellzugriff',
+                items: pickItemsByHref(['/admin/orders', '/admin']),
+              },
+            ].filter((group) => group.items.length > 0)
+          : [
+              {
+                id: 'default',
+                label: 'Navigation',
+                defaultOpen: true,
+                items: sourceItems,
+              },
+            ],
+    [navGroups, lowerBrand, sourceItems]
+  )
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const stored = window.localStorage.getItem('klarando.adminUiMode')
+    if (stored === 'compact' || stored === 'touch') {
+      setUiMode(stored)
+      setUiModeReady(true)
+      return
+    }
+    const inferred: AdminUiMode = window.innerWidth < 1100 ? 'touch' : 'compact'
+    setUiMode(inferred)
+    setUiModeReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!uiModeReady || typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem('klarando.adminUiMode', uiMode)
+    document.documentElement.dataset.adminUiMode = uiMode
+  }, [uiMode, uiModeReady])
+
+  useEffect(() => {
+    setOpenGroupIds(
+      new Set(
+        resolvedNavGroups
+          .filter((group) => group.defaultOpen ?? true)
+          .map((group) => group.id)
+      )
+    )
+  }, [resolvedNavGroups])
+
+  function toggleGroup(groupId: string) {
+    setOpenGroupIds((current) => {
+      const next = new Set(current)
+      if (next.has(groupId)) {
+        next.delete(groupId)
+      } else {
+        next.add(groupId)
+      }
+      return next
+    })
+  }
 
   useEffect(() => {
     try {
@@ -203,13 +348,32 @@ export default function BackofficeLayout({
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [mobileNavOpen])
 
+  const isTouchMode = uiMode === 'touch'
+  const sidebarWidthClass = isSidebarCollapsed
+    ? isTouchMode
+      ? 'w-24'
+      : 'w-20'
+    : isTouchMode
+      ? 'w-[248px]'
+      : 'w-[276px]'
+  const navLinkPaddingClass = isTouchMode ? 'px-4 py-3.5 text-sm' : 'px-3.5 py-2.5 text-[13px]'
+  const headerSpacingClass = isTouchMode
+    ? 'mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6'
+    : 'mx-auto max-w-7xl px-3 py-3 sm:px-4 sm:py-4 md:px-5 md:py-5'
+  const pageSpacingClass = isTouchMode
+    ? 'mx-auto w-full max-w-[1400px] px-3 py-6 sm:px-4 md:px-6 md:py-8'
+    : 'mx-auto w-full max-w-[1500px] px-2 py-4 sm:px-3 md:px-5 md:py-6'
+
   return (
-    <main className="safe-area-padding brand-shell min-h-screen">
+    <main
+      className={`safe-area-padding brand-shell klarando-admin-scope min-h-screen ${
+        isTouchMode ? 'klarando-touch-mode' : 'klarando-compact-mode'
+      }`}
+      data-admin-ui-mode={uiMode}
+    >
       <div className="flex min-h-screen">
         <aside
-          className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${
-            isSidebarCollapsed ? 'w-20' : 'w-72'
-          } relative z-40 pointer-events-auto`}
+          className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass} relative z-40 pointer-events-auto`}
         >
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
@@ -219,29 +383,47 @@ export default function BackofficeLayout({
                   Klarando Plattform
                 </p>
                 <h1 className="mt-2 text-2xl font-bold">{brand}</h1>
-                <p className="mt-2 text-sm text-orange-100/80">Verwaltung von Rollen, Rechten und Freigaben.</p>
+                <p className={`mt-2 text-orange-100/80 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>Verwaltung von Rollen, Rechten und Freigaben.</p>
               </>
             ) : null}
           </div>
 
-          <nav className="relative z-40 flex-1 px-4 py-6 pointer-events-auto">
-            <div className="space-y-2">
-              {navItems.map((item) => {
-                const isActive = pathname === item.href
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    title={item.label}
-                    className={`brand-nav-link relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto ${
-                      isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
-                    }`}
-                    data-nav-anchor="backoffice-sidebar-link"
+          <nav className={`relative z-40 flex-1 pointer-events-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+            <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
+              {resolvedNavGroups.map((group) => (
+                <div key={group.id}>
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.id)}
+                    className="flex w-full items-center justify-between rounded-xl px-2 py-1 text-left"
                   >
-                    {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
-                  </Link>
-                )
-              })}
+                    <p className="pointer-events-none text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+                      {group.label}
+                    </p>
+                    <span className="text-xs text-orange-200">{openGroupIds.has(group.id) ? '−' : '+'}</span>
+                  </button>
+                  {openGroupIds.has(group.id) ? (
+                    <div className={isTouchMode ? 'mt-2 space-y-2' : 'mt-1.5 space-y-1.5'}>
+                      {group.items.map((item) => {
+                        const isActive = pathname === item.href
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            title={item.tooltip || item.label}
+                            className={`brand-nav-link relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass} ${
+                              isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
+                            }`}
+                            data-nav-anchor="backoffice-sidebar-link"
+                          >
+                            {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ))}
             </div>
 
             <div className="mt-4 border-t border-white/15 pt-4">
@@ -253,7 +435,7 @@ export default function BackofficeLayout({
                   <Link
                     href="/admin"
                     title="Zum Adminbereich"
-                    className="brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto"
+                    className={`brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass}`}
                     data-nav-anchor="backoffice-sidebar-quicklink"
                   >
                     {isSidebarCollapsed ? '>>' : 'Zum Adminbereich'}
@@ -263,7 +445,7 @@ export default function BackofficeLayout({
                   type="button"
                   onClick={handleLogout}
                   title="Logout"
-                  className="block w-full rounded-2xl border border-red-300 bg-red-500/15 px-4 py-3 text-left text-sm font-medium text-red-100 transition hover:bg-red-500/25"
+                  className={`block w-full rounded-2xl border border-red-300 bg-red-500/15 text-left font-medium text-red-100 transition hover:bg-red-500/25 ${isTouchMode ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'}`}
                 >
                   {isSidebarCollapsed ? 'X' : 'Logout'}
                 </button>
@@ -289,7 +471,7 @@ export default function BackofficeLayout({
 
         <div className="relative z-10 min-w-0 flex-1">
           <header className="border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
-            <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6">
+            <div className={headerSpacingClass}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <PlatformBranding settings={platformBranding} area="header" />
@@ -299,6 +481,17 @@ export default function BackofficeLayout({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
+                  <span className="rounded-xl border border-[var(--brand-border)] bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                    Modus: {isTouchMode ? 'Touch' : 'Kompakt'}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setUiMode((current) => (current === 'compact' ? 'touch' : 'compact'))}
+                    className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
+                    title={isTouchMode ? 'Auf Kompakt-Modus umstellen' : 'Auf Touch-Modus umstellen'}
+                  >
+                    {isTouchMode ? 'Touch' : 'Kompakt'}
+                  </button>
                   <button
                     type="button"
                     onClick={() => setIsSidebarCollapsed((current) => !current)}
@@ -365,23 +558,40 @@ export default function BackofficeLayout({
                   </button>
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
-                  <div className="space-y-2">
-                    {navItems.map((item) => {
-                      const isActive = pathname === item.href
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
-                            isActive
-                              ? 'brand-button-primary'
-                              : 'bg-rose-50 text-rose-900 hover:bg-rose-100'
-                          }`}
+                  <div className="space-y-4">
+                    {resolvedNavGroups.map((group) => (
+                      <div key={`mobile-${group.id}`}>
+                        <button
+                          type="button"
+                          onClick={() => toggleGroup(group.id)}
+                          className="flex w-full items-center justify-between px-1"
                         >
-                          {item.label}
-                        </Link>
-                      )
-                    })}
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-rose-900/60">{group.label}</p>
+                          <span className="text-xs text-rose-900/70">{openGroupIds.has(group.id) ? '−' : '+'}</span>
+                        </button>
+                        {openGroupIds.has(group.id) ? (
+                          <div className="mt-2 space-y-2">
+                            {group.items.map((item) => {
+                              const isActive = pathname === item.href
+                              return (
+                                <Link
+                                  key={item.href}
+                                  href={item.href}
+                                  title={item.tooltip || item.label}
+                                  className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
+                                    isActive
+                                      ? 'brand-button-primary'
+                                      : 'bg-rose-50 text-rose-900 hover:bg-rose-100'
+                                  }`}
+                                >
+                                  {item.label}
+                                </Link>
+                              )
+                            })}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
                     {canSwitchToAdmin ? (
                       <Link
                         href="/admin"
@@ -402,7 +612,7 @@ export default function BackofficeLayout({
               </div>
             </div>
           ) : null}
-          <div className="mx-auto w-full max-w-[1400px] px-3 py-6 sm:px-4 md:px-6 md:py-8">
+          <div className={pageSpacingClass}>
             {!authChecked ? (
               <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
                 Sitzung wird geprüft...

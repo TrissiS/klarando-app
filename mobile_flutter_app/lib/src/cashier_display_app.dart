@@ -8,6 +8,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import 'core/app_update_service.dart';
 import 'core/klarando_api.dart';
 import 'core/api_environment.dart';
 import 'core/pairing_payload.dart';
@@ -50,6 +51,7 @@ class _CashierDisplayHomePage extends StatefulWidget {
 
 class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   final _api = const KlarandoApi();
+  final _appUpdateService = AppUpdateService();
   final _baseUrlController = TextEditingController(
     text: defaultApiBaseUrl,
   );
@@ -98,6 +100,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       },
     );
     _loadPrefs();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_checkForAppUpdate(silentWhenCurrent: true));
+    });
   }
 
   @override
@@ -464,25 +469,98 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
   }
 
-  Future<void> _checkForAppUpdate() async {
+  Future<void> _checkForAppUpdate({bool silentWhenCurrent = false}) async {
     await _runOrderMutation(() async {
-      final manifest = await _api.fetchCashierUpdateManifest(
+      final result = await _appUpdateService.checkForUpdate(
         baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        expectedFlavor: MobileAppFlavor.orderdesk,
       );
-      final hasUpdate = manifest.isUpdateAvailableFor(
-        _cashierCurrentVersionCode,
-      );
-      if (!hasUpdate) {
-        _updateInfo =
-            'App ist aktuell (${_cashierCurrentVersionName}+${_cashierCurrentVersionCode}).';
+      if (!result.updateAvailable) {
+        if (!silentWhenCurrent) {
+          _updateInfo =
+              'App ist aktuell (${result.currentVersion}+${result.currentBuildNumber}).';
+        }
         return;
       }
-      final mandatory = manifest.isMandatoryFor(_cashierCurrentVersionCode);
-      final mode = mandatory ? 'Pflichtupdate' : 'Optionales Update';
-      final url = manifest.apkUrl.trim().isEmpty ? '-' : manifest.apkUrl.trim();
+
       _updateInfo =
-          '$mode verfügbar: ${manifest.latestVersionName}+${manifest.latestVersionCode} | APK: $url';
+          'Update verfügbar: ${result.manifest.latestVersion}+${result.manifest.buildNumber}';
+
+      if (!mounted) {
+        return;
+      }
+      await _showUpdateDialog(result);
     });
+  }
+
+  Future<void> _showUpdateDialog(UpdateCheckResult result) async {
+    final manifest = result.manifest;
+    final shouldInstall = await showDialog<bool>(
+      context: context,
+      barrierDismissible: !result.forceUpdate,
+      builder: (context) => AlertDialog(
+        title: Text(result.forceUpdate ? 'Pflichtupdate verfügbar' : 'Update verfügbar'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Neue Version: ${manifest.latestVersion}+${manifest.buildNumber}'),
+            const SizedBox(height: 8),
+            Text(_appUpdateService.formatReleaseNotes(manifest.releaseNotes)),
+          ],
+        ),
+        actions: [
+          if (!result.forceUpdate)
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Später'),
+            ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Jetzt aktualisieren'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldInstall != true) {
+      return;
+    }
+    final apkUri = Uri.tryParse(manifest.apkUrl);
+    if (apkUri == null) {
+      setState(() {
+        _error = 'Update-Link ist ungültig.';
+      });
+      return;
+    }
+
+    try {
+      final apkFile = await _appUpdateService.downloadAndVerifyApk(
+        apkUri: apkUri,
+        sha256Hex: manifest.sha256,
+      );
+      await _appUpdateService.startApkInstallation(apkFile);
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _info = 'Installationsdialog wurde geöffnet.';
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = error.message;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = 'Update konnte nicht installiert werden: $error';
+      });
+    }
   }
 
   Future<void> _bindWithPairingToken() async {

@@ -17,6 +17,7 @@ const router = (0, express_1.Router)();
 const ORDERDESK_DEVICE_MODULE = 'orderdesk_device';
 const ORDERDESK_DEVICE_TARGET_TYPE = 'orderdesk_device_binding';
 const ORDERDESK_PAIRING_TARGET_TYPE = 'orderdesk_pairing_session';
+const ORDERDESK_PAIRING_EXPIRES_MINUTES = 5;
 function normalizeText(value) {
     if (typeof value !== 'string') {
         return null;
@@ -71,6 +72,31 @@ function parsePairingPayload(rawValue) {
     if (!raw) {
         return null;
     }
+    if (raw.startsWith('{')) {
+        try {
+            const parsed = JSON.parse(raw);
+            const type = normalizeText(parsed.type)?.toUpperCase();
+            if (type && type !== 'ORDER_DESK_PAIRING') {
+                return {
+                    token: null,
+                    displayCode: null,
+                    invalidType: type,
+                };
+            }
+            const token = normalizeText(parsed.pairingToken) ?? normalizeText(parsed.token);
+            if (!token) {
+                return null;
+            }
+            return {
+                token,
+                displayCode: normalizeText(parsed.displayCode)?.toUpperCase() ?? null,
+                invalidType: null,
+            };
+        }
+        catch {
+            return null;
+        }
+    }
     if (raw.startsWith('klarando-orderdesk-pair:')) {
         const parts = raw.split(':');
         if (parts.length < 3) {
@@ -79,12 +105,23 @@ function parsePairingPayload(rawValue) {
         return {
             token: parts.slice(2).join(':'),
             displayCode: normalizeText(parts[1])?.toUpperCase() ?? null,
+            invalidType: null,
         };
     }
     return {
         token: raw,
         displayCode: null,
+        invalidType: null,
     };
+}
+function resolvePublicApiBaseUrl() {
+    const candidate = normalizeText(process.env.PUBLIC_API_BASE_URL) ??
+        normalizeText(process.env.NEXT_PUBLIC_API_BASE_URL) ??
+        normalizeText(process.env.NEXT_PUBLIC_API_URL);
+    if (candidate) {
+        return candidate.replace(/\/+$/, '');
+    }
+    return 'https://api.klarando.com';
 }
 function createPairingSessionId() {
     return `odpk_${Date.now().toString(36)}_${crypto_1.default.randomBytes(6).toString('hex')}`;
@@ -142,7 +179,6 @@ router.post('/pairing-session', (0, auth_1.requirePermission)(client_1.Permissio
         const displayId = normalizeText(payload.displayId);
         const displayCode = normalizeText(payload.displayCode)?.toUpperCase() ?? null;
         const deviceAlias = normalizeText(payload.deviceAlias) ?? createDefaultAlias();
-        const expiresMinutes = Math.min(180, Math.max(5, parsePositiveInteger(payload.expiresMinutes) ?? 20));
         if (!tenantId) {
             return res.status(400).json({ error: 'tenantId fehlt' });
         }
@@ -175,7 +211,7 @@ router.post('/pairing-session', (0, auth_1.requirePermission)(client_1.Permissio
             return res.status(400).json({ error: 'Ausgewähltes Kassendisplay ist inaktiv' });
         }
         const sessionId = createPairingSessionId();
-        const expiresAt = new Date(Date.now() + expiresMinutes * 60 * 1000);
+        const expiresAt = new Date(Date.now() + ORDERDESK_PAIRING_EXPIRES_MINUTES * 60 * 1000);
         await prisma_1.prisma.orderDeskPairingSession.create({
             data: {
                 id: sessionId,
@@ -197,7 +233,16 @@ router.post('/pairing-session', (0, auth_1.requirePermission)(client_1.Permissio
             kind: 'PAIRING',
             expiresAtMs: expiresAt.getTime(),
         });
-        const pairingPayload = `klarando-orderdesk-pair:${display.displayCode}:${pairingToken}`;
+        const apiBaseUrl = resolvePublicApiBaseUrl();
+        const pairingPayload = JSON.stringify({
+            type: 'ORDER_DESK_PAIRING',
+            apiBaseUrl,
+            tenantId: display.tenantId,
+            displayCode: display.displayCode,
+            pairingToken,
+            expiresAt: expiresAt.toISOString(),
+        });
+        const legacyPairingPayload = `klarando-orderdesk-pair:${display.displayCode}:${pairingToken}`;
         await (0, audit_1.writeAuditLog)({
             req,
             module: ORDERDESK_DEVICE_MODULE,
@@ -210,6 +255,7 @@ router.post('/pairing-session', (0, auth_1.requirePermission)(client_1.Permissio
                 displayCode: display.displayCode,
                 deviceAlias,
                 expiresAt: expiresAt.toISOString(),
+                expiresMinutes: ORDERDESK_PAIRING_EXPIRES_MINUTES,
             },
         });
         return res.status(201).json({
@@ -222,7 +268,9 @@ router.post('/pairing-session', (0, auth_1.requirePermission)(client_1.Permissio
             expiresAt: expiresAt.toISOString(),
             pairingToken,
             pairingPayload,
+            legacyPairingPayload,
             qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(pairingPayload)}`,
+            expiresMinutes: ORDERDESK_PAIRING_EXPIRES_MINUTES,
         });
     }
     catch (error) {
@@ -310,6 +358,11 @@ router.post('/public/bind', rate_limit_1.rateLimitOrderDeskPairing, async (req, 
         const parsedPair = parsePairingPayload(payload.pairingToken ?? payload.pairingPayload ?? payload.qrPayload);
         if (!parsedPair) {
             return res.status(400).json({ error: 'pairingToken oder QR-Payload fehlt' });
+        }
+        if (parsedPair.invalidType) {
+            return res.status(400).json({
+                error: 'Dieser QR-Code ist nicht für die OrderDesk-App geeignet.',
+            });
         }
         const tokenPayload = (0, orderdesk_device_token_1.verifyOrderDeskDeviceToken)(parsedPair.token);
         if (!tokenPayload || tokenPayload.kind !== 'PAIRING') {

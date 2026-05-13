@@ -1,10 +1,11 @@
 import { Router } from 'express'
 import crypto from 'crypto'
-import { PermissionKey, UserRole } from '@prisma/client'
+import { AppAuthProvider, PermissionKey, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { getDefaultPermissions, DEFAULT_ROLE_PERMISSIONS } from '../auth/permissions'
 import { hashPassword, needsPasswordRehash, verifyPassword } from '../auth/password'
 import { signAuthToken } from '../auth/token'
+import { signAppAuthToken } from '../auth/app-token'
 import { requireAuth, requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import { rateLimitAuthLogin } from '../middleware/rate-limit'
@@ -24,6 +25,101 @@ type ForgotPasswordBody = {
 type ResetPasswordBody = {
   token?: string
   password?: string
+}
+
+function normalizeText(value: unknown) {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+function normalizeEmail(value: unknown) {
+  const text = normalizeText(value)
+  if (!text) {
+    return null
+  }
+  return text.toLowerCase()
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+
+function mapAppCustomerUser(account: {
+  id: string
+  email: string
+  fullName: string
+  phone: string | null
+  street: string | null
+  zipCode: string | null
+  city: string | null
+  marketingOptIn: boolean
+  deletionRequestedAt: Date | null
+}) {
+  return {
+    id: account.id,
+    email: account.email,
+    fullName: account.fullName,
+    phone: account.phone,
+    street: account.street,
+    zipCode: account.zipCode,
+    city: account.city,
+    marketingOptIn: account.marketingOptIn,
+    deletionRequestedAt: account.deletionRequestedAt,
+  }
+}
+
+type GoogleTokenInfo = {
+  sub?: string
+  email?: string
+  email_verified?: string | boolean
+  name?: string
+  aud?: string
+  iss?: string
+}
+
+async function verifyGoogleIdToken(idToken: string): Promise<{
+  providerUserId: string
+  email: string | null
+  fullName: string | null
+  emailVerified: boolean
+}> {
+  const response = await fetch(
+    `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`
+  )
+  if (!response.ok) {
+    throw new Error('GOOGLE_TOKEN_INVALID')
+  }
+
+  const payload = (await response.json()) as GoogleTokenInfo
+  const providerUserId = normalizeText(payload.sub)
+  if (!providerUserId) {
+    throw new Error('GOOGLE_TOKEN_INVALID')
+  }
+
+  const expectedAud = normalizeText(process.env.GOOGLE_OAUTH_CLIENT_ID)
+  if (expectedAud) {
+    const tokenAud = normalizeText(payload.aud)
+    if (!tokenAud || tokenAud !== expectedAud) {
+      throw new Error('GOOGLE_AUDIENCE_MISMATCH')
+    }
+  }
+
+  const issuer = normalizeText(payload.iss)
+  if (issuer && issuer != 'accounts.google.com' && issuer != 'https://accounts.google.com') {
+    throw new Error('GOOGLE_ISSUER_INVALID')
+  }
+
+  return {
+    providerUserId,
+    email: normalizeEmail(payload.email),
+    fullName: normalizeText(payload.name),
+    emailVerified:
+      payload.email_verified === true ||
+      normalizeText(payload.email_verified)?.toLowerCase() === 'true',
+  }
 }
 
 function validatePasswordRules(value: string) {
@@ -236,6 +332,127 @@ router.post('/login', rateLimitAuthLogin, async (req, res) => {
   } catch (error) {
     console.error('LOGIN ERROR:', error)
     return res.status(500).json({ error: 'Login konnte nicht verarbeitet werden' })
+  }
+})
+
+router.post('/social/google', rateLimitAuthLogin, async (req, res) => {
+  try {
+    const idToken = normalizeText((req.body as { idToken?: unknown }).idToken)
+    const fallbackEmail = normalizeEmail((req.body as { email?: unknown }).email)
+    const fallbackName = normalizeText((req.body as { name?: unknown }).name)
+    if (!idToken) {
+      return res.status(400).json({ error: 'idToken fehlt' })
+    }
+
+    const verified = await verifyGoogleIdToken(idToken)
+    const email = verified.email ?? fallbackEmail
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ error: 'Google-Konto liefert keine gültige E-Mail-Adresse' })
+    }
+
+    const account = await prisma.$transaction(async (tx) => {
+      const providerLink = await tx.appCustomerAuthProvider.findUnique({
+        where: {
+          provider_providerUserId: {
+            provider: AppAuthProvider.GOOGLE,
+            providerUserId: verified.providerUserId,
+          },
+        },
+        include: {
+          appCustomer: true,
+        },
+      })
+
+      let linkedAccount = providerLink?.appCustomer ?? null
+      if (!linkedAccount) {
+        linkedAccount = await tx.appCustomerAccount.findUnique({
+          where: { email },
+        })
+      }
+
+      if (!linkedAccount) {
+        linkedAccount = await tx.appCustomerAccount.create({
+          data: {
+            email,
+            fullName: verified.fullName ?? fallbackName ?? email.split('@')[0] ?? 'Klarando Kunde',
+            passwordHash: hashPassword(`${crypto.randomBytes(24).toString('hex')}!Kla1`),
+            isActive: true,
+            lastLoginAt: new Date(),
+          },
+        })
+      } else {
+        linkedAccount = await tx.appCustomerAccount.update({
+          where: { id: linkedAccount.id },
+          data: {
+            fullName: verified.fullName ?? fallbackName ?? linkedAccount.fullName,
+            isActive: true,
+            lastLoginAt: new Date(),
+          },
+        })
+      }
+
+      await tx.appCustomerAuthProvider.upsert({
+        where: {
+          provider_providerUserId: {
+            provider: AppAuthProvider.GOOGLE,
+            providerUserId: verified.providerUserId,
+          },
+        },
+        update: {
+          appCustomerId: linkedAccount.id,
+          email,
+          emailVerified: verified.emailVerified,
+          metadata: {
+            linkedAt: new Date().toISOString(),
+          },
+        },
+        create: {
+          appCustomerId: linkedAccount.id,
+          provider: AppAuthProvider.GOOGLE,
+          providerUserId: verified.providerUserId,
+          email,
+          emailVerified: verified.emailVerified,
+          metadata: {
+            linkedAt: new Date().toISOString(),
+          },
+        },
+      })
+
+      return linkedAccount
+    })
+
+    const token = signAppAuthToken({
+      sub: account.id,
+      email: account.email,
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'app-auth',
+      action: 'app_customer_social_google_login',
+      targetType: 'appCustomerAccount',
+      targetId: account.id,
+      metadata: {
+        email: account.email,
+      },
+    })
+
+    return res.json({
+      token,
+      user: mapAppCustomerUser(account),
+    })
+  } catch (error) {
+    if (error instanceof Error) {
+      if (
+        error.message === 'GOOGLE_TOKEN_INVALID' ||
+        error.message === 'GOOGLE_AUDIENCE_MISMATCH' ||
+        error.message === 'GOOGLE_ISSUER_INVALID'
+      ) {
+        return res.status(401).json({ error: 'Google-Anmeldung konnte nicht verifiziert werden' })
+      }
+    }
+    console.error('SOCIAL GOOGLE LOGIN ERROR:', error)
+    return res.status(500).json({ error: 'Google-Anmeldung konnte nicht verarbeitet werden' })
   }
 })
 

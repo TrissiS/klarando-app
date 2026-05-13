@@ -4,12 +4,16 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
+  getTenantPaypalPaymentConfig,
   getBusinessSettings,
+  updateTenantPaypalPaymentConfig,
   updateBusinessSettings,
   type BusinessDailyWindow,
   type BusinessHolidayWindow,
   type BusinessSettings,
+  type TenantPaypalPaymentConfig,
 } from '@/lib/api'
+import { resolveTenantId } from '@/lib/config'
 
 const DAY_LABELS: Record<BusinessDailyWindow['day'], string> = {
   MONDAY: 'Montag',
@@ -41,6 +45,7 @@ function confirmDoubleSave() {
 
 export default function AdminSettingsPage() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null)
+  const [paypalConfig, setPaypalConfig] = useState<TenantPaypalPaymentConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -51,6 +56,12 @@ export default function AdminSettingsPage() {
       setLoading(true)
       const data = await getBusinessSettings()
       setSettings(data)
+      const tenantId = resolveTenantId()
+      const token = window.localStorage.getItem('accessToken')
+      if (token && tenantId) {
+        const paymentData = await getTenantPaypalPaymentConfig(token, tenantId)
+        setPaypalConfig(paymentData)
+      }
       setError('')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Einstellungen konnten nicht geladen werden')
@@ -212,6 +223,20 @@ export default function AdminSettingsPage() {
       setSuccess('')
       const saved = await updateBusinessSettings(settings)
       setSettings(saved)
+      const token = window.localStorage.getItem('accessToken')
+      const tenantId = resolveTenantId()
+      if (token && tenantId && paypalConfig) {
+        const updatedPayment = await updateTenantPaypalPaymentConfig(token, tenantId, {
+          paypalMerchantId: paypalConfig.paypalMerchantId,
+          paypalEmail: paypalConfig.paypalEmail,
+          paypalOnboardingStatus: paypalConfig.paypalOnboardingStatus,
+          paypalEnvironment: paypalConfig.paypalEnvironment,
+          paypalPaymentsEnabled: paypalConfig.paypalPaymentsEnabled,
+          klarandoPlatformFeePercent: paypalConfig.klarandoPlatformFeePercent,
+          klarandoPlatformFeeFixed: paypalConfig.klarandoPlatformFeeFixed,
+        })
+        setPaypalConfig(updatedPayment)
+      }
       setSuccess('Einstellungen gespeichert.')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Einstellungen konnten nicht gespeichert werden')
@@ -721,6 +746,161 @@ export default function AdminSettingsPage() {
             <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 p-4 text-sm text-rose-900/80">
               Für diese Filiale ist der Bereich hier nur als Hinweis sichtbar.
             </div>
+          </section>
+
+          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+            <h2 className="text-xl font-semibold">Zahlungen · PayPal</h2>
+            <p className="mt-1 text-sm text-rose-900/70">
+              Hinterlege hier die Händlerdaten der Filiale für den Plattform-Checkout.
+            </p>
+            {paypalConfig ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">PayPal Merchant-ID</span>
+                  <input
+                    value={paypalConfig.paypalMerchantId || ''}
+                    onChange={(event) =>
+                      setPaypalConfig((current) =>
+                        current
+                          ? {
+                              ...current,
+                              paypalMerchantId: event.target.value || null,
+                            }
+                          : current
+                      )
+                    }
+                    placeholder="z. B. ABCDEF123456"
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">PayPal Händler-E-Mail</span>
+                  <input
+                    value={paypalConfig.paypalEmail || ''}
+                    onChange={(event) =>
+                      setPaypalConfig((current) =>
+                        current
+                          ? {
+                              ...current,
+                              paypalEmail: event.target.value || null,
+                            }
+                          : current
+                      )
+                    }
+                    placeholder="shop@beispiel.de"
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Onboarding-Status</span>
+                  <select
+                    value={paypalConfig.paypalOnboardingStatus}
+                    onChange={(event) =>
+                      setPaypalConfig((current) =>
+                        current
+                          ? {
+                              ...current,
+                              paypalOnboardingStatus:
+                                event.target.value as TenantPaypalPaymentConfig['paypalOnboardingStatus'],
+                            }
+                          : current
+                      )
+                    }
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  >
+                    <option value="NOT_STARTED">Nicht gestartet</option>
+                    <option value="PENDING">Ausstehend</option>
+                    <option value="VERIFIED">Verifiziert</option>
+                    <option value="RESTRICTED">Eingeschränkt</option>
+                    <option value="DISABLED">Deaktiviert</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">PayPal Umgebung</span>
+                  <select
+                    value={paypalConfig.paypalEnvironment}
+                    onChange={(event) =>
+                      setPaypalConfig((current) =>
+                        current
+                          ? {
+                              ...current,
+                              paypalEnvironment:
+                                event.target.value as TenantPaypalPaymentConfig['paypalEnvironment'],
+                            }
+                          : current
+                      )
+                    }
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  >
+                    <option value="SANDBOX">Sandbox</option>
+                    <option value="LIVE">Live</option>
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Plattformgebühr (%)</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={paypalConfig.klarandoPlatformFeePercent ?? ''}
+                    onChange={(event) =>
+                      setPaypalConfig((current) =>
+                        current
+                          ? {
+                              ...current,
+                              klarandoPlatformFeePercent: event.target.value || null,
+                            }
+                          : current
+                      )
+                    }
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Plattformgebühr (fix, Cent)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={paypalConfig.klarandoPlatformFeeFixed ?? ''}
+                    onChange={(event) =>
+                      setPaypalConfig((current) =>
+                        current
+                          ? {
+                              ...current,
+                              klarandoPlatformFeeFixed: event.target.value
+                                ? Number.parseInt(event.target.value, 10)
+                                : null,
+                            }
+                          : current
+                      )
+                    }
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85 sm:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={paypalConfig.paypalPaymentsEnabled}
+                    onChange={(event) =>
+                      setPaypalConfig((current) =>
+                        current
+                          ? {
+                              ...current,
+                              paypalPaymentsEnabled: event.target.checked,
+                            }
+                          : current
+                      )
+                    }
+                  />
+                  PayPal-Zahlungen für diese Filiale aktivieren
+                </label>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-rose-900/70">
+                Keine Zahlungsdaten geladen. Bitte Seite neu laden.
+              </p>
+            )}
           </section>
 
           <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">

@@ -1,9 +1,21 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(FileInputStream(keystorePropertiesFile))
+}
+
+val hasReleaseKeystore = keystoreProperties["storeFile"] != null &&
+    rootProject.file(keystoreProperties["storeFile"] as String).exists()
 
 android {
     namespace = "com.klarando.mobile"
@@ -28,6 +40,7 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         manifestPlaceholders["appName"] = "Klarando"
+        manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher"
     }
 
     flavorDimensions += "app"
@@ -36,6 +49,7 @@ android {
             dimension = "app"
             applicationId = "com.klarando.customer"
             manifestPlaceholders["appName"] = "Klarando"
+            manifestPlaceholders["appIcon"] = "@drawable/ic_launcher_customer"
             resValue("string", "app_name", "Klarando")
         }
 
@@ -43,6 +57,7 @@ android {
             dimension = "app"
             applicationId = "com.klarando.driver"
             manifestPlaceholders["appName"] = "Klarando Driver"
+            manifestPlaceholders["appIcon"] = "@drawable/ic_launcher_driver"
             resValue("string", "app_name", "Klarando Driver")
         }
 
@@ -50,15 +65,32 @@ android {
             dimension = "app"
             applicationId = "com.klarando.orderdesk"
             manifestPlaceholders["appName"] = "Klarando OrderDesk"
+            manifestPlaceholders["appIcon"] = "@drawable/ic_launcher_orderdesk"
             resValue("string", "app_name", "Klarando OrderDesk")
         }
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                keyAlias = keystoreProperties["keyAlias"] as String
+                keyPassword = keystoreProperties["keyPassword"] as String
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
+                storePassword = keystoreProperties["storePassword"] as String
+            }
+        }
+    }
+
     buildTypes {
-        release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+        debug {
             signingConfig = signingConfigs.getByName("debug")
+        }
+        release {
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
@@ -66,3 +98,4 @@ android {
 flutter {
     source = "../.."
 }
+

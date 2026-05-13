@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'api_environment.dart';
 
 const _connectionTimeout = Duration(seconds: 3);
 const _requestTimeout = Duration(seconds: 8);
@@ -60,6 +61,61 @@ class LoginResponse {
       token: _readString(json['token']),
       user: AccessUser.fromJson(_readMap(json['user'])),
       permissions: _readStringList(json['permissions']),
+    );
+  }
+}
+
+class PaypalCheckoutOrderResponse {
+  const PaypalCheckoutOrderResponse({
+    required this.orderId,
+    required this.paypalOrderId,
+    required this.approvalUrl,
+    required this.status,
+    required this.environment,
+  });
+
+  final String orderId;
+  final String paypalOrderId;
+  final String approvalUrl;
+  final String status;
+  final String environment;
+
+  factory PaypalCheckoutOrderResponse.fromJson(Map<String, dynamic> json) {
+    return PaypalCheckoutOrderResponse(
+      orderId: _readString(json['orderId']),
+      paypalOrderId: _readString(json['paypalOrderId']),
+      approvalUrl: _readString(json['approvalUrl']),
+      status: _readString(json['status']),
+      environment: _readString(json['environment']),
+    );
+  }
+}
+
+class PaypalCheckoutCaptureResponse {
+  const PaypalCheckoutCaptureResponse({
+    required this.ok,
+    required this.orderId,
+    required this.paypalOrderId,
+    required this.captureId,
+    required this.status,
+    required this.paymentStatus,
+  });
+
+  final bool ok;
+  final String orderId;
+  final String paypalOrderId;
+  final String? captureId;
+  final String? status;
+  final String paymentStatus;
+
+  factory PaypalCheckoutCaptureResponse.fromJson(Map<String, dynamic> json) {
+    return PaypalCheckoutCaptureResponse(
+      ok: _readBool(json['ok']),
+      orderId: _readString(json['orderId']),
+      paypalOrderId: _readString(json['paypalOrderId']),
+      captureId: _readNullableString(json['captureId']),
+      status: _readNullableString(json['status']),
+      paymentStatus: _readString(json['paymentStatus']),
     );
   }
 }
@@ -1193,50 +1249,48 @@ class PublicOrderDisplayReceiptJobsResponse {
 class MobileAppUpdateManifest {
   const MobileAppUpdateManifest({
     required this.ok,
-    required this.channel,
-    required this.packageName,
-    required this.latestVersionName,
-    required this.latestVersionCode,
-    required this.minSupportedVersionCode,
-    required this.mandatoryFromVersionCode,
+    required this.appKey,
+    required this.platform,
+    required this.latestVersion,
+    required this.minRequiredVersion,
+    required this.buildNumber,
     required this.apkUrl,
-    required this.apkSha256,
-    required this.notes,
+    required this.sha256,
+    required this.releaseNotes,
+    required this.forceUpdate,
+    required this.enabled,
+    required this.updateAvailable,
     required this.publishedAt,
   });
 
   final bool ok;
-  final String channel;
-  final String packageName;
-  final String latestVersionName;
-  final int latestVersionCode;
-  final int minSupportedVersionCode;
-  final int mandatoryFromVersionCode;
+  final String appKey;
+  final String platform;
+  final String latestVersion;
+  final String minRequiredVersion;
+  final int buildNumber;
   final String apkUrl;
-  final String? apkSha256;
-  final String notes;
+  final String? sha256;
+  final String releaseNotes;
+  final bool forceUpdate;
+  final bool enabled;
+  final bool updateAvailable;
   final DateTime? publishedAt;
-
-  bool isUpdateAvailableFor(int currentVersionCode) =>
-      latestVersionCode > currentVersionCode;
-
-  bool isMandatoryFor(int currentVersionCode) =>
-      mandatoryFromVersionCode > 0 &&
-      currentVersionCode <= mandatoryFromVersionCode &&
-      latestVersionCode > currentVersionCode;
 
   factory MobileAppUpdateManifest.fromJson(Map<String, dynamic> json) {
     return MobileAppUpdateManifest(
       ok: _readBool(json['ok']),
-      channel: _readString(json['channel']),
-      packageName: _readString(json['packageName']),
-      latestVersionName: _readString(json['latestVersionName']),
-      latestVersionCode: _readInt(json['latestVersionCode']),
-      minSupportedVersionCode: _readInt(json['minSupportedVersionCode']),
-      mandatoryFromVersionCode: _readInt(json['mandatoryFromVersionCode']),
+      appKey: _readString(json['appKey']),
+      platform: _readString(json['platform']),
+      latestVersion: _readString(json['latestVersion']),
+      minRequiredVersion: _readString(json['minRequiredVersion']),
+      buildNumber: _readInt(json['buildNumber']),
       apkUrl: _readString(json['apkUrl']),
-      apkSha256: _readNullableString(json['apkSha256']),
-      notes: _readString(json['notes']),
+      sha256: _readNullableString(json['sha256']),
+      releaseNotes: _readString(json['releaseNotes']),
+      forceUpdate: _readBool(json['forceUpdate']),
+      enabled: _readBool(json['enabled']),
+      updateAvailable: _readBool(json['updateAvailable']),
       publishedAt: _readNullableDateTime(json['publishedAt']),
     );
   }
@@ -1308,6 +1362,42 @@ class KlarandoApi {
         'marketingOptIn': marketingOptIn,
         'privacyAccepted': privacyAccepted,
         'termsAccepted': termsAccepted,
+      },
+    );
+    return AppAuthResponse.fromJson(response);
+  }
+
+  Future<AppAuthResponse> loginAppCustomerWithGoogle({
+    required String baseUrl,
+    required String idToken,
+    String? email,
+    String? name,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/auth/social/google',
+      body: {
+        'idToken': idToken,
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
+        if (name != null && name.trim().isNotEmpty) 'name': name.trim(),
+      },
+    );
+    return AppAuthResponse.fromJson(response);
+  }
+
+  Future<AppAuthResponse> loginAppCustomerWithFacebook({
+    required String baseUrl,
+    required String accessToken,
+    String? email,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/app-auth/social/facebook',
+      body: {
+        'accessToken': accessToken,
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim(),
       },
     );
     return AppAuthResponse.fromJson(response);
@@ -1591,6 +1681,47 @@ class KlarandoApi {
     return PublicOrderSummary.fromJson(response);
   }
 
+  Future<PaypalCheckoutOrderResponse> createPaypalCheckoutOrder({
+    required String baseUrl,
+    required String authToken,
+    required String orderId,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/payments/paypal/create-order',
+      headers: {
+        'Authorization': 'Bearer $authToken',
+      },
+      body: {
+        'orderId': orderId,
+      },
+    );
+    return PaypalCheckoutOrderResponse.fromJson(response);
+  }
+
+  Future<PaypalCheckoutCaptureResponse> capturePaypalCheckoutOrder({
+    required String baseUrl,
+    required String paypalOrderId,
+    String? orderId,
+    String? authToken,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/payments/paypal/capture-order',
+      headers: {
+        if (authToken != null && authToken.trim().isNotEmpty)
+          'Authorization': 'Bearer $authToken',
+      },
+      body: {
+        'paypalOrderId': paypalOrderId,
+        if (orderId != null && orderId.trim().isNotEmpty) 'orderId': orderId,
+      },
+    );
+    return PaypalCheckoutCaptureResponse.fromJson(response);
+  }
+
   Future<List<PublicOrderSummary>> fetchOrders({
     required String baseUrl,
     String? tenantId,
@@ -1742,6 +1873,8 @@ class KlarandoApi {
   Future<MobileAppUpdateManifest> fetchMobileUpdateManifest({
     required String baseUrl,
     required String appKey,
+    String? currentVersion,
+    int? currentBuildNumber,
   }) async {
     final normalizedKey = appKey.trim().toLowerCase();
     if (normalizedKey.isEmpty) {
@@ -1751,26 +1884,53 @@ class KlarandoApi {
       baseUrl: baseUrl,
       method: 'GET',
       path: '/api/mobile-updates/$normalizedKey',
+      query: {
+        if (currentVersion != null && currentVersion.trim().isNotEmpty)
+          'currentVersion': currentVersion.trim(),
+        if (currentBuildNumber != null && currentBuildNumber > 0)
+          'buildNumber': '$currentBuildNumber',
+      },
     );
     return MobileAppUpdateManifest.fromJson(response);
   }
 
-  Future<CashierAppUpdateManifest> fetchCashierUpdateManifest({
+  Future<MobileAppUpdateManifest> fetchOrderDeskUpdateManifest({
     required String baseUrl,
+    String? currentVersion,
+    int? currentBuildNumber,
   }) async {
-    return fetchMobileUpdateManifest(baseUrl: baseUrl, appKey: 'cashier');
+    return fetchMobileUpdateManifest(
+      baseUrl: baseUrl,
+      appKey: 'orderdesk',
+      currentVersion: currentVersion,
+      currentBuildNumber: currentBuildNumber,
+    );
   }
 
   Future<MobileAppUpdateManifest> fetchDriverUpdateManifest({
     required String baseUrl,
+    String? currentVersion,
+    int? currentBuildNumber,
   }) async {
-    return fetchMobileUpdateManifest(baseUrl: baseUrl, appKey: 'driver');
+    return fetchMobileUpdateManifest(
+      baseUrl: baseUrl,
+      appKey: 'driver',
+      currentVersion: currentVersion,
+      currentBuildNumber: currentBuildNumber,
+    );
   }
 
   Future<MobileAppUpdateManifest> fetchCustomerUpdateManifest({
     required String baseUrl,
+    String? currentVersion,
+    int? currentBuildNumber,
   }) async {
-    return fetchMobileUpdateManifest(baseUrl: baseUrl, appKey: 'customer');
+    return fetchMobileUpdateManifest(
+      baseUrl: baseUrl,
+      appKey: 'customer',
+      currentVersion: currentVersion,
+      currentBuildNumber: currentBuildNumber,
+    );
   }
 
   Future<List<PublicOrderSummary>> fetchDriverAssignedOrders({

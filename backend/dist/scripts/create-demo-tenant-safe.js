@@ -170,7 +170,7 @@ async function ensureDemoData() {
     const demoProducts = [
         {
             productNumber: 'D-100',
-            name: 'Demo Doener',
+            name: 'Demo Döner',
             price: new client_1.Prisma.Decimal('8.90'),
         },
         {

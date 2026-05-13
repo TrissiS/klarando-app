@@ -260,3 +260,53 @@ body {
   gap: 0.75rem;
   grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
 }
+
+.klarando-admin-scope.klarando-compact-mode .surface-card,
+.klarando-admin-scope.klarando-compact-mode .brand-panel {
+  border-radius: 1rem;
+}
+
+.klarando-admin-scope.klarando-compact-mode .th-ui {
+  padding: 0.4rem 0.6rem;
+  font-size: 0.64rem;
+}
+
+.klarando-admin-scope.klarando-compact-mode .td-ui {
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.klarando-admin-scope.klarando-compact-mode .input-ui {
+  padding: 0.45rem 0.6rem;
+  font-size: 0.84rem;
+}
+
+.klarando-admin-scope.klarando-compact-mode .btn-ui {
+  padding: 0.5rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.klarando-admin-scope.klarando-touch-mode .surface-card,
+.klarando-admin-scope.klarando-touch-mode .brand-panel {
+  border-radius: 1.35rem;
+}
+
+.klarando-admin-scope.klarando-touch-mode .th-ui {
+  padding: 0.7rem 0.85rem;
+  font-size: 0.73rem;
+}
+
+.klarando-admin-scope.klarando-touch-mode .td-ui {
+  padding: 0.8rem 0.85rem;
+  font-size: 0.94rem;
+}
+
+.klarando-admin-scope.klarando-touch-mode .input-ui {
+  padding: 0.7rem 0.85rem;
+  font-size: 0.98rem;
+}
+
+.klarando-admin-scope.klarando-touch-mode .btn-ui {
+  padding: 0.8rem 1rem;
+  font-size: 0.95rem;
+}

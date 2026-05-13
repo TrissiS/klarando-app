@@ -3,6 +3,23 @@
 Stand: 06.05.2026  
 Status: Analyse + Zielbild (keine vollständige Implementierung)
 
+## Update: Technische Grundlage ergänzt (13.05.2026)
+
+- `TenantPaymentConfig` enthält jetzt PayPal-Betreiberfelder:
+  - `paypalMerchantId`
+  - `paypalEmail`
+  - `paypalOnboardingStatus`
+  - `paypalEnvironment`
+  - `paypalPaymentsEnabled`
+  - `klarandoPlatformFeePercent`
+  - `klarandoPlatformFeeFixed`
+- Neue PayPal-Basisrouten:
+  - `GET /api/payments/paypal/config`
+  - `PUT /api/payments/paypal/config`
+  - `POST /api/payments/paypal/create-order`
+  - `POST /api/payments/paypal/capture-order`
+- PayPal-Secret-Konfiguration nur im Backend per ENV.
+
 ## 1) Zielbild (angepasst)
 
 Klarando ist die zentrale Checkout-Plattform. Jeder Tenant/Restaurantbetrieb soll standardmäßig alle von Klarando global freigeschalteten Zahlungsmethoden nutzen können, ohne eigene Provider-Integrationen bauen zu müssen.

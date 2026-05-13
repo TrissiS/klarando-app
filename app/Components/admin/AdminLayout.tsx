@@ -32,56 +32,78 @@ type NavItem = {
   label: string
   moduleKey: AdminModuleKey
   requiredPermission?: AccessPermission
+  tooltip?: string
 }
 
 type NavSection = {
   id: string
   label: string
+  defaultOpen?: boolean
   items: NavItem[]
 }
 
-type SubNavGroup = {
-  id: string
-  label: string
-  routePrefixes: string[]
-  items: NavItem[]
-}
+type AdminUiMode = 'compact' | 'touch'
 
 const navSections: NavSection[] = [
   {
-    id: 'overview',
-    label: 'Übersicht',
+    id: 'daily',
+    label: 'Tagesgeschäft',
+    defaultOpen: true,
     items: [
       { href: '/admin', label: 'Dashboard', moduleKey: 'dashboard' },
-    ],
-  },
-  {
-    id: 'orders',
-    label: 'Bestellungen',
-    items: [
       { href: '/admin/orders', label: 'Bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
+      {
+        href: '/admin/terminals',
+        label: 'Küche / Orderdesk',
+        moduleKey: 'displays',
+        requiredPermission: 'ORDERS_READ',
+      },
+      {
+        href: '/admin/drivers',
+        label: 'Fahrer / Lieferung',
+        moduleKey: 'drivers',
+        requiredPermission: 'SETTINGS_READ',
+        tooltip: 'Fahrerstatus, Zuweisung und Lieferablauf',
+      },
     ],
   },
   {
-    id: 'products',
-    label: 'Produkte',
+    id: 'menu',
+    label: 'Speisekarte',
+    defaultOpen: true,
     items: [
-      { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/business-templates', label: 'Business-Vorlagen', moduleKey: 'products', requiredPermission: 'PRODUCTS_WRITE' },
       { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/ingredients', label: 'Zutaten & Allergene', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/calculation', label: 'Preise & Kalkulation', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/ingredients', label: 'Zutaten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      {
+        href: '/admin/products?tab=modifiers',
+        label: 'Extras / Optionen',
+        moduleKey: 'products',
+        requiredPermission: 'PRODUCTS_READ',
+      },
+      {
+        href: '/admin/ingredients?tab=allergens',
+        label: 'Allergene',
+        moduleKey: 'products',
+        requiredPermission: 'PRODUCTS_READ',
+      },
+      {
+        href: '/admin/business-templates',
+        label: 'Business-Vorlagen',
+        moduleKey: 'products',
+        requiredPermission: 'PRODUCTS_WRITE',
+      },
     ],
   },
   {
-    id: 'operations',
+    id: 'business',
     label: 'Betrieb',
     items: [
-      { href: '/admin/staff', label: 'Mitarbeiter', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
-      { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings', label: 'Öffnungszeiten & Lieferung', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/drivers', label: 'Fahrer-App', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings?section=hours', label: 'Öffnungszeiten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings?section=delivery-area', label: 'Liefergebiet', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings?section=branding', label: 'Branding', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/settings?section=payments', label: 'Zahlungsarten', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/settings?section=legal', label: 'Rechtliches', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
     ],
   },
   {
@@ -89,92 +111,19 @@ const navSections: NavSection[] = [
     label: 'Geräte',
     items: [
       { href: '/admin/displays', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/terminals', label: 'OrderDesk & Terminals', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/order-displays', label: 'Order-Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/screen', label: 'Display-Design', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/order-displays', label: 'Bestellterminal', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/terminals', label: 'Orderdesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/display-devices', label: 'QR-Codes', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {
-    id: 'stock',
-    label: 'Lager',
+    id: 'management',
+    label: 'Verwaltung',
     items: [
-      { href: '/admin/stock', label: 'Bestand', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
-      { href: '/admin/suppliers', label: 'Lieferanten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-    ],
-  },
-  {
-    id: 'reports',
-    label: 'Auswertung',
-    items: [
-      { href: '/admin/closings', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
-    ],
-  },
-  {
-    id: 'design',
-    label: 'Design',
-    items: [
-      { href: '/admin/screen', label: 'Display-Design', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/app-settings', label: 'Branding', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-    ],
-  },
-]
-
-const subNavGroups: SubNavGroup[] = [
-  {
-    id: 'catalog',
-    label: 'Unterkategorien: Produkte',
-    routePrefixes: ['/admin/products', '/admin/business-templates', '/admin/categories', '/admin/ingredients', '/admin/calculation', '/admin/actions'],
-    items: [
-      { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/business-templates', label: 'Business-Vorlagen', moduleKey: 'products', requiredPermission: 'PRODUCTS_WRITE' },
-      { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/ingredients', label: 'Zutaten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/ingredients', label: 'Allergene', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/calculation', label: 'Preise & Kalkulation', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'PRODUCTS_READ' },
-      {
-        href: '/admin/suppliers?focus=quick-order',
-        label: 'Schnellbestellung',
-        moduleKey: 'products',
-        requiredPermission: 'PRODUCTS_READ',
-      },
-      {
-        href: '/admin/suppliers?focus=order-suggestion',
-        label: 'Bestellvorschlag',
-        moduleKey: 'products',
-        requiredPermission: 'PRODUCTS_READ',
-      },
-    ],
-  },
-  {
-    id: 'displays',
-    label: 'Unterkategorien: Displays',
-    routePrefixes: ['/admin/displays', '/admin/terminals', '/admin/order-displays', '/admin/screen'],
-    items: [
-      { href: '/admin/displays', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/terminals', label: 'OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/order-displays', label: 'Order-Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/screen', label: 'Display-Design', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-    ],
-  },
-  {
-    id: 'orders',
-    label: 'Unterkategorien: Bestellungen',
-    routePrefixes: ['/admin/orders', '/admin/closings'],
-    items: [
-      { href: '/admin/orders', label: 'Bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/closings', label: 'Abschlüsse', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
-    ],
-  },
-  {
-    id: 'settings',
-    label: 'Unterkategorien: Betrieb',
-    routePrefixes: ['/admin/drivers', '/admin/app-settings', '/admin/settings', '/admin/staff'],
-    items: [
-      { href: '/admin/staff', label: 'Mitarbeiter', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
-      { href: '/admin/drivers', label: 'Fahrer-App', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings', label: 'Öffnungszeiten & Lieferung', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/settings', label: 'Systemeinstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/staff', label: 'Benutzer & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+      { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/stock', label: 'Import / Export', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
+      { href: '/admin/closings', label: 'Systemstatus', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
     ],
   },
 ]
@@ -190,11 +139,17 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [featureScope, setFeatureScope] = useState<EffectiveFeatureSetResponse | null>(null)
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [menuQuery, setMenuQuery] = useState('')
+  const [openSectionIds, setOpenSectionIds] = useState<Set<string>>(
+    () => new Set(navSections.filter((section) => section.defaultOpen).map((section) => section.id))
+  )
   const [authChecked, setAuthChecked] = useState(false)
   const [hasValidSession, setHasValidSession] = useState(false)
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
   const [sessionActiveTenantName, setSessionActiveTenantName] = useState<string | null>(null)
   const [allowSuperadminTenantView, setAllowSuperadminTenantView] = useState(false)
+  const [uiMode, setUiMode] = useState<AdminUiMode>('compact')
+  const [uiModeReady, setUiModeReady] = useState(false)
   const enabledFeatureKeys = useMemo(() => {
     if (!featureScope) {
       return null
@@ -208,6 +163,29 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       : normalizedRole === 'chainadmin'
         ? { href: '/chainadmin', label: 'Zum Kettenadminbereich' }
         : null
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const stored = window.localStorage.getItem('klarando.adminUiMode')
+    if (stored === 'compact' || stored === 'touch') {
+      setUiMode(stored)
+      setUiModeReady(true)
+      return
+    }
+    const inferred: AdminUiMode = window.innerWidth < 1100 ? 'touch' : 'compact'
+    setUiMode(inferred)
+    setUiModeReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!uiModeReady || typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem('klarando.adminUiMode', uiMode)
+    document.documentElement.dataset.adminUiMode = uiMode
+  }, [uiMode, uiModeReady])
 
   useEffect(() => {
     try {
@@ -463,6 +441,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
   function isItemActive(item: NavItem) {
     const focus = searchParams.get('focus')
+    const [itemPath, itemQueryRaw] = item.href.split('?')
+    const itemQuery = new URLSearchParams(itemQueryRaw || '')
 
     if (item.href.includes('focus=quick-order')) {
       return pathname === '/admin/suppliers' && focus === 'quick-order'
@@ -476,11 +456,11 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       return pathname === '/admin/suppliers' && !focus
     }
 
-    if (item.href === '/admin/closings') {
-      return pathname === item.href || pathname.startsWith('/admin/closings/')
+    if (itemPath === '/admin/closings') {
+      return pathname === itemPath || pathname.startsWith('/admin/closings/')
     }
 
-    if (item.href === '/admin/displays') {
+    if (itemPath === '/admin/displays') {
       return (
         pathname.startsWith('/admin/displays') ||
         pathname.startsWith('/admin/screen') ||
@@ -489,23 +469,42 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       )
     }
 
-    return pathname === item.href
-  }
+    if (pathname !== itemPath) {
+      return false
+    }
 
-  const activeSubNavGroup =
-    subNavGroups.find((group) =>
-      group.routePrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`))
-    ) ?? null
+    if ([...itemQuery.keys()].length === 0) {
+      return true
+    }
+
+    return [...itemQuery.entries()].every(([key, value]) => searchParams.get(key) === value)
+  }
+  function toggleSection(sectionId: string) {
+    setOpenSectionIds((current) => {
+      const next = new Set(current)
+      if (next.has(sectionId)) {
+        next.delete(sectionId)
+      } else {
+        next.add(sectionId)
+      }
+      return next
+    })
+  }
   const visibleNavSections = navSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => isItemEnabled(item)),
+      items: section.items.filter((item) => {
+        if (!isItemEnabled(item)) {
+          return false
+        }
+        const normalizedQuery = menuQuery.trim().toLowerCase()
+        if (!normalizedQuery) {
+          return true
+        }
+        return item.label.toLowerCase().includes(normalizedQuery)
+      }),
     }))
     .filter((section) => section.items.length > 0)
-  const visibleActiveSubNavItems = activeSubNavGroup
-    ? activeSubNavGroup.items.filter((item) => isItemEnabled(item))
-    : []
-  const showSubNavGroup = Boolean(activeSubNavGroup && visibleActiveSubNavItems.length > 0)
 
   function inferPathModuleKey(path: string): AdminModuleKey | null {
     if (path === '/admin') return 'dashboard'
@@ -541,80 +540,87 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const requiresTenantContext =
     pathname === '/admin' || pathname.startsWith('/admin/')
   const missingTenantContext = requiresTenantContext && !sessionTenantId
+  const isTouchMode = uiMode === 'touch'
+  const sidebarWidthClass = isTouchMode ? 'w-[248px]' : 'w-[276px]'
+  const navLinkPaddingClass = isTouchMode ? 'px-4 py-3.5 text-sm' : 'px-3.5 py-2.5 text-[13px]'
+  const pageSpacingClass = isTouchMode
+    ? 'mx-auto w-full max-w-[1400px] min-w-0 px-3 py-6 sm:px-4 md:px-6 md:py-8'
+    : 'mx-auto w-full max-w-[1500px] min-w-0 px-2 py-4 sm:px-3 md:px-5 md:py-6'
+  const headerSpacingClass = isTouchMode
+    ? 'w-full min-w-0 px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6'
+    : 'w-full min-w-0 px-3 py-3 sm:px-4 sm:py-4 md:px-5 md:py-5'
 
   return (
-    <main className="safe-area-padding brand-shell min-h-screen overflow-x-hidden">
+    <main
+      className={`safe-area-padding brand-shell klarando-admin-scope min-h-screen overflow-x-hidden ${
+        isTouchMode ? 'klarando-touch-mode' : 'klarando-compact-mode'
+      }`}
+      data-admin-ui-mode={uiMode}
+    >
       <div className="flex min-h-screen min-w-0">
         <aside
-          className="brand-sidebar relative z-30 hidden w-72 shrink-0 border-r border-white/10 md:flex md:flex-col"
+          className={`brand-sidebar relative z-30 hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}
         >
-          <div className="border-b border-white/15 px-6 py-6">
+          <div className={`border-b border-white/15 ${isTouchMode ? 'px-6 py-6' : 'px-5 py-5'}`}>
             <PlatformBranding settings={platformBranding} area="sidebar" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
               Klarando Plattform
             </p>
-            <h1 className="mt-2 text-2xl font-bold">Admin Panel</h1>
-            <p className="mt-2 text-sm text-orange-100/80">
+            <h1 className={`mt-2 font-bold ${isTouchMode ? 'text-2xl' : 'text-[1.35rem]'}`}>Admin Panel</h1>
+            <p className={`mt-2 text-orange-100/80 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>
               Zentrale Verwaltung für Produkte, Mitarbeiter und Prozesse.
             </p>
           </div>
 
-          <nav className="relative z-40 flex-1 overflow-y-auto px-4 py-6 pointer-events-auto">
-            <div className="space-y-4">
+          <nav className={`relative z-40 flex-1 overflow-y-auto pointer-events-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+            <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
               {visibleNavSections.map((section) => (
                 <div key={section.id}>
-                  <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
-                    {section.label}
-                  </p>
-                  <div className="mt-2 space-y-2">
-                    {section.items.map((item) => {
-                      const isActive = isItemActive(item)
+                  <button
+                    type="button"
+                    onClick={() => toggleSection(section.id)}
+                    className="flex w-full items-center justify-between rounded-xl px-2 py-1 text-left"
+                  >
+                    <p className="pointer-events-none text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+                      {section.label}
+                    </p>
+                    <span className="text-xs text-orange-200">{openSectionIds.has(section.id) ? '−' : '+'}</span>
+                  </button>
+                  {openSectionIds.has(section.id) ? (
+                    <div className={isTouchMode ? 'mt-2 space-y-2' : 'mt-1.5 space-y-1.5'}>
+                      {section.items.map((item) => {
+                        const isActive = isItemActive(item)
 
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          aria-current={isActive ? 'page' : undefined}
-                          title={item.label}
-                          className={`brand-nav-link relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto ${
-                            isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
-                          }`}
-                          data-nav-anchor="admin-sidebar-link"
-                        >
-                          {item.label}
-                        </Link>
-                      )
-                    })}
-                  </div>
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            aria-current={isActive ? 'page' : undefined}
+                            title={item.tooltip || item.label}
+                            className={`brand-nav-link relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass} ${
+                              isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
+                            }`}
+                            data-nav-anchor="admin-sidebar-link"
+                          >
+                            {item.label}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </div>
-
-            {showSubNavGroup && activeSubNavGroup ? (
-              <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-3">
-                <p className="pointer-events-none px-1 text-[11px] uppercase tracking-[0.18em] text-orange-100/75">
-                  {activeSubNavGroup.label}
-                </p>
-                <div className="mt-2 space-y-2">
-                  {visibleActiveSubNavItems.map((item) => {
-                    const isActive = isItemActive(item)
-
-                    return (
-                      <Link
-                        key={`sidebar-sub-${item.href}`}
-                        href={item.href}
-                        className={`brand-nav-link relative z-50 block w-full rounded-xl px-3 py-2 text-xs font-medium pointer-events-auto ${
-                          isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
-                        }`}
-                        data-nav-anchor="admin-sidebar-sublink"
-                      >
-                        {item.label}
-                      </Link>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : null}
+            <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-orange-100/75">Menüsuche (optional)</p>
+              <input
+                value={menuQuery}
+                onChange={(event) => setMenuQuery(event.target.value)}
+                placeholder="Menüpunkt suchen..."
+                className={`mt-2 w-full rounded-xl border border-white/20 bg-white/90 text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
+              />
+              <p className="mt-2 text-[11px] text-orange-100/70">Favoriten folgen als nächster Schritt.</p>
+            </div>
 
             <div className="mt-4 border-t border-white/15 pt-4">
               <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
@@ -625,7 +631,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   <Link
                     href={switchTarget.href}
                     title={switchTarget.label}
-                    className="brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl px-4 py-3 text-sm font-medium pointer-events-auto"
+                    className={`brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass}`}
                     data-nav-anchor="admin-sidebar-quicklink"
                   >
                     {switchTarget.label}
@@ -635,7 +641,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   type="button"
                   onClick={handleLogout}
                   title="Logout"
-                  className="block w-full rounded-2xl border border-red-300 bg-red-500/15 px-4 py-3 text-left text-sm font-medium text-red-100 transition hover:bg-red-500/25"
+                  className={`block w-full rounded-2xl border border-red-300 bg-red-500/15 text-left font-medium text-red-100 transition hover:bg-red-500/25 ${isTouchMode ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'}`}
                 >
                   Logout
                 </button>
@@ -643,7 +649,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           </nav>
 
-          <div className="border-t border-white/15 px-6 py-5">
+          <div className={`border-t border-white/15 ${isTouchMode ? 'px-6 py-5' : 'px-5 py-4'}`}>
             <div className="rounded-2xl bg-white/10 px-4 py-4 ring-1 ring-white/20">
               <p className="text-xs uppercase tracking-wide text-orange-100/80">Bereich</p>
               <p className="mt-2 text-sm text-white">{title}</p>
@@ -653,7 +659,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
         <div className="relative z-10 min-w-0 flex-1">
           <header className="border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
-            <div className="w-full min-w-0 px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6">
+            <div className={headerSpacingClass}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <PlatformBranding settings={platformBranding} area="header" />
@@ -664,6 +670,9 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <span className="rounded-xl border border-[var(--brand-border)] bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                    Modus: {isTouchMode ? 'Touch' : 'Kompakt'}
+                  </span>
                   <button
                     type="button"
                     onClick={() => setMobileNavOpen(true)}
@@ -674,6 +683,14 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   <div className="brand-chip rounded-xl px-3 py-2 text-xs">
                     {sessionName || 'Benutzer'} {sessionRole ? `(${sessionRole})` : ''}
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => setUiMode((current) => (current === 'compact' ? 'touch' : 'compact'))}
+                    className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
+                    title={isTouchMode ? 'Auf Kompakt-Modus umstellen' : 'Auf Touch-Modus umstellen'}
+                  >
+                    {isTouchMode ? 'Touch' : 'Kompakt'}
+                  </button>
                   <button
                     type="button"
                     onClick={handleLogout}
@@ -695,31 +712,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 <span className="text-xs text-rose-900/70">Tippe auf „Menü“ für Navigation</span>
               </div>
 
-              {showSubNavGroup && activeSubNavGroup ? (
-                <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-rose-50/70 px-3 py-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-rose-900/70">
-                    {activeSubNavGroup.label}
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {visibleActiveSubNavItems.map((item) => {
-                      const isActive = isItemActive(item)
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
-                            isActive
-                              ? 'border-[var(--brand-ink)] bg-[var(--brand-ink)] text-white'
-                              : 'border-[var(--brand-border)] bg-white text-rose-900 hover:bg-rose-100'
-                          }`}
-                        >
-                          {item.label}
-                        </Link>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : null}
               {normalizedRole === 'superadmin' && sessionTenantId ? (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-900/70">
@@ -769,55 +761,40 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   <div className="space-y-4">
                     {visibleNavSections.map((section) => (
                       <div key={section.id}>
-                        <p className="px-1 text-[11px] uppercase tracking-[0.18em] text-rose-900/60">
-                          {section.label}
-                        </p>
-                        <div className="mt-2 space-y-2">
-                          {section.items.map((item) => {
-                            const isActive = isItemActive(item)
+                        <button
+                          type="button"
+                          onClick={() => toggleSection(section.id)}
+                          className="flex w-full items-center justify-between px-1"
+                        >
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-rose-900/60">
+                            {section.label}
+                          </p>
+                          <span className="text-xs text-rose-900/70">{openSectionIds.has(section.id) ? '−' : '+'}</span>
+                        </button>
+                        {openSectionIds.has(section.id) ? (
+                          <div className="mt-2 space-y-2">
+                            {section.items.map((item) => {
+                              const isActive = isItemActive(item)
 
-                            return (
-                              <Link
-                                key={item.href}
-                                href={item.href}
-                                className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
-                                  isActive
-                                    ? 'brand-button-primary'
-                                    : 'bg-rose-50 text-rose-900 hover:bg-rose-100'
-                                }`}
-                              >
-                                {item.label}
-                              </Link>
-                            )
-                          })}
-                        </div>
+                              return (
+                                <Link
+                                  key={item.href}
+                                  href={item.href}
+                                  className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
+                                    isActive
+                                      ? 'brand-button-primary'
+                                      : 'bg-rose-50 text-rose-900 hover:bg-rose-100'
+                                  }`}
+                                  title={item.tooltip || item.label}
+                                >
+                                  {item.label}
+                                </Link>
+                              )
+                            })}
+                          </div>
+                        ) : null}
                       </div>
                     ))}
-                    {showSubNavGroup && activeSubNavGroup ? (
-                      <div>
-                        <p className="px-1 text-[11px] uppercase tracking-[0.18em] text-rose-900/60">
-                          {activeSubNavGroup.label}
-                        </p>
-                        <div className="mt-2 space-y-2">
-                          {visibleActiveSubNavItems.map((item) => {
-                            const isActive = isItemActive(item)
-                            return (
-                              <Link
-                                key={`mobile-sub-${item.href}`}
-                                href={item.href}
-                                className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
-                                  isActive
-                                    ? 'brand-button-primary'
-                                    : 'bg-rose-50 text-rose-900 hover:bg-rose-100'
-                                }`}
-                              >
-                                {item.label}
-                              </Link>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    ) : null}
                     {switchTarget ? (
                       <Link
                         href={switchTarget.href}
@@ -839,7 +816,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           ) : null}
 
-          <div className="mx-auto w-full max-w-[1400px] min-w-0 px-3 py-6 sm:px-4 md:px-6 md:py-8">
+          <div className={pageSpacingClass}>
             {!authChecked ? (
               <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
                 Sitzung wird geprüft...

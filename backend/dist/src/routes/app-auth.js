@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = require("express");
 const node_crypto_1 = require("node:crypto");
+const client_1 = require("@prisma/client");
 const prisma_1 = require("../lib/prisma");
 const password_1 = require("../auth/password");
 const app_token_1 = require("../auth/app-token");
@@ -54,6 +55,79 @@ function parseSocialProvider(value) {
 }
 function createRandomSecret() {
     return `${(0, node_crypto_1.randomBytes)(24).toString('hex')}!Kla1`;
+}
+async function verifyGoogleIdToken(idToken) {
+    const response = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    if (!response.ok) {
+        throw new Error('GOOGLE_TOKEN_INVALID');
+    }
+    const payload = (await response.json());
+    const providerUserId = normalizeText(payload.sub);
+    if (!providerUserId) {
+        throw new Error('GOOGLE_TOKEN_INVALID');
+    }
+    const expectedAud = normalizeText(process.env.GOOGLE_OAUTH_CLIENT_ID);
+    if (expectedAud) {
+        const tokenAud = normalizeText(payload.aud);
+        if (!tokenAud || tokenAud !== expectedAud) {
+            throw new Error('GOOGLE_AUDIENCE_MISMATCH');
+        }
+    }
+    const issuer = normalizeText(payload.iss);
+    if (issuer && issuer !== 'accounts.google.com' && issuer !== 'https://accounts.google.com') {
+        throw new Error('GOOGLE_ISSUER_INVALID');
+    }
+    const email = normalizeEmail(payload.email);
+    return {
+        providerUserId,
+        email,
+        fullName: normalizeText(payload.name),
+        emailVerified: payload.email_verified === true ||
+            normalizeText(payload.email_verified)?.toLowerCase() === 'true',
+    };
+}
+async function verifyFacebookAccessToken(accessToken) {
+    const appId = normalizeText(process.env.FACEBOOK_APP_ID);
+    const appSecret = normalizeText(process.env.FACEBOOK_APP_SECRET);
+    if (!appId || !appSecret) {
+        throw new Error('FACEBOOK_CONFIG_MISSING');
+    }
+    const appToken = `${appId}|${appSecret}`;
+    const debugUri = new URL('https://graph.facebook.com/debug_token');
+    debugUri.searchParams.set('input_token', accessToken);
+    debugUri.searchParams.set('access_token', appToken);
+    const debugResponse = await fetch(debugUri);
+    if (!debugResponse.ok) {
+        throw new Error('FACEBOOK_TOKEN_INVALID');
+    }
+    const debugPayload = (await debugResponse.json());
+    const debugData = debugPayload.data;
+    const isValid = Boolean(debugData?.is_valid);
+    const userId = normalizeText(debugData?.user_id);
+    const tokenAppId = normalizeText(debugData?.app_id);
+    if (!isValid || !userId) {
+        throw new Error('FACEBOOK_TOKEN_INVALID');
+    }
+    if (tokenAppId && tokenAppId !== appId) {
+        throw new Error('FACEBOOK_APP_MISMATCH');
+    }
+    const meUri = new URL('https://graph.facebook.com/me');
+    meUri.searchParams.set('fields', 'id,name,email');
+    meUri.searchParams.set('access_token', accessToken);
+    const meResponse = await fetch(meUri);
+    if (!meResponse.ok) {
+        throw new Error('FACEBOOK_PROFILE_INVALID');
+    }
+    const me = (await meResponse.json());
+    const providerUserId = normalizeText(me.id);
+    if (!providerUserId) {
+        throw new Error('FACEBOOK_PROFILE_INVALID');
+    }
+    return {
+        providerUserId,
+        email: normalizeEmail(me.email),
+        fullName: normalizeText(me.name),
+    };
 }
 function mapAppCustomerUser(account) {
     return {
@@ -174,6 +248,28 @@ router.post('/register', rate_limit_1.rateLimitRegistration, async (req, res) =>
     catch (error) {
         console.error('APP AUTH REGISTER ERROR:', error);
         return res.status(500).json({ error: 'Registrierung konnte nicht abgeschlossen werden' });
+    }
+});
+router.post('/email-status', rate_limit_1.rateLimitRegistration, async (req, res) => {
+    try {
+        const email = normalizeEmail(req.body.email);
+        if (!email || !isValidEmail(email)) {
+            return res.status(400).json({ error: 'Bitte gültige E-Mail-Adresse angeben' });
+        }
+        const account = await prisma_1.prisma.appCustomerAccount.findUnique({
+            where: { email },
+            select: {
+                id: true,
+                isActive: true,
+            },
+        });
+        return res.json({
+            exists: Boolean(account && account.isActive),
+        });
+    }
+    catch (error) {
+        console.error('APP AUTH EMAIL STATUS ERROR:', error);
+        return res.status(500).json({ error: 'E-Mail-Status konnte nicht geprüft werden' });
     }
 });
 router.post('/login', rate_limit_1.rateLimitAuthLogin, async (req, res) => {
@@ -309,6 +405,232 @@ router.post('/social-quickstart', rate_limit_1.rateLimitRegistration, async (req
     catch (error) {
         console.error('APP AUTH SOCIAL QUICKSTART ERROR:', error);
         return res.status(500).json({ error: 'Schnellkonto konnte nicht verarbeitet werden' });
+    }
+});
+router.post('/social/google', rate_limit_1.rateLimitAuthLogin, async (req, res) => {
+    try {
+        const idToken = normalizeText(req.body.idToken);
+        const fallbackEmail = normalizeEmail(req.body.email);
+        const fallbackName = normalizeText(req.body.name);
+        if (!idToken) {
+            return res.status(400).json({ error: 'idToken fehlt' });
+        }
+        const verified = await verifyGoogleIdToken(idToken);
+        const email = verified.email ?? fallbackEmail;
+        if (!email || !isValidEmail(email)) {
+            return res.status(400).json({ error: 'Google-Konto liefert keine gültige E-Mail-Adresse' });
+        }
+        const result = await prisma_1.prisma.$transaction(async (tx) => {
+            const providerLink = await tx.appCustomerAuthProvider.findUnique({
+                where: {
+                    provider_providerUserId: {
+                        provider: client_1.AppAuthProvider.GOOGLE,
+                        providerUserId: verified.providerUserId,
+                    },
+                },
+                include: {
+                    appCustomer: true,
+                },
+            });
+            let account = providerLink?.appCustomer ?? null;
+            if (!account) {
+                account = await tx.appCustomerAccount.findUnique({
+                    where: { email },
+                });
+            }
+            if (!account) {
+                const generatedName = verified.fullName ?? fallbackName ?? email.split('@')[0] ?? 'Klarando Kunde';
+                account = await tx.appCustomerAccount.create({
+                    data: {
+                        email,
+                        fullName: generatedName,
+                        passwordHash: (0, password_1.hashPassword)(createRandomSecret()),
+                        isActive: true,
+                        lastLoginAt: new Date(),
+                    },
+                });
+            }
+            else {
+                account = await tx.appCustomerAccount.update({
+                    where: { id: account.id },
+                    data: {
+                        fullName: verified.fullName ?? fallbackName ?? account.fullName,
+                        isActive: true,
+                        lastLoginAt: new Date(),
+                    },
+                });
+            }
+            await tx.appCustomerAuthProvider.upsert({
+                where: {
+                    provider_providerUserId: {
+                        provider: client_1.AppAuthProvider.GOOGLE,
+                        providerUserId: verified.providerUserId,
+                    },
+                },
+                update: {
+                    appCustomerId: account.id,
+                    email,
+                    emailVerified: verified.emailVerified,
+                    metadata: {
+                        linkedAt: new Date().toISOString(),
+                    },
+                },
+                create: {
+                    appCustomerId: account.id,
+                    provider: client_1.AppAuthProvider.GOOGLE,
+                    providerUserId: verified.providerUserId,
+                    email,
+                    emailVerified: verified.emailVerified,
+                    metadata: {
+                        linkedAt: new Date().toISOString(),
+                    },
+                },
+            });
+            return account;
+        });
+        await (0, audit_1.writeAuditLog)({
+            req,
+            module: 'app-auth',
+            action: 'app_customer_social_google_login',
+            targetType: 'appCustomerAccount',
+            targetId: result.id,
+            metadata: {
+                email: result.email,
+            },
+        });
+        const token = (0, app_token_1.signAppAuthToken)({
+            sub: result.id,
+            email: result.email,
+        });
+        return res.json({
+            token,
+            user: mapAppCustomerUser(result),
+        });
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            if (error.message === 'GOOGLE_TOKEN_INVALID' ||
+                error.message === 'GOOGLE_AUDIENCE_MISMATCH' ||
+                error.message === 'GOOGLE_ISSUER_INVALID') {
+                return res.status(401).json({ error: 'Google-Anmeldung konnte nicht verifiziert werden' });
+            }
+        }
+        console.error('APP AUTH SOCIAL GOOGLE ERROR:', error);
+        return res.status(500).json({ error: 'Google-Anmeldung konnte nicht verarbeitet werden' });
+    }
+});
+router.post('/social/facebook', rate_limit_1.rateLimitAuthLogin, async (req, res) => {
+    try {
+        const accessToken = normalizeText(req.body.accessToken);
+        const manualEmail = normalizeEmail(req.body.email);
+        if (!accessToken) {
+            return res.status(400).json({ error: 'accessToken fehlt' });
+        }
+        const verified = await verifyFacebookAccessToken(accessToken);
+        const email = verified.email ?? manualEmail;
+        if (!email || !isValidEmail(email)) {
+            return res.status(400).json({
+                error: 'Facebook liefert keine E-Mail. Bitte E-Mail im Login ergänzen.',
+                code: 'EMAIL_REQUIRED',
+            });
+        }
+        const result = await prisma_1.prisma.$transaction(async (tx) => {
+            const providerLink = await tx.appCustomerAuthProvider.findUnique({
+                where: {
+                    provider_providerUserId: {
+                        provider: client_1.AppAuthProvider.FACEBOOK,
+                        providerUserId: verified.providerUserId,
+                    },
+                },
+                include: {
+                    appCustomer: true,
+                },
+            });
+            let account = providerLink?.appCustomer ?? null;
+            if (!account) {
+                account = await tx.appCustomerAccount.findUnique({
+                    where: { email },
+                });
+            }
+            if (!account) {
+                account = await tx.appCustomerAccount.create({
+                    data: {
+                        email,
+                        fullName: verified.fullName ?? email.split('@')[0] ?? 'Klarando Kunde',
+                        passwordHash: (0, password_1.hashPassword)(createRandomSecret()),
+                        isActive: true,
+                        lastLoginAt: new Date(),
+                    },
+                });
+            }
+            else {
+                account = await tx.appCustomerAccount.update({
+                    where: { id: account.id },
+                    data: {
+                        fullName: verified.fullName ?? account.fullName,
+                        isActive: true,
+                        lastLoginAt: new Date(),
+                    },
+                });
+            }
+            await tx.appCustomerAuthProvider.upsert({
+                where: {
+                    provider_providerUserId: {
+                        provider: client_1.AppAuthProvider.FACEBOOK,
+                        providerUserId: verified.providerUserId,
+                    },
+                },
+                update: {
+                    appCustomerId: account.id,
+                    email,
+                    emailVerified: true,
+                    metadata: {
+                        linkedAt: new Date().toISOString(),
+                    },
+                },
+                create: {
+                    appCustomerId: account.id,
+                    provider: client_1.AppAuthProvider.FACEBOOK,
+                    providerUserId: verified.providerUserId,
+                    email,
+                    emailVerified: true,
+                    metadata: {
+                        linkedAt: new Date().toISOString(),
+                    },
+                },
+            });
+            return account;
+        });
+        await (0, audit_1.writeAuditLog)({
+            req,
+            module: 'app-auth',
+            action: 'app_customer_social_facebook_login',
+            targetType: 'appCustomerAccount',
+            targetId: result.id,
+            metadata: {
+                email: result.email,
+            },
+        });
+        const token = (0, app_token_1.signAppAuthToken)({
+            sub: result.id,
+            email: result.email,
+        });
+        return res.json({
+            token,
+            user: mapAppCustomerUser(result),
+        });
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            if (error.message === 'FACEBOOK_CONFIG_MISSING' ||
+                error.message === 'FACEBOOK_TOKEN_INVALID' ||
+                error.message === 'FACEBOOK_PROFILE_INVALID' ||
+                error.message === 'FACEBOOK_APP_MISMATCH') {
+                return res.status(401).json({ error: 'Facebook-Anmeldung konnte nicht verifiziert werden' });
+            }
+        }
+        console.error('APP AUTH SOCIAL FACEBOOK ERROR:', error);
+        return res.status(500).json({ error: 'Facebook-Anmeldung konnte nicht verarbeitet werden' });
     }
 });
 router.get('/me', async (req, res) => {
