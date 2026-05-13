@@ -20,7 +20,8 @@ val hasReleaseKeystore = keystoreProperties["storeFile"] != null &&
 android {
     namespace = "com.klarando.mobile"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // Android 16 KB page-size compatibility baseline: NDK r28+
+    ndkVersion = "28.0.13004108"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -39,6 +40,11 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        ndk {
+            // x86/x86_64 are mainly emulator ABIs and are the current source of 16 KB warnings.
+            // Shipping arm ABIs keeps production artifacts aligned with Play/real-device targets.
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
         manifestPlaceholders["appName"] = "Klarando"
         manifestPlaceholders["appIcon"] = "@mipmap/ic_launcher"
     }
@@ -91,6 +97,12 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 }

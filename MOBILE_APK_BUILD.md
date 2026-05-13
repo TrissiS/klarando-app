@@ -62,6 +62,32 @@ Unter `mobile_flutter_app/build/app/outputs/flutter-apk/`:
 - Damit APKs nicht identisch sind, immer pro Flavor den passenden Entrypoint nutzen.
 - Launcher-Icons sind pro Flavor vorbereitet (eigene Farbstile als Platzhalter in `android/app/src/<flavor>/res/drawable`).
 
+## 7) Android 16 KB Page-Size Kompatibilität
+
+Im Projekt ist jetzt konfiguriert:
+- AGP: `8.11.1`
+- Kotlin Plugin: `2.2.20`
+- NDK: `28.0.13004108`
+- ABIs für APK-Build: `armeabi-v7a`, `arm64-v8a`
+
+Hinweis:
+- Die früheren Warnungen betrafen `x86_64` Emulator-Libs.
+- Für reale Geräte und Play-Distribution sollten ARM-ABIs verwendet werden.
+
+Prüfen auf Gerät:
+
+```bash
+adb shell getconf PAGE_SIZE
+```
+
+Prüfen auf APK:
+
+```bash
+zipalign -c -P 16 -v 4 app-customer-debug.apk
+zipalign -c -P 16 -v 4 app-driver-debug.apk
+zipalign -c -P 16 -v 4 app-orderdesk-debug.apk
+```
+
 ## Stabile Build-Skripte (Windows)
 - scripts/build-apk-customer.ps1
 - scripts/build-apk-driver.ps1
