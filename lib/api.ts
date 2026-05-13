@@ -447,6 +447,9 @@ export type BusinessSettings = {
   deliveryFeeNote: string | null
   minOrderValue: string | null
   logoUrl: string | null
+  coverImageUrl: string | null
+  thumbnailUrl: string | null
+  originalFileName: string | null
   openingHours: BusinessDailyWindow[]
   holidayHours: BusinessHolidayWindow[]
   deliveryHours: BusinessDailyWindow[]
@@ -456,6 +459,22 @@ export type BusinessSettings = {
   customerApp: BusinessCustomerAppSettings
   compliance: BusinessComplianceSettings
   notes: string | null
+}
+
+export type TenantImageUploadType = 'logo' | 'cover' | 'list' | 'thumbnail'
+
+export type TenantImageUploadResult = {
+  ok: boolean
+  imageType: TenantImageUploadType
+  url: string
+  originalFileName: string | null
+  listImageUrl?: string | null
+  thumbnailUrl?: string | null
+  dimensions: {
+    width: number
+    height: number
+  }
+  note?: string
 }
 
 export type PlatformBrandingMode =
@@ -1909,6 +1928,40 @@ export async function updateBusinessSettings(
         'Einstellungen konnten nicht gespeichert werden'
       )
     )
+  }
+
+  return res.json()
+}
+
+export async function uploadBusinessSettingsImage(
+  imageType: TenantImageUploadType,
+  file: File,
+  tenantId = resolveTenantId()
+): Promise<TenantImageUploadResult> {
+  const token = readBrowserAccessToken()
+  if (!token) {
+    throw new Error('Nicht eingeloggt')
+  }
+  if (!tenantId) {
+    throw new Error('Bitte zuerst eine Filiale auswählen.')
+  }
+
+  const formData = new FormData()
+  formData.append('tenantId', tenantId)
+  formData.append('imageType', imageType)
+  formData.append('file', file)
+
+  const res = await fetch(`${API_BASE_URL}/api/business-settings/upload-image`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Bild konnte nicht hochgeladen werden')
   }
 
   return res.json()

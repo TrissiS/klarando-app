@@ -66,6 +66,7 @@ function readBackendBuildMetadata() {
 }
 
 const backendBuildMetadata = readBackendBuildMetadata()
+const uploadsDirectory = path.resolve(process.cwd(), 'data', 'uploads')
 
 const DEFAULT_PRODUCTION_ORIGINS = [
   'https://klarando.com',
@@ -116,6 +117,13 @@ app.use(
 app.use(express.json({ limit: '8mb' }))
 app.use(express.urlencoded({ extended: true, limit: '8mb' }))
 app.use(optionalAuth)
+app.use(
+  '/uploads',
+  express.static(uploadsDirectory, {
+    maxAge: '7d',
+    etag: true,
+  })
+)
 
 app.use('/api/auth/reset-password', rateLimitPasswordReset)
 app.use('/api/auth/forgot-password', rateLimitPasswordReset)

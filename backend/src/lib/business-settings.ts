@@ -150,6 +150,9 @@ export type BusinessSettings = {
   deliveryFeeNote: string | null
   minOrderValue: string | null
   logoUrl: string | null
+  coverImageUrl: string | null
+  thumbnailUrl: string | null
+  originalFileName: string | null
   openingHours: DailyWindow[]
   holidayHours: HolidayWindow[]
   deliveryHours: DailyWindow[]
@@ -889,6 +892,9 @@ export function parseSettings(
     deliveryFeeNote: normalizeText(source.deliveryFeeNote),
     minOrderValue: normalizeText(source.minOrderValue),
     logoUrl: normalizeText(source.logoUrl),
+    coverImageUrl: normalizeText(source.coverImageUrl),
+    thumbnailUrl: normalizeText(source.thumbnailUrl),
+    originalFileName: normalizeText(source.originalFileName),
     openingHours: sanitizeDailyHours(source.openingHours, defaultHours),
     holidayHours: sanitizeHolidayHours(source.holidayHours),
     deliveryHours: sanitizeDailyHours(source.deliveryHours, defaultHours),

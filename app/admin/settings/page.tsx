@@ -6,6 +6,7 @@ import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
   getTenantPaypalPaymentConfig,
   getBusinessSettings,
+  uploadBusinessSettingsImage,
   updateTenantPaypalPaymentConfig,
   updateBusinessSettings,
   type BusinessDailyWindow,
@@ -48,6 +49,8 @@ export default function AdminSettingsPage() {
   const [paypalConfig, setPaypalConfig] = useState<TenantPaypalPaymentConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
+  const [uploadingCover, setUploadingCover] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -160,26 +163,31 @@ export default function AdminSettingsPage() {
       return
     }
 
-    if (!file.type.startsWith('image/')) {
-      setError('Bitte ein gültiges Logo-Bild auswählen.')
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Bitte ein gültiges Logo-Bild (JPG, PNG oder WEBP) auswählen.')
       return
     }
 
-    const maxBytes = 6 * 1024 * 1024
+    const maxBytes = 10 * 1024 * 1024
     if (file.size > maxBytes) {
-      setError('Logo ist zu groß (max. 6 MB).')
+      setError('Logo ist zu groß (max. 10 MB).')
       return
     }
 
-    const fileReader = new FileReader()
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      fileReader.onload = () => resolve(String(fileReader.result || ''))
-      fileReader.onerror = () => reject(new Error('Logo konnte nicht gelesen werden'))
-      fileReader.readAsDataURL(file)
-    })
-
-    updateField('logoUrl', dataUrl)
-    setError('')
+    try {
+      setUploadingLogo(true)
+      setError('')
+      setSuccess('Bild wird automatisch optimiert.')
+      const uploaded = await uploadBusinessSettingsImage('logo', file)
+      updateField('logoUrl', uploaded.url)
+      updateField('thumbnailUrl', uploaded.url)
+      updateField('originalFileName', uploaded.originalFileName)
+      setSuccess('Logo hochgeladen und optimiert.')
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Logo-Upload fehlgeschlagen.')
+    } finally {
+      setUploadingLogo(false)
+    }
   }
 
   async function handleTitleImageFile(file: File | null) {
@@ -187,26 +195,32 @@ export default function AdminSettingsPage() {
       return
     }
 
-    if (!file.type.startsWith('image/')) {
-      setError('Bitte ein gültiges Titelbild auswählen.')
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      setError('Bitte ein gültiges Titelbild (JPG, PNG oder WEBP) auswählen.')
       return
     }
 
-    const maxBytes = 8 * 1024 * 1024
+    const maxBytes = 10 * 1024 * 1024
     if (file.size > maxBytes) {
-      setError('Titelbild ist zu groß (max. 8 MB).')
+      setError('Titelbild ist zu groß (max. 10 MB).')
       return
     }
 
-    const fileReader = new FileReader()
-    const dataUrl = await new Promise<string>((resolve, reject) => {
-      fileReader.onload = () => resolve(String(fileReader.result || ''))
-      fileReader.onerror = () => reject(new Error('Titelbild konnte nicht gelesen werden'))
-      fileReader.readAsDataURL(file)
-    })
-
-    updateCustomerAppField('orderHeaderImageUrl', dataUrl)
-    setError('')
+    try {
+      setUploadingCover(true)
+      setError('')
+      setSuccess('Bild wird automatisch optimiert.')
+      const cover = await uploadBusinessSettingsImage('cover', file)
+      updateField('coverImageUrl', cover.url)
+      updateField('thumbnailUrl', cover.thumbnailUrl || null)
+      updateField('originalFileName', cover.originalFileName)
+      updateCustomerAppField('orderHeaderImageUrl', cover.url)
+      setSuccess('Titelbild hochgeladen und optimiert.')
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : 'Titelbild-Upload fehlgeschlagen.')
+    } finally {
+      setUploadingCover(false)
+    }
   }
 
   async function handleSave(event: React.FormEvent) {
@@ -494,10 +508,17 @@ export default function AdminSettingsPage() {
                     </p>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={uploadingLogo}
                       onChange={(event) => void handleLogoFile(event.target.files?.[0] || null)}
                       className="mt-2 w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
                     />
+                    <p className="mt-2 text-xs text-slate-600">
+                      Bild wird automatisch optimiert (max. 10 MB, Ausgabe als WebP).
+                    </p>
+                    {uploadingLogo ? (
+                      <p className="mt-2 text-xs font-medium text-[var(--brand-orange)]">Logo wird hochgeladen ...</p>
+                    ) : null}
                     {settings.logoUrl ? (
                       <div className="mt-3 flex items-center gap-3">
                         <img
@@ -524,10 +545,17 @@ export default function AdminSettingsPage() {
                     </p>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={uploadingCover}
                       onChange={(event) => void handleTitleImageFile(event.target.files?.[0] || null)}
                       className="mt-2 w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
                     />
+                    <p className="mt-2 text-xs text-slate-600">
+                      Bild wird automatisch optimiert (max. 10 MB, Ausgabe als WebP).
+                    </p>
+                    {uploadingCover ? (
+                      <p className="mt-2 text-xs font-medium text-[var(--brand-orange)]">Titelbild wird hochgeladen ...</p>
+                    ) : null}
                     {settings.customerApp.orderHeaderImageUrl ? (
                       <div className="mt-3 space-y-2">
                         <img

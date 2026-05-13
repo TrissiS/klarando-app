@@ -1,5 +1,6 @@
 import { PermissionKey, Prisma, UserRole } from '@prisma/client'
 import { Request, Router } from 'express'
+import multer from 'multer'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
@@ -8,8 +9,19 @@ import {
   type BusinessSettings,
 } from '../lib/business-settings'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
+import {
+  isAllowedImageMimeType,
+  processAndStoreTenantImage,
+  type TenantImageType,
+} from '../lib/tenant-image-upload'
 
 const router = Router()
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+})
 
 type TenantRecord = {
   id: string
@@ -243,6 +255,170 @@ function mirrorPickupAreaFromDelivery(settings: BusinessSettings) {
     },
   }
 }
+
+router.post(
+  '/upload-image',
+  requirePermission(PermissionKey.SETTINGS_WRITE),
+  upload.single('file'),
+  async (req, res) => {
+    try {
+      const scope = await resolveTenantScope(req, req.body?.tenantId)
+      const tenantId = scope.tenantId as string
+
+      const imageTypeRaw = typeof req.body?.imageType === 'string' ? req.body.imageType : ''
+      const imageType = imageTypeRaw.toLowerCase() as TenantImageType
+      if (!['logo', 'cover', 'list', 'thumbnail'].includes(imageType)) {
+        return res.status(400).json({
+          error: 'Ungueltiger Bildtyp',
+        })
+      }
+
+      const file = req.file
+      if (!file) {
+        return res.status(400).json({
+          error: 'Keine Datei uebergeben',
+        })
+      }
+
+      if (!isAllowedImageMimeType(file.mimetype)) {
+        return res.status(400).json({
+          error: 'Nur JPG, PNG und WEBP sind erlaubt',
+        })
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          id: true,
+          chainId: true,
+          name: true,
+          email: true,
+          businessSettings: true,
+        },
+      })
+
+      if (!tenant) {
+        return res.status(404).json({
+          error: 'Filiale nicht gefunden',
+        })
+      }
+
+      const access = await enforceTenantAccess(req, tenant, 'write')
+      if (!access.allowed) {
+        return res.status(403).json({
+          error: access.error || 'Kein Zugriff auf diese Filiale',
+        })
+      }
+
+      const uploaded = await processAndStoreTenantImage({
+        tenantId,
+        imageType,
+        originalFileName: file.originalname || 'upload',
+        buffer: file.buffer,
+      })
+      const uploadedList =
+        imageType === 'cover'
+          ? await processAndStoreTenantImage({
+              tenantId,
+              imageType: 'list',
+              originalFileName: file.originalname || 'upload',
+              buffer: file.buffer,
+            })
+          : null
+      const uploadedThumbnail =
+        imageType === 'cover'
+          ? await processAndStoreTenantImage({
+              tenantId,
+              imageType: 'thumbnail',
+              originalFileName: file.originalname || 'upload',
+              buffer: file.buffer,
+            })
+          : null
+
+      const currentSettings = parseSettings(tenant.businessSettings, {
+        name: tenant.name,
+        email: tenant.email,
+      })
+
+      const nextSettings: BusinessSettings = {
+        ...currentSettings,
+        originalFileName: uploaded.originalFileName,
+      }
+
+      if (imageType === 'logo') {
+        nextSettings.logoUrl = uploaded.url
+      } else if (imageType === 'cover') {
+        nextSettings.coverImageUrl = uploaded.url
+        if (uploadedThumbnail) {
+          nextSettings.thumbnailUrl = uploadedThumbnail.url
+        }
+        nextSettings.customerApp = {
+          ...nextSettings.customerApp,
+          orderHeaderImageUrl: uploaded.url,
+        }
+      } else if (imageType === 'thumbnail') {
+        nextSettings.thumbnailUrl = uploaded.url
+      }
+
+      await prisma.tenant.update({
+        where: { id: tenantId },
+        data: {
+          businessSettings: nextSettings as Prisma.InputJsonValue,
+        },
+      })
+
+      await writeAuditLog({
+        req,
+        module: 'business-settings',
+        action: 'image-upload',
+        targetType: 'Tenant',
+        targetId: tenantId,
+        tenantId,
+        metadata: {
+          imageType,
+          imageUrl: uploaded.url,
+          listImageUrl: uploadedList?.url || null,
+          thumbnailUrl: uploadedThumbnail?.url || null,
+        },
+      })
+
+      return res.json({
+        ok: true,
+        imageType,
+        url: uploaded.url,
+        originalFileName: uploaded.originalFileName,
+        dimensions: {
+          width: uploaded.width,
+          height: uploaded.height,
+        },
+        listImageUrl: uploadedList?.url || null,
+        thumbnailUrl: uploadedThumbnail?.url || null,
+        note: 'Bild wird automatisch optimiert.',
+      })
+    } catch (error) {
+      console.error('BUSINESS SETTINGS IMAGE UPLOAD ERROR:', error)
+      if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(413).json({
+          error: 'Datei ist zu gross (max. 10 MB).',
+        })
+      }
+      if (error instanceof Error && /Input buffer contains unsupported image format/i.test(error.message)) {
+        return res.status(400).json({
+          error: 'Bildformat wird nicht unterstuetzt',
+        })
+      }
+      const tenantScopeError = asTenantScopeError(error)
+      if (tenantScopeError) {
+        return res.status(tenantScopeError.status).json({
+          error: tenantScopeError.message,
+        })
+      }
+      return res.status(500).json({
+        error: 'Bild konnte nicht verarbeitet werden',
+      })
+    }
+  }
+)
 
 router.get('/', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
   try {
