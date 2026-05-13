@@ -36,7 +36,7 @@ const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
 const _klarandoTermsUrl = 'https://www.klarando.com/agb';
 const _klarandoSupportEmail = 'support@klarando.com';
 const _klarandoAccountDeletionEmail = 'konto-loeschen@klarando.com';
-const _googleMapsStaticApiKey = String.fromEnvironment('GOOGLE_MAPS_API_KEY');
+final _googleMapsStaticApiKey = googleMapsApiKey;
 
 class KlarandoApp extends StatelessWidget {
   const KlarandoApp({super.key});
