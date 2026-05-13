@@ -1994,221 +1994,21 @@ class _HomeShellState extends State<HomeShell> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (sheetContext) {
-        final location = order.driverLocation;
-        final mapPreviewUrl = location == null
-            ? null
-            : _buildDriverMapImageUrl(
-                location,
-                width: 900,
-                height: 360,
-              );
-        final mapPreviewFallbackUrl = location == null
-            ? null
-            : _buildDriverMapFallbackImageUrl(
-                location,
-                width: 900,
-                height: 360,
-              );
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${order.tenantName ?? 'Filiale'} | #${_displayOrderNumber(order)}',
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'Status: ${_statusLabel(order.status)} | Gesamt: ${order.total.toStringAsFixed(2)} EUR',
-                  style: const TextStyle(color: Color(0xFF52525B)),
-                ),
-                if (order.estimatedMinutes != null)
-                  Text(
-                    'Voraussichtliche Zeit: ${order.estimatedMinutes} min',
-                    style: const TextStyle(color: Color(0xFF52525B)),
-                  ),
-                if ((order.complaintCount > 0) || order.complaintOpen) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Reklamation: ${order.complaintOpen ? 'offen' : 'vorhanden'} (${order.complaintCount})',
-                    style: const TextStyle(color: Color(0xFF92400E)),
-                  ),
-                ],
-                if (order.signatureCaptured) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Kundensignatur vorhanden${order.signatureSignerName != null ? ' (${order.signatureSignerName})' : ''}.',
-                    style: const TextStyle(color: Color(0xFF065F46)),
-                  ),
-                ],
-                if (order.status == 'out_for_delivery' && mapPreviewUrl != null) ...[
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Fahrer auf Google Maps',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(12),
-                    child: Image.network(
-                      mapPreviewUrl,
-                      height: 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Image.network(
-                        mapPreviewFallbackUrl!,
-                        height: 180,
-                        width: double.infinity,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          height: 180,
-                          alignment: Alignment.center,
-                          color: const Color(0xFFF4F4F5),
-                          child: const Text(
-                            'Karte konnte nicht geladen werden.',
-                            style: TextStyle(color: Color(0xFF71717A)),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () {
-                        showDialog<void>(
-                          context: sheetContext,
-                          builder: (context) {
-                            return Dialog(
-                              insetPadding: const EdgeInsets.all(12),
-                              child: InteractiveViewer(
-                                maxScale: 4,
-                                minScale: 1,
-                                child: Image.network(
-                                  _buildDriverMapImageUrl(
-                                    location!,
-                                    width: 1400,
-                                    height: 900,
-                                    zoom: 16,
-                                  ),
-                                  fit: BoxFit.contain,
-                                  errorBuilder: (_, __, ___) => Image.network(
-                                    _buildDriverMapFallbackImageUrl(
-                                      location,
-                                      width: 1400,
-                                      height: 900,
-                                      zoom: 16,
-                                    ),
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      color: const Color(0xFFF4F4F5),
-                                      alignment: Alignment.center,
-                                      child: const Text(
-                                        'Karte konnte nicht geladen werden.',
-                                        style: TextStyle(color: Color(0xFF71717A)),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        );
-                      },
-                      icon: const Icon(Icons.zoom_in),
-                      label: const Text('Karte vergrößern'),
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 10),
-                const Text(
-                  'Bestellpositionen',
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 6),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 280),
-                  child: ListView.separated(
-                    shrinkWrap: true,
-                    itemCount: order.items.length,
-                    separatorBuilder: (_, __) => const Divider(height: 12),
-                    itemBuilder: (context, index) {
-                      final item = order.items[index];
-                      return Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${item.quantity}x',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(item.productName),
-                                if (item.modifierNames.isNotEmpty)
-                                  Text(
-                                    'Optionen: ${item.modifierNames.join(', ')}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF71717A),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Text('${item.price.toStringAsFixed(2)} EUR'),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                        child: const Text('Schliessen'),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: FilledButton(
-                        onPressed: () async {
-                          Navigator.of(sheetContext).pop();
-                          await _reorderFromOrder(order);
-                        },
-                        child: const Text('Erneut bestellen'),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if ((_appAuthToken ?? '').trim().isNotEmpty)
-                  SizedBox(
-                    width: double.infinity,
-                    child: OutlinedButton.icon(
-                      onPressed: () async {
-                        Navigator.of(sheetContext).pop();
-                        await _openComplaintDialog(order);
-                      },
-                      icon: const Icon(Icons.report_gmailerrorred_outlined),
-                      label: const Text('Reklamation mit Bild melden'),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        );
-      },
+      builder: (sheetContext) => _CustomerOrderTrackingSheet(
+        initialOrder: order,
+        api: _api,
+        baseUrl: _baseUrl,
+        appAuthToken: _appAuthToken,
+        tenantId: _selectedTenant?.tenantId,
+        onReorder: (entry) async {
+          Navigator.of(sheetContext).pop();
+          await _reorderFromOrder(entry);
+        },
+        onComplaint: (entry) async {
+          Navigator.of(sheetContext).pop();
+          await _openComplaintDialog(entry);
+        },
+      ),
     );
   }
 
@@ -3925,6 +3725,413 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     return FilledButton(
       onPressed: () => Navigator.of(context).pop(_createdOrder),
       child: const Text('Zurück zur App'),
+    );
+  }
+}
+
+class _CustomerOrderTrackingSheet extends StatefulWidget {
+  const _CustomerOrderTrackingSheet({
+    required this.initialOrder,
+    required this.api,
+    required this.baseUrl,
+    required this.appAuthToken,
+    required this.tenantId,
+    required this.onReorder,
+    required this.onComplaint,
+  });
+
+  final PublicOrderSummary initialOrder;
+  final KlarandoApi api;
+  final String baseUrl;
+  final String? appAuthToken;
+  final String? tenantId;
+  final Future<void> Function(PublicOrderSummary order) onReorder;
+  final Future<void> Function(PublicOrderSummary order) onComplaint;
+
+  @override
+  State<_CustomerOrderTrackingSheet> createState() =>
+      _CustomerOrderTrackingSheetState();
+}
+
+class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet>
+    with WidgetsBindingObserver {
+  static const _trackingInterval = Duration(seconds: 5);
+
+  late PublicOrderSummary _order;
+  Timer? _trackingTimer;
+  bool _trackingBusy = false;
+  String? _trackingError;
+  bool _followDriver = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _order = widget.initialOrder;
+    WidgetsBinding.instance.addObserver(this);
+    _startTrackingTicker();
+    unawaited(_refreshTracking(force: true));
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _trackingTimer?.cancel();
+    _trackingTimer = null;
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startTrackingTicker();
+      unawaited(_refreshTracking(force: true));
+      return;
+    }
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden) {
+      _trackingTimer?.cancel();
+      _trackingTimer = null;
+    }
+  }
+
+  void _startTrackingTicker() {
+    _trackingTimer ??= Timer.periodic(_trackingInterval, (_) {
+      unawaited(_refreshTracking());
+    });
+  }
+
+  Future<void> _refreshTracking({bool force = false}) async {
+    if (_trackingBusy) return;
+    final token = widget.appAuthToken?.trim();
+    if ((token ?? '').isEmpty) {
+      if (mounted) {
+        setState(() {
+          _trackingError =
+              'Nicht eingeloggt. Live-Tracking ist aktuell nicht verfügbar.';
+        });
+      }
+      return;
+    }
+
+    _trackingBusy = true;
+    if (force && mounted) {
+      setState(() {
+        _trackingError = null;
+      });
+    }
+    try {
+      final orders = await widget.api.fetchOrders(
+        baseUrl: widget.baseUrl,
+        tenantId: widget.tenantId,
+        appAuthToken: token,
+      );
+      PublicOrderSummary? updated;
+      for (final entry in orders) {
+        if (entry.id == _order.id) {
+          updated = entry;
+          break;
+        }
+      }
+      if (!mounted) return;
+      if (updated == null) {
+        setState(() {
+          _trackingError = 'Bestellung konnte nicht mehr geladen werden.';
+        });
+        return;
+      }
+      setState(() {
+        _order = updated;
+        _trackingError = null;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _trackingError = error.message;
+      });
+    } finally {
+      _trackingBusy = false;
+    }
+  }
+
+  String _driverTrackingHint() {
+    if (_order.status != 'out_for_delivery') {
+      return 'Fahrer wurde noch nicht gestartet.';
+    }
+    final location = _order.driverLocation;
+    if (location == null) {
+      return 'Fahrerposition wird geladen …';
+    }
+    final updatedAt = location.updatedAt;
+    if (updatedAt == null) {
+      return 'Fahrerposition wird geladen …';
+    }
+    final age = DateTime.now().difference(updatedAt.toLocal()).inMinutes;
+    if (age >= 1) {
+      return 'Letzte Fahrerposition vor $age Minute${age == 1 ? '' : 'n'}.';
+    }
+    return 'Fahrerposition live aktualisiert.';
+  }
+
+  String _buildDriverMapImageUrl(DriverLocationPoint location) {
+    return Uri.https('maps.googleapis.com', '/maps/api/staticmap', {
+      'center':
+          '${location.latitude.toStringAsFixed(6)},${location.longitude.toStringAsFixed(6)}',
+      'zoom': _followDriver ? '16' : '14',
+      'size': '900x420',
+      'maptype': 'roadmap',
+      'markers':
+          'color:red|label:F|${location.latitude.toStringAsFixed(6)},${location.longitude.toStringAsFixed(6)}',
+      if (_googleMapsStaticApiKey.isNotEmpty) 'key': _googleMapsStaticApiKey,
+    }).toString();
+  }
+
+  String _buildDriverMapFallbackImageUrl(DriverLocationPoint location) {
+    return Uri.https('staticmap.openstreetmap.de', '/staticmap.php', {
+      'center':
+          '${location.latitude.toStringAsFixed(6)},${location.longitude.toStringAsFixed(6)}',
+      'zoom': _followDriver ? '16' : '14',
+      'size': '900x420',
+      'markers':
+          '${location.latitude.toStringAsFixed(6)},${location.longitude.toStringAsFixed(6)},red-pushpin',
+    }).toString();
+  }
+
+  Future<void> _openDriverRouteInMaps() async {
+    final location = _order.driverLocation;
+    if (location == null) return;
+    final destination = [
+      (_order.customerAddress ?? '').trim(),
+      (_order.customerZipCode ?? '').trim(),
+      (_order.customerCity ?? '').trim(),
+    ].where((entry) => entry.isNotEmpty).join(', ');
+    if (destination.isEmpty) return;
+    final uri = Uri.parse(
+      'https://www.google.com/maps/dir/?api=1&origin=${location.latitude},${location.longitude}&destination=${Uri.encodeComponent(destination)}&travelmode=driving',
+    );
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final order = _order;
+    final location = order.driverLocation;
+    final mapPreviewUrl =
+        location == null ? null : _buildDriverMapImageUrl(location);
+    final mapPreviewFallbackUrl =
+        location == null ? null : _buildDriverMapFallbackImageUrl(location);
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${order.tenantName ?? 'Filiale'} | #${_displayOrderNumber(order)}',
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Status: ${_statusLabel(order.status)} | Gesamt: ${order.total.toStringAsFixed(2)} EUR',
+                style: const TextStyle(color: Color(0xFF52525B)),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                _driverTrackingHint(),
+                style: const TextStyle(fontSize: 13, color: Color(0xFF0F766E)),
+              ),
+              if (_trackingError != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  _trackingError!,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFFB91C1C)),
+                ),
+              ],
+              const SizedBox(height: 10),
+              const Text(
+                'Live-Karte',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              if (order.status == 'out_for_delivery' && mapPreviewUrl != null)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.network(
+                    mapPreviewUrl,
+                    height: 190,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, __, ___) => Image.network(
+                      mapPreviewFallbackUrl!,
+                      height: 190,
+                      width: double.infinity,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => Container(
+                        height: 190,
+                        alignment: Alignment.center,
+                        color: const Color(0xFFF4F4F5),
+                        child: const Text(
+                          'Karte konnte nicht geladen werden.',
+                          style: TextStyle(color: Color(0xFF71717A)),
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Container(
+                  height: 120,
+                  width: double.infinity,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    color: const Color(0xFFF8FAFC),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Text(
+                    order.status == 'out_for_delivery'
+                        ? 'Fahrerposition noch nicht verfügbar.'
+                        : 'Lieferung noch nicht unterwegs.',
+                    style: const TextStyle(color: Color(0xFF64748B)),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _followDriver = !_followDriver;
+                      });
+                    },
+                    icon: Icon(
+                        _followDriver ? Icons.my_location : Icons.location_searching),
+                    label: Text(
+                        _followDriver ? 'Fahrer folgen: an' : 'Fahrer folgen: aus'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: location == null ? null : _openDriverRouteInMaps,
+                    icon: const Icon(Icons.alt_route),
+                    label: const Text('Route anzeigen'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _trackingBusy ? null : () => _refreshTracking(force: true),
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Aktualisieren'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _buildTrackingInfoCard(order),
+              const SizedBox(height: 10),
+              const Text(
+                'Bestellpositionen',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 280),
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: order.items.length,
+                  separatorBuilder: (_, __) => const Divider(height: 12),
+                  itemBuilder: (context, index) {
+                    final item = order.items[index];
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${item.quantity}x',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(item.productName),
+                              if (item.modifierNames.isNotEmpty)
+                                Text(
+                                  'Optionen: ${item.modifierNames.join(', ')}',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF71717A),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text('${item.price.toStringAsFixed(2)} EUR'),
+                      ],
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      child: const Text('Schließen'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => widget.onReorder(order),
+                      child: const Text('Erneut bestellen'),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if ((widget.appAuthToken ?? '').trim().isNotEmpty)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => widget.onComplaint(order),
+                    icon: const Icon(Icons.report_gmailerrorred_outlined),
+                    label: const Text('Reklamation mit Bild melden'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTrackingInfoCard(PublicOrderSummary order) {
+    final address = [
+      (order.customerAddress ?? '').trim(),
+      (order.customerZipCode ?? '').trim(),
+      (order.customerCity ?? '').trim(),
+    ].where((entry) => entry.isNotEmpty).join(', ');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Restaurant: ${order.tenantName ?? 'Filiale'}'),
+          Text('Lieferadresse: ${address.isEmpty ? '-' : address}'),
+          Text(
+            'Fahrerstatus: ${order.assignedDriverName?.trim().isNotEmpty == true ? 'zugewiesen (${order.assignedDriverName})' : 'noch nicht zugewiesen'}',
+          ),
+        ],
+      ),
     );
   }
 }
