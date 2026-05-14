@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   claimDisplayPairingSession,
   getAccessContext,
@@ -89,6 +89,15 @@ export default function DisplayDeviceManagementPanel({
   const [claimScreenId, setClaimScreenId] = useState('')
   const [claimDisplayName, setClaimDisplayName] = useState('')
   const [claiming, setClaiming] = useState(false)
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scannerError, setScannerError] = useState('')
+  const [scannerStatus, setScannerStatus] = useState('')
+  const [scannerBusy, setScannerBusy] = useState(false)
+  const scannerInstanceRef = useRef<{
+    stop: () => Promise<void>
+    clear: () => Promise<void> | void
+    isRunning: boolean
+  } | null>(null)
 
   const isTenantLocked = Boolean(fixedTenantId)
   const isChainLocked = Boolean(fixedChainId)
@@ -147,6 +156,12 @@ export default function DisplayDeviceManagementPanel({
     void loadOverview()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [statusFilter, displayTypeFilter, selectedTenantId, selectedChainId])
+
+  useEffect(() => {
+    return () => {
+      void stopScanner()
+    }
+  }, [])
 
   async function handlePreview(row: DisplayDeviceOverviewRow) {
     try {
@@ -227,6 +242,151 @@ export default function DisplayDeviceManagementPanel({
       }
     }
     return trimmed
+  }
+
+  async function stopScanner() {
+    const scanner = scannerInstanceRef.current
+    if (!scanner) return
+    scannerInstanceRef.current = null
+    try {
+      if (scanner.isRunning) {
+        await scanner.stop()
+      }
+    } catch {
+      // ignore shutdown errors
+    }
+    try {
+      await scanner.clear()
+    } catch {
+      // ignore clear errors
+    }
+  }
+
+  function parseScannedQrContent(raw: string): { payloadText?: string; pairingCode?: string } {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      throw new Error('QR-Code ist leer.')
+    }
+
+    if (trimmed.startsWith('{')) {
+      const parsed = JSON.parse(trimmed) as {
+        type?: unknown
+        pairingToken?: unknown
+        pairingCode?: unknown
+        code?: unknown
+      }
+      const type = typeof parsed.type === 'string' ? parsed.type.toUpperCase() : null
+      if (type && type !== 'DISPLAY_PAIRING') {
+        throw new Error('Dieser QR-Code ist nicht für Display-Verbindung geeignet.')
+      }
+      const pairingCode =
+        typeof parsed.pairingCode === 'string'
+          ? parsed.pairingCode.trim()
+          : typeof parsed.code === 'string'
+            ? parsed.code.trim()
+            : ''
+      return {
+        payloadText: JSON.stringify(parsed),
+        pairingCode: pairingCode || undefined,
+      }
+    }
+
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      const url = new URL(trimmed)
+      const pairingToken = url.searchParams.get('pairingToken') || url.searchParams.get('token')
+      const pairingCode = url.searchParams.get('pairingCode') || url.searchParams.get('code')
+      if (!pairingToken && !pairingCode) {
+        throw new Error('Dieser QR-Code ist nicht für Display-Verbindung geeignet.')
+      }
+      if (pairingToken) {
+        const payload = {
+          type: 'DISPLAY_PAIRING',
+          pairingToken,
+          ...(pairingCode ? { pairingCode } : {}),
+        }
+        return { payloadText: JSON.stringify(payload), pairingCode: pairingCode || undefined }
+      }
+      return { pairingCode: pairingCode || undefined }
+    }
+
+    if (/^\d{6}$/.test(trimmed)) {
+      return { pairingCode: trimmed }
+    }
+
+    return { payloadText: trimmed }
+  }
+
+  async function handleStartWebcamScanner() {
+    try {
+      setScannerBusy(true)
+      setScannerError('')
+      setScannerStatus('Kamera wird gestartet …')
+      await stopScanner()
+      const { Html5Qrcode } = await import('html5-qrcode')
+      const cameras = await Html5Qrcode.getCameras()
+      if (!Array.isArray(cameras) || cameras.length === 0) {
+        throw new Error('Keine Kamera gefunden.')
+      }
+
+      const scanner = new Html5Qrcode('display-qr-reader')
+      scannerInstanceRef.current = {
+        stop: () => scanner.stop(),
+        clear: () => scanner.clear(),
+        isRunning: false,
+      }
+
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 280, height: 280 } },
+        async (decodedText: string) => {
+          try {
+            const parsed = parseScannedQrContent(decodedText)
+            if (parsed.payloadText) {
+              setClaimPayload(parsed.payloadText)
+            }
+            if (parsed.pairingCode) {
+              setClaimPairingCode(parsed.pairingCode)
+            }
+            await stopScanner()
+            setScannerStatus('')
+            setScannerError('')
+            setScannerOpen(false)
+            setSuccess('QR-Code erkannt.')
+          } catch (parseError) {
+            setScannerError(
+              parseError instanceof Error
+                ? parseError.message
+                : 'Dieser QR-Code ist nicht für Display-Verbindung geeignet.'
+            )
+          }
+        },
+        () => {
+          // ignore frame decode misses
+        }
+      )
+
+      if (scannerInstanceRef.current) {
+        scannerInstanceRef.current.isRunning = true
+      }
+      setScannerStatus('QR-Code ausrichten und scannen …')
+    } catch (startError) {
+      const message = startError instanceof Error ? startError.message : 'Kamera konnte nicht gestartet werden.'
+      if (message.toLowerCase().includes('notallowederror') || message.toLowerCase().includes('permission')) {
+        setScannerError('Kamera-Zugriff wurde nicht erlaubt.')
+      } else {
+        setScannerError(message)
+      }
+      setScannerStatus('')
+    } finally {
+      setScannerBusy(false)
+    }
+  }
+
+  async function closeScannerModal() {
+    await stopScanner()
+    setScannerOpen(false)
+    setScannerBusy(false)
+    setScannerStatus('')
   }
 
   async function handleClaimPairing() {
@@ -317,11 +477,59 @@ export default function DisplayDeviceManagementPanel({
           </div>
         </AdminFormGrid>
         <AdminActionBar>
+          <AdminButton
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              setScannerOpen(true)
+              setScannerError('')
+              setScannerStatus('')
+              void handleStartWebcamScanner()
+            }}
+          >
+            QR-Code mit Webcam scannen
+          </AdminButton>
           <AdminButton type="button" onClick={() => void handleClaimPairing()} disabled={claiming}>
             {claiming ? 'Verbinde…' : 'Display verbinden'}
           </AdminButton>
         </AdminActionBar>
       </AdminSectionCard>
+
+      {scannerOpen ? (
+        <div
+          className="fixed inset-0 z-[160] bg-slate-950/55 px-3 py-6"
+          onClick={() => {
+            void closeScannerModal()
+          }}
+        >
+          <div
+            className="mx-auto w-full max-w-xl rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold text-[var(--brand-ink)]">QR-Code scannen</h3>
+            <p className="mt-1 text-sm text-rose-900/75">
+              Richte die TV-Anzeige in die Kamera. Nach dem Scan werden die Felder automatisch gefüllt.
+            </p>
+            <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--brand-border)] bg-slate-900">
+              <div id="display-qr-reader" className="min-h-[300px] w-full" />
+            </div>
+            {scannerStatus ? <p className="mt-3 text-xs text-rose-900/70">{scannerStatus}</p> : null}
+            {scannerError ? (
+              <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {scannerError}
+              </p>
+            ) : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <AdminButton type="button" variant="secondary" onClick={() => void closeScannerModal()}>
+                Abbrechen
+              </AdminButton>
+              <AdminButton type="button" onClick={() => void handleStartWebcamScanner()} disabled={scannerBusy}>
+                {scannerBusy ? 'Starte…' : 'Kamera neu starten'}
+              </AdminButton>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <AdminSectionCard title="Display-Verwaltung" description="Filtere Displays nach Status, Typ, Kette und Filiale.">
         <AdminFormGrid>
