@@ -431,6 +431,7 @@ function AdminProductsPageContent() {
 
       if (editingProductId) {
         await updateProduct(editingProductId, {
+          productNumber: payload.productNumber || null,
           name: payload.name,
           imageUrl: payload.imageUrl,
           ean: payload.ean,

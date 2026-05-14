@@ -320,9 +320,15 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
 
     const normalizedProductNumber = normalizeProductNumber(productNumber)
     const normalizedName = normalizeText(name)
+    const targetAvailable = available ?? true
 
     if (!normalizedName || price === undefined) {
       return res.status(400).json({ error: 'Pflichtfelder fehlen' })
+    }
+    if (targetAvailable && !normalizedProductNumber) {
+      return res.status(400).json({
+        error: 'Bitte Produktnummer vergeben, bevor der Artikel verkauft werden kann.',
+      })
     }
     const scope = await resolveTenantScope(req, tenantId)
     const scopedTenantId = scope.tenantId as string
@@ -370,7 +376,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
           nutritionInfo: normalizeText(nutritionInfo),
           price: Number(price),
           vatRate: vatRate === undefined ? 19.0 : Number(vatRate),
-          available: available ?? true,
+          available: targetAvailable,
         },
         include: {
           category: true,
@@ -467,6 +473,8 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       select: {
         id: true,
         tenantId: true,
+        available: true,
+        productNumber: true,
       },
     })
     if (!existingProduct) {
@@ -485,6 +493,17 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
     const normalizedUnitEans = unitEans === undefined ? undefined : normalizeUnitEans(unitEans)
     const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType)
     const normalizedProductNumber = normalizeProductNumber(productNumber)
+    const targetAvailable = available ?? existingProduct.available
+    const targetProductNumber =
+      productNumber === undefined
+        ? normalizeProductNumber(existingProduct.productNumber ?? undefined)
+        : normalizedProductNumber
+
+    if (targetAvailable && !targetProductNumber) {
+      return res.status(400).json({
+        error: 'Bitte Produktnummer vergeben, bevor der Artikel verkauft werden kann.',
+      })
+    }
 
     if (normalizedProductNumber) {
       const existingWithProductNumber = await prisma.product.findFirst({

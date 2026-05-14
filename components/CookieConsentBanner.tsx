@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   buildDefaultCookieConsent,
   COOKIE_CONSENT_KEY,
@@ -11,6 +12,7 @@ import {
 } from "@/lib/cookie-consent";
 
 export default function CookieConsentBanner() {
+  const pathname = usePathname();
   const [hydrated, setHydrated] = useState(false);
   const [visible, setVisible] = useState(false);
   const [openSettings, setOpenSettings] = useState(false);
@@ -48,6 +50,11 @@ export default function CookieConsentBanner() {
     return "Wir verwenden Cookies für Betrieb, Komfort und optionale Funktionen. Du kannst jederzeit anpassen.";
   }, [visible]);
 
+  const isBackofficeArea =
+    pathname?.startsWith("/admin") ||
+    pathname?.startsWith("/superadmin") ||
+    pathname?.startsWith("/chainadmin");
+
   function saveConsent(next: CookieConsentState) {
     const payload = { ...next, savedAt: new Date().toISOString(), version: COOKIE_CONSENT_VERSION };
     localStorage.setItem(COOKIE_CONSENT_KEY, JSON.stringify(payload));
@@ -59,6 +66,7 @@ export default function CookieConsentBanner() {
   }
 
   if (!hydrated) return null;
+  if (isBackofficeArea) return null;
   if (!visible) {
     return (
       <button

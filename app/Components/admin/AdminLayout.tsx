@@ -43,6 +43,12 @@ type NavSection = {
 }
 
 type AdminUiMode = 'compact' | 'touch'
+type HeaderInboxItem = {
+  id: string
+  title: string
+  href?: string
+  unread: boolean
+}
 
 const navSections: NavSection[] = [
   {
@@ -185,6 +191,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [allowSuperadminTenantView, setAllowSuperadminTenantView] = useState(false)
   const [uiMode, setUiMode] = useState<AdminUiMode>('compact')
   const [uiModeReady, setUiModeReady] = useState(false)
+  const [notificationOpen, setNotificationOpen] = useState(false)
+  const [mailboxOpen, setMailboxOpen] = useState(false)
+  const [notificationItems, setNotificationItems] = useState<HeaderInboxItem[]>([])
+  const [mailboxItems, setMailboxItems] = useState<HeaderInboxItem[]>([])
   const enabledFeatureKeys = useMemo(() => {
     if (!featureScope) {
       return null
@@ -192,6 +202,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     return new Set(featureScope.modules.filter((entry) => entry.enabled).map((entry) => entry.key))
   }, [featureScope])
   const normalizedRole = sessionRole.trim().toLowerCase()
+  const unreadNotifications = notificationItems.filter((entry) => entry.unread).length
+  const unreadMailboxItems = mailboxItems.filter((entry) => entry.unread).length
   const switchTarget =
     normalizedRole === 'superadmin'
       ? { href: '/superadmin', label: 'Zum Superadminbereich' }
@@ -221,6 +233,15 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     window.localStorage.setItem('klarando.adminUiMode', uiMode)
     document.documentElement.dataset.adminUiMode = uiMode
   }, [uiMode, uiModeReady])
+
+  useEffect(() => {
+    if (!authChecked || !hasValidSession) {
+      return
+    }
+    // TODO: Sobald Backend-Endpunkte verfügbar sind, hier echte Daten laden.
+    setNotificationItems([])
+    setMailboxItems([])
+  }, [authChecked, hasValidSession])
 
   useEffect(() => {
     try {
@@ -694,6 +715,89 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   </button>
                   <div className="brand-chip rounded-xl px-3 py-2 text-xs">
                     {sessionName || 'Benutzer'} {sessionRole ? `(${sessionRole})` : ''}
+                  </div>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNotificationOpen((current) => !current)
+                        setMailboxOpen(false)
+                      }}
+                      className="relative rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
+                    >
+                      Glocke
+                      {unreadNotifications > 0 ? (
+                        <span className="absolute -right-1 -top-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {unreadNotifications}
+                        </span>
+                      ) : null}
+                    </button>
+                    {notificationOpen ? (
+                      <div className="absolute right-0 z-[140] mt-2 w-72 rounded-2xl border border-[var(--brand-border)] bg-white p-3 shadow-xl">
+                        <div className="mb-2 flex items-center justify-between">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/70">
+                            Benachrichtigungen
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setNotificationItems((current) =>
+                                current.map((entry) => ({ ...entry, unread: false }))
+                              )
+                            }
+                            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900"
+                          >
+                            Alle als gelesen
+                          </button>
+                        </div>
+                        {notificationItems.length === 0 ? (
+                          <p className="text-xs text-rose-900/70">Derzeit keine neuen Einträge.</p>
+                        ) : (
+                          <ul className="space-y-1">
+                            {notificationItems.map((entry) => (
+                              <li key={entry.id} className="rounded-lg border border-rose-100 px-2 py-1 text-xs">
+                                {entry.title}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMailboxOpen((current) => !current)
+                        setNotificationOpen(false)
+                      }}
+                      className="relative rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
+                    >
+                      Postfach
+                      {unreadMailboxItems > 0 ? (
+                        <span className="absolute -right-1 -top-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                          {unreadMailboxItems}
+                        </span>
+                      ) : null}
+                    </button>
+                    {mailboxOpen ? (
+                      <div className="absolute right-0 z-[140] mt-2 w-72 rounded-2xl border border-[var(--brand-border)] bg-white p-3 shadow-xl">
+                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-900/70">
+                          Nachrichten
+                        </p>
+                        {mailboxItems.length === 0 ? (
+                          <p className="text-xs text-rose-900/70">Keine neuen Nachrichten.</p>
+                        ) : (
+                          <ul className="space-y-1">
+                            {mailboxItems.map((entry) => (
+                              <li key={entry.id} className="rounded-lg border border-rose-100 px-2 py-1 text-xs">
+                                {entry.title}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                   <button
                     type="button"
