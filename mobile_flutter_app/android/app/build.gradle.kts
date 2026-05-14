@@ -20,8 +20,8 @@ val hasReleaseKeystore = keystoreProperties["storeFile"] != null &&
 android {
     namespace = "com.klarando.mobile"
     compileSdk = flutter.compileSdkVersion
-    // Android 16 KB page-size compatibility baseline: NDK r28+
-    ndkVersion = "28.0.13004108"
+    // Android 16 KB page-size compatibility baseline: NDK r28.2+
+    ndkVersion = "28.2.13676358"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -73,6 +73,14 @@ android {
             manifestPlaceholders["appName"] = "Klarando OrderDesk"
             manifestPlaceholders["appIcon"] = "@drawable/ic_launcher_orderdesk"
             resValue("string", "app_name", "Klarando OrderDesk")
+        }
+
+        create("display") {
+            dimension = "app"
+            applicationId = "com.klarando.display"
+            manifestPlaceholders["appName"] = "Klarando Display"
+            manifestPlaceholders["appIcon"] = "@drawable/ic_launcher_display"
+            resValue("string", "app_name", "Klarando Display")
         }
     }
 
