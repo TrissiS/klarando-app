@@ -7478,3 +7478,61 @@ export async function getPublicCmsPage(slug: string): Promise<CmsPage | null> {
     return null
   }
 }
+
+export type MenuImportAnalysisResult = {
+  restaurantName: string | null
+  sourceLanguage: 'de'
+  categories: Array<{
+    name: string
+    sortOrder: number
+    confidence: number
+    products: Array<{
+      name: string
+      description: string | null
+      price: number | null
+      variants: Array<{
+        name: string
+        price: number | null
+        confidence: number
+      }>
+      ingredients: string[]
+      allergens: string[]
+      additives: string[]
+      notes: string | null
+      confidence: number
+    }>
+  }>
+  promotions: Array<{
+    name: string
+    description: string
+    price: number | null
+    weekday: string | null
+    confidence: number
+  }>
+  warnings: string[]
+}
+
+export async function analyzeSuperadminMenuImport(
+  token: string,
+  tenantId: string,
+  files: File[]
+): Promise<MenuImportAnalysisResult> {
+  const formData = new FormData()
+  formData.set('tenantId', tenantId)
+  for (const file of files) {
+    formData.append('files', file)
+  }
+
+  const response = await apiFetch('/api/superadmin/menu-import/analyze', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null)
+    throw new Error(errorData?.error || 'Speisekartenanalyse konnte nicht gestartet werden')
+  }
+
+  return (await response.json()) as MenuImportAnalysisResult
+}
