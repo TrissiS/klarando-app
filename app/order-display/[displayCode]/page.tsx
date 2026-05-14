@@ -252,6 +252,30 @@ function resolveDeliveryRuntimeLabel(order: Order, nowMs: number) {
   return formatElapsed(order.driverDepartedAt, nowMs)
 }
 
+function resolveOrderPhaseLabel(order: Order, nowMs: number) {
+  if (order.status === 'done') {
+    return {
+      label: `Fertig seit ${formatElapsed(order.estimatedReadyAt || order.acceptedAt || order.createdAt, nowMs)} Min.`,
+      tone: 'done' as const,
+    }
+  }
+
+  if (order.acceptedAt) {
+    return {
+      label: `In Bearbeitung ${formatElapsed(order.acceptedAt, nowMs)} Min.`,
+      tone: 'processing' as const,
+    }
+  }
+
+  const waitSeconds = Math.max(0, Math.floor((nowMs - new Date(order.createdAt).getTime()) / 1000))
+  const waitMinutes = Math.floor(waitSeconds / 60)
+  const tone = waitMinutes >= 20 ? 'critical' : waitMinutes >= 10 ? 'danger' : waitMinutes >= 5 ? 'warning' : 'normal'
+  return {
+    label: `Wartet seit ${formatElapsed(order.createdAt, nowMs)} Min.`,
+    tone,
+  }
+}
+
 
 export default function OrderDisplayPage({ params }: Props) {
   const [displayCode, setDisplayCode] = useState('')
@@ -952,6 +976,106 @@ export default function OrderDisplayPage({ params }: Props) {
   const unpaidCount = sortedOrders.filter((order) => order.paymentStatus !== 'PAID').length
   const readyCount = sortedOrders.filter((order) => order.status === 'done').length
   const complaintOpenCount = complaintOrders.length
+  const deliveryOrders = useMemo(
+    () =>
+      sortedOrders.filter(
+        (order) => order.serviceType === 'DELIVERY' && order.status !== 'archived' && order.status !== 'delivered'
+      ),
+    [sortedOrders]
+  )
+  const driverColorPalette = ['#38bdf8', '#34d399', '#a78bfa', '#f472b6', '#f59e0b', '#22d3ee']
+  const driverColorByKey = useMemo(() => {
+    const keys = Array.from(
+      new Set(
+        deliveryOrders
+          .map((order) => order.assignedDriverId || order.assignedDriverName || '')
+          .filter((entry) => entry.length > 0)
+      )
+    )
+    return Object.fromEntries(keys.map((key, index) => [key, driverColorPalette[index % driverColorPalette.length]]))
+  }, [deliveryOrders])
+  const fleetMapMarkers = useMemo(() => {
+    const markers: InternalMapMarker[] = []
+    const driverOrderCount = new Map<string, number>()
+    const driverPositionByKey = new Map<string, { lat: number; lng: number; label: string; color: string }>()
+
+    for (const order of deliveryOrders) {
+      const target = deliveryTargetCoordinatesByOrderId[order.id]
+      const driverCoordinates = resolveValidDriverCoordinates(order)
+      const driverKey = order.assignedDriverId || order.assignedDriverName || ''
+      const driverColor = driverKey ? driverColorByKey[driverKey] || '#9ca3af' : '#f97316'
+
+      if (target) {
+        markers.push({
+          id: `customer-${order.id}`,
+          kind: 'customer',
+          label: `${order.customerName || 'Kunde'} · #${order.id.slice(0, 8).toUpperCase()}`,
+          latitude: target.latitude,
+          longitude: target.longitude,
+          color: driverKey ? driverColor : '#f97316',
+        })
+      }
+
+      if (driverKey) {
+        driverOrderCount.set(driverKey, (driverOrderCount.get(driverKey) || 0) + 1)
+      }
+
+      if (driverCoordinates && driverKey && !driverPositionByKey.has(driverKey)) {
+        driverPositionByKey.set(driverKey, {
+          lat: driverCoordinates.latitude,
+          lng: driverCoordinates.longitude,
+          color: driverColor,
+          label: order.assignedDriverName || order.assignedDriver?.name || 'Fahrer',
+        })
+      }
+    }
+
+    for (const [driverKey, position] of driverPositionByKey.entries()) {
+      markers.push({
+        id: `driver-${driverKey}`,
+        kind: 'driver',
+        label: `${position.label} · ${driverOrderCount.get(driverKey) || 0} Lieferungen`,
+        latitude: position.lat,
+        longitude: position.lng,
+        color: position.color,
+      })
+    }
+
+    return markers
+  }, [deliveryOrders, deliveryTargetCoordinatesByOrderId, driverColorByKey])
+  const driverStatusRows = useMemo(() => {
+    if (!feed) {
+      return [] as Array<{
+        id: string
+        name: string
+        status: string
+        secondsSinceSeen: number | null
+        assignedCount: number
+      }>
+    }
+    return feed.activeDriverDevices.map((driverDevice) => {
+      const assignedOrders = deliveryOrders.filter(
+        (order) =>
+          order.assignedDriverId === driverDevice.driverUserId ||
+          order.assignedDriverName === driverDevice.driverName
+      )
+      const lastSeenMs = driverDevice.lastHeartbeatAt ? Date.parse(driverDevice.lastHeartbeatAt) : Number.NaN
+      const secondsSinceSeen = Number.isFinite(lastSeenMs) ? Math.max(0, Math.floor((Date.now() - lastSeenMs) / 1000)) : null
+      const status =
+        !driverDevice.isActive || (secondsSinceSeen !== null && secondsSinceSeen > 120)
+          ? 'offline'
+          : assignedOrders.some((order) => order.status === 'out_for_delivery')
+            ? 'unterwegs'
+            : 'verfügbar'
+      return {
+        id: driverDevice.sessionId,
+        name: driverDevice.driverName || driverDevice.deviceLabel,
+        status,
+        secondsSinceSeen,
+        assignedCount: assignedOrders.length,
+      }
+    })
+  }, [feed, deliveryOrders])
   const touchActionButtonClass =
     'min-h-[52px] rounded-xl px-5 py-3 text-base font-semibold transition disabled:cursor-not-allowed disabled:opacity-60'
 
@@ -1213,6 +1337,51 @@ export default function OrderDisplayPage({ params }: Props) {
           )}
         </div>
 
+        {feed.display.displayRole === 'CASH' ? (
+          <section className="mt-4 rounded-2xl border border-cyan-300/35 bg-slate-900/45 p-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-cyan-100">Live-Lieferkarte</p>
+              <p className="text-xs text-slate-300">
+                {deliveryOrders.length} aktive Lieferungen · {driverStatusRows.length} Fahrer
+              </p>
+            </div>
+            <div className="h-72 overflow-hidden rounded-xl border border-slate-700/80">
+              {fleetMapMarkers.length > 0 ? (
+                <InternalLiveMap
+                  markers={fleetMapMarkers}
+                  className="h-full w-full"
+                  showConnectionLine={false}
+                  onMarkerClick={(marker) => {
+                    if (marker.kind === 'customer') {
+                      const orderId = marker.id.replace('customer-', '')
+                      setActiveRouteMapOrderId(orderId)
+                      setShowAllRouteMaps(false)
+                    }
+                  }}
+                />
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-slate-300">
+                  Noch keine aktiven Lieferpositionen verfügbar.
+                </div>
+              )}
+            </div>
+            <div className="mt-3 grid gap-2 md:grid-cols-2 lg:grid-cols-3">
+              {driverStatusRows.map((driver) => (
+                <div key={driver.id} className="rounded-xl border border-slate-700/70 bg-slate-950/35 px-3 py-2">
+                  <p className="text-sm font-semibold text-slate-100">{driver.name}</p>
+                  <p className="text-xs text-slate-300">
+                    Status: {driver.status} · Zugewiesen: {driver.assignedCount}
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Letzter Kontakt:{' '}
+                    {driver.secondsSinceSeen === null ? '-' : `${Math.floor(driver.secondsSinceSeen / 60)} Min.`}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
         {feed.display.displayRole === 'CASH' && complaintOpenCount > 0 ? (
           <section className="mt-4 rounded-2xl border border-amber-300/40 bg-amber-500/10 px-4 py-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1378,6 +1547,7 @@ export default function OrderDisplayPage({ params }: Props) {
               const hasDriverCoordinates = Boolean(resolveValidDriverCoordinates(order))
               const acceptedRuntimeLabel = resolveAcceptedRuntimeLabel(order, nowMs)
               const deliveryRuntimeLabel = resolveDeliveryRuntimeLabel(order, nowMs)
+              const orderPhase = resolveOrderPhaseLabel(order, nowMs)
               const isStatusAnimating =
                 Boolean(highlightedOrderIds[order.id]) && feed.display.statusAnimationMode !== 'NONE'
               const statusChipAnimation = isStatusAnimating
@@ -1443,6 +1613,23 @@ export default function OrderDisplayPage({ params }: Props) {
                           {timeBadge.label}
                         </p>
                       ) : null}
+                      <p
+                        className={`mt-1 inline-flex rounded-lg border px-2.5 py-1 text-sm font-bold ${
+                          orderPhase.tone === 'critical'
+                            ? 'border-red-300/80 bg-red-500/20 text-red-100'
+                            : orderPhase.tone === 'danger'
+                              ? 'border-rose-300/80 bg-rose-500/20 text-rose-100'
+                              : orderPhase.tone === 'warning'
+                                ? 'border-amber-300/80 bg-amber-500/20 text-amber-100'
+                                : orderPhase.tone === 'processing'
+                                  ? 'border-cyan-300/60 bg-cyan-500/20 text-cyan-100'
+                                  : orderPhase.tone === 'done'
+                                    ? 'border-emerald-300/60 bg-emerald-500/20 text-emerald-100'
+                                    : 'border-slate-400/55 bg-slate-900/45 text-slate-100'
+                        }`}
+                      >
+                        {orderPhase.label}
+                      </p>
                       {feed.display.showPaymentInfo || feed.display.showTotal ? (
                         <p className="text-xs text-slate-400">
                           {feed.display.showPaymentInfo ? `Zahlung: ${order.paymentMethod || '-'}` : ''}
@@ -1629,10 +1816,10 @@ export default function OrderDisplayPage({ params }: Props) {
                             onClick={() => void setOrderStatus(order.id, 'open')}
                             className={`${touchActionButtonClass} bg-indigo-600 text-white hover:bg-indigo-700`}
                           >
-                            {order.status === 'pending_payment'
-                              ? 'Stopp'
+                          {order.status === 'pending_payment'
+                              ? 'Neu'
                               : order.status === 'preparing'
-                                ? 'Stopp'
+                                ? 'Küchenstatus zurück'
                                 : 'Wieder offen'}
                           </button>
                         ) : null}
@@ -1643,7 +1830,7 @@ export default function OrderDisplayPage({ params }: Props) {
                             onClick={() => void setOrderStatus(order.id, 'preparing')}
                             className={`${touchActionButtonClass} bg-blue-600 text-white hover:bg-blue-700`}
                           >
-                            Start
+                            In Küche
                           </button>
                         ) : null}
                         {order.status !== 'done' ? (
@@ -1716,7 +1903,7 @@ export default function OrderDisplayPage({ params }: Props) {
                             onClick={() => void setOrderStatus(order.id, 'preparing')}
                             className={`${touchActionButtonClass} bg-blue-600 text-white hover:bg-blue-700`}
                           >
-                            Start
+                            In Küche
                           </button>
                         ) : null}
                         {order.status === 'preparing' ? (
@@ -1726,7 +1913,7 @@ export default function OrderDisplayPage({ params }: Props) {
                             onClick={() => void setOrderStatus(order.id, 'open')}
                             className={`${touchActionButtonClass} bg-indigo-600 text-white hover:bg-indigo-700`}
                           >
-                            Stopp
+                            Küchenstatus zurück
                           </button>
                         ) : null}
                         {order.status !== 'done' ? (
@@ -1795,15 +1982,22 @@ export default function OrderDisplayPage({ params }: Props) {
                             </div>
                           </div>
                           {item.modifierSnapshot && item.modifierSnapshot.length > 0 ? (
-                            <p className="text-xs text-slate-400">
-                              Optionen:{' '}
-                              {item.modifierSnapshot
-                                .map(
-                                  (modifier) =>
-                                    `${modifier.name} (${modifier.priceDelta >= 0 ? '+' : ''}${modifier.priceDelta.toFixed(2)} EUR)`
-                                )
-                                .join(', ')}
-                            </p>
+                            <span className="mt-1 inline-flex rounded-md border border-amber-300/70 bg-amber-500/20 px-2 py-0.5 text-[11px] font-semibold text-amber-100">
+                              Sonderwunsch
+                            </span>
+                          ) : null}
+                          {item.modifierSnapshot && item.modifierSnapshot.length > 0 ? (
+                            <div className="mt-1 space-y-0.5 text-xs text-amber-100">
+                              {item.modifierSnapshot.map((modifier) => (
+                                <p key={modifier.id}>
+                                  + {modifier.name}{' '}
+                                  <span className="text-amber-200/80">
+                                    ({modifier.priceDelta >= 0 ? '+' : ''}
+                                    {modifier.priceDelta.toFixed(2)} EUR)
+                                  </span>
+                                </p>
+                              ))}
+                            </div>
                           ) : null}
                         </div>
                       ))}

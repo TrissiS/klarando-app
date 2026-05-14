@@ -12,6 +12,7 @@ export type InternalMapMarker = {
   label: string
   latitude: number
   longitude: number
+  color?: string
 }
 
 type Props = {
@@ -19,11 +20,12 @@ type Props = {
   className?: string
   showConnectionLine?: boolean
   zoom?: number
+  onMarkerClick?: (marker: InternalMapMarker) => void
 }
 
-function createMarkerIcon(kind: MapMarkerKind) {
+function createMarkerIcon(kind: MapMarkerKind, customColor?: string) {
   const color =
-    kind === 'driver' ? '#06b6d4' : kind === 'customer' ? '#f97316' : '#22c55e'
+    customColor || (kind === 'driver' ? '#06b6d4' : kind === 'customer' ? '#f97316' : '#22c55e')
   const glyph = kind === 'driver' ? 'F' : kind === 'customer' ? 'K' : 'R'
 
   return divIcon({
@@ -54,7 +56,13 @@ function FitToMarkers({ markers }: { markers: InternalMapMarker[] }) {
   return null
 }
 
-export function InternalLiveMap({ markers, className, showConnectionLine = true, zoom = 13 }: Props) {
+export function InternalLiveMap({
+  markers,
+  className,
+  showConnectionLine = true,
+  zoom = 13,
+  onMarkerClick,
+}: Props) {
   const safeMarkers = markers.filter(
     (marker) => Number.isFinite(marker.latitude) && Number.isFinite(marker.longitude)
   )
@@ -95,8 +103,15 @@ export function InternalLiveMap({ markers, className, showConnectionLine = true,
         <Marker
           key={marker.id}
           position={[marker.latitude, marker.longitude]}
-          icon={createMarkerIcon(marker.kind)}
+          icon={createMarkerIcon(marker.kind, marker.color)}
           title={marker.label}
+          eventHandlers={
+            onMarkerClick
+              ? {
+                  click: () => onMarkerClick(marker),
+                }
+              : undefined
+          }
         />
       ))}
       <FitToMarkers markers={safeMarkers} />

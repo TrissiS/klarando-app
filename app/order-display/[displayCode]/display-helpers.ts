@@ -28,22 +28,34 @@ export function formatElapsed(createdAt: string, nowMs: number) {
 }
 
 export function orderStatusLabel(status: string) {
+  if (status === 'cancelled') {
+    return 'Storniert'
+  }
+  if (status === 'delivered') {
+    return 'Geliefert'
+  }
+  if (status === 'driver_assigned') {
+    return 'Fahrer zugewiesen'
+  }
   if (status === 'archived') {
-    return 'Ausgegeben'
+    return 'Abgeschlossen'
   }
   if (status === 'out_for_delivery') {
-    return 'Fahrer unterwegs'
+    return 'Unterwegs'
   }
   if (status === 'preparing') {
-    return 'In Zubereitung'
+    return 'In Küche'
   }
   if (status === 'done') {
     return 'Fertig'
   }
+  if (status === 'accepted') {
+    return 'Angenommen'
+  }
   if (status === 'pending_payment') {
     return 'Neu (unbezahlt)'
   }
-  return 'Offen'
+  return 'Neu'
 }
 
 export function paymentStatusLabel(paymentStatus: string) {
