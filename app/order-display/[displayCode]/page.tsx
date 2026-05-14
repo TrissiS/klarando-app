@@ -47,6 +47,12 @@ type Props = {
 }
 
 const DISPLAY_META_PREFIX = '@@klarando-display-meta:'
+const MAPS_GEOCODING_ENDPOINT = 'https://maps.googleapis.com/maps/api/geocode/json'
+
+type DeliveryTargetCoordinates = {
+  latitude: number
+  longitude: number
+}
 
 function resolveAutoScaleFactor(width: number, height: number) {
   const widthScale = width / 1680
@@ -106,24 +112,46 @@ function resolveDeliveryMapQuery(order: Order) {
   return parts.join(', ')
 }
 
-function resolveDriverMiniMapSrc(order: Order) {
-  if (order.serviceType !== 'DELIVERY' || !order.driverLocation) {
+function resolveValidDriverCoordinates(order: Order): DeliveryTargetCoordinates | null {
+  if (!order.driverLocation) {
     return null
   }
-
   const latitude = Number(order.driverLocation.latitude)
   const longitude = Number(order.driverLocation.longitude)
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return null
   }
+  return { latitude, longitude }
+}
+
+function resolveStaticMapSrcByCoordinates(
+  coordinates: DeliveryTargetCoordinates
+) {
+  return `https://www.google.com/maps?q=${encodeURIComponent(
+    `${coordinates.latitude},${coordinates.longitude}`
+  )}&output=embed`
+}
+
+function resolveDriverMiniMapSrc(
+  order: Order,
+  destinationCoordinates: DeliveryTargetCoordinates | null
+) {
+  const driverCoordinates = resolveValidDriverCoordinates(order)
+  if (order.serviceType !== 'DELIVERY' || !driverCoordinates) {
+    return null
+  }
+
+  if (destinationCoordinates) {
+    return resolveStaticMapSrcByCoordinates(destinationCoordinates)
+  }
 
   const delta = 0.0045
-  const west = longitude - delta
-  const south = latitude - delta
-  const east = longitude + delta
-  const north = latitude + delta
+  const west = driverCoordinates.longitude - delta
+  const south = driverCoordinates.latitude - delta
+  const east = driverCoordinates.longitude + delta
+  const north = driverCoordinates.latitude + delta
 
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${west}%2C${south}%2C${east}%2C${north}&layer=mapnik&marker=${latitude}%2C${longitude}`
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${west}%2C${south}%2C${east}%2C${north}&layer=mapnik&marker=${driverCoordinates.latitude}%2C${driverCoordinates.longitude}`
 }
 
 function resolveOrderComplaintEntries(order: Order) {
@@ -132,16 +160,19 @@ function resolveOrderComplaintEntries(order: Order) {
   return unresolved.length > 0 ? unresolved : complaints
 }
 
-function resolveDriverRouteMapSrc(order: Order) {
-  if (order.serviceType !== 'DELIVERY' || !order.driverLocation) {
+function resolveDriverRouteMapSrc(
+  order: Order,
+  destinationCoordinates: DeliveryTargetCoordinates | null
+) {
+  const driverCoordinates = resolveValidDriverCoordinates(order)
+  if (order.serviceType !== 'DELIVERY' || !driverCoordinates || !destinationCoordinates) {
     return null
   }
-  const destination = resolveDeliveryMapQuery(order)
-  if (!destination) {
-    return null
-  }
-  const origin = `${order.driverLocation.latitude},${order.driverLocation.longitude}`
-  return `https://www.google.com/maps?q=${encodeURIComponent(`from ${origin} to ${destination}`)}&output=embed`
+  const origin = `${driverCoordinates.latitude},${driverCoordinates.longitude}`
+  const destination = `${destinationCoordinates.latitude},${destinationCoordinates.longitude}`
+  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
+    origin
+  )}&destination=${encodeURIComponent(destination)}&travelmode=driving&output=embed`
 }
 
 function playAlertBeep() {
@@ -261,6 +292,12 @@ export default function OrderDisplayPage({ params }: Props) {
   const [activeComplaintOrderId, setActiveComplaintOrderId] = useState<string | null>(null)
   const [activeRouteMapOrderId, setActiveRouteMapOrderId] = useState<string | null>(null)
   const [showAllRouteMaps, setShowAllRouteMaps] = useState(false)
+  const [deliveryTargetCoordinatesByOrderId, setDeliveryTargetCoordinatesByOrderId] = useState<
+    Record<string, DeliveryTargetCoordinates>
+  >({})
+  const [deliveryTargetStatusByOrderId, setDeliveryTargetStatusByOrderId] = useState<
+    Record<string, 'pending' | 'resolved' | 'failed' | 'missing_address'>
+  >({})
   const [runtimeConfig, setRuntimeConfig] = useState<DisplayRuntimeConfig | null>(null)
   const [connectionState, setConnectionState] = useState<DisplayRuntimeConnectionState>('online')
   const isLowPerformanceMode = runtimeConfig?.performanceMode === 'LOW'
@@ -375,6 +412,104 @@ export default function OrderDisplayPage({ params }: Props) {
   useEffect(() => {
     void loadFeed()
   }, [displayCode])
+
+  useEffect(() => {
+    const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || ''
+    if (!feed?.orders || mapsApiKey.length === 0) {
+      return
+    }
+
+    const deliveryOrders = feed.orders.filter((order) => order.serviceType === 'DELIVERY')
+    if (deliveryOrders.length === 0) {
+      return
+    }
+
+    let cancelled = false
+
+    const geocodeMissingTargets = async () => {
+      for (const order of deliveryOrders) {
+        if (cancelled) {
+          return
+        }
+        if (deliveryTargetCoordinatesByOrderId[order.id]) {
+          continue
+        }
+        if (deliveryTargetStatusByOrderId[order.id] === 'pending' || deliveryTargetStatusByOrderId[order.id] === 'resolved') {
+          continue
+        }
+
+        const destinationAddress = resolveDeliveryMapQuery(order)
+        if (!destinationAddress) {
+          setDeliveryTargetStatusByOrderId((current) => ({
+            ...current,
+            [order.id]: 'missing_address',
+          }))
+          continue
+        }
+
+        setDeliveryTargetStatusByOrderId((current) => ({
+          ...current,
+          [order.id]: 'pending',
+        }))
+
+        try {
+          const query = new URLSearchParams({
+            address: destinationAddress,
+            key: mapsApiKey,
+          })
+          const response = await fetch(`${MAPS_GEOCODING_ENDPOINT}?${query.toString()}`)
+          if (!response.ok) {
+            throw new Error(`Geocoding HTTP ${response.status}`)
+          }
+          const payload = (await response.json()) as {
+            status?: string
+            results?: Array<{
+              geometry?: {
+                location?: {
+                  lat?: number
+                  lng?: number
+                }
+              }
+            }>
+          }
+          const location = payload.results?.[0]?.geometry?.location
+          const latitude = Number(location?.lat)
+          const longitude = Number(location?.lng)
+          if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+            throw new Error(`Geocoding ohne gültige Koordinaten (${payload.status || 'UNKNOWN'})`)
+          }
+          if (cancelled) {
+            return
+          }
+          setDeliveryTargetCoordinatesByOrderId((current) => ({
+            ...current,
+            [order.id]: {
+              latitude,
+              longitude,
+            },
+          }))
+          setDeliveryTargetStatusByOrderId((current) => ({
+            ...current,
+            [order.id]: 'resolved',
+          }))
+        } catch {
+          if (cancelled) {
+            return
+          }
+          setDeliveryTargetStatusByOrderId((current) => ({
+            ...current,
+            [order.id]: 'failed',
+          }))
+        }
+      }
+    }
+
+    void geocodeMissingTargets()
+
+    return () => {
+      cancelled = true
+    }
+  }, [feed?.orders, deliveryTargetCoordinatesByOrderId, deliveryTargetStatusByOrderId])
 
   useEffect(() => {
     if (!feed?.display.refreshIntervalSec || !displayCode) {
@@ -820,8 +955,7 @@ export default function OrderDisplayPage({ params }: Props) {
         (order) =>
           order.serviceType === 'DELIVERY' &&
           order.status !== 'archived' &&
-          order.status !== 'done' &&
-          Boolean(order.driverLocation)
+          order.status !== 'done'
       )
     : activeRouteMapOrder
       ? [activeRouteMapOrder]
@@ -856,7 +990,18 @@ export default function OrderDisplayPage({ params }: Props) {
   const displayBackground = sanitizeHexColor(feed.display.displayBackgroundColor, '#020617')
   const orderCardBackground = sanitizeHexColor(feed.display.orderCardBackgroundColor, '#0f172a')
   const showDeliveryMapCard = resolveShowDeliveryMapCard(feed.display.notes)
-  const activeAlertOrderMapQuery = activeAlertOrder ? resolveDeliveryMapQuery(activeAlertOrder) : null
+  const activeAlertOrderTargetCoordinates = activeAlertOrder
+    ? deliveryTargetCoordinatesByOrderId[activeAlertOrder.id] ?? null
+    : null
+  const activeAlertOrderDriverCoordinates = activeAlertOrder
+    ? resolveValidDriverCoordinates(activeAlertOrder)
+    : null
+  const activeAlertOrderRouteMapSrc = activeAlertOrder
+    ? resolveDriverRouteMapSrc(activeAlertOrder, activeAlertOrderTargetCoordinates)
+    : null
+  const activeAlertOrderTargetMapSrc = activeAlertOrderTargetCoordinates
+    ? resolveStaticMapSrcByCoordinates(activeAlertOrderTargetCoordinates)
+    : null
   const mediaMode =
     feed.display.backgroundMediaMode === 'IMAGE' || feed.display.backgroundMediaMode === 'VIDEO'
       ? feed.display.backgroundMediaMode
@@ -953,7 +1098,7 @@ export default function OrderDisplayPage({ params }: Props) {
                     : ''}
                 </p>
                 <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
-                  {showDeliveryMapCard && activeAlertOrderMapQuery ? (
+                  {showDeliveryMapCard ? (
                     <div className="w-full rounded-2xl border border-amber-100/35 bg-slate-900/35 p-2.5">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-100/90">
@@ -972,26 +1117,37 @@ export default function OrderDisplayPage({ params }: Props) {
                           deliveryMapExpanded ? 'h-72' : 'h-40'
                         }`}
                       >
-                        <iframe
-                          title={`Lieferkarte ${activeAlertOrder.id}`}
-                          src={`https://www.google.com/maps?q=${encodeURIComponent(
-                            activeAlertOrderMapQuery
-                          )}&output=embed`}
-                          className="h-full w-full border-0"
-                          loading="lazy"
-                          referrerPolicy="no-referrer-when-downgrade"
-                        />
+                        {activeAlertOrderRouteMapSrc || activeAlertOrderTargetMapSrc ? (
+                          <iframe
+                            title={`Lieferkarte ${activeAlertOrder.id}`}
+                            src={activeAlertOrderRouteMapSrc || activeAlertOrderTargetMapSrc || ''}
+                            className="h-full w-full border-0"
+                            loading="lazy"
+                            referrerPolicy="no-referrer-when-downgrade"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-100/85">
+                            {deliveryTargetStatusByOrderId[activeAlertOrder.id] === 'pending'
+                              ? 'Lieferadresse wird geocodiert...'
+                              : 'Lieferadresse vorhanden, Karte noch nicht verfügbar.'}
+                          </div>
+                        )}
                       </div>
-                      <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                          activeAlertOrderMapQuery
-                        )}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-block text-xs font-semibold text-cyan-200 underline"
-                      >
-                        In Google Maps oeffnen
-                      </a>
+                      {activeAlertOrderTargetCoordinates ? (
+                        <a
+                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+                            `${activeAlertOrderTargetCoordinates.latitude},${activeAlertOrderTargetCoordinates.longitude}`
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-block text-xs font-semibold text-cyan-200 underline"
+                        >
+                          Ziel in Google Maps öffnen
+                        </a>
+                      ) : null}
+                      {!activeAlertOrderDriverCoordinates ? (
+                        <p className="mt-2 text-xs text-slate-300">Fahrerposition noch nicht verfügbar.</p>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="h-fit rounded-xl border border-amber-200/35 bg-slate-900/35 px-3 py-2">
@@ -1237,8 +1393,10 @@ export default function OrderDisplayPage({ params }: Props) {
                 feed.display.showOrderAge &&
                 feed.display.orderAgeAlertThresholdSec > 0 &&
                 elapsedSeconds >= feed.display.orderAgeAlertThresholdSec
-              const driverMiniMapSrc = resolveDriverMiniMapSrc(order)
-              const driverRouteMapSrc = resolveDriverRouteMapSrc(order)
+              const orderTargetCoordinates = deliveryTargetCoordinatesByOrderId[order.id] ?? null
+              const driverMiniMapSrc = resolveDriverMiniMapSrc(order, orderTargetCoordinates)
+              const driverRouteMapSrc = resolveDriverRouteMapSrc(order, orderTargetCoordinates)
+              const hasDriverCoordinates = Boolean(resolveValidDriverCoordinates(order))
               const acceptedRuntimeLabel = resolveAcceptedRuntimeLabel(order, nowMs)
               const deliveryRuntimeLabel = resolveDeliveryRuntimeLabel(order, nowMs)
               const isStatusAnimating =
@@ -1391,19 +1549,32 @@ export default function OrderDisplayPage({ params }: Props) {
                   </div>
 
                   <div className="flex max-w-full flex-wrap items-stretch justify-end gap-2.5">
-                    {driverMiniMapSrc ? (
+                    {driverMiniMapSrc || (order.serviceType === 'DELIVERY' && hasDriverCoordinates) ? (
                       <div className="w-[320px] rounded-xl border border-cyan-300/35 bg-slate-950/35 p-2">
                         <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100">
-                          Fahrer Live-Standort
+                          Fahrer und Lieferziel
                         </p>
                         <div className="overflow-hidden rounded-lg border border-slate-700/80">
-                          <iframe
-                            title={`Fahrerkarte ${order.id}`}
-                            src={driverRouteMapSrc || driverMiniMapSrc}
-                            className="h-28 w-full"
-                            loading="lazy"
-                          />
+                          {driverRouteMapSrc || driverMiniMapSrc ? (
+                            <iframe
+                              title={`Fahrerkarte ${order.id}`}
+                              src={driverRouteMapSrc || driverMiniMapSrc || ''}
+                              className="h-28 w-full"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="flex h-28 items-center justify-center px-2 text-center text-[11px] text-slate-300">
+                              {deliveryTargetStatusByOrderId[order.id] === 'pending'
+                                ? 'Lieferziel wird geocodiert...'
+                                : 'Lieferadresse vorhanden, Karte noch nicht verfügbar.'}
+                            </div>
+                          )}
                         </div>
+                        {!hasDriverCoordinates ? (
+                          <p className="mt-2 text-[11px] text-slate-300">
+                            Fahrerposition noch nicht verfügbar.
+                          </p>
+                        ) : null}
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button
                             type="button"
@@ -1774,9 +1945,29 @@ export default function OrderDisplayPage({ params }: Props) {
             </div>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               {mapModalOrders.map((mapOrder) => {
-                const embeddedMapSrc = resolveDriverRouteMapSrc(mapOrder) || resolveDriverMiniMapSrc(mapOrder)
+                const orderTargetCoordinates = deliveryTargetCoordinatesByOrderId[mapOrder.id] ?? null
+                const embeddedMapSrc =
+                  resolveDriverRouteMapSrc(mapOrder, orderTargetCoordinates) ||
+                  resolveDriverMiniMapSrc(mapOrder, orderTargetCoordinates)
                 if (!embeddedMapSrc) {
-                  return null
+                  return (
+                    <div
+                      key={`route-map-${mapOrder.id}`}
+                      className="rounded-xl border border-cyan-300/35 bg-slate-950/35 p-3"
+                    >
+                      <p className="mb-1 text-xs font-semibold text-cyan-100">
+                        #{mapOrder.id.slice(0, 8).toUpperCase()} |{' '}
+                        {[mapOrder.customerAddress, mapOrder.customerZipCode, mapOrder.customerCity]
+                          .filter(Boolean)
+                          .join(', ') || '-'}
+                      </p>
+                      <p className="text-xs text-slate-300">
+                        {deliveryTargetStatusByOrderId[mapOrder.id] === 'pending'
+                          ? 'Lieferziel wird geocodiert...'
+                          : 'Lieferadresse vorhanden, Karte noch nicht verfügbar.'}
+                      </p>
+                    </div>
+                  )
                 }
                 return (
                   <div
