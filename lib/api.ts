@@ -1569,6 +1569,15 @@ export type BackendHealthOverview = {
   serverTime: string
 }
 
+export type BackendVersionOverview = {
+  version: string | null
+  buildNumber: number
+  releaseName: string | null
+  gitCommit: string | null
+  buildTime: string | null
+  environment: string | null
+}
+
 const fetch = apiFetch
 const buildApiUrl = (path: string) => normalizeApiPath(path)
 
@@ -1576,6 +1585,14 @@ export async function getBackendHealthOverview(): Promise<BackendHealthOverview>
   const res = await fetch(`${API_BASE_URL}/api/health`)
   if (!res.ok) {
     throw new Error('Backend-Health konnte nicht geladen werden')
+  }
+  return res.json()
+}
+
+export async function getBackendVersionOverview(): Promise<BackendVersionOverview> {
+  const res = await fetch(`${API_BASE_URL}/api/version`)
+  if (!res.ok) {
+    throw new Error('Backend-Version konnte nicht geladen werden')
   }
   return res.json()
 }

@@ -8,6 +8,7 @@ import rootVersion from '@/VERSION.json'
 import {
   getAccessContext,
   getBackendHealthOverview,
+  getBackendVersionOverview,
   getAccessUsers,
   getSuperadminDriverOverview,
   getSuperadminOrderRatingsDashboard,
@@ -16,6 +17,7 @@ import {
   type AccessRole,
   type AccessUser,
   type BackendHealthOverview,
+  type BackendVersionOverview,
   type SuperadminOrderRatingsDashboard,
   type SuperadminSalesDashboard,
 } from '@/lib/api'
@@ -56,6 +58,7 @@ export default function SuperadminPage() {
   const [connectedDriversCount, setConnectedDriversCount] = useState(0)
   const [activeDriversCount, setActiveDriversCount] = useState(0)
   const [backendHealth, setBackendHealth] = useState<BackendHealthOverview | null>(null)
+  const [backendVersion, setBackendVersion] = useState<BackendVersionOverview | null>(null)
   const [error, setError] = useState('')
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
   const [sectionOrder, setSectionOrder] = useState<string[]>([
@@ -189,6 +192,13 @@ export default function SuperadminPage() {
         driverOverview.rows.filter((entry) => entry.stats.activeDeliveries > 0).length
       )
       setLastUpdatedAt(new Date())
+
+      try {
+        const version = await getBackendVersionOverview()
+        setBackendVersion(version)
+      } catch {
+        setBackendVersion(null)
+      }
 
       try {
         const health = await getBackendHealthOverview()
@@ -578,19 +588,19 @@ export default function SuperadminPage() {
               <p className="text-xs uppercase tracking-wide text-rose-900/70">Plattform Version</p>
               <div className="mt-2 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
                 <p>
-                  Plattform: <span className="font-semibold">{rootVersion.version}</span>
+                  Plattform: <span className="font-semibold">{backendVersion?.version || rootVersion.version}</span>
                 </p>
                 <p>
-                  Release: <span className="font-semibold">{rootVersion.releaseName || '-'}</span>
+                  Release: <span className="font-semibold">{backendVersion?.releaseName || rootVersion.releaseName || '-'}</span>
                 </p>
                 <p>
-                  Backend: <span className="font-semibold">{backendHealth?.backendVersion || rootVersion.version}</span>
+                  Backend: <span className="font-semibold">{backendHealth?.backendVersion || backendVersion?.version || rootVersion.version}</span>
                 </p>
                 <p>
-                  Buildnummer: <span className="font-semibold">{rootVersion.buildNumber}</span>
+                  Buildnummer: <span className="font-semibold">{backendVersion?.buildNumber ?? rootVersion.buildNumber}</span>
                 </p>
                 <p className="sm:col-span-2">
-                  Build-Datum: <span className="font-semibold">{rootVersion.buildTime ? new Date(rootVersion.buildTime).toLocaleString('de-DE') : '-'}</span>
+                  Build-Datum: <span className="font-semibold">{backendVersion?.buildTime ? new Date(backendVersion.buildTime).toLocaleString('de-DE') : rootVersion.buildTime ? new Date(rootVersion.buildTime).toLocaleString('de-DE') : '-'}</span>
                 </p>
                 <p className="sm:col-span-2">
                   Backend gestartet: <span className="font-semibold">{backendHealth?.startedAt ? new Date(backendHealth.startedAt).toLocaleString('de-DE') : '-'}</span>
