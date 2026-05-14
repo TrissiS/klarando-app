@@ -26,6 +26,11 @@ const _prefsDriverChainId = 'klarando_driver_user_chain_id';
 const _prefsDriverSessionMode = 'klarando_driver_session_mode';
 const _prefsDriverDisplayCode = 'klarando_driver_display_code';
 const _prefsDriverDeviceLabel = 'klarando_driver_device_label';
+const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
+const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
+const _klarandoTermsUrl = 'https://www.klarando.com/agb';
+const _klarandoCookiesUrl = 'https://www.klarando.com/cookies';
+const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
 
 class KlarandoDeliveryApp extends StatelessWidget {
   const KlarandoDeliveryApp({super.key});
@@ -973,6 +978,12 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     });
   }
 
+  Future<void> _openExternalLink(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   Future<void> _setSelectedOrderStatus(String status) async {
     final token = _authToken;
     final order = _selectedOrder;
@@ -1419,6 +1430,37 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                     style: const TextStyle(fontSize: 12, color: Color(0xFF0E7490)),
                   ),
                 ],
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: [
+                    TextButton(
+                      onPressed: () => _openExternalLink(_klarandoImpressumUrl),
+                      child: const Text('Impressum'),
+                    ),
+                    TextButton(
+                      onPressed: () => _openExternalLink(_klarandoPrivacyUrl),
+                      child: const Text('Datenschutz'),
+                    ),
+                    TextButton(
+                      onPressed: () => _openExternalLink(_klarandoTermsUrl),
+                      child: const Text('AGB'),
+                    ),
+                    TextButton(
+                      onPressed: () => _openExternalLink(_klarandoCookiesUrl),
+                      child: const Text('Cookies'),
+                    ),
+                    TextButton(
+                      onPressed: () => _openExternalLink(_klarandoJugendschutzUrl),
+                      child: const Text('Jugendschutz'),
+                    ),
+                  ],
+                ),
+                const Text(
+                  'Standortdaten werden nur für aktive Lieferungen genutzt.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
               ],
             ),
             ),

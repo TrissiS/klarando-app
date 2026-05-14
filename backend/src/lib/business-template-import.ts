@@ -187,7 +187,7 @@ export async function importBusinessTemplateToTenant(
     })
     const existingProducts = await tx.product.findMany({
       where: { tenantId: input.tenantId },
-      select: { id: true, name: true, productNumber: true, categoryId: true },
+      select: { id: true, name: true, categoryId: true },
     })
 
     const categoryByName = new Map(existingCategories.map((item) => [normalizeKey(item.name), item.id]))
@@ -319,7 +319,8 @@ export async function importBusinessTemplateToTenant(
           data: {
             tenantId: input.tenantId,
             categoryId: mappedCategoryId,
-            productNumber: null,
+            productNumber: templateProduct.productNumber || null,
+            ean: templateProduct.ean || null,
             name: templateProduct.name,
             imageUrl: templateProduct.imageUrl,
             price: options.importPriceSuggestions
@@ -339,6 +340,8 @@ export async function importBusinessTemplateToTenant(
           where: { id: tenantProductId },
           data: {
             categoryId: mappedCategoryId,
+            productNumber: templateProduct.productNumber || null,
+            ean: templateProduct.ean || null,
             name: templateProduct.name,
             imageUrl: templateProduct.imageUrl,
             available: templateProduct.available,

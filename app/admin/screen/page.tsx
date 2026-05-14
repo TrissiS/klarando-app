@@ -65,6 +65,14 @@ function parseResolutionPreset(value: string) {
   }
 }
 
+function resolutionLabel(width: number, height: number) {
+  const match = COMMON_RESOLUTIONS.find((entry) => entry.width === width && entry.height === height)
+  if (match) {
+    return match.label
+  }
+  return `${width} x ${height} (Custom)`
+}
+
 const DEFAULT_CONFIG: ScreenConfig = {
   id: '',
   tenantId: '',
@@ -1362,6 +1370,19 @@ export default function AdminScreenPage() {
     () => Math.max(180, Math.round(Number(previewResolution.height || 1080) * previewScale)),
     [previewResolution.height, previewScale]
   )
+  const previewResolutionLabel = useMemo(
+    () => resolutionLabel(previewResolution.width, previewResolution.height),
+    [previewResolution.height, previewResolution.width]
+  )
+  const previewScalePercent = useMemo(() => Math.round(previewScale * 100), [previewScale])
+  const previewRuntimeUrl = useMemo(() => {
+    if (!previewDevice?.deviceCode) {
+      return null
+    }
+    const origin =
+      typeof window === 'undefined' ? 'http://localhost:3000' : window.location.origin
+    return `${origin}/screen/${previewDevice.deviceCode}`
+  }, [previewDevice?.deviceCode])
 
   const previewBg =
     previewConfig.backgroundMode === 'COLOR'
@@ -1483,6 +1504,21 @@ export default function AdminScreenPage() {
     return rows
   }, [previewProducts, previewConfig.showCategoryHeaders])
   const previewColumnCount = clampInt(Number(previewConfig.defaultColumnCount || 4), 1, 6)
+  const previewDensityWarning = useMemo(() => {
+    const rows = Math.ceil(previewProducts.length / Math.max(1, previewColumnCount))
+    const maxRows = previewOrientation === 'PORTRAIT' ? 5 : 3
+    const longNameRisk = previewProducts.some((entry) => entry.name.trim().length > 34)
+    const largeFontRisk = Number(previewConfig.productFontSize || 0) >= 46
+    if (rows > maxRows || longNameRisk || largeFontRisk) {
+      return 'Warnung: Inhalte könnten abgeschnitten wirken. Prüfe Spaltenzahl, Schriftgröße und Produktnamen.'
+    }
+    return ''
+  }, [
+    previewColumnCount,
+    previewConfig.productFontSize,
+    previewOrientation,
+    previewProducts,
+  ])
   const previewCardBackgroundOpacity = clampInt(Number(previewConfig.cardBackgroundOpacity || 35), 0, 100) / 100
   const previewCardBorderOpacity = clampInt(Number(previewConfig.cardBorderOpacity || 20), 0, 100) / 100
   const isListPreviewMode = previewConfig.cardStyle === 'LIST'
@@ -3126,6 +3162,22 @@ export default function AdminScreenPage() {
                 >
                   Gefilterte Produkte wählen ({filteredDeviceProducts.length})
                 </button>
+                {deviceProductCategoryFilter !== 'ALL' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const categoryIds = products
+                        .filter((entry) => (entry.category?.id || '') === deviceProductCategoryFilter)
+                        .map((entry) => entry.id)
+                      setDeviceSelectedProductIds((current) =>
+                        Array.from(new Set([...current, ...categoryIds]))
+                      )
+                    }}
+                    className="mt-2 mr-2 rounded-lg border border-[var(--brand-border)] bg-white px-2.5 py-1 text-xs font-medium text-rose-900/85 transition hover:bg-rose-50"
+                  >
+                    Alle Produkte dieser Kategorie anzeigen
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setDeviceSelectedProductIds([])}
@@ -3268,9 +3320,33 @@ export default function AdminScreenPage() {
                 </div>
               </Field>
             </div>
-            <p className="mt-2 text-xs text-rose-900/70">
-              Die Vorschau passt sich automatisch an den ausgewaehlten Bildschirm an.
-            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-rose-900/70">
+              <span>Profil: {previewResolutionLabel}</span>
+              <span>·</span>
+              <span>Skalierung: {previewScalePercent}%</span>
+              {previewRuntimeUrl ? (
+                <>
+                  <span>·</span>
+                  <a
+                    href={previewRuntimeUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-medium text-orange-700 underline underline-offset-2"
+                  >
+                    Vorschau in neuem Tab öffnen
+                  </a>
+                </>
+              ) : null}
+            </div>
+            {previewDensityWarning ? (
+              <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                {previewDensityWarning}
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-rose-900/70">
+                Die Vorschau passt sich automatisch an den ausgewählten Bildschirm an.
+              </p>
+            )}
           </div>
 
           <div

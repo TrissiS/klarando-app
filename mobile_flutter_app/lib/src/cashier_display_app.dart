@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import 'core/app_update_service.dart';
@@ -26,6 +27,27 @@ const _prefsCashierPrinterHost = 'klarando_cashier_printer_host';
 const _prefsCashierPrinterPort = 'klarando_cashier_printer_port';
 const _cashierCurrentVersionName = '1.0.0';
 const _cashierCurrentVersionCode = 1;
+const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
+const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
+const _klarandoTermsUrl = 'https://www.klarando.com/agb';
+const _klarandoCookiesUrl = 'https://www.klarando.com/cookies';
+const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
+
+enum _DeskConnectionHealth { online, unstable, offline }
+
+class _DeliveryMapPayload {
+  const _DeliveryMapPayload({
+    required this.destinationAddress,
+    required this.destinationLabel,
+    this.driverLatitude,
+    this.driverLongitude,
+  });
+
+  final String destinationAddress;
+  final String destinationLabel;
+  final double? driverLatitude;
+  final double? driverLongitude;
+}
 
 class KlarandoOrderDeskApp extends StatelessWidget {
   const KlarandoOrderDeskApp({super.key});
@@ -77,6 +99,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   List<OrderDeskContactUser> _connectedChainadmins = const [];
   int _activeDriverDevices = 0;
   int _onlineDriverDevices = 0;
+
+  Future<void> _openExternalLink(String url) async {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
 
   EscPosPrinterMode _printerMode = EscPosPrinterMode.debugLog;
   PublicOrderDisplayFeed? _feed;
@@ -785,7 +813,43 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     ];
   }
 
-  String? _resolveDeliveryMapQuery(PublicOrderSummary order) {
+  _DeskConnectionHealth _connectionHealth(DateTime now) {
+    if (!_connected || _lastSuccessfulSyncAt == null) {
+      return _DeskConnectionHealth.offline;
+    }
+    final ageSeconds = now.difference(_lastSuccessfulSyncAt!).inSeconds;
+    if (ageSeconds < 30) {
+      return _DeskConnectionHealth.online;
+    }
+    if (ageSeconds <= 120) {
+      return _DeskConnectionHealth.unstable;
+    }
+    return _DeskConnectionHealth.offline;
+  }
+
+  String _connectionStatusLabel(_DeskConnectionHealth health) {
+    switch (health) {
+      case _DeskConnectionHealth.online:
+        return 'Online';
+      case _DeskConnectionHealth.unstable:
+        return 'Instabil';
+      case _DeskConnectionHealth.offline:
+        return 'Offline';
+    }
+  }
+
+  Color _connectionStatusColor(_DeskConnectionHealth health) {
+    switch (health) {
+      case _DeskConnectionHealth.online:
+        return const Color(0xFF16A34A);
+      case _DeskConnectionHealth.unstable:
+        return const Color(0xFFEAB308);
+      case _DeskConnectionHealth.offline:
+        return const Color(0xFFDC2626);
+    }
+  }
+
+  _DeliveryMapPayload? _resolveDeliveryMapPayload(PublicOrderSummary order) {
     if ((order.serviceType ?? '').toUpperCase() != 'DELIVERY') {
       return null;
     }
@@ -795,23 +859,50 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             .map((entry) => entry.trim())
             .where((entry) => entry.isNotEmpty)
             .toList(growable: false);
-    if (parts.isEmpty) {
+    if (parts.isEmpty && order.driverLocation == null) {
       return null;
     }
-    return parts.join(', ');
+    final destinationAddress = parts.join(', ');
+    return _DeliveryMapPayload(
+      destinationAddress: destinationAddress,
+      destinationLabel: destinationAddress.isEmpty
+          ? 'Zieladresse wird geladen…'
+          : destinationAddress,
+      driverLatitude: order.driverLocation?.latitude,
+      driverLongitude: order.driverLocation?.longitude,
+    );
   }
 
-  String _buildGoogleMapsEmbedUrl(String query) {
-    final encoded = Uri.encodeComponent(query);
-    if (googleMapsApiKey.isNotEmpty) {
-      return 'https://www.google.com/maps/embed/v1/place?key=${Uri.encodeComponent(googleMapsApiKey)}&q=$encoded';
+  String _buildGoogleMapsEmbedUrl(_DeliveryMapPayload payload) {
+    final destination = Uri.encodeComponent(payload.destinationAddress);
+    final hasDriverPosition =
+        payload.driverLatitude != null && payload.driverLongitude != null;
+    if (googleMapsApiKey.isNotEmpty && hasDriverPosition) {
+      final origin =
+          '${payload.driverLatitude!.toStringAsFixed(6)},${payload.driverLongitude!.toStringAsFixed(6)}';
+      return 'https://www.google.com/maps/embed/v1/directions?key=${Uri.encodeComponent(googleMapsApiKey)}&origin=${Uri.encodeComponent(origin)}&destination=$destination&mode=driving';
     }
-    return 'https://www.google.com/maps?q=$encoded&output=embed';
+    if (googleMapsApiKey.isNotEmpty) {
+      return 'https://www.google.com/maps/embed/v1/place?key=${Uri.encodeComponent(googleMapsApiKey)}&q=$destination';
+    }
+    if (hasDriverPosition) {
+      final origin =
+          '${payload.driverLatitude!.toStringAsFixed(6)},${payload.driverLongitude!.toStringAsFixed(6)}';
+      return 'https://www.google.com/maps/dir/?api=1&origin=${Uri.encodeComponent(origin)}&destination=$destination&travelmode=driving&output=embed';
+    }
+    return 'https://www.google.com/maps?q=$destination&output=embed';
   }
 
-  String _buildGoogleMapsSearchUrl(String query) {
-    final encoded = Uri.encodeComponent(query);
-    return 'https://www.google.com/maps/search/?api=1&query=$encoded';
+  String _buildGoogleMapsSearchUrl(_DeliveryMapPayload payload) {
+    final destination = Uri.encodeComponent(payload.destinationAddress);
+    final hasDriverPosition =
+        payload.driverLatitude != null && payload.driverLongitude != null;
+    if (hasDriverPosition) {
+      final origin =
+          '${payload.driverLatitude!.toStringAsFixed(6)},${payload.driverLongitude!.toStringAsFixed(6)}';
+      return 'https://www.google.com/maps/dir/?api=1&origin=${Uri.encodeComponent(origin)}&destination=$destination&travelmode=driving';
+    }
+    return 'https://www.google.com/maps/search/?api=1&query=$destination';
   }
 
   String _orderStatusLabel(String value) {
@@ -991,8 +1082,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     );
   }
 
-  Future<void> _copyGoogleMapsLink(String query) async {
-    final url = _buildGoogleMapsSearchUrl(query);
+  Future<void> _copyGoogleMapsLink(_DeliveryMapPayload payload) async {
+    final url = _buildGoogleMapsSearchUrl(payload);
     await Clipboard.setData(ClipboardData(text: url));
     if (!mounted) {
       return;
@@ -1003,10 +1094,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Widget _buildOrderDeliveryMap(PublicOrderSummary order) {
-    final query = _resolveDeliveryMapQuery(order);
-    if (query == null) {
+    final payload = _resolveDeliveryMapPayload(order);
+    if (payload == null) {
       return const SizedBox.shrink();
     }
+    final hasDriverPosition =
+        payload.driverLatitude != null && payload.driverLongitude != null;
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Container(
@@ -1030,19 +1123,30 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 height: 160,
                 width: double.infinity,
                 child: _GoogleMapsEmbed(
-                  query: query,
-                  embedUrl: _buildGoogleMapsEmbedUrl(query),
+                  query: payload.destinationLabel,
+                  embedUrl: _buildGoogleMapsEmbedUrl(payload),
                 ),
               ),
             ),
             const SizedBox(height: 6),
+            if (!hasDriverPosition)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'Fahrerposition wird geladen…',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ),
             Row(
               children: [
                 Expanded(
-                  child: Text(query, style: const TextStyle(fontSize: 12)),
+                  child: Text(
+                    payload.destinationLabel,
+                    style: const TextStyle(fontSize: 12),
+                  ),
                 ),
                 TextButton.icon(
-                  onPressed: () => _copyGoogleMapsLink(query),
+                  onPressed: () => _copyGoogleMapsLink(payload),
                   icon: const Icon(Icons.copy, size: 16),
                   label: const Text('Maps-Link'),
                 ),
@@ -1067,26 +1171,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         .toList(growable: false);
     PublicOrderSummary? firstDeliveryOrderWithAddress;
     for (final order in deliveryOrders) {
-      if (_resolveDeliveryMapQuery(order) != null) {
+      if (_resolveDeliveryMapPayload(order) != null) {
         firstDeliveryOrderWithAddress = order;
         break;
       }
     }
     final now = DateTime.now();
-    final isStale =
-        _connected &&
-        (_lastSuccessfulSyncAt == null ||
-            now.difference(_lastSuccessfulSyncAt!).inSeconds > 60);
-    final statusText = !_connected
-        ? 'Getrennt'
-        : isStale
-        ? 'Veraltet (> 1 Minute)'
-        : 'Verbunden';
-    final statusColor = !_connected
-        ? const Color(0xFFDC2626)
-        : isStale
-        ? const Color(0xFFEAB308)
-        : const Color(0xFF16A34A);
+    final health = _connectionHealth(now);
+    final statusText = _connectionStatusLabel(health);
+    final statusColor = _connectionStatusColor(health);
     final isOperationalView = _bindingLocked && _connected;
 
     return Scaffold(
@@ -1405,6 +1498,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ),
             ),
             const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                TextButton(
+                  onPressed: () => _openExternalLink(_klarandoImpressumUrl),
+                  child: const Text('Impressum'),
+                ),
+                TextButton(
+                  onPressed: () => _openExternalLink(_klarandoPrivacyUrl),
+                  child: const Text('Datenschutz'),
+                ),
+                TextButton(
+                  onPressed: () => _openExternalLink(_klarandoTermsUrl),
+                  child: const Text('AGB'),
+                ),
+                TextButton(
+                  onPressed: () => _openExternalLink(_klarandoCookiesUrl),
+                  child: const Text('Cookies'),
+                ),
+                TextButton(
+                  onPressed: () => _openExternalLink(_klarandoJugendschutzUrl),
+                  child: const Text('Jugendschutz'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
             DropdownButtonFormField<EscPosPrinterMode>(
               value: _printerMode,
               decoration: const InputDecoration(labelText: 'Druckmodus'),
@@ -1584,28 +1704,37 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             ],
             const SizedBox(height: 10),
             Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: 8,
+              runSpacing: 8,
               children: [
-                OutlinedButton(
+                FilledButton.icon(
                   onPressed: _loading ? null : () => _acceptOrder(order),
-                  child: const Text('Annehmen'),
+                  icon: const Icon(Icons.play_arrow, size: 16),
+                  label: const Text('Start'),
                 ),
-                OutlinedButton(
-                  onPressed: _loading || isPaid ? null : () => _markPaid(order),
-                  child: const Text('Bezahlt'),
-                ),
-                OutlinedButton(
+                FilledButton.tonalIcon(
                   onPressed: _loading || !isDelivery
                       ? null
                       : () => _dispatchOrder(order),
-                  child: const Text('Fahrer'),
+                  icon: const Icon(Icons.local_shipping, size: 16),
+                  label: const Text('Fahrer unterwegs'),
                 ),
-                FilledButton(
+                FilledButton.tonalIcon(
+                  onPressed: _loading ? null : () => _acceptOrder(order),
+                  icon: const Icon(Icons.schedule, size: 16),
+                  label: const Text('ETA aktualisieren'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                  icon: const Icon(Icons.check_circle_outline, size: 16),
+                  label: const Text('Fertig / bezahlt'),
+                ),
+                OutlinedButton.icon(
                   onPressed: _loading
                       ? null
                       : () => _printOrder(order, kind: 'both'),
-                  child: const Text('Drucken'),
+                  icon: const Icon(Icons.print, size: 16),
+                  label: const Text('Drucken'),
                 ),
                 TextButton(
                   onPressed: _loading
@@ -1632,10 +1761,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     PublicOrderSummary baseOrder,
     List<PublicOrderSummary> pendingDeliveryOrders,
   ) {
-    final query = _resolveDeliveryMapQuery(baseOrder);
-    if (query == null) {
+    final payload = _resolveDeliveryMapPayload(baseOrder);
+    if (payload == null) {
       return const SizedBox.shrink();
     }
+    final hasDriverPosition =
+        payload.driverLatitude != null && payload.driverLongitude != null;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1653,16 +1784,27 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 height: 200,
                 width: double.infinity,
                 child: _GoogleMapsEmbed(
-                  query: query,
-                  embedUrl: _buildGoogleMapsEmbedUrl(query),
+                  query: payload.destinationLabel,
+                  embedUrl: _buildGoogleMapsEmbedUrl(payload),
                 ),
               ),
             ),
             const SizedBox(height: 8),
-            Text(query, style: const TextStyle(fontSize: 12)),
+            Text(
+              payload.destinationLabel,
+              style: const TextStyle(fontSize: 12),
+            ),
+            if (!hasDriverPosition)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Fahrerposition wird geladen…',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ),
             const SizedBox(height: 4),
             TextButton.icon(
-              onPressed: () => _copyGoogleMapsLink(query),
+              onPressed: () => _copyGoogleMapsLink(payload),
               icon: const Icon(Icons.copy, size: 16),
               label: const Text('Google-Maps-Link kopieren'),
             ),

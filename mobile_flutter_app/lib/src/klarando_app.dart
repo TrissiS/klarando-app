@@ -34,7 +34,9 @@ const _googleServerClientId =
 const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
 const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
 const _klarandoTermsUrl = 'https://www.klarando.com/agb';
-const _klarandoSupportEmail = 'support@klarando.com';
+const _klarandoCookiesUrl = 'https://www.klarando.com/cookies';
+const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
+const _klarandoSupportEmail = 'info@klarando.com';
 const _klarandoAccountDeletionEmail = 'konto-loeschen@klarando.com';
 final _googleMapsStaticApiKey = googleMapsApiKey;
 
@@ -872,6 +874,22 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
                         ),
                       ),
                       const Text('. ', style: TextStyle(fontSize: 12.5, color: Colors.black54)),
+                      InkWell(
+                        onTap: () => _openLink(_klarandoCookiesUrl),
+                        child: const Text(
+                          'Cookies',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const Text(' | ', style: TextStyle(fontSize: 12.5, color: Colors.black54)),
+                      InkWell(
+                        onTap: () => _openLink(_klarandoJugendschutzUrl),
+                        child: const Text(
+                          'Jugendschutz',
+                          style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      const Text(' | ', style: TextStyle(fontSize: 12.5, color: Colors.black54)),
                       InkWell(
                         onTap: () => _openLink(_klarandoImpressumUrl),
                         child: const Text(
@@ -2765,6 +2783,11 @@ class _LegalConsentPageState extends State<_LegalConsentPage> {
                 'Vor der Nutzung musst du diese Punkte bestätigen.',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
               ),
+              const SizedBox(height: 8),
+              const Text(
+                'Standort wird nur für Lieferfunktionen genutzt. Push-Nachrichten und Social-Login sind optional.',
+                style: TextStyle(fontSize: 13, color: Colors.black54),
+              ),
               const SizedBox(height: 12),
               CheckboxListTile(
                 value: _cookies,
@@ -3123,6 +3146,27 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   double get _deliveryFee =>
       _serviceType == _CheckoutServiceType.delivery ? widget.deliveryFeeAmount : 0;
   double get _total => _subtotal + _deliveryFee;
+  bool get _containsAlcohol {
+    const keywords = [
+      'bier',
+      'wein',
+      'vodka',
+      'whisky',
+      'gin',
+      'rum',
+      'sekt',
+      'aperol',
+      'prosecco',
+      'alkohol',
+    ];
+    for (final line in _lines) {
+      final name = line.product.name.toLowerCase();
+      if (keywords.any((entry) => name.contains(entry))) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   @override
   void initState() {
@@ -3626,6 +3670,15 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
             Text(
               'Mindestbestellwert nicht erreicht. Es fehlen ${(widget.minOrderValueAmount! - _subtotal).toStringAsFixed(2)} EUR.',
               style: const TextStyle(color: Color(0xFFB91C1C)),
+            ),
+          ],
+          if (_containsAlcohol) ...[
+            const SizedBox(height: 8),
+            const Text(
+              'Jugendschutz-Hinweis: Diese Bestellung enthält alkoholische Produkte. '
+              'Die Übergabe an Minderjährige ist ausgeschlossen. '
+              'Fahrer und Händler prüfen das Alter bei der Übergabe.',
+              style: TextStyle(color: Color(0xFF92400E), fontWeight: FontWeight.w600),
             ),
           ],
           if (_errorMessage != null) ...[

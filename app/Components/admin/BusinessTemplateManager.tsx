@@ -340,6 +340,13 @@ export default function BusinessTemplateManager({ roleHint }: Props) {
                 {detail.products.slice(0, 8).map((product) => (
                   <li key={product.id} className="break-words">
                     <span className="font-semibold">{product.name}</span> ({product.price} EUR)
+                    {(product.productNumber || product.ean) ? (
+                      <span className="ml-1 text-xs text-rose-900/70">
+                        [{product.productNumber ? `Art.-Nr.: ${product.productNumber}` : ''}
+                        {product.productNumber && product.ean ? ' · ' : ''}
+                        {product.ean ? `EAN: ${product.ean}` : ''}]
+                      </span>
+                    ) : null}
                   </li>
                 ))}
               </ul>

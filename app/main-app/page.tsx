@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useState } from 'react'
+import PromotionSlider from '@/components/PromotionSlider'
 import {
   getPublicTenantDiscovery,
   type PublicTenantDiscoveryMode,
@@ -19,6 +20,19 @@ export default function MainAppPage() {
   const [searchMeta, setSearchMeta] = useState<{ total: number; zipCode: string } | null>(null)
 
   async function requestLocation() {
+    try {
+      const rawConsent = localStorage.getItem('klarando.cookieConsent.v1')
+      if (rawConsent) {
+        const parsed = JSON.parse(rawConsent) as { maps?: boolean }
+        if (!parsed.maps) {
+          setError('Standort/Maps ist derzeit nicht freigegeben. Bitte Cookie-Einstellungen anpassen.')
+          return
+        }
+      }
+    } catch {
+      // Ignore parse errors and continue with browser permission flow.
+    }
+
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       setError('Standortfunktion ist im Browser nicht verfuegbar.')
       return
@@ -106,6 +120,8 @@ export default function MainAppPage() {
       </header>
 
       <div className="mx-auto w-full max-w-6xl px-6 py-8">
+        <PromotionSlider placement="MAIN_APP" audience="ALL" />
+
         <section className="brand-panel rounded-3xl p-5">
           <h2 className="text-xl font-semibold">PLZ / Liefergebiet / Abholgebiet</h2>
           <p className="mt-1 text-sm text-rose-900/70">
@@ -252,6 +268,26 @@ export default function MainAppPage() {
             ) : null}
           </div>
         </section>
+
+        <footer className="mt-8 rounded-2xl border border-[var(--brand-border)] bg-white/90 p-4 text-sm text-rose-900/80">
+          <div className="flex flex-wrap gap-4">
+            <Link href="/impressum" className="font-semibold text-rose-700 hover:text-rose-900">
+              Impressum
+            </Link>
+            <Link href="/datenschutz" className="font-semibold text-rose-700 hover:text-rose-900">
+              Datenschutz
+            </Link>
+            <Link href="/agb" className="font-semibold text-rose-700 hover:text-rose-900">
+              AGB
+            </Link>
+            <Link href="/cookies" className="font-semibold text-rose-700 hover:text-rose-900">
+              Cookies
+            </Link>
+            <Link href="/jugendschutz" className="font-semibold text-rose-700 hover:text-rose-900">
+              Jugendschutz
+            </Link>
+          </div>
+        </footer>
       </div>
     </main>
   )

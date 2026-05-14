@@ -408,6 +408,33 @@ function buildLegacyTemplateProductNumber(templateKey, productName, categoryName
   return `TPL_${raw}`.slice(0, 120)
 }
 
+function buildTemplateArticleNumber(templateKey, index) {
+  const mappedPrefix = {
+    'doner-kebap': 'DÖN',
+    pizzeria: 'PIZ',
+    'burger-smashburger': 'BUR',
+    'grill-imbiss': 'IMB',
+    asiatisch: 'ASI',
+    'cafe-bäckerei': 'CAF',
+    'getränkelieferdienst': 'GET',
+    'kiosk-späti': 'KIO',
+    'restaurant-allgemein': 'RES',
+    'steakhouse-grillhaus': 'STK',
+    sushi: 'SUS',
+    'vegan-healthy-food': 'VEG',
+    foodtruck: 'TRK',
+    'eisdiele-dessert': 'EIS',
+    'bar-lounge': 'BAR',
+  }[String(templateKey || '').toLowerCase()]
+  const prefix = (mappedPrefix ||
+    String(templateKey || 'TPL')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toUpperCase()
+      .slice(0, 3)
+      .padEnd(3, 'X'))
+  return `${prefix}-${String(index + 1).padStart(3, '0')}`
+}
+
 function assertSafetyGuards() {
   if (isProduction() && process.env.ALLOW_PRODUCTION_TEMPLATE_SEED !== 'true') {
     throw new Error('Produktionsschutz aktiv. Für Prod-Seeding setze ALLOW_PRODUCTION_TEMPLATE_SEED=true explizit.')
@@ -461,7 +488,8 @@ async function upsertTemplateData(template, data) {
     ingredientByName.set(ing.name, row.id)
   }
 
-  for (const prod of data.products) {
+  for (let index = 0; index < data.products.length; index += 1) {
+    const prod = data.products[index]
     const existingProduct = await prisma.businessTemplateProduct.findFirst({
       where: {
         templateId: template.id,
@@ -471,6 +499,8 @@ async function upsertTemplateData(template, data) {
       select: { id: true },
     })
     let productRow
+    const articleNumber = prod.productNumber || buildTemplateArticleNumber(template.key, index)
+    const ean = typeof prod.ean === 'string' && prod.ean.trim().length > 0 ? prod.ean.trim() : null
     const legacyProductNumber = buildLegacyTemplateProductNumber(
       template.key,
       prod.name,
@@ -482,6 +512,8 @@ async function upsertTemplateData(template, data) {
         data: {
           name: prod.name,
           categoryId: categoryByName.get(prod.category) || null,
+          productNumber: articleNumber,
+          ean,
           price: prod.price,
           vatRate: '7.00',
           available: true,
@@ -493,7 +525,8 @@ async function upsertTemplateData(template, data) {
           data: {
             templateId: template.id,
             categoryId: categoryByName.get(prod.category) || null,
-            productNumber: null,
+            productNumber: articleNumber,
+            ean,
             name: prod.name,
             price: prod.price,
             vatRate: '7.00',
@@ -507,12 +540,13 @@ async function upsertTemplateData(template, data) {
         try {
           productRow = await prisma.businessTemplateProduct.create({
             data: {
-              templateId: template.id,
-              categoryId: categoryByName.get(prod.category) || null,
-              productNumber: '',
-              name: prod.name,
-              price: prod.price,
-              vatRate: '7.00',
+            templateId: template.id,
+            categoryId: categoryByName.get(prod.category) || null,
+            productNumber: '',
+            ean,
+            name: prod.name,
+            price: prod.price,
+            vatRate: '7.00',
               available: true,
             },
           })
@@ -528,6 +562,7 @@ async function upsertTemplateData(template, data) {
               templateId: template.id,
               categoryId: categoryByName.get(prod.category) || null,
               productNumber: legacyProductNumber,
+              ean,
               name: prod.name,
               price: prod.price,
               vatRate: '7.00',

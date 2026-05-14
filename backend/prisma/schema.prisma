@@ -198,6 +198,61 @@ enum BillingUsageCounterKey {
   REVENUE_COUNTED_CENTS
 }
 
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  SENT
+  PAID
+  FAILED
+  CANCELLED
+  CORRECTED
+}
+
+enum InvoiceRecipientType {
+  TENANT
+  CHAIN
+}
+
+enum SepaMandateStatus {
+  PENDING
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum PaymentCollectionStatus {
+  PENDING
+  READY
+  SENT
+  PAID
+  FAILED
+  CANCELLED
+}
+
+enum MailboxMessageType {
+  INVOICE_ISSUED
+  PAYMENT_STATUS
+  GENERAL
+}
+
+enum PromotionPlacementKey {
+  MAIN_APP
+  PUBLIC_HOMEPAGE
+  ADMIN_DASHBOARD
+  CUSTOMER_APP
+  MERCHANT_APP
+  DRIVER_APP
+}
+
+enum PromotionTargetAudience {
+  ALL
+  CUSTOMER
+  ADMIN
+  DRIVER
+  CHAINADMIN
+  SUPERADMIN
+}
+
 enum AppAuthProvider {
   EMAIL
   GOOGLE
@@ -318,6 +373,7 @@ model BusinessTemplateProduct {
   templateId       String
   categoryId       String?
   productNumber    String?
+  ean              String?
   name             String
   imageUrl         String?
   price            Decimal                            @db.Decimal(10, 2)
@@ -371,6 +427,14 @@ model Chain {
   tenantBillingSettings TenantBillingSettings[]
   billingUsagePeriods BillingUsagePeriod[]
   commissionRules CommissionRule[]
+  billingProfiles BillingProfile[]
+  invoices Invoice[]
+  billingRuns BillingRun[]
+  sepaMandates SepaMandate[]
+  paymentCollections PaymentCollection[]
+  mailboxMessages KlarandoMailboxMessage[]
+  promotionTargetings PromotionTargeting[]
+  promotionClickLogs PromotionClickLog[]
   createdAt DateTime @default(now())
 }
 
@@ -419,6 +483,14 @@ model Tenant {
   billingUsagePeriods BillingUsagePeriod[]
   billingUsageCounters BillingUsageCounter[]
   commissionRules CommissionRule[]
+  billingProfile BillingProfile?
+  invoices Invoice[]
+  billingRuns BillingRun[]
+  sepaMandates SepaMandate[]
+  paymentCollections PaymentCollection[]
+  mailboxMessages KlarandoMailboxMessage[]
+  promotionTargetings PromotionTargeting[]
+  promotionClickLogs PromotionClickLog[]
 
   createdAt  DateTime  @default(now())
 
@@ -1011,6 +1083,277 @@ model CommissionRule {
   @@index([chainId, isActive, priority])
 }
 
+model BillingProfile {
+  id                      String   @id @default(uuid())
+  tenantId                String?  @unique
+  chainId                 String?  @unique
+  companyName             String
+  contactEmail            String?
+  vatId                   String?
+  street                  String?
+  zipCode                 String?
+  city                    String?
+  countryCode             String   @default("DE")
+  invoiceEmail            String?
+  billingCycleDay         Int      @default(1)
+  sepaPreNotificationDays Int      @default(5)
+  notes                   String?
+  tenant                  Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain                   Chain?   @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  invoices                Invoice[]
+  sepaMandates            SepaMandate[]
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@index([tenantId])
+  @@index([chainId])
+}
+
+model InvoiceSequence {
+  id         String   @id @default(uuid())
+  scopeKey   String   @unique
+  prefix     String   @default("KLR")
+  lastNumber Int      @default(0)
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+}
+
+model BillingRun {
+  id                String        @id @default(uuid())
+  tenantId          String?
+  chainId           String?
+  periodStart       DateTime
+  periodEnd         DateTime
+  status            InvoiceStatus @default(DRAFT)
+  finalizedAt       DateTime?
+  finalizedByUserId String?
+  warningCount      Int           @default(0)
+  warningsJson      Json?
+  tenant            Tenant?       @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain             Chain?        @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  finalizedByUser   User?         @relation("BillingRunFinalizedBy", fields: [finalizedByUserId], references: [id], onDelete: SetNull)
+  invoices          Invoice[]
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([tenantId, periodStart, periodEnd])
+  @@index([chainId, periodStart, periodEnd])
+  @@index([status, createdAt])
+}
+
+model Invoice {
+  id                    String               @id @default(uuid())
+  invoiceNumber         String               @unique
+  tenantId              String?
+  chainId               String?
+  billingProfileId      String?
+  billingRunId          String?
+  recipientType         InvoiceRecipientType
+  status                InvoiceStatus        @default(DRAFT)
+  currency              String               @default("EUR")
+  periodStart           DateTime
+  periodEnd             DateTime
+  issuedAt              DateTime?
+  sentAt                DateTime?
+  paidAt                DateTime?
+  failedAt              DateTime?
+  cancelledAt           DateTime?
+  correctedAt           DateTime?
+  dueAt                 DateTime?
+  subTotalCents         Int                  @default(0)
+  taxTotalCents         Int                  @default(0)
+  totalGrossCents       Int                  @default(0)
+  openAmountCents       Int                  @default(0)
+  correctionOfInvoiceId String?
+  pdfStoragePath        String?
+  notes                 String?
+  metadata              Json?
+  tenant                Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain                 Chain?               @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  billingProfile        BillingProfile?      @relation(fields: [billingProfileId], references: [id], onDelete: SetNull)
+  billingRun            BillingRun?          @relation(fields: [billingRunId], references: [id], onDelete: SetNull)
+  correctionOfInvoice   Invoice?             @relation("InvoiceCorrection", fields: [correctionOfInvoiceId], references: [id], onDelete: SetNull)
+  correctedByInvoices   Invoice[]            @relation("InvoiceCorrection")
+  items                 InvoiceItem[]
+  paymentCollections    PaymentCollection[]
+  mailboxMessages       KlarandoMailboxMessage[]
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([chainId, createdAt])
+  @@index([status, createdAt])
+}
+
+model InvoiceItem {
+  id               String   @id @default(uuid())
+  invoiceId        String
+  lineNo           Int
+  title            String
+  description      String?
+  quantity         Decimal  @default(1) @db.Decimal(12, 3)
+  unitPriceCents   Int      @default(0)
+  taxRatePercent   Decimal  @default(19) @db.Decimal(5, 2)
+  netAmountCents   Int      @default(0)
+  taxAmountCents   Int      @default(0)
+  grossAmountCents Int      @default(0)
+  metadata         Json?
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([invoiceId, lineNo])
+  @@index([invoiceId])
+}
+
+model SepaMandate {
+  id                   String            @id @default(uuid())
+  tenantId             String?
+  chainId              String?
+  billingProfileId     String?
+  mandateReference     String            @unique
+  accountHolderName    String
+  ibanLast4            String
+  bic                  String?
+  signedAt             DateTime?
+  validFrom            DateTime?
+  revokedAt            DateTime?
+  status               SepaMandateStatus @default(PENDING)
+  preNotificationEmail String?
+  metadata             Json?
+  tenant               Tenant?           @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain                Chain?            @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  billingProfile       BillingProfile?   @relation(fields: [billingProfileId], references: [id], onDelete: SetNull)
+  paymentCollections   PaymentCollection[]
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+
+  @@index([tenantId, status])
+  @@index([chainId, status])
+}
+
+model PaymentCollection {
+  id            String                  @id @default(uuid())
+  tenantId      String?
+  chainId       String?
+  invoiceId     String?
+  sepaMandateId String?
+  status        PaymentCollectionStatus @default(PENDING)
+  amountCents   Int
+  currency      String                  @default("EUR")
+  dueAt         DateTime?
+  collectedAt   DateTime?
+  failedAt      DateTime?
+  failureReason String?
+  metadata      Json?
+  tenant        Tenant?                 @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain         Chain?                  @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  invoice       Invoice?                @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  sepaMandate   SepaMandate?            @relation(fields: [sepaMandateId], references: [id], onDelete: SetNull)
+  createdAt     DateTime                @default(now())
+  updatedAt     DateTime                @updatedAt
+
+  @@index([tenantId, status, dueAt])
+  @@index([chainId, status, dueAt])
+}
+
+model KlarandoMailboxMessage {
+  id          String             @id @default(uuid())
+  tenantId    String?
+  chainId     String?
+  invoiceId   String?
+  messageType MailboxMessageType @default(GENERAL)
+  title       String
+  body        String
+  status      InvoiceStatus?
+  readAt      DateTime?
+  actionUrl   String?
+  metadata    Json?
+  tenant      Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain       Chain?             @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  invoice     Invoice?           @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([tenantId, createdAt])
+  @@index([chainId, createdAt])
+  @@index([invoiceId])
+}
+
+model PlatformPromotion {
+  id                String                    @id @default(uuid())
+  title             String
+  description       String?
+  imageUrl          String?
+  buttonText        String?
+  linkUrl           String?
+  productLink       String?
+  merchantLink      String?
+  priority          Int                       @default(100)
+  isActive          Boolean                   @default(true)
+  rotationSeconds   Int                       @default(10)
+  startsAt          DateTime?
+  endsAt            DateTime?
+  createdByUserId   String?
+  metadata          Json?
+  placements        PromotionPlacement[]
+  targetings        PromotionTargeting[]
+  clickLogs         PromotionClickLog[]
+  createdByUser     User?                     @relation("PromotionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@index([isActive, priority, startsAt, endsAt])
+}
+
+model PromotionPlacement {
+  id            String               @id @default(uuid())
+  promotionId   String
+  placement     PromotionPlacementKey
+  isEnabled     Boolean              @default(true)
+  promotion     PlatformPromotion    @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@unique([promotionId, placement])
+  @@index([placement, isEnabled])
+}
+
+model PromotionTargeting {
+  id             String                   @id @default(uuid())
+  promotionId    String
+  audience       PromotionTargetAudience
+  tenantId       String?
+  chainId        String?
+  isEnabled      Boolean                  @default(true)
+  promotion      PlatformPromotion        @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  tenant         Tenant?                  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain          Chain?                   @relation(fields: [chainId], references: [id], onDelete: SetNull)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  @@index([audience, isEnabled])
+  @@index([tenantId, chainId])
+}
+
+model PromotionClickLog {
+  id             String             @id @default(uuid())
+  promotionId    String
+  placement      PromotionPlacementKey
+  audience       PromotionTargetAudience?
+  tenantId       String?
+  chainId        String?
+  sessionId      String?
+  clickedAt      DateTime           @default(now())
+  metadata       Json?
+  promotion      PlatformPromotion  @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  tenant         Tenant?            @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  chain          Chain?             @relation(fields: [chainId], references: [id], onDelete: SetNull)
+
+  @@index([promotionId, clickedAt])
+  @@index([placement, clickedAt])
+}
+
 model TenantProviderAccount {
   id                      String                @id @default(uuid())
   tenantId                String
@@ -1419,6 +1762,8 @@ model User {
   staffMemberProfile StaffMember?  @relation("StaffMemberUser")
   createdStaffShifts StaffShift[]  @relation("StaffShiftActor")
   passwordResetTokens PasswordResetToken[]
+  finalizedBillingRuns BillingRun[] @relation("BillingRunFinalizedBy")
+  createdPromotions PlatformPromotion[] @relation("PromotionCreatedBy")
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 

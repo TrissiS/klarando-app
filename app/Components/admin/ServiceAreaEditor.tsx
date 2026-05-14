@@ -210,6 +210,18 @@ function buildGoogleMapsUrl(area: BusinessServiceArea) {
   return `https://www.google.com/maps?q=${encodeURIComponent(queryParts.join(', '))}`
 }
 
+function hasMapsConsent() {
+  if (typeof window === 'undefined') return false
+  try {
+    const raw = window.localStorage.getItem('klarando.cookieConsent.v1')
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { maps?: boolean }
+    return parsed.maps === true
+  } catch {
+    return false
+  }
+}
+
 async function loadGoogleMapsApi(apiKey: string) {
   if (typeof window === 'undefined') {
     throw new Error('Google Maps ist nur im Browser verfuegbar.')
@@ -293,6 +305,15 @@ export default function ServiceAreaEditor({
   const polygonListenersRef = useRef<unknown[]>([])
   const latestValueRef = useRef(value)
   const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+  const [mapsConsentGranted, setMapsConsentGranted] = useState(false)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const refresh = () => setMapsConsentGranted(hasMapsConsent())
+    refresh()
+    window.addEventListener('storage', refresh)
+    return () => window.removeEventListener('storage', refresh)
+  }, [])
 
   function patch(next: Partial<BusinessServiceArea>) {
     onChange({
@@ -384,6 +405,12 @@ export default function ServiceAreaEditor({
   }, [excludedStreetsSerialized, excludedStreetsFocused])
 
   useEffect(() => {
+    if (!mapsConsentGranted) {
+      setMapsReady(false)
+      setMapsError('Google Maps ist deaktiviert, bis Standort/Maps im Consent freigegeben wurde.')
+      return
+    }
+
     if (!googleMapsApiKey) {
       setMapsReady(false)
       setMapsError('')
@@ -469,7 +496,7 @@ export default function ServiceAreaEditor({
     return () => {
       cancelled = true
     }
-  }, [googleMapsApiKey, disabled, polygonPath, value.centerLatitude, value.centerLongitude])
+  }, [googleMapsApiKey, disabled, mapsConsentGranted, polygonPath, value.centerLatitude, value.centerLongitude])
 
   useEffect(() => {
     if (!mapsReady || !window.google?.maps || !mapRef.current) {

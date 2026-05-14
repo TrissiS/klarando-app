@@ -862,6 +862,10 @@ export default function OrderDisplayPage({ params }: Props) {
       ? feed.display.backgroundMediaMode
       : 'NONE'
   const mediaUrl = feed.display.backgroundMediaUrl
+  const runtimeLastSyncMs = runtimeConfig?.lastSyncAt ? Date.parse(runtimeConfig.lastSyncAt) : Number.NaN
+  const connectionStaleSeconds = Number.isFinite(runtimeLastSyncMs)
+    ? Math.max(0, Math.floor((Date.now() - runtimeLastSyncMs) / 1000))
+    : null
   const layoutStyle = autoScaleEnabled
     ? {
         transform: `scale(${layoutScale})`,
@@ -877,7 +881,7 @@ export default function OrderDisplayPage({ params }: Props) {
       style={{ background: displayBackground }}
     >
       <DisplayRuntimeShell runtimeConfig={runtimeConfig}>
-      <DisplayConnectionStatus state={connectionState} />
+      <DisplayConnectionStatus state={connectionState} staleSeconds={connectionStaleSeconds} />
       {mediaMode === 'IMAGE' && mediaUrl ? (
         <div
           className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-35"

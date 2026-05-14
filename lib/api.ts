@@ -4806,6 +4806,7 @@ export type BusinessTemplateDetail = {
     templateId: string
     categoryId: string | null
     productNumber: string | null
+    ean: string | null
     name: string
     price: string
     vatRate: string
@@ -5379,6 +5380,42 @@ export type BillingUsageSnapshot = {
   revenueCountedCents: number
 }
 
+export type AdminFinanceOverviewResponse = {
+  tenant: {
+    id: string
+    name: string
+    chainId: string | null
+  }
+  period: {
+    days: number
+    from: string
+    to: string
+  }
+  feeConfig: {
+    commissionPercent: number
+    fixedFeePerOrderCents: number
+  }
+  summary: {
+    grossAmountCents: number
+    klarandoFeeCents: number
+    merchantPayoutAmountCents: number
+    tipAmountCents: number
+  }
+  transactions: Array<{
+    orderId: string
+    orderNumber: number | null
+    paymentMethod: string | null
+    paymentStatus: string
+    grossAmountCents: number
+    deliveryFeeCents: number
+    tipAmountCents: number
+    klarandoFeeCents: number
+    merchantPayoutAmountCents: number
+    customerNameMasked: string | null
+    createdAt: string
+  }>
+}
+
 export type AccessContext = {
   me: {
     id: string
@@ -5797,6 +5834,219 @@ export async function syncTenantBillingUsage(
   return res.json()
 }
 
+export async function getAdminFinanceOverview(
+  token: string,
+  tenantId: string,
+  days = 30
+): Promise<AdminFinanceOverviewResponse> {
+  const query = new URLSearchParams({
+    tenantId,
+    days: String(days),
+  })
+  const res = await fetch(`${API_BASE_URL}/api/finance/overview?${query.toString()}`, {
+    headers: authHeaders(token),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Finanzübersicht konnte nicht geladen werden')
+  }
+  return res.json()
+}
+
+export type BillingPreviewItem = {
+  tenantId: string
+  tenantName: string
+  chainId: string | null
+  planType: string
+  monthlyFeeCents: number
+  commissionPercent: number
+  estimatedTotalCents: number
+  invoiceStatus: string
+}
+
+export type BillingPreviewResponse = {
+  period: {
+    key: string
+    start: string
+    end: string
+  }
+  invoicesPreview: BillingPreviewItem[]
+}
+
+export type BillingInvoice = {
+  id: string
+  invoiceNumber: string
+  tenantId: string | null
+  chainId: string | null
+  recipientType: string
+  status: string
+  totalGrossCents: number
+  openAmountCents: number
+  currency: string
+  periodStart: string
+  periodEnd: string
+  createdAt: string
+  tenant?: { id: string; name: string } | null
+  chain?: { id: string; name: string } | null
+}
+
+export type BillingMailboxMessage = {
+  id: string
+  title: string
+  body: string
+  messageType: string
+  status: string | null
+  actionUrl: string | null
+  readAt: string | null
+  createdAt: string
+}
+
+export async function getBillingPreview(token: string, period: string): Promise<BillingPreviewResponse> {
+  const query = new URLSearchParams({ period })
+  return apiJson<BillingPreviewResponse>(
+    buildApiUrl(`/api/billing/superadmin/preview?${query.toString()}`),
+    { headers: authHeaders(token) },
+    'Rechnungsvorschau konnte nicht geladen werden'
+  )
+}
+
+export async function finalizeBillingRun(token: string, period: string): Promise<{ billingRunId: string; invoicesCreated: number }> {
+  return apiJson<{ billingRunId: string; invoicesCreated: number }>(
+    buildApiUrl('/api/billing/superadmin/finalize'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify({ period }),
+    },
+    'Monatslauf konnte nicht finalisiert werden'
+  )
+}
+
+export async function getBillingInvoices(token: string, params: { tenantId?: string; chainId?: string } = {}): Promise<BillingInvoice[]> {
+  const query = new URLSearchParams()
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  if (params.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<BillingInvoice[]>(
+    buildApiUrl(`/api/billing/invoices${suffix}`),
+    { headers: authHeaders(token) },
+    'Rechnungen konnten nicht geladen werden'
+  )
+}
+
+export async function getBillingMailboxMessages(token: string, params: { tenantId?: string; chainId?: string } = {}): Promise<BillingMailboxMessage[]> {
+  const query = new URLSearchParams()
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  if (params.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<BillingMailboxMessage[]>(
+    buildApiUrl(`/api/billing/mailbox${suffix}`),
+    { headers: authHeaders(token) },
+    'Postfach konnte nicht geladen werden'
+  )
+}
+
+export type PromotionPlacementKey =
+  | 'MAIN_APP'
+  | 'PUBLIC_HOMEPAGE'
+  | 'ADMIN_DASHBOARD'
+  | 'CUSTOMER_APP'
+  | 'MERCHANT_APP'
+  | 'DRIVER_APP'
+
+export type PromotionTargetAudience =
+  | 'ALL'
+  | 'CUSTOMER'
+  | 'ADMIN'
+  | 'DRIVER'
+  | 'CHAINADMIN'
+  | 'SUPERADMIN'
+
+export type PlatformPromotion = {
+  id: string
+  title: string
+  description: string | null
+  imageUrl: string | null
+  buttonText: string | null
+  linkUrl: string | null
+  productLink: string | null
+  merchantLink: string | null
+  priority: number
+  isActive: boolean
+  rotationSeconds: number
+  startsAt: string | null
+  endsAt: string | null
+  placements: Array<{ id: string; placement: PromotionPlacementKey; isEnabled: boolean }>
+  targetings: Array<{ id: string; audience: PromotionTargetAudience; isEnabled: boolean }>
+  createdAt: string
+  updatedAt: string
+}
+
+export type PromotionCreateInput = {
+  title: string
+  description?: string | null
+  imageUrl?: string | null
+  buttonText?: string | null
+  linkUrl?: string | null
+  productLink?: string | null
+  merchantLink?: string | null
+  priority?: number
+  isActive?: boolean
+  rotationSeconds?: number
+  startsAt?: string | null
+  endsAt?: string | null
+  placement?: PromotionPlacementKey
+  targetAudience?: PromotionTargetAudience
+}
+
+export async function getPromotionsAdmin(token: string): Promise<PlatformPromotion[]> {
+  return apiJson<PlatformPromotion[]>(
+    buildApiUrl('/api/promotions/admin'),
+    { headers: authHeaders(token) },
+    'Aktionen konnten nicht geladen werden'
+  )
+}
+
+export async function createPromotion(token: string, input: PromotionCreateInput): Promise<PlatformPromotion> {
+  return apiJson<PlatformPromotion>(
+    buildApiUrl('/api/promotions/admin'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(input),
+    },
+    'Aktion konnte nicht erstellt werden'
+  )
+}
+
+export async function updatePromotion(
+  token: string,
+  promotionId: string,
+  input: Partial<PromotionCreateInput>
+): Promise<PlatformPromotion> {
+  return apiJson<PlatformPromotion>(
+    buildApiUrl(`/api/promotions/admin/${encodeURIComponent(promotionId)}`),
+    {
+      method: 'PATCH',
+      headers: authHeaders(token),
+      body: JSON.stringify(input),
+    },
+    'Aktion konnte nicht aktualisiert werden'
+  )
+}
+
+export async function getActivePromotions(
+  placement: PromotionPlacementKey,
+  audience: PromotionTargetAudience = 'ALL'
+): Promise<PlatformPromotion[]> {
+  const query = new URLSearchParams({ placement, audience })
+  return apiJson<PlatformPromotion[]>(
+    buildApiUrl(`/api/promotions/active?${query.toString()}`),
+    { method: 'GET' },
+    'Aktionen konnten nicht geladen werden'
+  )
+}
+
 export async function getManagedTenants(token: string): Promise<ManagedTenant[]> {
   return apiJson<ManagedTenant[]>(
     buildApiUrl('/api/tenants'),
@@ -5877,7 +6127,13 @@ export async function createBusinessTemplateIngredient(
 export async function createBusinessTemplateProduct(
   token: string,
   templateId: string,
-  payload: { productNumber?: string | null; name: string; categoryId?: string | null; price?: number }
+  payload: {
+    productNumber?: string | null
+    ean?: string | null
+    name: string
+    categoryId?: string | null
+    price?: number
+  }
 ) {
   const res = await fetch(`${API_BASE_URL}/api/business-templates/${encodeURIComponent(templateId)}/product`, {
     method: 'POST',

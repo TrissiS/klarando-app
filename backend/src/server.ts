@@ -35,6 +35,9 @@ import platformBrandingRoutes from './routes/platform-branding'
 import mobileUpdatesRoutes from './routes/mobile-updates'
 import onboardingRoutes from './routes/onboarding'
 import paypalPaymentRoutes from './routes/payments-paypal'
+import financeRoutes from './routes/finance'
+import billingRoutes from './routes/billing'
+import promotionRoutes from './routes/promotions'
 import { optionalAuth } from './middleware/auth'
 import { rateLimitPasswordReset, rateLimitTokenRefresh } from './middleware/rate-limit'
 import { prisma } from './lib/prisma'
@@ -203,6 +206,9 @@ app.use('/api/platform-branding', platformBrandingRoutes)
 app.use('/api/mobile-updates', mobileUpdatesRoutes)
 app.use('/api/onboarding', onboardingRoutes)
 app.use('/api/payments/paypal', paypalPaymentRoutes)
+app.use('/api/finance', financeRoutes)
+app.use('/api/billing', billingRoutes)
+app.use('/api/promotions', promotionRoutes)
 
 app.use((req, res) => {
   res.status(404).json({

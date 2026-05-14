@@ -138,6 +138,12 @@ export default function LoginFormComponent({ onLogin }: Props) {
             <a href="/agb" style={styles.legalLink}>
               AGB
             </a>
+            <a href="/cookies" style={styles.legalLink}>
+              Cookies
+            </a>
+            <a href="/jugendschutz" style={styles.legalLink}>
+              Jugendschutz
+            </a>
           </div>
         </div>
       </div>

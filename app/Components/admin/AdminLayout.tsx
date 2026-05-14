@@ -72,6 +72,7 @@ const navSections: NavSection[] = [
     label: 'Speisekarte',
     defaultOpen: true,
     items: [
+      { href: '/admin/products', label: 'Übersicht', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/ingredients', label: 'Zutaten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
@@ -93,17 +94,29 @@ const navSections: NavSection[] = [
         moduleKey: 'products',
         requiredPermission: 'PRODUCTS_WRITE',
       },
+      {
+        href: '/admin/products/pricing',
+        label: 'Preise & Kalkulation',
+        moduleKey: 'products',
+        requiredPermission: 'PRODUCTS_READ',
+      },
+      {
+        href: '/admin/actions',
+        label: 'Aktionen',
+        moduleKey: 'actions',
+        requiredPermission: 'SETTINGS_READ',
+      },
     ],
   },
   {
-    id: 'business',
-    label: 'Betrieb',
+    id: 'delivery',
+    label: 'Lieferbetrieb',
     items: [
       { href: '/admin/app-settings?section=hours', label: 'Öffnungszeiten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/app-settings?section=delivery-area', label: 'Liefergebiet', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings?section=branding', label: 'Branding', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/settings?section=payments', label: 'Zahlungsarten', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/settings?section=legal', label: 'Rechtliches', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings?section=delivery-fees', label: 'Lieferkosten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings?section=delivery-priority', label: 'Express / Priorität', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/drivers', label: 'Fahrer', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
     ],
   },
   {
@@ -111,16 +124,37 @@ const navSections: NavSection[] = [
     label: 'Geräte',
     items: [
       { href: '/admin/displays', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/order-displays', label: 'Bestellterminal', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/terminals', label: 'Orderdesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/display-devices', label: 'QR-Codes', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/display-devices', label: 'Display-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/screen', label: 'Menübildschirme', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/order-displays', label: 'Abholmonitore', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/terminals', label: 'Kassen-/OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+    ],
+  },
+  {
+    id: 'marketing',
+    label: 'Marketing',
+    items: [
+      { href: '/admin/actions', label: 'Gutscheine & Aktionen', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/display-devices', label: 'QR-Code / Direktlink', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+    ],
+  },
+  {
+    id: 'finance',
+    label: 'Finanzen',
+    items: [
+      { href: '/admin/finanzen', label: 'Zahlungen & Transaktionen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/closings/daily', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {
     id: 'management',
     label: 'Verwaltung',
     items: [
-      { href: '/admin/staff', label: 'Benutzer & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+      { href: '/admin/staff', label: 'Mitarbeiter', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+      { href: '/admin/staff?tab=permissions', label: 'Rollen & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+      { href: '/admin/app-settings?section=branding', label: 'Branding', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/settings?section=payments', label: 'Zahlungsarten', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/settings?section=legal', label: 'Rechtliches', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/stock', label: 'Import / Export', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
       { href: '/admin/closings', label: 'Systemstatus', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
@@ -353,29 +387,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'production') {
-      return
-    }
-    const probeLink = document.querySelector<HTMLElement>('[data-nav-anchor="admin-sidebar-link"]')
-    if (!probeLink) {
-      return
-    }
-    const rect = probeLink.getBoundingClientRect()
-    const probeX = rect.left + Math.max(8, Math.min(rect.width - 8, rect.width / 2))
-    const probeY = rect.top + Math.max(8, Math.min(rect.height - 8, rect.height / 2))
-    const hit = document.elementFromPoint(probeX, probeY)
-    const hitTag = hit?.tagName?.toLowerCase() || 'none'
-    const hitClass = hit?.className || ''
-    console.debug('[AdminLayout] elementFromPoint probe', {
-      probeX,
-      probeY,
-      hitTag,
-      hitClass,
-      expectedTag: 'a',
-    })
-  }, [pathname, mobileNavOpen])
-
   function handleLogout() {
     if (typeof window === 'undefined') return
     localStorage.removeItem('sessionUser')
@@ -522,6 +533,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       return 'displays'
     }
     if (path.startsWith('/admin/actions')) return 'actions'
+    if (path.startsWith('/admin/finanzen')) return 'payment'
     if (path.startsWith('/admin/staff')) return 'staff'
     if (path.startsWith('/admin/drivers')) return 'drivers'
     if (path.startsWith('/admin/app-settings')) return 'app-settings'
@@ -558,9 +570,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       data-admin-ui-mode={uiMode}
     >
       <div className="flex min-h-screen min-w-0">
-        <aside
-          className={`brand-sidebar relative z-30 hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}
-        >
+        <aside className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
           <div className={`border-b border-white/15 ${isTouchMode ? 'px-6 py-6' : 'px-5 py-5'}`}>
             <PlatformBranding settings={platformBranding} area="sidebar" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
@@ -572,7 +582,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </p>
           </div>
 
-          <nav className={`relative z-40 flex-1 overflow-y-auto pointer-events-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+          <nav className={`flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
               {visibleNavSections.map((section) => (
                 <div key={section.id}>
@@ -597,7 +607,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                             href={item.href}
                             aria-current={isActive ? 'page' : undefined}
                             title={item.tooltip || item.label}
-                            className={`brand-nav-link relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass} ${
+                            className={`brand-nav-link block w-full rounded-2xl font-medium ${navLinkPaddingClass} ${
                               isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
                             }`}
                             data-nav-anchor="admin-sidebar-link"
@@ -631,7 +641,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   <Link
                     href={switchTarget.href}
                     title={switchTarget.label}
-                    className={`brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass}`}
+                    className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
                     data-nav-anchor="admin-sidebar-quicklink"
                   >
                     {switchTarget.label}
@@ -738,11 +748,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               onClick={() => setMobileNavOpen(false)}
               data-overlay="admin-mobile-nav"
             >
-              {process.env.NODE_ENV !== 'production' ? (
-                <div className="pointer-events-none fixed left-3 top-3 z-[81] rounded bg-amber-300 px-2 py-1 text-[10px] font-bold text-black">
-                  Overlay aktiv: admin-mobile-nav
-                </div>
-              ) : null}
               <div
                 className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white"
                 onClick={(event) => event.stopPropagation()}
@@ -848,6 +853,16 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               </section>
             )}
           </div>
+          <footer className="mt-6 border-t border-[var(--brand-border)] pt-4">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-rose-900/70">
+              <Link href="/impressum" className="hover:text-rose-900">Impressum</Link>
+              <Link href="/datenschutz" className="hover:text-rose-900">Datenschutz</Link>
+              <Link href="/agb" className="hover:text-rose-900">AGB</Link>
+              <Link href="/cookies" className="hover:text-rose-900">Cookies</Link>
+              <Link href="/jugendschutz" className="hover:text-rose-900">Jugendschutz</Link>
+              <Link href="/partner-agb" className="hover:text-rose-900">Partner-AGB</Link>
+            </div>
+          </footer>
         </div>
       </div>
     </main>

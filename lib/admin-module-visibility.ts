@@ -11,6 +11,7 @@ export type AdminModuleKey =
   | 'drivers'
   | 'app-settings'
   | 'settings'
+  | 'payment'
 
 type ModuleRule = {
   allPermissions?: AccessPermission[]
@@ -54,6 +55,9 @@ const MODULE_RULES: Record<AdminModuleKey, ModuleRule> = {
   settings: {
     allPermissions: ['SETTINGS_READ'],
   },
+  payment: {
+    allPermissions: ['ORDERS_READ'],
+  },
 }
 
 const MODULE_FEATURE_MAPPING: Partial<Record<AdminModuleKey, string>> = {
@@ -66,6 +70,7 @@ const MODULE_FEATURE_MAPPING: Partial<Record<AdminModuleKey, string>> = {
   drivers: 'DRIVERS',
   'app-settings': 'PLATFORM_BRANDING',
   settings: 'PLATFORM_BRANDING',
+  payment: 'PAYMENT',
 }
 
 export function isModuleEnabled(

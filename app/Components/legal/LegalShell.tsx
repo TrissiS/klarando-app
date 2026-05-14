@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { ReactNode } from 'react'
+import PublicLegalFooter from '@/components/PublicLegalFooter'
 
 type Props = {
   title: string
@@ -25,22 +26,12 @@ export default function LegalShell({ title, subtitle, updatedAt, children }: Pro
           {children}
         </article>
 
-        <footer className="mt-6 rounded-2xl border border-[var(--brand-border)] bg-white/90 p-4 text-sm text-rose-900/80">
-          <div className="flex flex-wrap gap-4">
-            <Link href="/impressum" className="font-semibold text-rose-700 hover:text-rose-900">
-              Impressum
-            </Link>
-            <Link href="/datenschutz" className="font-semibold text-rose-700 hover:text-rose-900">
-              Datenschutz
-            </Link>
-            <Link href="/agb" className="font-semibold text-rose-700 hover:text-rose-900">
-              AGB
-            </Link>
-            <Link href="/" className="font-semibold text-rose-700 hover:text-rose-900">
-              Zurueck zum Login
-            </Link>
-          </div>
-        </footer>
+        <PublicLegalFooter />
+        <div className="mt-2">
+          <Link href="/" className="text-sm font-semibold text-rose-700 hover:text-rose-900">
+            Zurück zum Login
+          </Link>
+        </div>
       </div>
     </main>
   )

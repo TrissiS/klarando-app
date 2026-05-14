@@ -239,6 +239,8 @@ router.post('/:id/product', requirePermission(PermissionKey.PRODUCTS_WRITE), asy
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
     const payload = req.body as {
       name?: string
+      productNumber?: string | null
+      ean?: string | null
       categoryId?: string | null
       price?: number
     }
@@ -262,13 +264,28 @@ router.post('/:id/product', requirePermission(PermissionKey.PRODUCTS_WRITE), asy
         id: existingProduct?.id || '__no-match__',
       },
       update: {
+        productNumber:
+          typeof payload.productNumber === 'string' && payload.productNumber.trim().length > 0
+            ? payload.productNumber.trim()
+            : null,
+        ean:
+          typeof payload.ean === 'string' && payload.ean.trim().length > 0
+            ? payload.ean.trim()
+            : null,
         name: normalizedName,
         categoryId,
         price: Number.isFinite(payload.price) ? Number(payload.price) : 0,
       },
       create: {
         templateId: id,
-        productNumber: null,
+        productNumber:
+          typeof payload.productNumber === 'string' && payload.productNumber.trim().length > 0
+            ? payload.productNumber.trim()
+            : null,
+        ean:
+          typeof payload.ean === 'string' && payload.ean.trim().length > 0
+            ? payload.ean.trim()
+            : null,
         name: normalizedName,
         categoryId,
         price: Number.isFinite(payload.price) ? Number(payload.price) : 0,

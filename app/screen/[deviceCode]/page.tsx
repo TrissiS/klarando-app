@@ -871,6 +871,10 @@ export default function ScreenDevicePage({ params }: Props) {
       : {}
   const effectiveOfferReservePaddingStyle =
     deviceResolutionWidth < 1280 ? {} : offerReservePaddingStyle
+  const runtimeLastSyncMs = runtimeConfig?.lastSyncAt ? Date.parse(runtimeConfig.lastSyncAt) : Number.NaN
+  const connectionStaleSeconds = Number.isFinite(runtimeLastSyncMs)
+    ? Math.max(0, Math.floor((Date.now() - runtimeLastSyncMs) / 1000))
+    : null
 
   if (loading && !feed) {
     return (
@@ -899,7 +903,7 @@ export default function ScreenDevicePage({ params }: Props) {
       className="safe-area-padding relative flex min-h-screen flex-col overflow-hidden text-white"
     >
       <DisplayRuntimeShell runtimeConfig={runtimeConfig}>
-      <DisplayConnectionStatus state={connectionState} />
+      <DisplayConnectionStatus state={connectionState} staleSeconds={connectionStaleSeconds} />
       {hasVideoBackground ? (
         <>
           {youtubeBackgroundEmbedUrl ? (

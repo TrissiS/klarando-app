@@ -95,6 +95,7 @@ export default function BackofficeLayout({
               items: pickItemsByHref([
                 '/superadmin/orders',
                 '/superadmin/display-devices',
+                '/superadmin/fees',
                 '/superadmin/app-settings',
                 '/superadmin/misc-settings',
                 '/superadmin/module-billing',
@@ -258,29 +259,6 @@ export default function BackofficeLayout({
   }, [])
 
   useEffect(() => {
-    if (process.env.NODE_ENV === 'production') {
-      return
-    }
-    const probeLink = document.querySelector<HTMLElement>('[data-nav-anchor="backoffice-sidebar-link"]')
-    if (!probeLink) {
-      return
-    }
-    const rect = probeLink.getBoundingClientRect()
-    const probeX = rect.left + Math.max(8, Math.min(rect.width - 8, rect.width / 2))
-    const probeY = rect.top + Math.max(8, Math.min(rect.height - 8, rect.height / 2))
-    const hit = document.elementFromPoint(probeX, probeY)
-    const hitTag = hit?.tagName?.toLowerCase() || 'none'
-    const hitClass = hit?.className || ''
-    console.debug('[BackofficeLayout] elementFromPoint probe', {
-      probeX,
-      probeY,
-      hitTag,
-      hitClass,
-      expectedTag: 'a',
-    })
-  }, [pathname, mobileNavOpen, isSidebarCollapsed])
-
-  useEffect(() => {
     try {
       window.localStorage.setItem(
         'klarando.backoffice.sidebar.collapsed.v1',
@@ -372,9 +350,7 @@ export default function BackofficeLayout({
       data-admin-ui-mode={uiMode}
     >
       <div className="flex min-h-screen">
-        <aside
-          className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass} relative z-40 pointer-events-auto`}
-        >
+        <aside className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
             {!isSidebarCollapsed ? (
@@ -388,7 +364,7 @@ export default function BackofficeLayout({
             ) : null}
           </div>
 
-          <nav className={`relative z-40 flex-1 pointer-events-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+          <nav className={`flex-1 ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
               {resolvedNavGroups.map((group) => (
                 <div key={group.id}>
@@ -411,7 +387,7 @@ export default function BackofficeLayout({
                             key={item.href}
                             href={item.href}
                             title={item.tooltip || item.label}
-                            className={`brand-nav-link relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass} ${
+                            className={`brand-nav-link block w-full rounded-2xl font-medium ${navLinkPaddingClass} ${
                               isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
                             }`}
                             data-nav-anchor="backoffice-sidebar-link"
@@ -435,7 +411,7 @@ export default function BackofficeLayout({
                   <Link
                     href="/admin"
                     title="Zum Adminbereich"
-                    className={`brand-nav-link brand-nav-link-inactive relative z-50 block w-full rounded-2xl font-medium pointer-events-auto ${navLinkPaddingClass}`}
+                    className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
                     data-nav-anchor="backoffice-sidebar-quicklink"
                   >
                     {isSidebarCollapsed ? '>>' : 'Zum Adminbereich'}
@@ -538,11 +514,6 @@ export default function BackofficeLayout({
               onClick={() => setMobileNavOpen(false)}
               data-overlay="backoffice-mobile-nav"
             >
-              {process.env.NODE_ENV !== 'production' ? (
-                <div className="pointer-events-none fixed left-3 top-3 z-[81] rounded bg-amber-300 px-2 py-1 text-[10px] font-bold text-black">
-                  Overlay aktiv: backoffice-mobile-nav
-                </div>
-              ) : null}
               <div
                 className="flex h-full flex-col overflow-hidden rounded-3xl border border-[var(--brand-border)] bg-white"
                 onClick={(event) => event.stopPropagation()}
@@ -625,6 +596,16 @@ export default function BackofficeLayout({
               children
             )}
           </div>
+          <footer className="mt-6 border-t border-[var(--brand-border)] pt-4">
+            <div className="flex flex-wrap items-center gap-3 text-xs text-rose-900/70">
+              <Link href="/impressum" className="hover:text-rose-900">Impressum</Link>
+              <Link href="/datenschutz" className="hover:text-rose-900">Datenschutz</Link>
+              <Link href="/agb" className="hover:text-rose-900">AGB</Link>
+              <Link href="/cookies" className="hover:text-rose-900">Cookies</Link>
+              <Link href="/jugendschutz" className="hover:text-rose-900">Jugendschutz</Link>
+              <Link href="/partner-agb" className="hover:text-rose-900">Partner-AGB</Link>
+            </div>
+          </footer>
         </div>
       </div>
     </main>
