@@ -1,3 +1,5 @@
+import { API_BASE_URL } from './config'
+
 export type DisplayRuntimeType = 'MENU' | 'ORDER' | 'KITCHEN' | 'CUSTOMER' | 'TERMINAL'
 
 export type DisplayRuntimeConfig = {
@@ -32,11 +34,6 @@ export type DisplayRuntimeConfig = {
 }
 
 export type DisplayRuntimeConnectionState = 'online' | 'reconnecting' | 'offline_cached'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  process.env.NEXT_PUBLIC_API_BASE_URL ||
-  'http://localhost:4000'
 
 function cacheKey(deviceCode: string) {
   return `klarando:display-runtime:${deviceCode.toUpperCase()}`
