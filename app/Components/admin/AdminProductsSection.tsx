@@ -210,7 +210,7 @@ export default function AdminProductsSection({
               Produktnummer
             </p>
             <p className="mt-1 text-xs text-amber-900/75">
-              Produktnummer ist optional, aber empfohlen.
+              Pflicht vor Verkauf – innerhalb der Filiale eindeutig.
             </p>
             <input
               value={productNumber}
@@ -446,16 +446,14 @@ export default function AdminProductsSection({
                   </label>
 
                   <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">
-                      Verfuegbarkeit
-                    </span>
+                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Verfügbarkeit</span>
                     <select
                       value={available}
                       onChange={(event) => setAvailable(event.target.value)}
                       className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
                     >
-                      <option value="true">Verfuegbar</option>
-                      <option value="false">Nicht verfuegbar</option>
+                      <option value="true">Verfügbar</option>
+                      <option value="false">Nicht verfügbar</option>
                     </select>
                   </label>
                 </div>
@@ -560,8 +558,8 @@ export default function AdminProductsSection({
               className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
             >
               <option value="ALL">Alle</option>
-              <option value="AVAILABLE">Verfuegbar</option>
-              <option value="UNAVAILABLE">Nicht verfuegbar</option>
+              <option value="AVAILABLE">Verfügbar</option>
+              <option value="UNAVAILABLE">Nicht verfügbar</option>
             </select>
           </label>
 
@@ -638,7 +636,9 @@ export default function AdminProductsSection({
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <p className="font-medium text-[var(--brand-ink)]">{product.name}</p>
-                      <p className="text-xs text-rose-900/70">Nr. {product.productNumber || '-'}</p>
+                      <p className="text-xs text-rose-900/70">
+                        {product.productNumber ? `Nr. ${product.productNumber}` : 'Nr. fehlt'}
+                      </p>
                       {formatBeverageContainerType(product.beverageContainerType) ? (
                         <p className="mt-1 text-xs text-rose-900/70">
                           {formatBeverageContainerType(product.beverageContainerType)}
@@ -664,7 +664,7 @@ export default function AdminProductsSection({
                             : 'bg-slate-200 text-rose-900/85'
                         }`}
                       >
-                        {product.available ? 'Verfuegbar' : 'Nicht verfuegbar'}
+                        {product.available ? 'Verfügbar' : 'Nicht verfügbar'}
                       </span>
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">

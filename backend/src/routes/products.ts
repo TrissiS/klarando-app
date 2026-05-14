@@ -351,7 +351,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
 
       if (existingWithProductNumber) {
         return res.status(409).json({
-          error: 'Diese Artikelnummer ist bereits vergeben.',
+          error: 'Diese Produktnummer ist bereits vergeben.',
         })
       }
     }
@@ -519,7 +519,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
 
       if (existingWithProductNumber) {
         return res.status(409).json({
-          error: 'Diese Artikelnummer ist bereits vergeben.',
+          error: 'Diese Produktnummer ist bereits vergeben.',
         })
       }
     }

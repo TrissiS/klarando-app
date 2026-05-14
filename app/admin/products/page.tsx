@@ -414,7 +414,7 @@ function AdminProductsPageContent() {
 
       const payload = {
         categoryId: categoryId || null,
-        productNumber,
+        productNumber: productNumber.trim() || null,
         name: productName,
         imageUrl: productImageUrl.trim() || null,
         ean: productEan.trim() || null,
@@ -427,6 +427,13 @@ function AdminProductsPageContent() {
         price: Number(price),
         vatRate: Number(vatRate),
         available: available === 'true',
+      }
+
+      if (payload.available && !payload.productNumber) {
+        const message = 'Bitte Produktnummer vergeben, bevor der Artikel verkauft werden kann.'
+        setProductNumberError(message)
+        setError(message)
+        return
       }
 
       if (editingProductId) {
@@ -461,7 +468,7 @@ function AdminProductsPageContent() {
       const message =
         submitError instanceof Error ? submitError.message : 'Produkt konnte nicht gespeichert werden'
       setError(message)
-      if (message.toLowerCase().includes('artikelnummer')) {
+      if (message.toLowerCase().includes('artikelnummer') || message.toLowerCase().includes('produktnummer')) {
         setProductNumberError(message)
       }
     } finally {
@@ -511,10 +518,12 @@ function AdminProductsPageContent() {
         )
       : null
     if (duplicate) {
-      setProductNumberError(`Diese Artikelnummer ist bereits vergeben: ${resolvedNumber}`)
+      setProductNumberError(`Diese Produktnummer ist bereits vergeben: ${resolvedNumber}`)
       setError(`Produktnummer ${resolvedNumber} existiert bereits in dieser Filiale.`)
       return
     }
+
+    const shouldBeAvailable = Boolean(resolvedNumber)
 
     try {
       setTemplateImportSaving(true)
@@ -534,16 +543,20 @@ function AdminProductsPageContent() {
         nutritionInfo: null,
         price: Number(importPrice || selectedProduct.price),
         vatRate: Number(selectedProduct.vatRate || 7),
-        available: true,
+        available: shouldBeAvailable,
       })
       await loadCoreData()
       setTemplateImportDialogOpen(false)
-      setSuccess(`Produkt "${selectedProduct.name}" aus Vorlage übernommen.`)
+      setSuccess(
+        shouldBeAvailable
+          ? `Produkt "${selectedProduct.name}" aus Vorlage übernommen.`
+          : `Produkt "${selectedProduct.name}" übernommen. Bitte Produktnummer vergeben, um den Artikel verfügbar zu schalten.`
+      )
     } catch (importError) {
       const message =
         importError instanceof Error ? importError.message : 'Vorlagenprodukt konnte nicht übernommen werden'
       setError(message)
-      if (message.toLowerCase().includes('artikelnummer')) {
+      if (message.toLowerCase().includes('artikelnummer') || message.toLowerCase().includes('produktnummer')) {
         setProductNumberError(message)
       }
     } finally {
