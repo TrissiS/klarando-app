@@ -11,6 +11,7 @@ export const SUPERADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/superadmin/business-templates', label: 'Vorlagen' },
   { href: '/superadmin/template-editor', label: 'Vorlagen-Editor' },
   { href: '/superadmin/promotions', label: 'Aktionen & News' },
+  { href: '/superadmin/cms', label: 'Website / CMS' },
   { href: '/superadmin/security', label: 'Benutzer & Rechte' },
   { href: '/superadmin/orders', label: 'Bestellungen' },
   { href: '/superadmin/display-devices', label: 'Geräte' },

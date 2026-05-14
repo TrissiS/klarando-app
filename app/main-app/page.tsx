@@ -3,13 +3,14 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import PromotionSlider from '@/components/PromotionSlider'
+import PublicCmsPage from '@/components/cms/PublicCmsPage'
 import {
   getPublicTenantDiscovery,
   type PublicTenantDiscoveryMode,
   type PublicTenantDiscoveryTenant,
 } from '@/lib/api'
 
-export default function MainAppPage() {
+function MainAppFallbackPage() {
   const [zipCode, setZipCode] = useState('')
   const [street, setStreet] = useState('')
   const [mode, setMode] = useState<PublicTenantDiscoveryMode>('all')
@@ -291,5 +292,9 @@ export default function MainAppPage() {
       </div>
     </main>
   )
+}
+
+export default function MainAppPage() {
+  return <PublicCmsPage slug="home" fallback={<MainAppFallbackPage />} />
 }
 

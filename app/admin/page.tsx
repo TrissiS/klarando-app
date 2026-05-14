@@ -54,7 +54,7 @@ export default function AdminPage() {
   const [openComplaintsCount, setOpenComplaintsCount] = useState(0)
   const [loadWarning, setLoadWarning] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
+  const [autoRefreshEnabled] = useState(false)
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
   const [dashboardStorageScope, setDashboardStorageScope] = useState('default')
   const [grantedPermissions, setGrantedPermissions] = useState<Set<string> | null>(null)
@@ -282,17 +282,7 @@ export default function AdminPage() {
 
       if (failedSections.length > 0) {
         setLoadWarning(`Teilweise geladen: ${failedSections.join(', ')}`)
-        const hasAuthFailure = failedReasonTexts.some((reason) => {
-          const normalized = reason.toLowerCase()
-          return (
-            normalized.includes('nicht eingeloggt') ||
-            normalized.includes('unauthorized') ||
-            normalized.includes('401')
-          )
-        })
-        if (hasAuthFailure) {
-          setAutoRefreshEnabled(false)
-        }
+        void failedReasonTexts
       } else {
         setLoadWarning(null)
       }
@@ -789,77 +779,20 @@ export default function AdminPage() {
     >
       <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-rose-900/80">
-            Letztes Update:{' '}
-            <span className="font-semibold text-[var(--brand-ink)]">
-              {lastUpdatedAt ? lastUpdatedAt.toLocaleString('de-DE') : '-'}
-            </span>
+          <div>
+            <p className="text-xs uppercase tracking-wide text-rose-900/70">Betriebsdashboard</p>
+            <p className="mt-1 text-sm text-rose-900/75">
+              Fokus auf Umsatz, Bestellungen, Geräte-Status und Warnungen.
+            </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-xs font-medium text-rose-900/85">
-              <input
-                type="checkbox"
-                checked={autoRefreshEnabled}
-                onChange={(event) => setAutoRefreshEnabled(event.target.checked)}
-              />
-              Auto-Refresh (45s)
-            </label>
-            <button
-              type="button"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-              onClick={triggerRefresh}
-              disabled={isRefreshing}
-            >
-              {isRefreshing ? 'Aktualisiere...' : 'Jetzt aktualisieren'}
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs uppercase tracking-wide text-rose-900/70">
-            Dashboard per Drag and Drop anpassen
-          </p>
           <button
             type="button"
-            onClick={() => setReorderModeEnabled((current) => !current)}
-            className={`rounded-xl border px-3 py-2 text-xs font-semibold transition ${
-              reorderModeEnabled
-                ? 'border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100'
-                : 'border-[var(--brand-border)] bg-rose-50/60 text-rose-900 hover:bg-rose-100'
-            }`}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
+            onClick={triggerRefresh}
+            disabled={isRefreshing}
           >
-            {reorderModeEnabled ? 'Reorder beenden' : 'Reorder starten'}
+            {isRefreshing ? 'Aktualisiere...' : 'Aktualisieren'}
           </button>
-        </div>
-        <p className="mt-2 text-xs text-rose-900/70">
-          Reorder ist {reorderModeEnabled ? 'aktiv' : 'inaktiv'}. Nur im aktiven Modus sind Drag-and-Drop-Handler eingeschaltet.
-        </p>
-      </section>
-      <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
-        <p className="text-xs uppercase tracking-wide text-rose-900/70">Widgets ein-/ausblenden</p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          {availableSectionMeta.map((section) => {
-            const checked = visibleSectionIds.includes(section.id)
-            return (
-              <label
-                key={section.id}
-                className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs transition ${
-                  checked
-                    ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                    : 'border-[var(--brand-border)] bg-rose-50/60 text-rose-900/80'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={(event) => toggleSectionVisibility(section.id, event.target.checked)}
-                />
-                {section.label}
-              </label>
-            )
-          })}
         </div>
       </section>
       {availableSectionIds.length === 0 ? (

@@ -48,7 +48,7 @@ export default function BackofficeLayout({
   const [sessionRole, setSessionRole] = useState('')
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
+  const [menuQuery, setMenuQuery] = useState('')
   const [uiMode, setUiMode] = useState<AdminUiMode>('compact')
   const [uiModeReady, setUiModeReady] = useState(false)
   const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set())
@@ -187,6 +187,20 @@ export default function BackofficeLayout({
       return next
     })
   }
+  const visibleNavGroups = useMemo(
+    () =>
+      resolvedNavGroups
+        .map((group) => ({
+          ...group,
+          items: group.items.filter((item) =>
+            menuQuery.trim()
+              ? item.label.toLowerCase().includes(menuQuery.trim().toLowerCase())
+              : true
+          ),
+        }))
+        .filter((group) => group.items.length > 0),
+    [menuQuery, resolvedNavGroups]
+  )
 
   useEffect(() => {
     try {
@@ -228,46 +242,15 @@ export default function BackofficeLayout({
   }, [pathname])
 
   useEffect(() => {
-    const storageKey = 'klarando.backoffice.sidebar.collapsed.v1'
-    try {
-      const raw = window.localStorage.getItem(storageKey)
-      if (raw === '1' || raw === '0') {
-        setIsSidebarCollapsed(raw === '1')
-      } else if (window.innerWidth < 1280) {
-        setIsSidebarCollapsed(true)
-      }
-    } catch {
-      if (window.innerWidth < 1280) {
-        setIsSidebarCollapsed(true)
-      }
-    }
-
     const onResize = () => {
       if (window.innerWidth >= 768) {
         setMobileNavOpen(false)
-      }
-      if (window.innerWidth < 768) {
-        return
-      }
-      if (window.innerWidth < 1280) {
-        setIsSidebarCollapsed(true)
       }
     }
 
     window.addEventListener('resize', onResize)
     return () => window.removeEventListener('resize', onResize)
   }, [])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        'klarando.backoffice.sidebar.collapsed.v1',
-        isSidebarCollapsed ? '1' : '0'
-      )
-    } catch {
-      // ignore
-    }
-  }, [isSidebarCollapsed])
 
   useEffect(() => {
     let cancelled = false
@@ -327,13 +310,7 @@ export default function BackofficeLayout({
   }, [mobileNavOpen])
 
   const isTouchMode = uiMode === 'touch'
-  const sidebarWidthClass = isSidebarCollapsed
-    ? isTouchMode
-      ? 'w-24'
-      : 'w-20'
-    : isTouchMode
-      ? 'w-[248px]'
-      : 'w-[276px]'
+  const sidebarWidthClass = isTouchMode ? 'w-[248px]' : 'w-[276px]'
   const navLinkPaddingClass = isTouchMode ? 'px-4 py-3.5 text-sm' : 'px-3.5 py-2.5 text-[13px]'
   const headerSpacingClass = isTouchMode
     ? 'mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6'
@@ -350,23 +327,28 @@ export default function BackofficeLayout({
       data-admin-ui-mode={uiMode}
     >
       <div className="flex min-h-screen">
-        <aside className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
+        <aside className={`brand-sidebar pointer-events-auto relative z-30 hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
-            {!isSidebarCollapsed ? (
-              <>
-                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
-                  Klarando Plattform
-                </p>
-                <h1 className="mt-2 text-2xl font-bold">{brand}</h1>
-                <p className={`mt-2 text-orange-100/80 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>Verwaltung von Rollen, Rechten und Freigaben.</p>
-              </>
-            ) : null}
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
+              Klarando Plattform
+            </p>
+            <h1 className="mt-2 text-2xl font-bold">{brand}</h1>
+            <p className={`mt-2 text-orange-100/80 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>Verwaltung von Rollen, Rechten und Freigaben.</p>
           </div>
 
-          <nav className={`flex-1 ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+          <nav className={`pointer-events-auto flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+            <div className="mb-4 rounded-2xl border border-white/20 bg-white/10 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-orange-100/75">Menüsuche</p>
+              <input
+                value={menuQuery}
+                onChange={(event) => setMenuQuery(event.target.value)}
+                placeholder="Menüpunkt suchen..."
+                className={`mt-2 w-full rounded-xl border border-white/20 bg-white/90 text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
+              />
+            </div>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
-              {resolvedNavGroups.map((group) => (
+              {visibleNavGroups.map((group) => (
                 <div key={group.id}>
                   <button
                     type="button"
@@ -391,8 +373,9 @@ export default function BackofficeLayout({
                               isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
                             }`}
                             data-nav-anchor="backoffice-sidebar-link"
+                            onClick={() => setMobileNavOpen(false)}
                           >
-                            {isSidebarCollapsed ? item.label.slice(0, 1) : item.label}
+                            {item.label}
                           </Link>
                         )
                       })}
@@ -411,10 +394,10 @@ export default function BackofficeLayout({
                   <Link
                     href="/admin"
                     title="Zum Adminbereich"
-                    className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
-                    data-nav-anchor="backoffice-sidebar-quicklink"
-                  >
-                    {isSidebarCollapsed ? '>>' : 'Zum Adminbereich'}
+                  className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
+                  data-nav-anchor="backoffice-sidebar-quicklink"
+                >
+                    Zum Adminbereich
                   </Link>
                 ) : null}
                 <button
@@ -423,7 +406,7 @@ export default function BackofficeLayout({
                   title="Logout"
                   className={`block w-full rounded-2xl border border-red-300 bg-red-500/15 text-left font-medium text-red-100 transition hover:bg-red-500/25 ${isTouchMode ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'}`}
                 >
-                  {isSidebarCollapsed ? 'X' : 'Logout'}
+                  Logout
                 </button>
               </div>
             </div>
@@ -433,19 +416,17 @@ export default function BackofficeLayout({
             <div className="rounded-2xl bg-white/10 px-4 py-4 ring-1 ring-white/20">
               <p className="text-xs uppercase tracking-wide text-orange-100/80">Bereich</p>
               <p className="mt-2 text-sm text-white">{title}</p>
-              {!isSidebarCollapsed ? (
-                <div className="mt-3 border-t border-white/15 pt-3 text-[11px] text-orange-100/80">
-                  <p>Klarando v{appVersion}</p>
-                  <p>Build: {formatBuildDateForUi(buildDateIso)}</p>
-                  <p>{environment.toUpperCase()}</p>
-                  {commitSha ? <p>Commit: {commitSha.slice(0, 8)}</p> : null}
-                </div>
-              ) : null}
+              <div className="mt-3 border-t border-white/15 pt-3 text-[11px] text-orange-100/80">
+                <p>Klarando v{appVersion}</p>
+                <p>Build: {formatBuildDateForUi(buildDateIso)}</p>
+                <p>{environment.toUpperCase()}</p>
+                {commitSha ? <p>Commit: {commitSha.slice(0, 8)}</p> : null}
+              </div>
             </div>
           </div>
         </aside>
 
-        <div className="relative z-10 min-w-0 flex-1">
+        <div className="relative z-0 min-w-0 flex-1">
           <header className="border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
             <div className={headerSpacingClass}>
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -467,13 +448,6 @@ export default function BackofficeLayout({
                     title={isTouchMode ? 'Auf Kompakt-Modus umstellen' : 'Auf Touch-Modus umstellen'}
                   >
                     {isTouchMode ? 'Touch' : 'Kompakt'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsSidebarCollapsed((current) => !current)}
-                    className="hidden rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100 md:inline-flex"
-                  >
-                    {isSidebarCollapsed ? 'Sidebar öffnen' : 'Sidebar einklappen'}
                   </button>
                   <button
                     type="button"
@@ -530,7 +504,16 @@ export default function BackofficeLayout({
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
                   <div className="space-y-4">
-                    {resolvedNavGroups.map((group) => (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-rose-900/70">Menüsuche</p>
+                      <input
+                        value={menuQuery}
+                        onChange={(event) => setMenuQuery(event.target.value)}
+                        placeholder="Menüpunkt suchen..."
+                        className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-rose-900 outline-none"
+                      />
+                    </div>
+                    {visibleNavGroups.map((group) => (
                       <div key={`mobile-${group.id}`}>
                         <button
                           type="button"

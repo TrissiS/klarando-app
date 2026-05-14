@@ -21,6 +21,9 @@ import {
   getProductIngredients,
   getProductModifiers,
   getProducts,
+  getBusinessTemplateDetail,
+  getBusinessTemplates,
+  getStoredAccessToken,
   updateCategory,
   updateIngredient,
   updateProduct,
@@ -28,6 +31,8 @@ import {
   type Ingredient,
   type Product,
   type UnitEanEntry,
+  type BusinessTemplateDetail,
+  type BusinessTemplateOverview,
 } from '@/lib/api'
 
 type ProductTab = 'products' | 'categories' | 'ingredients' | 'pricing'
@@ -141,6 +146,7 @@ function AdminProductsPageContent() {
   const [available, setAvailable] = useState('true')
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
   const [savingProduct, setSavingProduct] = useState(false)
+  const [productNumberError, setProductNumberError] = useState('')
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
   const [creatingIngredientProductId, setCreatingIngredientProductId] = useState<string | null>(null)
   const [copyingProductId, setCopyingProductId] = useState<string | null>(null)
@@ -180,6 +186,17 @@ function AdminProductsPageContent() {
   const [loadingIngredients, setLoadingIngredients] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [templateOverviews, setTemplateOverviews] = useState<BusinessTemplateOverview[]>([])
+  const [templateDetail, setTemplateDetail] = useState<BusinessTemplateDetail | null>(null)
+  const [templateImportDialogOpen, setTemplateImportDialogOpen] = useState(false)
+  const [templateImportLoading, setTemplateImportLoading] = useState(false)
+  const [templateImportSaving, setTemplateImportSaving] = useState(false)
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [selectedTemplateProductId, setSelectedTemplateProductId] = useState('')
+  const [importProductNumber, setImportProductNumber] = useState('')
+  const [importProductEan, setImportProductEan] = useState('')
+  const [importPrice, setImportPrice] = useState('')
+  const [importCategoryId, setImportCategoryId] = useState('')
 
   async function loadCoreData() {
     try {
@@ -225,6 +242,53 @@ function AdminProductsPageContent() {
   useEffect(() => {
     void loadCoreData()
   }, [])
+
+  useEffect(() => {
+    const token = getStoredAccessToken()
+    if (!token) {
+      return
+    }
+    ;(async () => {
+      try {
+        const rows = await getBusinessTemplates(token)
+        setTemplateOverviews(rows)
+        if (rows[0]?.id) {
+          setSelectedTemplateId(rows[0].id)
+        }
+      } catch {
+        // ignore optional helper data
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    const token = getStoredAccessToken()
+    if (!token || !selectedTemplateId) {
+      setTemplateDetail(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        setTemplateImportLoading(true)
+        const detail = await getBusinessTemplateDetail(token, selectedTemplateId)
+        if (!cancelled) {
+          setTemplateDetail(detail)
+        }
+      } catch {
+        if (!cancelled) {
+          setTemplateDetail(null)
+        }
+      } finally {
+        if (!cancelled) {
+          setTemplateImportLoading(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedTemplateId])
 
   useEffect(() => {
     const tabFromUrl = searchParams.get('tab')
@@ -346,6 +410,7 @@ function AdminProductsPageContent() {
       setSavingProduct(true)
       setError('')
       setSuccess('')
+      setProductNumberError('')
 
       const payload = {
         categoryId: categoryId || null,
@@ -392,9 +457,96 @@ function AdminProductsPageContent() {
         await loadIngredientsData(true)
       }
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Produkt konnte nicht gespeichert werden')
+      const message =
+        submitError instanceof Error ? submitError.message : 'Produkt konnte nicht gespeichert werden'
+      setError(message)
+      if (message.toLowerCase().includes('artikelnummer')) {
+        setProductNumberError(message)
+      }
     } finally {
       setSavingProduct(false)
+    }
+  }
+
+  function openTemplateProductDialog() {
+    setTemplateImportDialogOpen(true)
+    setError('')
+    setSuccess('')
+    setProductNumberError('')
+  }
+
+  function preloadTemplateProduct(productId: string) {
+    setSelectedTemplateProductId(productId)
+    const selectedProduct = templateDetail?.products.find((entry) => entry.id === productId)
+    if (!selectedProduct) {
+      return
+    }
+    setImportProductNumber(selectedProduct.productNumber || '')
+    setImportProductEan(selectedProduct.ean || '')
+    setImportPrice(String(Number(selectedProduct.price).toFixed(2)))
+    const matchedCategory = categories.find(
+      (category) =>
+        category.name.trim().toLowerCase() ===
+        (selectedProduct.category?.name || '').trim().toLowerCase()
+    )
+    setImportCategoryId(matchedCategory?.id || '')
+  }
+
+  async function handleImportTemplateProduct() {
+    const selectedProduct = templateDetail?.products.find(
+      (entry) => entry.id === selectedTemplateProductId
+    )
+    if (!selectedProduct) {
+      setError('Bitte ein Vorlagenprodukt auswählen.')
+      return
+    }
+
+    const resolvedNumber = importProductNumber.trim() || selectedProduct.productNumber || ''
+    const duplicate = resolvedNumber
+      ? products.find(
+          (entry) =>
+            (entry.productNumber || '').trim().toLowerCase() ===
+            resolvedNumber.trim().toLowerCase()
+        )
+      : null
+    if (duplicate) {
+      setProductNumberError(`Diese Artikelnummer ist bereits vergeben: ${resolvedNumber}`)
+      setError(`Produktnummer ${resolvedNumber} existiert bereits in dieser Filiale.`)
+      return
+    }
+
+    try {
+      setTemplateImportSaving(true)
+      setError('')
+      setProductNumberError('')
+      await createProduct({
+        categoryId: importCategoryId || null,
+        productNumber: resolvedNumber || null,
+        name: selectedProduct.name,
+        imageUrl: selectedProduct.imageUrl || null,
+        ean: (importProductEan.trim() || selectedProduct.ean || null) as string | null,
+        unitEans: [],
+        beverageContainerType: 'NONE',
+        deposit: 0,
+        articleInfo: null,
+        foodBusinessOperator: null,
+        nutritionInfo: null,
+        price: Number(importPrice || selectedProduct.price),
+        vatRate: Number(selectedProduct.vatRate || 7),
+        available: true,
+      })
+      await loadCoreData()
+      setTemplateImportDialogOpen(false)
+      setSuccess(`Produkt "${selectedProduct.name}" aus Vorlage übernommen.`)
+    } catch (importError) {
+      const message =
+        importError instanceof Error ? importError.message : 'Vorlagenprodukt konnte nicht übernommen werden'
+      setError(message)
+      if (message.toLowerCase().includes('artikelnummer')) {
+        setProductNumberError(message)
+      }
+    } finally {
+      setTemplateImportSaving(false)
     }
   }
 
@@ -856,6 +1008,7 @@ function AdminProductsPageContent() {
             available={available}
             setAvailable={setAvailable}
             savingProduct={savingProduct}
+            productNumberError={productNumberError}
             editingProductId={editingProductId}
             deletingProductId={deletingProductId}
             creatingIngredientProductId={creatingIngredientProductId}
@@ -884,7 +1037,138 @@ function AdminProductsPageContent() {
             onCreateIngredientFromProduct={(product) => void handleCreateIngredientFromProduct(product)}
             onCopy={(product) => void handleCopyProduct(product)}
             onCancelEdit={resetProductForm}
+            onOpenTemplateImportDialog={openTemplateProductDialog}
           />
+
+          {templateImportDialogOpen ? (
+            <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/55 p-4">
+              <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[var(--brand-border)] bg-white p-5">
+                <h3 className="text-lg font-semibold text-[var(--brand-ink)]">
+                  Produkt aus Vorlage übernehmen
+                </h3>
+                <p className="mt-1 text-sm text-rose-900/70">
+                  Vor dem Übernehmen kannst du Produktnummer, Kategorie, EAN und Preis anpassen.
+                </p>
+
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Vorlage</span>
+                    <select
+                      value={selectedTemplateId}
+                      onChange={(event) => {
+                        setSelectedTemplateId(event.target.value)
+                        setSelectedTemplateProductId('')
+                      }}
+                      className="input-ui w-full"
+                    >
+                      {templateOverviews.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Produkt</span>
+                    <select
+                      value={selectedTemplateProductId}
+                      onChange={(event) => preloadTemplateProduct(event.target.value)}
+                      className="input-ui w-full"
+                    >
+                      <option value="">Produkt auswählen</option>
+                      {(templateDetail?.products || []).map((product) => (
+                        <option key={product.id} value={product.id}>
+                          {product.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                {templateImportLoading ? (
+                  <p className="mt-3 text-sm text-rose-900/70">Vorlagenprodukte werden geladen...</p>
+                ) : null}
+
+                {selectedTemplateProductId ? (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="block md:col-span-2">
+                      <span className="mb-1 block text-sm font-medium text-rose-900/85">Produktname</span>
+                      <input
+                        value={
+                          templateDetail?.products.find((entry) => entry.id === selectedTemplateProductId)
+                            ?.name || ''
+                        }
+                        disabled
+                        className="input-ui w-full bg-slate-50"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                        Produktnummer (empfohlen)
+                      </span>
+                      <input
+                        value={importProductNumber}
+                        onChange={(event) => setImportProductNumber(event.target.value)}
+                        placeholder="z. B. DÖN-001"
+                        className="input-ui w-full"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-rose-900/85">EAN</span>
+                      <input
+                        value={importProductEan}
+                        onChange={(event) => setImportProductEan(event.target.value)}
+                        className="input-ui w-full"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-rose-900/85">Verkaufspreis</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={importPrice}
+                        onChange={(event) => setImportPrice(event.target.value)}
+                        className="input-ui w-full"
+                      />
+                    </label>
+                    <label className="block">
+                      <span className="mb-1 block text-sm font-medium text-rose-900/85">Kategorie</span>
+                      <select
+                        value={importCategoryId}
+                        onChange={(event) => setImportCategoryId(event.target.value)}
+                        className="input-ui w-full"
+                      >
+                        <option value="">Keine Kategorie</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+                ) : null}
+
+                <div className="mt-5 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTemplateImportDialogOpen(false)}
+                    className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-100"
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleImportTemplateProduct()}
+                    disabled={!selectedTemplateProductId || templateImportSaving}
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                  >
+                    {templateImportSaving ? 'Übernehme...' : 'Übernehmen'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-6">
             <ProductIngredientsManager

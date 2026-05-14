@@ -4808,6 +4808,7 @@ export type BusinessTemplateDetail = {
     productNumber: string | null
     ean: string | null
     name: string
+    imageUrl: string | null
     price: string
     vatRate: string
     available: boolean
@@ -7167,4 +7168,106 @@ export async function reviewChainadminMonthlyClosing(
   }
 
   return res.json()
+}
+
+export type CmsPageStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+
+export type CmsBlockType =
+  | 'Hero'
+  | 'FeatureGrid'
+  | 'TextImage'
+  | 'FAQ'
+  | 'CTA'
+  | 'PromotionSlider'
+  | 'LegalNoticeBlock'
+
+export type CmsBlock = {
+  type: CmsBlockType
+  data: Record<string, unknown>
+}
+
+export type CmsPage = {
+  id: string
+  key: string
+  slug: string
+  title: string
+  status: CmsPageStatus
+  seoTitle: string | null
+  seoDescription: string | null
+  ogImageUrl: string | null
+  contentJson: CmsBlock[]
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type CmsRevision = {
+  id: string
+  pageId: string
+  version: number
+  contentJson: CmsBlock[]
+  seoTitle: string | null
+  seoDescription: string | null
+  createdByUserId: string | null
+  createdByUser?: { id: string; name: string; email: string } | null
+  createdAt: string
+}
+
+export async function getCmsPages(token: string): Promise<CmsPage[]> {
+  return apiJson<CmsPage[]>('/api/cms/pages', {
+    headers: authHeaders(token),
+  }, 'CMS-Seiten konnten nicht geladen werden')
+}
+
+export async function getCmsPageById(token: string, id: string): Promise<CmsPage> {
+  return apiJson<CmsPage>(`/api/cms/pages/${id}`, {
+    headers: authHeaders(token),
+  }, 'CMS-Seite konnte nicht geladen werden')
+}
+
+export async function createCmsPage(
+  token: string,
+  payload: Partial<CmsPage> & { key: string; slug: string; title: string }
+): Promise<CmsPage> {
+  return apiJson<CmsPage>('/api/cms/pages', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  }, 'CMS-Seite konnte nicht erstellt werden')
+}
+
+export async function updateCmsPage(
+  token: string,
+  id: string,
+  payload: Partial<CmsPage>
+): Promise<CmsPage> {
+  return apiJson<CmsPage>(`/api/cms/pages/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  }, 'CMS-Seite konnte nicht aktualisiert werden')
+}
+
+export async function publishCmsPage(token: string, id: string): Promise<CmsPage> {
+  return apiJson<CmsPage>(`/api/cms/pages/${id}/publish`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  }, 'CMS-Seite konnte nicht veröffentlicht werden')
+}
+
+export async function getCmsRevisions(token: string, id: string): Promise<CmsRevision[]> {
+  return apiJson<CmsRevision[]>(`/api/cms/pages/${id}/revisions`, {
+    headers: authHeaders(token),
+  }, 'CMS-Versionen konnten nicht geladen werden')
+}
+
+export async function getPublicCmsPage(slug: string): Promise<CmsPage | null> {
+  const normalizedSlug = slug.replace(/^\/+/, '').trim()
+  if (!normalizedSlug) return null
+
+  try {
+    return await apiJson<CmsPage>(`/api/cms/public/${encodeURIComponent(normalizedSlug)}`)
+  } catch {
+    return null
+  }
 }

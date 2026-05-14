@@ -77,6 +77,43 @@ export type DriverSettings = {
   customerLiveTrackingEnabled: boolean
 }
 
+export type OrderingAvailabilitySettings = {
+  deliveryEnabled: boolean
+  pickupEnabled: boolean
+  preorderEnabled: boolean
+  deliveryPauseEnabled: boolean
+  deliveryCutoffMinutesBeforeClose: number
+  pickupCutoffMinutesBeforeClose: number
+  preorderEarliestTime: string | null
+  preorderMaxDays: number
+  closingSoonThresholdMinutes: number
+  manualNoticeText: string | null
+}
+
+export type DeliveryAvailabilityMode =
+  | 'IMMEDIATE'
+  | 'NEXT_DAY'
+  | 'AFTER_DAYS'
+  | 'SLOT_ONLY'
+
+export type DeliveryTimeSlot = {
+  day: WeekDay
+  start: string
+  end: string
+  maxOrders: number | null
+}
+
+export type DeliverySchedulingSettings = {
+  deliveryMode: DeliveryAvailabilityMode
+  immediateDeliveryEnabled: boolean
+  minDaysAhead: number
+  orderCutoffTime: string | null
+  allowedDeliveryDays: WeekDay[]
+  maxPreorderDays: number
+  customerHint: string | null
+  timeSlots: DeliveryTimeSlot[]
+}
+
 export type ComplianceSettings = {
   cookieConsentRequired: boolean
   requirePrivacyConsentAtSignup: boolean
@@ -159,6 +196,8 @@ export type BusinessSettings = {
   deliveryArea: ServiceAreaSettings
   pickupArea: ServiceAreaSettings
   driver: DriverSettings
+  ordering: OrderingAvailabilitySettings
+  deliveryScheduling: DeliverySchedulingSettings
   customerApp: CustomerAppSettings
   compliance: ComplianceSettings
   notes: string | null
@@ -557,6 +596,38 @@ export function defaultDriverSettings(): DriverSettings {
   }
 }
 
+export function defaultOrderingAvailabilitySettings(): OrderingAvailabilitySettings {
+  return {
+    deliveryEnabled: true,
+    pickupEnabled: true,
+    preorderEnabled: false,
+    deliveryPauseEnabled: false,
+    deliveryCutoffMinutesBeforeClose: 30,
+    pickupCutoffMinutesBeforeClose: 15,
+    preorderEarliestTime: null,
+    preorderMaxDays: 3,
+    closingSoonThresholdMinutes: 30,
+    manualNoticeText: null,
+  }
+}
+
+export function defaultDeliverySchedulingSettings(): DeliverySchedulingSettings {
+  return {
+    deliveryMode: 'IMMEDIATE',
+    immediateDeliveryEnabled: true,
+    minDaysAhead: 0,
+    orderCutoffTime: '18:00',
+    allowedDeliveryDays: [...WEEK_DAYS],
+    maxPreorderDays: 14,
+    customerHint: null,
+    timeSlots: [
+      { day: 'MONDAY', start: '09:00', end: '12:00', maxOrders: null },
+      { day: 'MONDAY', start: '12:00', end: '15:00', maxOrders: null },
+      { day: 'MONDAY', start: '15:00', end: '18:00', maxOrders: null },
+    ],
+  }
+}
+
 export function defaultComplianceSettings(): ComplianceSettings {
   return {
     cookieConsentRequired: true,
@@ -852,6 +923,135 @@ function sanitizeDriverSettings(value: unknown, fallback: DriverSettings): Drive
   }
 }
 
+function sanitizeOrderingAvailabilitySettings(
+  value: unknown,
+  fallback: OrderingAvailabilitySettings
+): OrderingAvailabilitySettings {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    deliveryEnabled:
+      typeof source.deliveryEnabled === 'boolean'
+        ? source.deliveryEnabled
+        : fallback.deliveryEnabled,
+    pickupEnabled:
+      typeof source.pickupEnabled === 'boolean'
+        ? source.pickupEnabled
+        : fallback.pickupEnabled,
+    preorderEnabled:
+      typeof source.preorderEnabled === 'boolean'
+        ? source.preorderEnabled
+        : fallback.preorderEnabled,
+    deliveryPauseEnabled:
+      typeof source.deliveryPauseEnabled === 'boolean'
+        ? source.deliveryPauseEnabled
+        : fallback.deliveryPauseEnabled,
+    deliveryCutoffMinutesBeforeClose:
+      normalizeIntegerRange(source.deliveryCutoffMinutesBeforeClose, 0, 360) ??
+      fallback.deliveryCutoffMinutesBeforeClose,
+    pickupCutoffMinutesBeforeClose:
+      normalizeIntegerRange(source.pickupCutoffMinutesBeforeClose, 0, 360) ??
+      fallback.pickupCutoffMinutesBeforeClose,
+    preorderEarliestTime: normalizeTime(source.preorderEarliestTime),
+    preorderMaxDays:
+      normalizeIntegerRange(source.preorderMaxDays, 1, 30) ?? fallback.preorderMaxDays,
+    closingSoonThresholdMinutes:
+      normalizeIntegerRange(source.closingSoonThresholdMinutes, 5, 240) ??
+      fallback.closingSoonThresholdMinutes,
+    manualNoticeText: normalizeText(source.manualNoticeText),
+  }
+}
+
+function sanitizeDeliveryMode(
+  value: unknown,
+  fallback: DeliveryAvailabilityMode
+): DeliveryAvailabilityMode {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+
+  const normalized = value.trim().toUpperCase()
+  if (
+    normalized === 'IMMEDIATE' ||
+    normalized === 'NEXT_DAY' ||
+    normalized === 'AFTER_DAYS' ||
+    normalized === 'SLOT_ONLY'
+  ) {
+    return normalized
+  }
+
+  return fallback
+}
+
+function sanitizeAllowedWeekDays(value: unknown, fallback: WeekDay[]) {
+  if (!Array.isArray(value)) {
+    return fallback
+  }
+
+  const validDays = value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.toUpperCase())
+    .filter((entry): entry is WeekDay => (WEEK_DAYS as readonly string[]).includes(entry))
+
+  return validDays.length > 0 ? Array.from(new Set(validDays)) : fallback
+}
+
+function sanitizeDeliveryTimeSlots(
+  value: unknown,
+  fallback: DeliveryTimeSlot[]
+): DeliveryTimeSlot[] {
+  if (!Array.isArray(value)) {
+    return fallback
+  }
+
+  const slots = value
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === 'object'))
+    .map((entry) => {
+      const dayRaw = typeof entry.day === 'string' ? entry.day.toUpperCase() : ''
+      if (!(WEEK_DAYS as readonly string[]).includes(dayRaw)) {
+        return null
+      }
+
+      const start = normalizeTime(entry.start)
+      const end = normalizeTime(entry.end)
+      if (!start || !end || start >= end) {
+        return null
+      }
+
+      return {
+        day: dayRaw as WeekDay,
+        start,
+        end,
+        maxOrders: normalizeIntegerRange(entry.maxOrders, 1, 1000),
+      }
+    })
+    .filter((entry): entry is DeliveryTimeSlot => Boolean(entry))
+
+  return slots.length > 0 ? slots.slice(0, 100) : fallback
+}
+
+function sanitizeDeliverySchedulingSettings(
+  value: unknown,
+  fallback: DeliverySchedulingSettings
+): DeliverySchedulingSettings {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    deliveryMode: sanitizeDeliveryMode(source.deliveryMode, fallback.deliveryMode),
+    immediateDeliveryEnabled:
+      typeof source.immediateDeliveryEnabled === 'boolean'
+        ? source.immediateDeliveryEnabled
+        : fallback.immediateDeliveryEnabled,
+    minDaysAhead: normalizeIntegerRange(source.minDaysAhead, 0, 30) ?? fallback.minDaysAhead,
+    orderCutoffTime: normalizeTime(source.orderCutoffTime) ?? fallback.orderCutoffTime,
+    allowedDeliveryDays: sanitizeAllowedWeekDays(source.allowedDeliveryDays, fallback.allowedDeliveryDays),
+    maxPreorderDays:
+      normalizeIntegerRange(source.maxPreorderDays, 1, 90) ?? fallback.maxPreorderDays,
+    customerHint: normalizeText(source.customerHint),
+    timeSlots: sanitizeDeliveryTimeSlots(source.timeSlots, fallback.timeSlots),
+  }
+}
+
 export function parseSettings(
   raw: unknown,
   tenantDefaults: { name: string; email: string | null }
@@ -861,6 +1061,8 @@ export function parseSettings(
   const defaultArea = defaultServiceArea()
   const defaultCustomerApp = defaultCustomerAppSettings()
   const defaultDriver = defaultDriverSettings()
+  const defaultOrdering = defaultOrderingAvailabilitySettings()
+  const defaultDeliveryScheduling = defaultDeliverySchedulingSettings()
   const defaultCompliance = defaultComplianceSettings()
 
   return {
@@ -901,6 +1103,11 @@ export function parseSettings(
     deliveryArea: sanitizeServiceArea(source.deliveryArea, defaultArea),
     pickupArea: sanitizeServiceArea(source.pickupArea, defaultArea),
     driver: sanitizeDriverSettings(source.driver, defaultDriver),
+    ordering: sanitizeOrderingAvailabilitySettings(source.ordering, defaultOrdering),
+    deliveryScheduling: sanitizeDeliverySchedulingSettings(
+      source.deliveryScheduling,
+      defaultDeliveryScheduling
+    ),
     customerApp: sanitizeCustomerApp(source.customerApp, defaultCustomerApp),
     compliance: sanitizeCompliance(source.compliance, defaultCompliance),
     notes: normalizeText(source.notes),

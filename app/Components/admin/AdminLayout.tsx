@@ -570,7 +570,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       data-admin-ui-mode={uiMode}
     >
       <div className="flex min-h-screen min-w-0">
-        <aside className={`brand-sidebar hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
+        <aside className={`brand-sidebar pointer-events-auto relative z-30 hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
           <div className={`border-b border-white/15 ${isTouchMode ? 'px-6 py-6' : 'px-5 py-5'}`}>
             <PlatformBranding settings={platformBranding} area="sidebar" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
@@ -582,7 +582,16 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </p>
           </div>
 
-          <nav className={`flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+          <nav className={`pointer-events-auto flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
+            <div className="mb-4 rounded-2xl border border-white/20 bg-white/10 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-orange-100/75">Menüsuche</p>
+              <input
+                value={menuQuery}
+                onChange={(event) => setMenuQuery(event.target.value)}
+                placeholder="Menüpunkt suchen..."
+                className={`mt-2 w-full rounded-xl border border-white/20 bg-white/90 text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
+              />
+            </div>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
               {visibleNavSections.map((section) => (
                 <div key={section.id}>
@@ -611,6 +620,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                               isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
                             }`}
                             data-nav-anchor="admin-sidebar-link"
+                            onClick={() => setMobileNavOpen(false)}
                           >
                             {item.label}
                           </Link>
@@ -621,17 +631,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
               ))}
             </div>
-            <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-orange-100/75">Menüsuche (optional)</p>
-              <input
-                value={menuQuery}
-                onChange={(event) => setMenuQuery(event.target.value)}
-                placeholder="Menüpunkt suchen..."
-                className={`mt-2 w-full rounded-xl border border-white/20 bg-white/90 text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
-              />
-              <p className="mt-2 text-[11px] text-orange-100/70">Favoriten folgen als nächster Schritt.</p>
-            </div>
-
             <div className="mt-4 border-t border-white/15 pt-4">
               <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
                 Schnellzugriff
@@ -667,7 +666,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
           </div>
         </aside>
 
-        <div className="relative z-10 min-w-0 flex-1">
+        <div className="relative z-0 min-w-0 flex-1">
           <header className="border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
             <div className={headerSpacingClass}>
               <div className="flex flex-wrap items-start justify-between gap-4">
@@ -764,6 +763,15 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
                   <div className="space-y-4">
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-rose-900/70">Menüsuche</p>
+                      <input
+                        value={menuQuery}
+                        onChange={(event) => setMenuQuery(event.target.value)}
+                        placeholder="Menüpunkt suchen..."
+                        className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-rose-900 outline-none"
+                      />
+                    </div>
                     {visibleNavSections.map((section) => (
                       <div key={section.id}>
                         <button
@@ -801,12 +809,13 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                       </div>
                     ))}
                     {switchTarget ? (
-                      <Link
-                        href={switchTarget.href}
-                        className="block rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-100"
-                      >
-                        {switchTarget.label}
-                      </Link>
+                    <Link
+                      href={switchTarget.href}
+                      className="block rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-100"
+                      onClick={() => setMobileNavOpen(false)}
+                    >
+                      {switchTarget.label}
+                    </Link>
                     ) : null}
                     <button
                       type="button"

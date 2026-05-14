@@ -38,6 +38,7 @@ import paypalPaymentRoutes from './routes/payments-paypal'
 import financeRoutes from './routes/finance'
 import billingRoutes from './routes/billing'
 import promotionRoutes from './routes/promotions'
+import cmsRoutes from './routes/cms'
 import { optionalAuth } from './middleware/auth'
 import { rateLimitPasswordReset, rateLimitTokenRefresh } from './middleware/rate-limit'
 import { prisma } from './lib/prisma'
@@ -209,6 +210,7 @@ app.use('/api/payments/paypal', paypalPaymentRoutes)
 app.use('/api/finance', financeRoutes)
 app.use('/api/billing', billingRoutes)
 app.use('/api/promotions', promotionRoutes)
+app.use('/api/cms', cmsRoutes)
 
 app.use((req, res) => {
   res.status(404).json({

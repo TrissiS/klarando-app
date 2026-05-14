@@ -10,6 +10,7 @@
     "bootstrap:superadmin": "node dist/scripts/create-production-superadmin.js",
     "demo:setup:safe": "node dist/scripts/create-demo-tenant-safe.js",
     "seed:business-templates": "node scripts/seed-business-templates.cjs",
+    "seed:cms-pages": "node scripts/seed-cms-pages.cjs",
     "typecheck": "tsc --noEmit",
     "go-live:check": "node -r ts-node/register/transpile-only scripts/go-live-check.ts",
     "go-live:provision": "node -r ts-node/register/transpile-only scripts/go-live-provision-displays.ts",

@@ -260,6 +260,18 @@ enum AppAuthProvider {
   APPLE
 }
 
+enum CmsPageStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CmsAssetType {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
 enum CommissionRuleType {
   PERCENT
   FIXED_PER_ORDER
@@ -1764,12 +1776,62 @@ model User {
   passwordResetTokens PasswordResetToken[]
   finalizedBillingRuns BillingRun[] @relation("BillingRunFinalizedBy")
   createdPromotions PlatformPromotion[] @relation("PromotionCreatedBy")
+  createdCmsRevisions CmsRevision[] @relation("CmsRevisionCreatedBy")
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
   @@index([role])
   @@index([chainId])
   @@index([tenantId])
+}
+
+model CmsPage {
+  id             String        @id @default(uuid())
+  key            String        @unique
+  slug           String        @unique
+  title          String
+  status         CmsPageStatus @default(DRAFT)
+  seoTitle       String?
+  seoDescription String?
+  ogImageUrl     String?
+  contentJson    Json
+  publishedAt    DateTime?
+  revisions      CmsRevision[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([status, slug])
+}
+
+model CmsRevision {
+  id              String   @id @default(uuid())
+  pageId          String
+  version         Int
+  contentJson     Json
+  seoTitle        String?
+  seoDescription  String?
+  createdByUserId String?
+  page            CmsPage  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  createdByUser   User?    @relation("CmsRevisionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+
+  @@unique([pageId, version])
+  @@index([pageId, createdAt])
+}
+
+model CmsAsset {
+  id               String       @id @default(uuid())
+  type             CmsAssetType
+  name             String
+  url              String
+  altText          String?
+  mimeType         String?
+  sizeBytes        Int?
+  originalFileName String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([type, createdAt])
 }
 
 model PasswordResetToken {

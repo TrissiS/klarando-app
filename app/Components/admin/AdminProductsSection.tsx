@@ -45,6 +45,8 @@ type Props = {
   onCreateIngredientFromProduct: (product: Product) => void
   onCopy: (product: Product) => void
   onCancelEdit: () => void
+  productNumberError?: string
+  onOpenTemplateImportDialog: () => void
 }
 
 export default function AdminProductsSection({
@@ -91,6 +93,8 @@ export default function AdminProductsSection({
   onCreateIngredientFromProduct,
   onCopy,
   onCancelEdit,
+  productNumberError,
+  onOpenTemplateImportDialog,
 }: Props) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'AVAILABLE' | 'UNAVAILABLE'>('ALL')
@@ -179,36 +183,55 @@ export default function AdminProductsSection({
           <h2 className="text-xl font-semibold">
             {editingProductId ? 'Produkt bearbeiten' : 'Neues Produkt'}
           </h2>
-          <button
-            type="button"
-            onClick={onCancelEdit}
-            className="rounded-xl border border-[var(--brand-border)] px-3 py-1.5 text-sm font-medium text-rose-900/85 transition hover:bg-rose-50"
-          >
-            Neues Produkt anlegen
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onOpenTemplateImportDialog}
+              className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100"
+            >
+              Aus Business-Vorlage übernehmen
+            </button>
+            <button
+              type="button"
+              onClick={onCancelEdit}
+              className="rounded-xl border border-[var(--brand-border)] px-3 py-1.5 text-sm font-medium text-rose-900/85 transition hover:bg-rose-50"
+            >
+              Neues Produkt anlegen
+            </button>
+          </div>
         </div>
         <p className="mt-1 text-sm text-rose-900/70">
           Vereinfachte Anlage mit optionalen Detail-Einstellungen.
         </p>
 
         <form onSubmit={onSubmit} className="mt-4 space-y-3">
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-rose-900/85">
+          <div className="rounded-xl border border-[var(--brand-border)] bg-amber-50/60 px-3 py-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">
               Produktnummer
-            </span>
+            </p>
+            <p className="mt-1 text-xs text-amber-900/75">
+              Produktnummer ist optional, aber empfohlen.
+            </p>
             <input
               value={productNumber}
               onChange={(event) => setProductNumber(event.target.value)}
               placeholder="Optional"
-              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60 disabled:cursor-not-allowed disabled:bg-rose-50"
+              className={`mt-2 w-full rounded-xl border px-3 py-2 text-sm outline-none transition disabled:cursor-not-allowed disabled:bg-rose-50 ${
+                productNumberError
+                  ? 'border-red-300 bg-red-50 focus:border-red-400 focus:ring-2 focus:ring-red-200/60'
+                  : 'border-[var(--brand-border)] focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60'
+              }`}
             />
             <p className="mt-1 text-xs text-rose-900/70">
-              Artikelnummer optional – muss innerhalb der Filiale eindeutig sein.
+              Muss innerhalb der Filiale eindeutig sein.
             </p>
-          </label>
+            {productNumberError ? (
+              <p className="mt-1 text-xs font-semibold text-red-700">{productNumberError}</p>
+            ) : null}
+          </div>
 
           <label className="block">
-            <span className="mb-1 block text-sm font-medium text-rose-900/85">Name</span>
+            <span className="mb-1 block text-sm font-medium text-rose-900/85">Name *</span>
             <input
               value={productName}
               onChange={(event) => setProductName(event.target.value)}
@@ -410,8 +433,8 @@ export default function AdminProductsSection({
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">MwSt</span>
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-rose-900/85">MwSt *</span>
                     <select
                       value={vatRate}
                       onChange={(event) => setVatRate(event.target.value)}
