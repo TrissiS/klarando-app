@@ -395,20 +395,22 @@ export default function DisplayDeviceManagementPanel({
       setError('')
       setSuccess('')
       const pairingToken = resolvePairingTokenFromPayload(claimPayload)
-      if (!pairingToken) {
-        throw new Error('Bitte QR-Payload oder Pairing-Token einfügen.')
+      const manualPairingCode = claimPairingCode.trim() || null
+      if (!pairingToken && !manualPairingCode) {
+        throw new Error('Bitte QR-Payload/Pairing-Token oder einen Pairing-Code eingeben.')
       }
       const tenantId = (isTenantLocked ? fixedTenantId : claimTenantId)?.trim()
       if (!tenantId) {
         throw new Error('Bitte Filiale auswählen.')
       }
-      await claimDisplayPairingSession(token, {
+      const response = await claimDisplayPairingSession(token, {
         pairingToken,
+        pairingCode: manualPairingCode,
         tenantId,
         screenId: claimScreenId.trim() || null,
         displayName: claimDisplayName.trim() || null,
       })
-      setSuccess('Display erfolgreich verbunden.')
+      setSuccess(response.message || 'Display erfolgreich verbunden.')
       setClaimPayload('')
       setClaimPairingCode('')
       setClaimScreenId('')

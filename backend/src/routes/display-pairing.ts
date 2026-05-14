@@ -297,22 +297,40 @@ router.post('/admin/displays/pairing/claim', requirePermission(PermissionKey.SET
     }
 
     const pairingToken = normalizeText(payload.pairingToken)
+    const pairingCode = normalizeText(payload.pairingCode)
     const tenantIdInput = normalizeText(payload.tenantId)
-    if (!pairingToken || !tenantIdInput) {
-      return res.status(400).json({ code: 'PAIRING_INPUT_INVALID', message: 'pairingToken und tenantId sind erforderlich.' })
-    }
-
-    const tokenPayload = verifyDisplayDeviceToken(pairingToken)
-    if (!tokenPayload || tokenPayload.kind !== 'PAIRING') {
-      return res.status(401).json({ code: 'PAIRING_TOKEN_INVALID', message: 'Code ungültig oder abgelaufen.' })
+    if ((!pairingToken && !pairingCode) || !tenantIdInput) {
+      return res.status(400).json({
+        code: 'PAIRING_INPUT_INVALID',
+        message: 'Bitte Pairing-Token oder Pairing-Code sowie eine Filiale angeben.',
+      })
     }
 
     const scope = await resolveTenantScope(req, tenantIdInput)
     const tenantId = scope.tenantId as string
 
-    const session = await prisma.displayPairingSession.findUnique({ where: { id: tokenPayload.sid } })
+    let session = null as Awaited<ReturnType<typeof prisma.displayPairingSession.findUnique>>
+    if (pairingToken) {
+      const tokenPayload = verifyDisplayDeviceToken(pairingToken)
+      if (!tokenPayload || tokenPayload.kind !== 'PAIRING') {
+        return res.status(401).json({ code: 'PAIRING_TOKEN_INVALID', message: 'Code ungültig oder abgelaufen.' })
+      }
+      session = await prisma.displayPairingSession.findUnique({ where: { id: tokenPayload.sid } })
+    } else if (pairingCode) {
+      session = await prisma.displayPairingSession.findFirst({
+        where: {
+          pairingCode,
+          status: DisplayPairingStatus.PENDING,
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    }
+
     if (!session) {
-      return res.status(404).json({ code: 'PAIRING_SESSION_NOT_FOUND', message: 'Pairing-Session wurde nicht gefunden.' })
+      return res.status(404).json({
+        code: 'PAIRING_SESSION_NOT_FOUND',
+        message: 'Pairing-Code wurde nicht gefunden.',
+      })
     }
     if (session.status !== DisplayPairingStatus.PENDING) {
       return res.status(409).json({ code: 'PAIRING_ALREADY_USED', message: 'Code bereits verwendet.' })
@@ -324,7 +342,7 @@ router.post('/admin/displays/pairing/claim', requirePermission(PermissionKey.SET
       })
       return res.status(410).json({ code: 'PAIRING_EXPIRED', message: 'Code abgelaufen.' })
     }
-    if (session.pairingTokenHash !== hashToken(pairingToken)) {
+    if (pairingToken && session.pairingTokenHash !== hashToken(pairingToken)) {
       return res.status(401).json({ code: 'PAIRING_TOKEN_INVALID', message: 'Code ungültig oder abgelaufen.' })
     }
 
@@ -406,7 +424,16 @@ router.post('/admin/displays/pairing/claim', requirePermission(PermissionKey.SET
       },
     })
 
-    return res.json({ ok: true })
+    return res.json({
+      display: {
+        id: device.id,
+        tenantId,
+        screenId: screen.id,
+        name: displayName,
+        status: device.status,
+      },
+      message: 'Display erfolgreich verbunden.',
+    })
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {

@@ -6725,17 +6725,28 @@ export async function regenerateDisplayPairingCode(
 export async function claimDisplayPairingSession(
   token: string,
   data: {
-    pairingToken: string
+    pairingToken?: string | null
+    pairingCode?: string | null
     tenantId: string
     screenId?: string | null
     displayName?: string | null
   }
-): Promise<{ ok: true }> {
+): Promise<{
+  display: {
+    id: string
+    tenantId: string
+    screenId: string
+    name: string
+    status: string
+  }
+  message: string
+}> {
   const res = await fetch(`${API_BASE_URL}/api/admin/displays/pairing/claim`, {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify({
-      pairingToken: data.pairingToken,
+      pairingToken: data.pairingToken || undefined,
+      pairingCode: data.pairingCode || undefined,
       tenantId: data.tenantId,
       screenId: data.screenId || undefined,
       displayName: data.displayName || undefined,
