@@ -145,6 +145,7 @@ function AdminProductsPageContent() {
   const [categoryId, setCategoryId] = useState('')
   const [available, setAvailable] = useState('true')
   const [editingProductId, setEditingProductId] = useState<string | null>(null)
+  const [loadedProductNumber, setLoadedProductNumber] = useState<string>('')
   const [savingProduct, setSavingProduct] = useState(false)
   const [productNumberError, setProductNumberError] = useState('')
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null)
@@ -197,7 +198,7 @@ function AdminProductsPageContent() {
   const [importProductEan, setImportProductEan] = useState('')
   const [importPrice, setImportPrice] = useState('')
   const [importCategoryId, setImportCategoryId] = useState('')
-  const productNumberLocked = Boolean(editingProductId && productNumber.trim())
+  const productNumberLocked = Boolean(editingProductId && loadedProductNumber.trim())
 
   async function loadCoreData() {
     try {
@@ -316,6 +317,7 @@ function AdminProductsPageContent() {
 
   function resetProductForm() {
     setProductNumber('')
+    setLoadedProductNumber('')
     setProductName('')
     setProductImageUrl('')
     setProductEan('')
@@ -455,6 +457,7 @@ function AdminProductsPageContent() {
           available: payload.available,
         })
         setSuccess('Produkt erfolgreich aktualisiert.')
+        setLoadedProductNumber(payload.productNumber || '')
       } else {
         await createProduct(payload)
         setSuccess('Produkt erfolgreich erstellt.')
@@ -1033,6 +1036,7 @@ function AdminProductsPageContent() {
             onEdit={(product) => {
               setEditingProductId(product.id)
               setProductNumber(product.productNumber || '')
+              setLoadedProductNumber(product.productNumber || '')
               setProductName(product.name)
               setProductImageUrl(product.imageUrl || '')
               setProductEan(product.ean || '')
