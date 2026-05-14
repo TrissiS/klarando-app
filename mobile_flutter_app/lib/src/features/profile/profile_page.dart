@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/klarando_api.dart';
@@ -114,6 +115,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _codeRequested = false;
   bool _requestingCode = false;
   bool _submittingCode = false;
+  String _appVersionLabel = '-';
 
   @override
   void initState() {
@@ -128,6 +130,21 @@ class _ProfilePageState extends State<ProfilePage> {
     _zipController = TextEditingController();
     _cityController = TextEditingController();
     _hydrateProfileControllers(widget.appCustomer);
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _appVersionLabel = '${info.version}+${info.buildNumber}';
+      });
+    } catch (_) {
+      // Versionanzeige bleibt auf Fallback.
+    }
   }
 
   @override
@@ -1046,6 +1063,11 @@ class _ProfilePageState extends State<ProfilePage> {
             label: 'Kontolöschung E-Mail',
             value: widget.accountDeletionEmail,
             onCopy: () => _copyToClipboard('Kontolöschung E-Mail', widget.accountDeletionEmail),
+          ),
+          _InfoLine(
+            label: 'App-Version',
+            value: _appVersionLabel,
+            onCopy: () => _copyToClipboard('App-Version', _appVersionLabel),
           ),
         ],
       ),

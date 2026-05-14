@@ -6,6 +6,7 @@ COPY package*.json ./
 RUN npm ci
 
 COPY tsconfig.json ./
+COPY VERSION.json ./
 COPY prisma ./prisma
 COPY src ./src
 COPY scripts ./scripts
@@ -25,6 +26,7 @@ RUN apt-get update \
 
 COPY package*.json ./
 RUN npm ci --omit=dev
+COPY VERSION.json ./
 
 COPY prisma ./prisma
 RUN npx prisma generate

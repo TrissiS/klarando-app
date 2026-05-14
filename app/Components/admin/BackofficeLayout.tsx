@@ -8,7 +8,7 @@ import {
   getPlatformBrandingSettings,
   type PlatformBrandingSettings,
 } from '@/lib/api'
-import { appVersion, buildDateIso, commitSha, environment, formatBuildDateForUi } from '@/lib/version'
+import { appVersion, buildDateIso, buildNumber, commitSha, environment, formatBuildDateForUi, releaseName } from '@/lib/version'
 import { clearSuperadminTenantContext } from '@/lib/superadmin-tenant-context'
 
 type BackofficeNavItem = {
@@ -418,7 +418,8 @@ export default function BackofficeLayout({
               <p className="text-xs uppercase tracking-wide text-orange-100/80">Bereich</p>
               <p className="mt-2 text-sm text-white">{title}</p>
               <div className="mt-3 border-t border-white/15 pt-3 text-[11px] text-orange-100/80">
-                <p>Klarando v{appVersion}</p>
+                <p>Klarando v{appVersion} · Build {buildNumber}</p>
+                <p>{releaseName}</p>
                 <p>Build: {formatBuildDateForUi(buildDateIso)}</p>
                 <p>{environment.toUpperCase()}</p>
                 {commitSha ? <p>Commit: {commitSha.slice(0, 8)}</p> : null}

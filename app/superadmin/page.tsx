@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
-import klarandoVersion from '@/klarando-version.json'
+import rootVersion from '@/VERSION.json'
 import {
   getAccessContext,
   getBackendHealthOverview,
@@ -578,19 +578,19 @@ export default function SuperadminPage() {
               <p className="text-xs uppercase tracking-wide text-rose-900/70">Plattform Version</p>
               <div className="mt-2 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
                 <p>
-                  Plattform: <span className="font-semibold">{klarandoVersion.version}</span>
+                  Plattform: <span className="font-semibold">{rootVersion.version}</span>
                 </p>
                 <p>
-                  Frontend: <span className="font-semibold">{klarandoVersion.frontendVersion}</span>
+                  Release: <span className="font-semibold">{rootVersion.releaseName || '-'}</span>
                 </p>
                 <p>
-                  Backend: <span className="font-semibold">{backendHealth?.backendVersion || klarandoVersion.backendVersion}</span>
+                  Backend: <span className="font-semibold">{backendHealth?.backendVersion || rootVersion.version}</span>
                 </p>
                 <p>
-                  Display/API: <span className="font-semibold">{klarandoVersion.displayApiVersion}</span>
+                  Buildnummer: <span className="font-semibold">{rootVersion.buildNumber}</span>
                 </p>
                 <p className="sm:col-span-2">
-                  Build-Datum: <span className="font-semibold">{new Date(klarandoVersion.buildDateUtc).toLocaleString('de-DE')}</span>
+                  Build-Datum: <span className="font-semibold">{rootVersion.buildTime ? new Date(rootVersion.buildTime).toLocaleString('de-DE') : '-'}</span>
                 </p>
                 <p className="sm:col-span-2">
                   Backend gestartet: <span className="font-semibold">{backendHealth?.startedAt ? new Date(backendHealth.startedAt).toLocaleString('de-DE') : '-'}</span>

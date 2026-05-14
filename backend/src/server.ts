@@ -51,7 +51,57 @@ const app = express()
 const processStartedAt = new Date()
 
 function readBackendBuildMetadata() {
+  const backendVersionPath = path.resolve(process.cwd(), 'VERSION.json')
+  const rootVersionPath = path.resolve(process.cwd(), '..', 'VERSION.json')
   const packageJsonPath = path.resolve(process.cwd(), 'package.json')
+  try {
+    const backendVersionRaw = fs.readFileSync(backendVersionPath, 'utf8')
+    const backendVersion = JSON.parse(backendVersionRaw) as {
+      version?: string
+      buildNumber?: number
+      releaseName?: string
+      gitCommit?: string | null
+      buildTime?: string | null
+      environment?: string | null
+    }
+    return {
+      version: backendVersion.version || null,
+      buildNumber: Number(backendVersion.buildNumber || 0),
+      releaseName: backendVersion.releaseName || null,
+      gitCommit: backendVersion.gitCommit || process.env.GIT_COMMIT_SHA || null,
+      buildTime: backendVersion.buildTime || null,
+      environment: backendVersion.environment || process.env.NODE_ENV || 'development',
+      backendVersion: backendVersion.version || null,
+      buildDateUtc: backendVersion.buildTime || null,
+    }
+  } catch {
+    // Fallback auf Root-Datei oder package.json
+  }
+
+  try {
+    const rootVersionRaw = fs.readFileSync(rootVersionPath, 'utf8')
+    const rootVersion = JSON.parse(rootVersionRaw) as {
+      version?: string
+      buildNumber?: number
+      releaseName?: string
+      gitCommit?: string | null
+      buildTime?: string | null
+      environment?: string | null
+    }
+    return {
+      version: rootVersion.version || null,
+      buildNumber: Number(rootVersion.buildNumber || 0),
+      releaseName: rootVersion.releaseName || null,
+      gitCommit: rootVersion.gitCommit || process.env.GIT_COMMIT_SHA || null,
+      buildTime: rootVersion.buildTime || null,
+      environment: rootVersion.environment || process.env.NODE_ENV || 'development',
+      backendVersion: rootVersion.version || null,
+      buildDateUtc: rootVersion.buildTime || null,
+    }
+  } catch {
+    // Fallback auf backend/package.json
+  }
+
   try {
     const packageJsonRaw = fs.readFileSync(packageJsonPath, 'utf8')
     const packageJson = JSON.parse(packageJsonRaw) as {
@@ -60,11 +110,23 @@ function readBackendBuildMetadata() {
       klarandoBuildDateUtc?: string
     }
     return {
+      version: packageJson.klarandoVersion || packageJson.version || null,
+      buildNumber: 0,
+      releaseName: null,
+      gitCommit: process.env.GIT_COMMIT_SHA || null,
+      buildTime: packageJson.klarandoBuildDateUtc || null,
+      environment: process.env.NODE_ENV || 'development',
       backendVersion: packageJson.klarandoVersion || packageJson.version || null,
       buildDateUtc: packageJson.klarandoBuildDateUtc || null,
     }
   } catch {
     return {
+      version: null,
+      buildNumber: 0,
+      releaseName: null,
+      gitCommit: process.env.GIT_COMMIT_SHA || null,
+      buildTime: null,
+      environment: process.env.NODE_ENV || 'development',
       backendVersion: null,
       buildDateUtc: null,
     }
@@ -146,6 +208,17 @@ app.get('/api/health', (_req, res) => {
     uptimeSeconds: Math.floor(process.uptime()),
     startedAt: processStartedAt.toISOString(),
     serverTime: new Date().toISOString(),
+  })
+})
+
+app.get('/api/version', (_req, res) => {
+  res.json({
+    version: backendBuildMetadata.version,
+    buildNumber: backendBuildMetadata.buildNumber,
+    releaseName: backendBuildMetadata.releaseName,
+    gitCommit: backendBuildMetadata.gitCommit,
+    buildTime: backendBuildMetadata.buildTime,
+    environment: backendBuildMetadata.environment,
   })
 })
 
