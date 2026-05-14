@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import {
+  claimDisplayPairingSession,
   getAccessContext,
   getDisplayDeviceOverview,
   getDisplayDevicePreview,
@@ -82,6 +83,12 @@ export default function DisplayDeviceManagementPanel({
   const [tenants, setTenants] = useState<ManagedTenant[]>([])
   const [pairingByDisplayRef, setPairingByDisplayRef] = useState<Record<string, { qrImageUrl: string; expiresAt: string; pairingPayload: string }>>({})
   const [busyDisplayRef, setBusyDisplayRef] = useState<string | null>(null)
+  const [claimPayload, setClaimPayload] = useState('')
+  const [claimPairingCode, setClaimPairingCode] = useState('')
+  const [claimTenantId, setClaimTenantId] = useState(fixedTenantId || '')
+  const [claimScreenId, setClaimScreenId] = useState('')
+  const [claimDisplayName, setClaimDisplayName] = useState('')
+  const [claiming, setClaiming] = useState(false)
 
   const isTenantLocked = Boolean(fixedTenantId)
   const isChainLocked = Boolean(fixedChainId)
@@ -200,6 +207,60 @@ export default function DisplayDeviceManagementPanel({
     }
   }
 
+  function resolvePairingTokenFromPayload(raw: string) {
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    if (trimmed.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(trimmed) as { pairingToken?: unknown; type?: unknown; pairingCode?: unknown }
+        const type = typeof parsed.type === 'string' ? parsed.type.toUpperCase() : null
+        if (type && type !== 'DISPLAY_PAIRING') {
+          throw new Error('Dieser QR-Code ist nicht für Displays geeignet.')
+        }
+        if (claimPairingCode && parsed.pairingCode && `${parsed.pairingCode}` !== claimPairingCode.trim()) {
+          throw new Error('Pairing-Code stimmt nicht mit dem QR-Inhalt überein.')
+        }
+        return typeof parsed.pairingToken === 'string' ? parsed.pairingToken.trim() : null
+      } catch (error) {
+        if (error instanceof Error) throw error
+        throw new Error('QR-Payload konnte nicht gelesen werden.')
+      }
+    }
+    return trimmed
+  }
+
+  async function handleClaimPairing() {
+    try {
+      setClaiming(true)
+      setError('')
+      setSuccess('')
+      const pairingToken = resolvePairingTokenFromPayload(claimPayload)
+      if (!pairingToken) {
+        throw new Error('Bitte QR-Payload oder Pairing-Token einfügen.')
+      }
+      const tenantId = (isTenantLocked ? fixedTenantId : claimTenantId)?.trim()
+      if (!tenantId) {
+        throw new Error('Bitte Filiale auswählen.')
+      }
+      await claimDisplayPairingSession(token, {
+        pairingToken,
+        tenantId,
+        screenId: claimScreenId.trim() || null,
+        displayName: claimDisplayName.trim() || null,
+      })
+      setSuccess('Display erfolgreich verbunden.')
+      setClaimPayload('')
+      setClaimPairingCode('')
+      setClaimScreenId('')
+      setClaimDisplayName('')
+      await loadOverview()
+    } catch (claimError) {
+      setError(claimError instanceof Error ? claimError.message : 'Display konnte nicht verbunden werden')
+    } finally {
+      setClaiming(false)
+    }
+  }
+
   return (
     <AdminPageShell>
       {error ? (
@@ -208,6 +269,59 @@ export default function DisplayDeviceManagementPanel({
       {success ? (
         <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{success}</div>
       ) : null}
+
+      <AdminSectionCard title="Display verbinden" description="Scanne den TV-QR-Code oder füge den Pairing-Code manuell ein.">
+        <AdminFormGrid>
+          {!isTenantLocked ? (
+            <AdminSelect
+              label="Filiale"
+              value={claimTenantId}
+              onChange={(event) => setClaimTenantId(event.target.value)}
+            >
+              <option value="">Bitte wählen</option>
+              {filteredTenants.map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name}
+                </option>
+              ))}
+            </AdminSelect>
+          ) : null}
+          <AdminTextInput
+            label="Anzeigename"
+            value={claimDisplayName}
+            onChange={(event) => setClaimDisplayName(event.target.value)}
+            placeholder="z. B. Gastraum TV"
+          />
+          <AdminTextInput
+            label="Bildschirm-ID (optional)"
+            value={claimScreenId}
+            onChange={(event) => setClaimScreenId(event.target.value)}
+            placeholder="Automatisch, wenn leer"
+          />
+          <AdminTextInput
+            label="Pairing-Code (optional)"
+            value={claimPairingCode}
+            onChange={(event) => setClaimPairingCode(event.target.value)}
+            placeholder="123456"
+          />
+          <div className="md:col-span-2">
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-[var(--brand-ink-soft)]">
+              QR-Payload oder Pairing-Token
+            </label>
+            <textarea
+              value={claimPayload}
+              onChange={(event) => setClaimPayload(event.target.value)}
+              className="min-h-24 w-full rounded-2xl border border-[var(--brand-border)] bg-white/85 px-3 py-2 text-sm text-[var(--brand-ink)]"
+              placeholder='{"type":"DISPLAY_PAIRING","pairingToken":"..."}'
+            />
+          </div>
+        </AdminFormGrid>
+        <AdminActionBar>
+          <AdminButton type="button" onClick={() => void handleClaimPairing()} disabled={claiming}>
+            {claiming ? 'Verbinde…' : 'Display verbinden'}
+          </AdminButton>
+        </AdminActionBar>
+      </AdminSectionCard>
 
       <AdminSectionCard title="Display-Verwaltung" description="Filtere Displays nach Status, Typ, Kette und Filiale.">
         <AdminFormGrid>

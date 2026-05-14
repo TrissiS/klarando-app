@@ -6722,6 +6722,34 @@ export async function regenerateDisplayPairingCode(
   return res.json()
 }
 
+export async function claimDisplayPairingSession(
+  token: string,
+  data: {
+    pairingToken: string
+    tenantId: string
+    screenId?: string | null
+    displayName?: string | null
+  }
+): Promise<{ ok: true }> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/displays/pairing/claim`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({
+      pairingToken: data.pairingToken,
+      tenantId: data.tenantId,
+      screenId: data.screenId || undefined,
+      displayName: data.displayName || undefined,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Display konnte nicht verbunden werden')
+  }
+
+  return res.json()
+}
+
 export async function createCustomerMaster(
   token: string,
   data: {

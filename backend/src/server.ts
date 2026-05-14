@@ -29,6 +29,7 @@ import actionRoutes from './routes/actions'
 import staffRoutes from './routes/staff'
 import screenRoutes from './routes/screen'
 import displayRuntimeRoutes from './routes/display-runtime'
+import displayPairingRoutes from './routes/display-pairing'
 import databaseManagementRoutes from './routes/database-management'
 import cashClosingRoutes from './routes/cash-closings'
 import platformBrandingRoutes from './routes/platform-branding'
@@ -277,6 +278,7 @@ app.use('/api/actions', actionRoutes)
 app.use('/api/staff', staffRoutes)
 app.use('/api/screen', screenRoutes)
 app.use('/api/display-runtime', displayRuntimeRoutes)
+app.use('/api', displayPairingRoutes)
 app.use('/api/database-management', databaseManagementRoutes)
 app.use('/api/cash-closings', cashClosingRoutes)
 app.use('/api/platform-branding', platformBrandingRoutes)

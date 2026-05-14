@@ -481,6 +481,8 @@ model Tenant {
   productModifiers ProductModifier[]
   orderDeskDeviceBindings OrderDeskDeviceBinding[]
   orderDeskPairingSessions OrderDeskPairingSession[]
+  displayPairingSessions DisplayPairingSession[]
+  displayDevices DisplayDevice[]
   paymentConfig TenantPaymentConfig?
   providerAccounts TenantProviderAccount[]
   paymentTransactions PaymentTransaction[]
@@ -746,6 +748,8 @@ model ScreenDevice {
   notes                       String?
   lastSeenAt                  DateTime?
   tenant                      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  displayPairingSessions      DisplayPairingSession[]
+  displayDevices              DisplayDevice[]
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -1685,6 +1689,61 @@ model OrderDeskDeviceBinding {
   @@index([resetAt])
 }
 
+enum DisplayPairingStatus {
+  PENDING
+  CLAIMED
+  EXPIRED
+}
+
+model DisplayPairingSession {
+  id              String               @id @default(uuid())
+  pairingTokenHash String              @unique
+  pairingCode     String
+  status          DisplayPairingStatus @default(PENDING)
+  expiresAt       DateTime
+  claimedAt       DateTime?
+  claimedByUserId String?
+  tenantId        String?
+  screenId        String?
+  displayName     String?
+  platform        String?
+  appVersion      String?
+  deviceName      String?
+  deviceId        String?
+  device          DisplayDevice?
+  claimedByUser   User?                @relation("DisplayPairingClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+  tenant          Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  screen          ScreenDevice?        @relation(fields: [screenId], references: [id], onDelete: SetNull)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  @@index([status, expiresAt])
+  @@index([pairingCode])
+}
+
+model DisplayDevice {
+  id              String                @id @default(uuid())
+  tenantId        String
+  screenId        String?
+  pairingSessionId String?              @unique
+  name            String
+  deviceTokenHash String                @unique
+  platform        String?
+  status          String                @default("ACTIVE")
+  lastSeenAt      DateTime?
+  appVersion      String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  revokedAt       DateTime?
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  screen          ScreenDevice?         @relation(fields: [screenId], references: [id], onDelete: SetNull)
+  pairingSession  DisplayPairingSession? @relation(fields: [pairingSessionId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status])
+  @@index([screenId])
+  @@index([lastSeenAt])
+}
+
 model ProductModifier {
   id                String    @id @default(uuid())
   tenantId          String
@@ -1780,6 +1839,7 @@ model User {
   stockMovements  StockMovement[]  @relation("StockMovementActor")
   assignedOrders  Order[]          @relation("OrderAssignedDriver")
   createdOrderDeskPairingSessions OrderDeskPairingSession[] @relation("OrderDeskPairingSessionCreator")
+  claimedDisplayPairingSessions DisplayPairingSession[] @relation("DisplayPairingClaimedBy")
   orderDeskDeviceBindingsAsBinder OrderDeskDeviceBinding[] @relation("OrderDeskBindingBoundBy")
   orderDeskDeviceBindingsAsResetter OrderDeskDeviceBinding[] @relation("OrderDeskBindingResetBy")
   staffMemberProfile StaffMember?  @relation("StaffMemberUser")
