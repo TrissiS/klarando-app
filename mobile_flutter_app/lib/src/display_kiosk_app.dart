@@ -13,6 +13,8 @@ import 'core/api_environment.dart';
 const _prefsDisplayApiBaseUrl = 'klarando_display_api_base_url';
 const _prefsDisplayDeviceToken = 'klarando_display_device_token';
 const _prefsDisplayId = 'klarando_display_id';
+const _prefsDisplayTenantId = 'klarando_display_tenant_id';
+const _prefsDisplayScreenId = 'klarando_display_screen_id';
 
 class KlarandoDisplayApp extends StatelessWidget {
   const KlarandoDisplayApp({super.key});
@@ -109,6 +111,8 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
     );
     _deviceToken = prefs.getString(_prefsDisplayDeviceToken);
     _displayId = prefs.getString(_prefsDisplayId);
+    _tenantId = prefs.getString(_prefsDisplayTenantId);
+    _screenId = prefs.getString(_prefsDisplayScreenId);
 
     if (_deviceToken != null && _deviceToken!.isNotEmpty) {
       final ok = await _loadContentWithToken();
@@ -125,17 +129,27 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
     required String apiBaseUrl,
     required String deviceToken,
     required String displayId,
+    String? tenantId,
+    String? screenId,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsDisplayApiBaseUrl, normalizeApiBaseUrl(apiBaseUrl));
     await prefs.setString(_prefsDisplayDeviceToken, deviceToken);
     await prefs.setString(_prefsDisplayId, displayId);
+    if ((tenantId ?? '').trim().isNotEmpty) {
+      await prefs.setString(_prefsDisplayTenantId, tenantId!.trim());
+    }
+    if ((screenId ?? '').trim().isNotEmpty) {
+      await prefs.setString(_prefsDisplayScreenId, screenId!.trim());
+    }
   }
 
   Future<void> _clearDeviceSession() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_prefsDisplayDeviceToken);
     await prefs.remove(_prefsDisplayId);
+    await prefs.remove(_prefsDisplayTenantId);
+    await prefs.remove(_prefsDisplayScreenId);
     _deviceToken = null;
     _displayId = null;
   }
@@ -261,9 +275,19 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
         return;
       }
 
-      await _saveDeviceSession(apiBaseUrl: _apiBaseUrl, deviceToken: deviceToken, displayId: displayId);
+      final sessionTenantId = (json['tenantId'] as String?)?.trim();
+      final sessionScreenId = (json['screenId'] as String?)?.trim();
+      await _saveDeviceSession(
+        apiBaseUrl: _apiBaseUrl,
+        deviceToken: deviceToken,
+        displayId: displayId,
+        tenantId: sessionTenantId,
+        screenId: sessionScreenId,
+      );
       _deviceToken = deviceToken;
       _displayId = displayId;
+      _tenantId = sessionTenantId;
+      _screenId = sessionScreenId;
       await _loadContentWithToken();
     } catch (_) {
       // still pending / temporary network issues
@@ -311,6 +335,7 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
       final query = Map<String, String>.from(resolvedUri.queryParameters);
       query.putIfAbsent('kiosk', () => '1');
       query.putIfAbsent('displayApp', () => '1');
+      query['_ts'] = DateTime.now().millisecondsSinceEpoch.toString();
       final resolvedUrl = resolvedUri.replace(queryParameters: query).toString();
       final controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)

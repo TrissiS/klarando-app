@@ -13,6 +13,7 @@ import {
 
 export default function CookieConsentBanner() {
   const pathname = usePathname();
+  const [windowPathname, setWindowPathname] = useState("");
   const [isKioskQuery, setIsKioskQuery] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [visible, setVisible] = useState(false);
@@ -22,9 +23,11 @@ export default function CookieConsentBanner() {
   useEffect(() => {
     setHydrated(true);
     try {
+      setWindowPathname(window.location.pathname || "");
       const params = new URLSearchParams(window.location.search);
       setIsKioskQuery(params.get("kiosk") === "1" || params.get("displayApp") === "1");
     } catch {
+      setWindowPathname("");
       setIsKioskQuery(false);
     }
     const parsed = readCookieConsent();
@@ -61,7 +64,11 @@ export default function CookieConsentBanner() {
     pathname?.startsWith("/admin") ||
     pathname?.startsWith("/superadmin") ||
     pathname?.startsWith("/chainadmin");
-  const isKioskRoute = pathname?.startsWith("/screen") || pathname?.startsWith("/display");
+  const isKioskRoute =
+    pathname?.startsWith("/screen") ||
+    pathname?.startsWith("/display") ||
+    windowPathname.startsWith("/screen") ||
+    windowPathname.startsWith("/display");
 
   function saveConsent(next: CookieConsentState) {
     const payload = { ...next, savedAt: new Date().toISOString(), version: COOKIE_CONSENT_VERSION };
@@ -74,6 +81,7 @@ export default function CookieConsentBanner() {
   }
 
   if (!hydrated) return null;
+  if (!pathname && !windowPathname) return null;
   if (isBackofficeArea) return null;
   if (isKioskRoute || isKioskQuery) return null;
   if (!visible) {
