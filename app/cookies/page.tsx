@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import LegalShell from "@/app/Components/legal/LegalShell";
+import OpenCookieSettingsButton from "@/components/legal/OpenCookieSettingsButton";
 
 export const metadata: Metadata = {
   title: "Cookies | Klarando",
@@ -37,6 +38,9 @@ export default function CookiesPage() {
             Die Einwilligung wird mit Zeitstempel und Consent-Version gespeichert. Einstellungen können
             jederzeit geändert werden.
           </p>
+          <div className="mt-3">
+            <OpenCookieSettingsButton />
+          </div>
         </section>
       </div>
     </LegalShell>

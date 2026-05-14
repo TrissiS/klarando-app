@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import PromotionSlider from '@/components/PromotionSlider'
 import PublicCmsPage from '@/components/cms/PublicCmsPage'
+import { hasMapsConsent } from '@/lib/cookie-consent'
 import {
   getPublicTenantDiscovery,
   type PublicTenantDiscoveryMode,
@@ -21,17 +22,9 @@ function MainAppFallbackPage() {
   const [searchMeta, setSearchMeta] = useState<{ total: number; zipCode: string } | null>(null)
 
   async function requestLocation() {
-    try {
-      const rawConsent = localStorage.getItem('klarando.cookieConsent.v1')
-      if (rawConsent) {
-        const parsed = JSON.parse(rawConsent) as { maps?: boolean }
-        if (!parsed.maps) {
-          setError('Standort/Maps ist derzeit nicht freigegeben. Bitte Cookie-Einstellungen anpassen.')
-          return
-        }
-      }
-    } catch {
-      // Ignore parse errors and continue with browser permission flow.
+    if (!hasMapsConsent()) {
+      setError('Standort/Maps ist derzeit nicht freigegeben. Bitte Cookie-Einstellungen anpassen.')
+      return
     }
 
     if (typeof navigator === 'undefined' || !navigator.geolocation) {

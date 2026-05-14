@@ -1,56 +1,46 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-
-const CONSENT_KEY = "klarando.cookieConsent.v1";
-const CONSENT_VERSION = "2026-05-14";
-
-type ConsentState = {
-  version: string;
-  savedAt: string;
-  necessary: true;
-  functional: boolean;
-  maps: boolean;
-  marketing: boolean;
-  analytics: boolean;
-};
-
-function buildState(overrides?: Partial<ConsentState>): ConsentState {
-  return {
-    version: CONSENT_VERSION,
-    savedAt: new Date().toISOString(),
-    necessary: true,
-    functional: false,
-    maps: false,
-    marketing: false,
-    analytics: false,
-    ...overrides,
-  };
-}
+import {
+  buildDefaultCookieConsent,
+  COOKIE_CONSENT_KEY,
+  COOKIE_CONSENT_OPEN_EVENT,
+  COOKIE_CONSENT_VERSION,
+  type CookieConsentState,
+  readCookieConsent,
+} from "@/lib/cookie-consent";
 
 export default function CookieConsentBanner() {
   const [hydrated, setHydrated] = useState(false);
   const [visible, setVisible] = useState(false);
   const [openSettings, setOpenSettings] = useState(false);
-  const [state, setState] = useState<ConsentState>(buildState());
+  const [state, setState] = useState<CookieConsentState>(buildDefaultCookieConsent());
 
   useEffect(() => {
     setHydrated(true);
-    const raw = localStorage.getItem(CONSENT_KEY);
-    if (!raw) {
+    const parsed = readCookieConsent();
+    if (!parsed) {
       setVisible(true);
       return;
     }
-    try {
-      const parsed = JSON.parse(raw) as ConsentState;
-      if (parsed.version !== CONSENT_VERSION) {
-        setVisible(true);
-      } else {
+    if (parsed.version !== COOKIE_CONSENT_VERSION) {
+      setVisible(true);
+    } else {
+      setState(parsed);
+    }
+  }, []);
+
+  useEffect(() => {
+    function handleOpenSettingsEvent() {
+      const parsed = readCookieConsent();
+      if (parsed) {
         setState(parsed);
       }
-    } catch {
       setVisible(true);
+      setOpenSettings(true);
     }
+    window.addEventListener(COOKIE_CONSENT_OPEN_EVENT, handleOpenSettingsEvent);
+    return () => window.removeEventListener(COOKIE_CONSENT_OPEN_EVENT, handleOpenSettingsEvent);
   }, []);
 
   const summary = useMemo(() => {
@@ -58,10 +48,11 @@ export default function CookieConsentBanner() {
     return "Wir verwenden Cookies für Betrieb, Komfort und optionale Funktionen. Du kannst jederzeit anpassen.";
   }, [visible]);
 
-  function saveConsent(next: ConsentState) {
-    const payload = { ...next, savedAt: new Date().toISOString(), version: CONSENT_VERSION };
-    localStorage.setItem(CONSENT_KEY, JSON.stringify(payload));
+  function saveConsent(next: CookieConsentState) {
+    const payload = { ...next, savedAt: new Date().toISOString(), version: COOKIE_CONSENT_VERSION };
+    localStorage.setItem(COOKIE_CONSENT_KEY, JSON.stringify(payload));
     localStorage.setItem("klarando.maps.enabled", payload.maps ? "true" : "false");
+    window.dispatchEvent(new StorageEvent("storage", { key: COOKIE_CONSENT_KEY }));
     setState(payload);
     setVisible(false);
     setOpenSettings(false);
@@ -124,7 +115,7 @@ export default function CookieConsentBanner() {
           <button
             type="button"
             className="rounded-lg border border-[var(--brand-border)] px-3 py-2 text-sm font-semibold"
-            onClick={() => saveConsent(buildState())}
+            onClick={() => saveConsent(buildDefaultCookieConsent())}
           >
             Ablehnen
           </button>
@@ -138,7 +129,16 @@ export default function CookieConsentBanner() {
           <button
             type="button"
             className="rounded-lg bg-rose-700 px-3 py-2 text-sm font-semibold text-white"
-            onClick={() => saveConsent(buildState({ functional: true, maps: true, marketing: false, analytics: false }))}
+            onClick={() =>
+              saveConsent(
+                buildDefaultCookieConsent({
+                  functional: true,
+                  maps: true,
+                  marketing: false,
+                  analytics: false,
+                })
+              )
+            }
           >
             Alle akzeptieren
           </button>

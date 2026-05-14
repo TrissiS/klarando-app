@@ -6,6 +6,7 @@ import type {
   BusinessServiceAreaPolygonPoint,
   BusinessServiceAreaStrategy,
 } from '@/lib/api'
+import { hasMapsConsent as hasCookieMapsConsent } from '@/lib/cookie-consent'
 
 type Props = {
   title: string
@@ -210,18 +211,6 @@ function buildGoogleMapsUrl(area: BusinessServiceArea) {
   return `https://www.google.com/maps?q=${encodeURIComponent(queryParts.join(', '))}`
 }
 
-function hasMapsConsent() {
-  if (typeof window === 'undefined') return false
-  try {
-    const raw = window.localStorage.getItem('klarando.cookieConsent.v1')
-    if (!raw) return false
-    const parsed = JSON.parse(raw) as { maps?: boolean }
-    return parsed.maps === true
-  } catch {
-    return false
-  }
-}
-
 async function loadGoogleMapsApi(apiKey: string) {
   if (typeof window === 'undefined') {
     throw new Error('Google Maps ist nur im Browser verfuegbar.')
@@ -309,7 +298,7 @@ export default function ServiceAreaEditor({
 
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const refresh = () => setMapsConsentGranted(hasMapsConsent())
+    const refresh = () => setMapsConsentGranted(hasCookieMapsConsent())
     refresh()
     window.addEventListener('storage', refresh)
     return () => window.removeEventListener('storage', refresh)
