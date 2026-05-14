@@ -2041,6 +2041,157 @@ export type TenantPaypalPaymentConfig = {
   currency: string
 }
 
+export type TenantStripeConnectStatus = {
+  tenantId: string
+  stripeAccountId: string | null
+  chargesEnabled: boolean
+  payoutsEnabled: boolean
+  detailsSubmitted: boolean
+  onboardingCompleted: boolean
+}
+
+export type SuperadminStripeTenantStatusRow = {
+  id: string
+  name: string
+  chain: {
+    id: string
+    name: string
+  } | null
+  paymentConfig: {
+    stripeAccountId: string | null
+    stripeChargesEnabled: boolean
+    stripePayoutsEnabled: boolean
+    stripeDetailsSubmitted: boolean
+    stripeOnboardingCompleted: boolean
+  } | null
+}
+
+export async function createStripeConnectedAccount(
+  token: string,
+  tenantId: string
+): Promise<{
+  ok: boolean
+  tenantId: string
+  stripeAccountId: string
+  created: boolean
+  onboardingUrl: string
+  expiresAt: number
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/connect/account'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify({ tenantId }),
+    },
+    'Stripe-Konto konnte nicht verbunden werden'
+  )
+}
+
+export async function createStripeAccountLink(
+  token: string,
+  tenantId: string
+): Promise<{
+  ok: boolean
+  tenantId: string
+  stripeAccountId: string
+  onboardingUrl: string
+  expiresAt: number
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/connect/account-link'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify({ tenantId }),
+    },
+    'Stripe-Onboarding-Link konnte nicht erstellt werden'
+  )
+}
+
+export async function getStripeConnectStatus(
+  token: string,
+  tenantId: string
+): Promise<TenantStripeConnectStatus> {
+  const query = new URLSearchParams({ tenantId })
+  return apiJson<TenantStripeConnectStatus>(
+    buildApiUrl(`/api/payments/connect/status?${query.toString()}`),
+    {
+      headers: authHeaders(token),
+    },
+    'Stripe-Status konnte nicht geladen werden'
+  )
+}
+
+export async function createStripePaymentIntent(input: {
+  token: string
+  tenantId: string
+  orderId: string
+  amountCents: number
+}): Promise<{
+  paymentId: string
+  orderId: string
+  tenantId: string
+  paymentIntentId: string
+  clientSecret: string | null
+  amountCents: number
+  currency: string
+  platformFeeCents: number
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/create-intent'),
+    {
+      method: 'POST',
+      headers: authHeaders(input.token),
+      body: JSON.stringify({
+        tenantId: input.tenantId,
+        orderId: input.orderId,
+        amountCents: input.amountCents,
+      }),
+    },
+    'Stripe PaymentIntent konnte nicht erstellt werden'
+  )
+}
+
+export async function createStripeRefund(input: {
+  token: string
+  paymentId: string
+  amountCents?: number
+  reason?: string
+}): Promise<{
+  paymentId: string
+  refundId: string
+  stripeRefundId: string
+  status: string | null
+  amountCents: number
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/refund'),
+    {
+      method: 'POST',
+      headers: authHeaders(input.token),
+      body: JSON.stringify({
+        paymentId: input.paymentId,
+        amountCents: input.amountCents,
+        reason: input.reason,
+      }),
+    },
+    'Stripe-Erstattung konnte nicht erstellt werden'
+  )
+}
+
+export async function getSuperadminStripeTenantStatuses(
+  token: string
+): Promise<SuperadminStripeTenantStatusRow[]> {
+  return apiJson<SuperadminStripeTenantStatusRow[]>(
+    buildApiUrl('/api/payments/superadmin/tenants'),
+    {
+      headers: authHeaders(token),
+    },
+    'Stripe-Tenantstatus konnte nicht geladen werden'
+  )
+}
+
 export async function getTenantPaypalPaymentConfig(
   token: string,
   tenantId: string

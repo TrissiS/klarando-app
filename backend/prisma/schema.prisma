@@ -871,6 +871,12 @@ model TenantPaymentConfig {
   id                               String          @id @default(uuid())
   tenantId                         String          @unique
   defaultProvider                  PaymentProvider @default(STRIPE)
+  stripeAccountId                  String?         @unique
+  stripeChargesEnabled             Boolean         @default(false)
+  stripePayoutsEnabled             Boolean         @default(false)
+  stripeOnboardingCompleted        Boolean         @default(false)
+  stripeDetailsSubmitted           Boolean         @default(false)
+  stripeDefaultCurrency            String          @default("eur")
   paypalMerchantId                 String?
   paypalEmail                      String?
   paypalOnboardingStatus           PaypalOnboardingStatus @default(NOT_STARTED)
@@ -1395,6 +1401,9 @@ model PaymentTransaction {
   status                  PaymentStatus   @default(PENDING)
   providerPaymentId       String?
   providerClientSecretRef String?
+  stripeChargeId          String?
+  stripeTransferId        String?
+  stripeAccountId         String?
   idempotencyKey          String?
   currency                String          @default("EUR")
   amountCents             Int
@@ -1415,6 +1424,8 @@ model PaymentTransaction {
   updatedAt               DateTime        @updatedAt
 
   @@unique([provider, providerPaymentId])
+  @@unique([provider, stripeChargeId])
+  @@unique([provider, stripeTransferId])
   @@unique([provider, idempotencyKey])
   @@index([tenantId, status, createdAt])
   @@index([orderId, createdAt])

@@ -15,6 +15,7 @@ export const SUPERADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/superadmin/security', label: 'Benutzer & Rechte' },
   { href: '/superadmin/orders', label: 'Bestellungen' },
   { href: '/superadmin/display-devices', label: 'Geräte' },
+  { href: '/superadmin/payments', label: 'Zahlungsstatus' },
   { href: '/superadmin/fees', label: 'Gebühren & Provisionen' },
   { href: '/superadmin/billing', label: 'Billing' },
   { href: '/superadmin/app-settings', label: 'Einstellungen' },

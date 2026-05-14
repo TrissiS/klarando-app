@@ -143,6 +143,7 @@ const navSections: NavSection[] = [
     label: 'Finanzen',
     items: [
       { href: '/admin/finanzen', label: 'Zahlungen & Transaktionen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/payments', label: 'Stripe Connect', moduleKey: 'payment', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/closings/daily', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
     ],
   },
@@ -534,6 +535,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     }
     if (path.startsWith('/admin/actions')) return 'actions'
     if (path.startsWith('/admin/finanzen')) return 'payment'
+    if (path.startsWith('/admin/payments')) return 'payment'
     if (path.startsWith('/admin/staff')) return 'staff'
     if (path.startsWith('/admin/drivers')) return 'drivers'
     if (path.startsWith('/admin/app-settings')) return 'app-settings'
