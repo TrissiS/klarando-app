@@ -326,8 +326,8 @@ export default function BackofficeLayout({
       }`}
       data-admin-ui-mode={uiMode}
     >
-      <div className="flex min-h-screen">
-        <aside className={`brand-sidebar pointer-events-auto relative z-30 hidden shrink-0 border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
+      <div className="relative isolate flex min-h-screen min-w-0">
+        <aside className={`brand-sidebar pointer-events-auto relative z-[90] hidden shrink-0 border-r border-white/10 md:sticky md:top-0 md:flex md:h-screen md:flex-col ${sidebarWidthClass}`}>
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
@@ -426,8 +426,8 @@ export default function BackofficeLayout({
           </div>
         </aside>
 
-        <div className="relative z-0 min-w-0 flex-1">
-          <header className="border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
+        <div className="relative z-10 min-w-0 flex-1 overflow-x-hidden">
+          <header className="relative z-20 border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
             <div className={headerSpacingClass}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
@@ -484,7 +484,7 @@ export default function BackofficeLayout({
 
           {mobileNavOpen ? (
             <div
-              className="fixed inset-0 z-[80] bg-slate-950/55 p-3 md:hidden"
+              className="fixed inset-0 z-[120] bg-slate-950/55 p-3 md:hidden"
               onClick={() => setMobileNavOpen(false)}
               data-overlay="backoffice-mobile-nav"
             >
@@ -566,7 +566,7 @@ export default function BackofficeLayout({
               </div>
             </div>
           ) : null}
-          <div className={pageSpacingClass}>
+          <div className={`relative z-10 ${pageSpacingClass}`}>
             {!authChecked ? (
               <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
                 Sitzung wird geprüft...
