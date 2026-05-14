@@ -511,7 +511,40 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         status: 'done',
       );
       await _pollFeed();
-      _info = 'Lieferung als abgeschlossen markiert.';
+      final isPickup = (order.serviceType ?? '').toUpperCase() == 'PICKUP';
+      _info = isPickup
+          ? 'Bestellung als abgeholt markiert.'
+          : 'Lieferung als abgeschlossen markiert.';
+    });
+  }
+
+  Future<void> _rejectOrder(PublicOrderSummary order) async {
+    await _runOrderMutation(() async {
+      await _api.updatePublicOrderDisplayOrderStatus(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        status: 'rejected',
+      );
+      await _pollFeed();
+      _info = 'Bestellung wurde abgelehnt.';
+    });
+  }
+
+  Future<void> _setOrderStatus(
+    PublicOrderSummary order,
+    String status,
+    String successMessage,
+  ) async {
+    await _runOrderMutation(() async {
+      await _api.updatePublicOrderDisplayOrderStatus(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        status: status,
+      );
+      await _pollFeed();
+      _info = successMessage;
     });
   }
 
@@ -1125,14 +1158,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         return 'Offen';
       case 'open':
         return 'Offen';
+      case 'accepted':
+        return 'Angenommen';
       case 'preparing':
         return 'In Zubereitung';
+      case 'ready_for_pickup':
+        return 'Bereit zur Abholung';
+      case 'ready_for_delivery':
+        return 'Bereit für Lieferung';
       case 'out_for_delivery':
         return 'Fahrer unterwegs';
+      case 'delivered':
+        return 'Geliefert';
       case 'done':
         return 'Fertig';
       case 'archived':
         return 'Archiviert';
+      case 'rejected':
+        return 'Abgelehnt';
       default:
         return value;
     }
@@ -1183,7 +1226,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: const Text('Lieferzeit auswählen'),
+          title: const Text('Wann ist die Bestellung fertig?'),
           content: StatefulBuilder(
             builder: (context, setDialogState) {
               return Wrap(
@@ -1443,12 +1486,23 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   @override
   Widget build(BuildContext context) {
     final orders = _feed?.orders ?? const <PublicOrderSummary>[];
+    final visibleOrders = orders
+        .where((entry) => entry.status.trim().toLowerCase() != 'archived')
+        .toList(growable: false);
     final deliveryOrders = orders
         .where(
           (entry) =>
               (entry.serviceType ?? '').toUpperCase() == 'DELIVERY' &&
-              entry.status != 'done' &&
-              entry.status != 'archived',
+              entry.status.trim().toLowerCase() != 'done' &&
+              entry.status.trim().toLowerCase() != 'archived',
+        )
+        .toList(growable: false);
+    final pickupOrders = orders
+        .where(
+          (entry) =>
+              (entry.serviceType ?? '').toUpperCase() == 'PICKUP' &&
+              entry.status.trim().toLowerCase() != 'done' &&
+              entry.status.trim().toLowerCase() != 'archived',
         )
         .toList(growable: false);
     PublicOrderSummary? firstDeliveryOrderWithAddress;
@@ -1606,18 +1660,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  Chip(label: Text('Bestellungen: ${orders.length}')),
+                  Chip(label: Text('Bestellungen: ${visibleOrders.length}')),
                   Chip(
                     label: Text('Lieferungen offen: ${deliveryOrders.length}'),
                   ),
+                  Chip(label: Text('Abholungen offen: ${pickupOrders.length}')),
                 ],
               ),
               const SizedBox(height: 8),
               _buildOutForDeliveryStrip(orders),
-              if (firstDeliveryOrderWithAddress != null) ...[
+              if (deliveryOrders.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 _buildDeliveryMapCard(
-                  firstDeliveryOrderWithAddress,
+                  firstDeliveryOrderWithAddress ?? deliveryOrders.first,
                   deliveryOrders,
                 ),
               ],
@@ -1632,7 +1687,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   ),
                 )
               else ...[
-                ...orders.map(_buildOrderCard),
+                ...visibleOrders.map(_buildOrderCard),
               ],
             ],
           ),
@@ -1952,6 +2007,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   Widget _buildOrderCard(PublicOrderSummary order) {
     final isPaid = order.paymentStatus.toUpperCase() == 'PAID';
     final isDelivery = (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
+    final isPickup = (order.serviceType ?? '').toUpperCase() == 'PICKUP';
     final statusLower = order.status.trim().toLowerCase();
     final hasModifiers = order.items.any((entry) => entry.modifierNames.isNotEmpty);
     final waitMinutes = order.createdAt == null
@@ -1983,6 +2039,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               'Bestellung ${order.pickupNumber?.toString() ?? order.id.substring(0, 8)}',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(
+                color: isDelivery
+                    ? const Color(0xFFF97316)
+                    : const Color(0xFF0EA5E9),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                isDelivery ? 'LIEFERUNG' : 'ABHOLUNG',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 11,
+                ),
+              ),
+            ),
             const SizedBox(height: 4),
             Text(
               '${order.customerName ?? '-'} • ${order.customerPhone ?? '-'}',
@@ -2011,8 +2085,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ),
             Text(
-              '${order.serviceType ?? '-'} • ${_orderStatusLabel(order.status)} • ${order.total.toStringAsFixed(2)} EUR',
+              '${isDelivery ? 'Lieferung' : 'Abholung'} • ${_orderStatusLabel(order.status)} • ${order.total.toStringAsFixed(2)} EUR',
             ),
+            if (isDelivery &&
+                (order.assignedDriverName == null ||
+                    order.assignedDriverName!.trim().isEmpty))
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Noch kein Fahrer zugewiesen.',
+                  style: TextStyle(
+                    color: Color(0xFFB45309),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             const SizedBox(height: 4),
             if (statusLower == 'open' || statusLower == 'pending_payment')
               Text(
@@ -2102,11 +2189,30 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                FilledButton.icon(
-                  onPressed: _loading ? null : () => _acceptOrder(order),
-                  icon: const Icon(Icons.play_arrow, size: 16),
-                  label: const Text('Start'),
-                ),
+                if (statusLower == 'open' || statusLower == 'pending_payment')
+                  FilledButton.icon(
+                    onPressed: _loading ? null : () => _acceptOrder(order),
+                    icon: const Icon(Icons.check_circle, size: 16),
+                    label: const Text('Annehmen'),
+                  ),
+                if (statusLower == 'open' || statusLower == 'pending_payment')
+                  OutlinedButton.icon(
+                    onPressed: _loading ? null : () => _rejectOrder(order),
+                    icon: const Icon(Icons.close, size: 16),
+                    label: const Text('Ablehnen'),
+                  ),
+                if (statusLower != 'open' && statusLower != 'pending_payment')
+                  FilledButton.tonalIcon(
+                    onPressed: _loading
+                        ? null
+                        : () => _setOrderStatus(
+                            order,
+                            'preparing',
+                            'Bestellung ist jetzt in Vorbereitung.',
+                          ),
+                    icon: const Icon(Icons.restaurant, size: 16),
+                    label: const Text('In Vorbereitung'),
+                  ),
                 FilledButton.tonalIcon(
                   onPressed: _loading || !isDelivery
                       ? null
@@ -2116,18 +2222,62 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     order.assignedDriverName == null
                         ? 'Fahrer zuweisen'
                         : 'Fahrer wechseln',
+                    ),
+                ),
+                if (statusLower != 'open' && statusLower != 'pending_payment')
+                  FilledButton.tonalIcon(
+                    onPressed: _loading ? null : () => _acceptOrder(order),
+                    icon: const Icon(Icons.schedule, size: 16),
+                    label: const Text('Zeit aktualisieren'),
                   ),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: _loading ? null : () => _acceptOrder(order),
-                  icon: const Icon(Icons.schedule, size: 16),
-                  label: const Text('ETA aktualisieren'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _loading || isPaid ? null : () => _markPaid(order),
-                  icon: const Icon(Icons.check_circle_outline, size: 16),
-                  label: const Text('Lieferung abgeschlossen'),
-                ),
+                if (isPickup)
+                  OutlinedButton.icon(
+                    onPressed: _loading
+                        ? null
+                        : () => _setOrderStatus(
+                            order,
+                            'ready_for_pickup',
+                            'Bestellung ist bereit zur Abholung.',
+                          ),
+                    icon: const Icon(Icons.storefront, size: 16),
+                    label: const Text('Bereit zur Abholung'),
+                  ),
+                if (isPickup)
+                  OutlinedButton.icon(
+                    onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                    icon: const Icon(Icons.check_circle_outline, size: 16),
+                    label: const Text('Bestellung abgeholt'),
+                  ),
+                if (isDelivery)
+                  OutlinedButton.icon(
+                    onPressed: _loading
+                        ? null
+                        : () => _setOrderStatus(
+                            order,
+                            'ready_for_delivery',
+                            'Bestellung ist bereit für die Lieferung.',
+                          ),
+                    icon: const Icon(Icons.delivery_dining, size: 16),
+                    label: const Text('Bereit für Lieferung'),
+                  ),
+                if (isDelivery)
+                  OutlinedButton.icon(
+                    onPressed: _loading
+                        ? null
+                        : () => _setOrderStatus(
+                            order,
+                            'out_for_delivery',
+                            'Fahrer ist unterwegs.',
+                          ),
+                    icon: const Icon(Icons.local_shipping, size: 16),
+                    label: const Text('Fahrer unterwegs'),
+                  ),
+                if (isDelivery)
+                  OutlinedButton.icon(
+                    onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                    icon: const Icon(Icons.check_circle_outline, size: 16),
+                    label: const Text('Lieferung abgeschlossen'),
+                  ),
                 OutlinedButton.icon(
                   onPressed: _loading
                       ? null
@@ -2160,15 +2310,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     PublicOrderSummary baseOrder,
     List<PublicOrderSummary> pendingDeliveryOrders,
   ) {
-    final payload = _resolveDeliveryMapPayload(baseOrder);
-    if (payload == null) {
+    final payloads = pendingDeliveryOrders
+        .map((order) => _resolveDeliveryMapPayload(order))
+        .whereType<_DeliveryMapPayload>()
+        .toList(growable: false);
+    if (payloads.isEmpty) {
       return const SizedBox.shrink();
     }
-    final hasDriverPosition =
-        payload.driverLatitude != null && payload.driverLongitude != null;
-    final hasDestination =
-        payload.destinationLatitude != null &&
-        payload.destinationLongitude != null;
+    final payload = _resolveDeliveryMapPayload(baseOrder) ?? payloads.first;
+    final hasDriverPosition = payloads.any(
+      (entry) => entry.driverLatitude != null && entry.driverLongitude != null,
+    );
+    final hasDestination = payloads.any(
+      (entry) =>
+          entry.destinationLatitude != null && entry.destinationLongitude != null,
+    );
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -2187,13 +2343,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 width: double.infinity,
                 child: _OsmMapEmbed(
                   query: payload.destinationLabel,
-                  mapHtml: _buildOsmMapHtml(payload),
+                  mapHtml: _buildFleetMapHtml(pendingDeliveryOrders),
                 ),
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              payload.destinationLabel,
+              'Offene Lieferstopps: ${pendingDeliveryOrders.length}',
               style: const TextStyle(fontSize: 12),
             ),
             if (!hasDestination)
@@ -2254,6 +2410,77 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         ),
       ),
     );
+  }
+
+  String _buildFleetMapHtml(List<PublicOrderSummary> orders) {
+    final destinationMarkers = <String>[];
+    final driverMarkers = <String>[];
+    final routeLines = <String>[];
+    final bounds = <String>[];
+
+    for (final order in orders) {
+      final payload = _resolveDeliveryMapPayload(order);
+      if (payload == null) {
+        continue;
+      }
+      final hasDestination =
+          payload.destinationLatitude != null && payload.destinationLongitude != null;
+      final hasDriver = payload.driverLatitude != null && payload.driverLongitude != null;
+      final orderLabel = (order.pickupNumber?.toString() ?? order.id.substring(0, 8))
+          .replaceAll("'", '');
+      final customer = (order.customerName ?? 'Unbekannt').replaceAll("'", '');
+      final status = _orderStatusLabel(order.status).replaceAll("'", '');
+      if (hasDestination) {
+        final lat = payload.destinationLatitude!;
+        final lng = payload.destinationLongitude!;
+        bounds.add('[$lat, $lng]');
+        destinationMarkers.add(
+          "L.marker([$lat, $lng]).addTo(map).bindPopup('Kunde $orderLabel: $customer ($status)');",
+        );
+      }
+      if (hasDriver) {
+        final lat = payload.driverLatitude!;
+        final lng = payload.driverLongitude!;
+        bounds.add('[$lat, $lng]');
+        final driverName = (payload.driverName ?? 'Nicht zugewiesen')
+            .replaceAll("'", '');
+        driverMarkers.add(
+          "L.circleMarker([$lat, $lng], {radius: 8, color: '#2563EB', fillColor: '#2563EB', fillOpacity: 0.9}).addTo(map).bindPopup('Fahrer: $driverName');",
+        );
+      }
+      if (hasDestination && hasDriver) {
+        routeLines.add(
+          "L.polyline([[${payload.driverLatitude}, ${payload.driverLongitude}], [${payload.destinationLatitude}, ${payload.destinationLongitude}]], {color: '#2563EB', weight: 3, opacity: 0.7}).addTo(map);",
+        );
+      }
+    }
+
+    final fitBounds = bounds.isEmpty
+        ? 'map.setView([50.9375, 6.9603], 12);'
+        : 'map.fitBounds([${bounds.join(',')}], {padding:[20,20]});';
+
+    return '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>html, body, #map { height: 100%; margin: 0; padding: 0; }</style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', { zoomControl: false, attributionControl: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+    ${destinationMarkers.join('\n')}
+    ${driverMarkers.join('\n')}
+    ${routeLines.join('\n')}
+    $fitBounds
+  </script>
+</body>
+</html>
+''';
   }
 }
 
