@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -39,14 +40,27 @@ class _DeliveryMapPayload {
   const _DeliveryMapPayload({
     required this.destinationAddress,
     required this.destinationLabel,
+    required this.destinationLatitude,
+    required this.destinationLongitude,
+    required this.driverName,
     this.driverLatitude,
     this.driverLongitude,
   });
 
   final String destinationAddress;
   final String destinationLabel;
+  final double? destinationLatitude;
+  final double? destinationLongitude;
+  final String? driverName;
   final double? driverLatitude;
   final double? driverLongitude;
+}
+
+class _GeoPoint {
+  const _GeoPoint(this.latitude, this.longitude);
+
+  final double latitude;
+  final double longitude;
 }
 
 class KlarandoOrderDeskApp extends StatelessWidget {
@@ -87,6 +101,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   late final ReceiptPrintQueue _printQueue;
 
   Timer? _pollTimer;
+  Timer? _uiTicker;
   bool _loading = false;
   bool _connected = false;
   bool _bindingLocked = false;
@@ -99,6 +114,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   List<OrderDeskContactUser> _connectedChainadmins = const [];
   int _activeDriverDevices = 0;
   int _onlineDriverDevices = 0;
+  DateTime _now = DateTime.now();
+  bool _hasLoadedInitialFeed = false;
+  final Map<String, String> _lastOrderStatusById = <String, String>{};
+  final Set<String> _archivingOrderIds = <String>{};
+  final Map<String, _GeoPoint> _destinationCoordinatesByOrderId =
+      <String, _GeoPoint>{};
+  final Set<String> _destinationGeocodeInFlight = <String>{};
 
   Future<void> _openExternalLink(String url) async {
     final uri = Uri.tryParse(url);
@@ -116,6 +138,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   @override
   void initState() {
     super.initState();
+    _uiTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || !_connected) {
+        return;
+      }
+      setState(() {
+        _now = DateTime.now();
+      });
+    });
     _printQueue = ReceiptPrintQueue(
       settings: _buildPrinterSettings(),
       onChanged: (entries) {
@@ -137,6 +167,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   void dispose() {
     _pollTimer?.cancel();
     _heartbeatTimer?.cancel();
+    _uiTicker?.cancel();
     _baseUrlController.dispose();
     _displayCodeController.dispose();
     _pairingTokenController.dispose();
@@ -310,13 +341,142 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (!mounted) {
       return;
     }
+    _handleOrderFeedSignals(response.orders);
+    unawaited(_ensureDeliveryCoordinates(response.orders));
     setState(() {
       _feed = response;
+      _now = DateTime.now();
       _lastSuccessfulSyncAt = DateTime.now();
       if (!silent) {
         _error = null;
       }
     });
+  }
+
+  void _handleOrderFeedSignals(List<PublicOrderSummary> orders) {
+    final nextStatusByOrderId = <String, String>{
+      for (final order in orders) order.id: order.status.trim().toLowerCase(),
+    };
+
+    if (!_hasLoadedInitialFeed) {
+      _lastOrderStatusById
+        ..clear()
+        ..addAll(nextStatusByOrderId);
+      _hasLoadedInitialFeed = true;
+      return;
+    }
+
+    final hasNewOrder = orders.any(
+      (order) => !_lastOrderStatusById.containsKey(order.id),
+    );
+    if (hasNewOrder) {
+      unawaited(SystemSound.play(SystemSoundType.alert));
+    }
+
+    for (final order in orders) {
+      final previousStatus = _lastOrderStatusById[order.id];
+      final currentStatus = order.status.trim().toLowerCase();
+      final becameDone = previousStatus != 'done' && currentStatus == 'done';
+      if (becameDone) {
+        unawaited(_archiveDeliveredOrder(order));
+      }
+    }
+
+    _lastOrderStatusById
+      ..clear()
+      ..addAll(nextStatusByOrderId);
+  }
+
+  Future<void> _archiveDeliveredOrder(PublicOrderSummary order) async {
+    if (_archivingOrderIds.contains(order.id)) {
+      return;
+    }
+    _archivingOrderIds.add(order.id);
+    try {
+      await SystemSound.play(SystemSoundType.click);
+      await _api.updatePublicOrderDisplayOrderStatus(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        status: 'archived',
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _info = 'Lieferung erfolgreich abgeschlossen und archiviert.';
+      });
+    } catch (_) {
+      // Silent fallback: Bestellung bleibt sichtbar, bis manueller Abschluss erfolgt.
+    } finally {
+      _archivingOrderIds.remove(order.id);
+    }
+  }
+
+  Future<void> _ensureDeliveryCoordinates(List<PublicOrderSummary> orders) async {
+    for (final order in orders) {
+      if ((order.serviceType ?? '').toUpperCase() != 'DELIVERY') {
+        continue;
+      }
+      if (_destinationCoordinatesByOrderId.containsKey(order.id) ||
+          _destinationGeocodeInFlight.contains(order.id)) {
+        continue;
+      }
+      final address =
+          [order.customerAddress, order.customerZipCode, order.customerCity]
+              .whereType<String>()
+              .map((entry) => entry.trim())
+              .where((entry) => entry.isNotEmpty)
+              .join(', ');
+      if (address.isEmpty) {
+        continue;
+      }
+      _destinationGeocodeInFlight.add(order.id);
+      try {
+        final resolvedPoint = await _geocodeAddress(address);
+        if (resolvedPoint != null) {
+          _destinationCoordinatesByOrderId[order.id] = resolvedPoint;
+          if (mounted) {
+            setState(() {});
+          }
+        }
+      } finally {
+        _destinationGeocodeInFlight.remove(order.id);
+      }
+    }
+  }
+
+  Future<_GeoPoint?> _geocodeAddress(String address) async {
+    try {
+      final uri = Uri.https('nominatim.openstreetmap.org', '/search', {
+        'q': address,
+        'format': 'jsonv2',
+        'limit': '1',
+      });
+      final response = await http.get(
+        uri,
+        headers: const {
+          'Accept': 'application/json',
+          'User-Agent': 'KlarandoOrderDesk/0.1.21',
+        },
+      );
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        return null;
+      }
+      final payload = jsonDecode(response.body);
+      if (payload is! List || payload.isEmpty || payload.first is! Map) {
+        return null;
+      }
+      final entry = payload.first as Map;
+      final lat = double.tryParse('${entry['lat'] ?? ''}');
+      final lon = double.tryParse('${entry['lon'] ?? ''}');
+      if (lat == null || lon == null) {
+        return null;
+      }
+      return _GeoPoint(lat, lon);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _acceptOrder(PublicOrderSummary order) async {
@@ -344,8 +504,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         orderId: order.id,
         paid: true,
       );
+      await _api.updatePublicOrderDisplayOrderStatus(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        status: 'done',
+      );
       await _pollFeed();
-      _info = 'Zahlung als bezahlt markiert.';
+      _info = 'Lieferung als abgeschlossen markiert.';
     });
   }
 
@@ -863,31 +1029,87 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return null;
     }
     final destinationAddress = parts.join(', ');
+    final destinationPoint = _destinationCoordinatesByOrderId[order.id];
     return _DeliveryMapPayload(
       destinationAddress: destinationAddress,
       destinationLabel: destinationAddress.isEmpty
           ? 'Zieladresse wird geladen…'
           : destinationAddress,
+      destinationLatitude: destinationPoint?.latitude,
+      destinationLongitude: destinationPoint?.longitude,
+      driverName: order.assignedDriverName,
       driverLatitude: order.driverLocation?.latitude,
       driverLongitude: order.driverLocation?.longitude,
     );
   }
 
-  String _buildOsmEmbedUrl(_DeliveryMapPayload payload) {
-    final hasDriverPosition =
-        payload.driverLatitude != null && payload.driverLongitude != null;
-    final centerLat = hasDriverPosition ? payload.driverLatitude! : 50.9375;
-    final centerLng = hasDriverPosition ? payload.driverLongitude! : 6.9603;
-    final delta = hasDriverPosition ? 0.02 : 0.01;
-    final west = centerLng - delta;
-    final south = centerLat - delta;
-    final east = centerLng + delta;
-    final north = centerLat + delta;
+  String _buildOsmMapHtml(_DeliveryMapPayload payload) {
+    final destinationLat = payload.destinationLatitude;
+    final destinationLng = payload.destinationLongitude;
+    final driverLat = payload.driverLatitude;
+    final driverLng = payload.driverLongitude;
+    final hasDestination = destinationLat != null && destinationLng != null;
+    final hasDriver = driverLat != null && driverLng != null;
+    final centerLat = hasDestination
+        ? destinationLat
+        : hasDriver
+        ? driverLat
+        : 50.9375;
+    final centerLng = hasDestination
+        ? destinationLng
+        : hasDriver
+        ? driverLng
+        : 6.9603;
 
-    return 'https://www.openstreetmap.org/export/embed.html?bbox=${west.toStringAsFixed(6)}%2C${south.toStringAsFixed(6)}%2C${east.toStringAsFixed(6)}%2C${north.toStringAsFixed(6)}&layer=mapnik';
+    final destinationMarker = hasDestination
+        ? "L.marker([$destinationLat, $destinationLng]).addTo(map).bindPopup('Kunde');"
+        : '';
+    final driverMarker = hasDriver
+        ? "L.circleMarker([$driverLat, $driverLng], {radius: 8, color: '#2563EB', fillColor: '#2563EB', fillOpacity: 0.9}).addTo(map).bindPopup('Fahrer');"
+        : '';
+    final routeLine = hasDestination && hasDriver
+        ? "L.polyline([[$driverLat, $driverLng], [$destinationLat, $destinationLng]], {color: '#2563EB', weight: 4, opacity: 0.75}).addTo(map);"
+        : '';
+    final fitBounds = hasDestination && hasDriver
+        ? "map.fitBounds([[$destinationLat, $destinationLng], [$driverLat, $driverLng]], {padding:[30,30]});"
+        : hasDestination
+        ? "map.setView([$destinationLat, $destinationLng], 15);"
+        : hasDriver
+        ? "map.setView([$driverLat, $driverLng], 14);"
+        : "map.setView([$centerLat, $centerLng], 12);";
+
+    return '''
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>html, body, #map { height: 100%; margin: 0; padding: 0; }</style>
+</head>
+<body>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map', { zoomControl: false, attributionControl: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
+    $destinationMarker
+    $driverMarker
+    $routeLine
+    $fitBounds
+  </script>
+</body>
+</html>
+''';
   }
 
   String _buildOsmSearchUrl(_DeliveryMapPayload payload) {
+    final hasDestination =
+        payload.destinationLatitude != null && payload.destinationLongitude != null;
+    if (hasDestination) {
+      return 'https://www.openstreetmap.org/?mlat=${payload.destinationLatitude!.toStringAsFixed(6)}&mlon=${payload.destinationLongitude!.toStringAsFixed(6)}#map=16/${payload.destinationLatitude!.toStringAsFixed(6)}/${payload.destinationLongitude!.toStringAsFixed(6)}';
+    }
     final destination = Uri.encodeComponent(payload.destinationAddress);
     final hasDriverPosition =
         payload.driverLatitude != null && payload.driverLongitude != null;
@@ -1092,6 +1314,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     final hasDriverPosition =
         payload.driverLatitude != null && payload.driverLongitude != null;
+    final hasDestination =
+        payload.destinationLatitude != null &&
+        payload.destinationLongitude != null;
     return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Container(
@@ -1116,11 +1341,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 width: double.infinity,
                 child: _OsmMapEmbed(
                   query: payload.destinationLabel,
-                  embedUrl: _buildOsmEmbedUrl(payload),
+                  mapHtml: _buildOsmMapHtml(payload),
                 ),
               ),
             ),
             const SizedBox(height: 6),
+            if (!hasDestination)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 4),
+                child: Text(
+                  'Lieferadresse vorhanden, Karte wird vorbereitet…',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ),
             if (!hasDriverPosition)
               const Padding(
                 padding: EdgeInsets.only(bottom: 4),
@@ -1133,7 +1366,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               children: [
                 Expanded(
                   child: Text(
-                    payload.destinationLabel,
+                    payload.driverName == null
+                        ? payload.destinationLabel
+                        : '${payload.destinationLabel}\nFahrer: ${payload.driverName}',
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),
@@ -1144,6 +1379,61 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildOutForDeliveryStrip(List<PublicOrderSummary> orders) {
+    final underwayOrders = orders
+        .where((entry) => entry.status.trim().toLowerCase() == 'out_for_delivery')
+        .toList(growable: false);
+    if (underwayOrders.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final groupedByDriver = <String, List<PublicOrderSummary>>{};
+    for (final order in underwayOrders) {
+      final key = (order.assignedDriverName ?? 'Nicht zugewiesen').trim();
+      groupedByDriver.putIfAbsent(key.isEmpty ? 'Nicht zugewiesen' : key, () => []);
+      groupedByDriver[key.isEmpty ? 'Nicht zugewiesen' : key]!.add(order);
+    }
+
+    final palette = <Color>[
+      const Color(0xFF1D4ED8),
+      const Color(0xFF047857),
+      const Color(0xFF7C3AED),
+      const Color(0xFFBE185D),
+      const Color(0xFFB45309),
+    ];
+    final driverNames = groupedByDriver.keys.toList(growable: false)..sort();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var index = 0; index < driverNames.length; index += 1)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                decoration: BoxDecoration(
+                  color: palette[index % palette.length].withValues(alpha: 0.13),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: palette[index % palette.length].withValues(alpha: 0.35),
+                  ),
+                ),
+                child: Text(
+                  '${driverNames[index]} · ${groupedByDriver[driverNames[index]]!.length} unterwegs',
+                  style: TextStyle(
+                    color: palette[index % palette.length],
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -1322,6 +1612,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   ),
                 ],
               ),
+              const SizedBox(height: 8),
+              _buildOutForDeliveryStrip(orders),
               if (firstDeliveryOrderWithAddress != null) ...[
                 const SizedBox(height: 12),
                 _buildDeliveryMapCard(
@@ -1660,6 +1952,26 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   Widget _buildOrderCard(PublicOrderSummary order) {
     final isPaid = order.paymentStatus.toUpperCase() == 'PAID';
     final isDelivery = (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
+    final statusLower = order.status.trim().toLowerCase();
+    final hasModifiers = order.items.any((entry) => entry.modifierNames.isNotEmpty);
+    final waitMinutes = order.createdAt == null
+        ? null
+        : _now.difference(order.createdAt!).inMinutes;
+    final progressMinutes = order.acceptedAt == null
+        ? null
+        : _now.difference(order.acceptedAt!).inMinutes;
+    final doneMinutes = (statusLower == 'done' && order.driverDepartedAt != null)
+        ? _now.difference(order.driverDepartedAt!).inMinutes
+        : null;
+    final timerColor = waitMinutes == null
+        ? const Color(0xFF475569)
+        : waitMinutes >= 20
+        ? const Color(0xFFB91C1C)
+        : waitMinutes >= 10
+        ? const Color(0xFFDC2626)
+        : waitMinutes >= 5
+        ? const Color(0xFFD97706)
+        : const Color(0xFF166534);
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
@@ -1675,9 +1987,57 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             Text(
               '${order.customerName ?? '-'} • ${order.customerPhone ?? '-'}',
             ),
+            if (order.assignedDriverName != null &&
+                order.assignedDriverName!.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.local_shipping,
+                      size: 16,
+                      color: Color(0xFF2563EB),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Fahrer: ${order.assignedDriverName}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1E3A8A),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Text(
               '${order.serviceType ?? '-'} • ${_orderStatusLabel(order.status)} • ${order.total.toStringAsFixed(2)} EUR',
             ),
+            const SizedBox(height: 4),
+            if (statusLower == 'open' || statusLower == 'pending_payment')
+              Text(
+                'Wartet seit ${waitMinutes ?? 0} Min.',
+                style: TextStyle(
+                  color: timerColor,
+                  fontWeight: FontWeight.w700,
+                ),
+              )
+            else if (statusLower == 'preparing' || statusLower == 'out_for_delivery')
+              Text(
+                'In Bearbeitung seit ${progressMinutes ?? 0} Min.',
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontWeight: FontWeight.w600,
+                ),
+              )
+            else if (statusLower == 'done')
+              Text(
+                'Fertig seit ${doneMinutes ?? 0} Min.',
+                style: const TextStyle(
+                  color: Color(0xFF166534),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
             Text(
               'Zahlung: ${_paymentStatusLabel(order.paymentStatus)}${order.paymentMethod != null ? ' (${order.paymentMethod})' : ''}',
               style: TextStyle(
@@ -1697,11 +2057,45 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ),
             if (order.items.isNotEmpty) ...[
               const SizedBox(height: 8),
-              ...order.items
-                  .take(5)
-                  .map(
-                    (item) => Text('- ${item.quantity}x ${item.productName}'),
+              ...order.items.take(5).map((item) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('- ${item.quantity}x ${item.productName}'),
+                      if (item.modifierNames.isNotEmpty)
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: item.modifierNames
+                              .map(
+                                (modifier) => Chip(
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                  visualDensity: VisualDensity.compact,
+                                  label: Text(
+                                    modifier,
+                                    style: const TextStyle(fontSize: 11),
+                                  ),
+                                  avatar: const Icon(Icons.edit_note, size: 14),
+                                ),
+                              )
+                              .toList(growable: false),
+                        ),
+                    ],
                   ),
+                );
+              }),
+              if (hasModifiers)
+                const Text(
+                  'Sonderwünsche vorhanden',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF92400E),
+                  ),
+                ),
             ],
             const SizedBox(height: 10),
             Wrap(
@@ -1718,7 +2112,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       ? null
                       : () => _dispatchOrder(order),
                   icon: const Icon(Icons.local_shipping, size: 16),
-                  label: const Text('Fahrer unterwegs'),
+                  label: Text(
+                    order.assignedDriverName == null
+                        ? 'Fahrer zuweisen'
+                        : 'Fahrer wechseln',
+                  ),
                 ),
                 FilledButton.tonalIcon(
                   onPressed: _loading ? null : () => _acceptOrder(order),
@@ -1728,7 +2126,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 OutlinedButton.icon(
                   onPressed: _loading || isPaid ? null : () => _markPaid(order),
                   icon: const Icon(Icons.check_circle_outline, size: 16),
-                  label: const Text('Fertig / bezahlt'),
+                  label: const Text('Lieferung abgeschlossen'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _loading
@@ -1741,13 +2139,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   onPressed: _loading
                       ? null
                       : () => _printOrder(order, kind: 'kitchen'),
-                  child: const Text('Küche'),
+                  child: const Text('Küchenbon'),
                 ),
                 TextButton(
                   onPressed: _loading
                       ? null
                       : () => _printOrder(order, kind: 'customer'),
-                  child: const Text('Kunde'),
+                  child: const Text('Kundenbon'),
                 ),
               ],
             ),
@@ -1768,6 +2166,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     final hasDriverPosition =
         payload.driverLatitude != null && payload.driverLongitude != null;
+    final hasDestination =
+        payload.destinationLatitude != null &&
+        payload.destinationLongitude != null;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1786,7 +2187,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 width: double.infinity,
                 child: _OsmMapEmbed(
                   query: payload.destinationLabel,
-                  embedUrl: _buildOsmEmbedUrl(payload),
+                  mapHtml: _buildOsmMapHtml(payload),
                 ),
               ),
             ),
@@ -1795,6 +2196,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               payload.destinationLabel,
               style: const TextStyle(fontSize: 12),
             ),
+            if (!hasDestination)
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text(
+                  'Lieferadresse vorhanden, Karte noch nicht verfügbar.',
+                  style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                ),
+              ),
             if (!hasDriverPosition)
               const Padding(
                 padding: EdgeInsets.only(top: 4),
@@ -1849,10 +2258,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 }
 
 class _OsmMapEmbed extends StatefulWidget {
-  const _OsmMapEmbed({required this.query, required this.embedUrl});
+  const _OsmMapEmbed({required this.query, required this.mapHtml});
 
   final String query;
-  final String embedUrl;
+  final String mapHtml;
 
   @override
   State<_OsmMapEmbed> createState() => _OsmMapEmbedState();
@@ -1879,8 +2288,9 @@ class _OsmMapEmbedState extends State<_OsmMapEmbed> {
             });
           },
           onNavigationRequest: (request) {
-            if (request.url.startsWith('https://www.openstreetmap.org') ||
-                request.url.startsWith('about:blank')) {
+            if (request.url.startsWith('https://') ||
+                request.url.startsWith('about:blank') ||
+                request.url.startsWith('data:')) {
               return NavigationDecision.navigate;
             }
             return NavigationDecision.prevent;
@@ -1893,7 +2303,7 @@ class _OsmMapEmbedState extends State<_OsmMapEmbed> {
   @override
   void didUpdateWidget(covariant _OsmMapEmbed oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.embedUrl != widget.embedUrl) {
+    if (oldWidget.mapHtml != widget.mapHtml) {
       _hasError = false;
       _loadMap();
     }
@@ -1901,7 +2311,7 @@ class _OsmMapEmbedState extends State<_OsmMapEmbed> {
 
   Future<void> _loadMap() async {
     try {
-      await _controller.loadRequest(Uri.parse(widget.embedUrl));
+      await _controller.loadHtmlString(widget.mapHtml);
     } catch (_) {
       if (!mounted) {
         return;
