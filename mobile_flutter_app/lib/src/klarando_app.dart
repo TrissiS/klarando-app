@@ -3893,8 +3893,9 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
         });
         return;
       }
+      final resolvedOrder = updated;
       setState(() {
-        _order = updated;
+        _order = resolvedOrder;
         _trackingError = null;
       });
     } on ApiException catch (error) {

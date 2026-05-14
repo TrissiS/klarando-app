@@ -1,6 +1,6 @@
 {
   "name": "klarando-app",
-  "version": "0.1.20",
+  "version": "0.1.17",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -30,6 +30,7 @@
     "version:bump:minor": "node scripts/version-manager.mjs bump minor",
     "version:bump:major": "node scripts/version-manager.mjs bump major",
     "bump:version": "node scripts/bump-version.mjs",
+    "release:patch": "node scripts/release-version.js",
     "deploy:live": "powershell -ExecutionPolicy Bypass -File scripts/deploy-klarando-live.ps1 -Mode live",
     "deploy:test": "powershell -ExecutionPolicy Bypass -File scripts/deploy-klarando-live.ps1 -Mode test",
     "deploy:quick": "powershell -ExecutionPolicy Bypass -File scripts/deploy-klarando-live.ps1 -Mode quick",
@@ -62,6 +63,6 @@
     "@types/react-dom": "^18.3.7",
     "typescript": "^5.9.3"
   },
-  "klarandoVersion": "0.1.20",
-  "klarandoBuildDateUtc": "2026-05-14T12:33:04.729Z"
+  "klarandoVersion": "0.1.17",
+  "klarandoBuildDateUtc": "2026-05-14T21:20:00.000Z"
 }

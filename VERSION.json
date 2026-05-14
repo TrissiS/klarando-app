@@ -1,8 +1,8 @@
 {
-  "version": "0.1.20",
-  "releaseName": "Version Endpoint Fix",
-  "buildNumber": 20,
+  "version": "0.1.17",
+  "releaseName": "Release",
+  "buildNumber": 17,
   "gitCommit": null,
-  "buildTime": "2026-05-14T12:33:04.729Z",
+  "buildTime": "2026-05-14T21:20:00.000Z",
   "environment": null
 }
