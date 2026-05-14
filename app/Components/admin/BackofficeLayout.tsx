@@ -311,6 +311,7 @@ export default function BackofficeLayout({
 
   const isTouchMode = uiMode === 'touch'
   const sidebarWidthClass = isTouchMode ? 'w-[248px]' : 'w-[276px]'
+  const contentOffsetClass = isTouchMode ? 'md:ml-[248px]' : 'md:ml-[276px]'
   const navLinkPaddingClass = isTouchMode ? 'px-4 py-3.5 text-sm' : 'px-3.5 py-2.5 text-[13px]'
   const headerSpacingClass = isTouchMode
     ? 'mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-5 md:px-6 md:py-6'
@@ -326,8 +327,8 @@ export default function BackofficeLayout({
       }`}
       data-admin-ui-mode={uiMode}
     >
-      <div className="relative isolate flex min-h-screen min-w-0">
-        <aside className={`brand-sidebar pointer-events-auto relative z-[90] hidden shrink-0 border-r border-white/10 md:sticky md:top-0 md:flex md:h-screen md:flex-col ${sidebarWidthClass}`}>
+      <div className="relative isolate min-h-screen min-w-0">
+        <aside className={`brand-sidebar pointer-events-auto fixed inset-y-0 left-0 z-[120] hidden border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
           <div className="border-b border-white/15 px-6 py-6">
             <PlatformBranding settings={platformBranding} area="sidebar" />
             <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
@@ -426,7 +427,7 @@ export default function BackofficeLayout({
           </div>
         </aside>
 
-        <div className="relative z-10 min-w-0 flex-1 overflow-x-hidden">
+        <div className={`relative z-10 min-w-0 overflow-x-hidden ${contentOffsetClass}`}>
           <header className="relative z-20 border-b border-[var(--brand-border)] bg-white/90 backdrop-blur">
             <div className={headerSpacingClass}>
               <div className="flex flex-wrap items-start justify-between gap-4">
