@@ -493,15 +493,26 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
     const normalizedUnitEans = unitEans === undefined ? undefined : normalizeUnitEans(unitEans)
     const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType)
     const normalizedProductNumber = normalizeProductNumber(productNumber)
+    const existingNormalizedProductNumber = normalizeProductNumber(existingProduct.productNumber)
     const targetAvailable = available ?? existingProduct.available
     const targetProductNumber =
       productNumber === undefined
-        ? normalizeProductNumber(existingProduct.productNumber ?? undefined)
+        ? existingNormalizedProductNumber
         : normalizedProductNumber
 
     if (targetAvailable && !targetProductNumber) {
       return res.status(400).json({
         error: 'Bitte Produktnummer vergeben, bevor der Artikel verkauft werden kann.',
+      })
+    }
+
+    if (
+      existingNormalizedProductNumber &&
+      productNumber !== undefined &&
+      normalizedProductNumber !== existingNormalizedProductNumber
+    ) {
+      return res.status(409).json({
+        error: 'Produktnummer kann nach Vergabe nicht mehr geändert werden.',
       })
     }
 

@@ -197,6 +197,7 @@ function AdminProductsPageContent() {
   const [importProductEan, setImportProductEan] = useState('')
   const [importPrice, setImportPrice] = useState('')
   const [importCategoryId, setImportCategoryId] = useState('')
+  const productNumberLocked = Boolean(editingProductId && productNumber.trim())
 
   async function loadCoreData() {
     try {
@@ -1023,6 +1024,7 @@ function AdminProductsPageContent() {
             setAvailable={setAvailable}
             savingProduct={savingProduct}
             productNumberError={productNumberError}
+            productNumberLocked={productNumberLocked}
             editingProductId={editingProductId}
             deletingProductId={deletingProductId}
             creatingIngredientProductId={creatingIngredientProductId}

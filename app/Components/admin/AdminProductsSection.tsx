@@ -46,6 +46,7 @@ type Props = {
   onCopy: (product: Product) => void
   onCancelEdit: () => void
   productNumberError?: string
+  productNumberLocked?: boolean
   onOpenTemplateImportDialog: () => void
 }
 
@@ -94,6 +95,7 @@ export default function AdminProductsSection({
   onCopy,
   onCancelEdit,
   productNumberError,
+  productNumberLocked = false,
   onOpenTemplateImportDialog,
 }: Props) {
   const [search, setSearch] = useState('')
@@ -210,12 +212,15 @@ export default function AdminProductsSection({
               Produktnummer
             </p>
             <p className="mt-1 text-xs text-amber-900/75">
-              Pflicht vor Verkauf – innerhalb der Filiale eindeutig.
+              {productNumberLocked
+                ? 'Produktnummer wurde vergeben und kann nicht mehr geändert werden.'
+                : 'Produktnummer kann nur einmal vergeben werden.'}
             </p>
             <input
               value={productNumber}
               onChange={(event) => setProductNumber(event.target.value)}
               placeholder="Optional"
+              disabled={productNumberLocked}
               className={`mt-2 w-full rounded-xl border px-3 py-2 text-sm outline-none transition disabled:cursor-not-allowed disabled:bg-rose-50 ${
                 productNumberError
                   ? 'border-red-300 bg-red-50 focus:border-red-400 focus:ring-2 focus:ring-red-200/60'
