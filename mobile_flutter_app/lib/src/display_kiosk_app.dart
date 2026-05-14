@@ -436,32 +436,41 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   const Text(
-                    'Display verbinden',
+                    'QR-Code mit Klarando OrderDesk scannen',
                     style: TextStyle(fontSize: 42, fontWeight: FontWeight.w700),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 16),
                   const Text(
-                    'Scanne diesen QR-Code im Klarando Adminbereich.',
+                    'Scanne diesen QR-Code im Klarando Adminbereich, um das Display zu verbinden.',
                     style: TextStyle(fontSize: 22, color: Colors.white70),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 22),
                   Expanded(
-                    child: AspectRatio(
-                      aspectRatio: 1,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(18),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(18),
-                          child: Image.network(
-                            qrUrl,
-                            fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const Center(
-                              child: Text('QR-Code konnte nicht geladen werden.'),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 640, maxHeight: 640),
+                        child: AspectRatio(
+                          aspectRatio: 1,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.all(24),
+                              child: Container(
+                                color: Colors.white,
+                                child: Image.network(
+                                  qrUrl,
+                                  fit: BoxFit.contain,
+                                  filterQuality: FilterQuality.none,
+                                  errorBuilder: (_, __, ___) => const Center(
+                                    child: Text('QR-Code konnte nicht geladen werden.'),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -481,6 +490,12 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
                   Text(
                     'Der Code ist $_formatCountdown() gültig.',
                     style: const TextStyle(fontSize: 20, color: Colors.white70),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Nach erfolgreicher Kopplung wechselt das Display automatisch in die Anzeige.',
+                    style: TextStyle(fontSize: 14, color: Colors.white70),
+                    textAlign: TextAlign.center,
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 14),
