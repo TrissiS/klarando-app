@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
@@ -43,6 +44,7 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
   Timer? _pairingCountdownTimer;
   Timer? _heartbeatTimer;
   Timer? _reconnectTimer;
+  Timer? _contentRefreshTimer;
 
   String _apiBaseUrl = normalizeApiBaseUrl(defaultApiBaseUrl);
   String? _deviceToken;
@@ -57,6 +59,10 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
   bool _paired = false;
   String? _error;
   String? _statusHint;
+  String? _screenId;
+  String? _tenantId;
+  String? _lastUpdated;
+  String? _apiStatus;
 
   WebViewController? _webViewController;
 
@@ -75,6 +81,7 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
     _pairingCountdownTimer?.cancel();
     _heartbeatTimer?.cancel();
     _reconnectTimer?.cancel();
+    _contentRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -134,10 +141,11 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
   }
 
   Future<void> _startPairingSession() async {
-    _pairingPollTimer?.cancel();
-    _pairingCountdownTimer?.cancel();
-    _heartbeatTimer?.cancel();
-    _reconnectTimer?.cancel();
+      _pairingPollTimer?.cancel();
+      _pairingCountdownTimer?.cancel();
+      _heartbeatTimer?.cancel();
+      _reconnectTimer?.cancel();
+      _contentRefreshTimer?.cancel();
 
     setState(() {
       _loading = true;
@@ -298,9 +306,15 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
         throw Exception('Keine Display-URL erhalten.');
       }
 
-      final resolvedUrl = contentUrl.startsWith('http') ? contentUrl : '$_apiBaseUrl$contentUrl';
+      final resolvedUrlRaw = contentUrl.startsWith('http') ? contentUrl : '$_apiBaseUrl$contentUrl';
+      final resolvedUri = Uri.parse(resolvedUrlRaw);
+      final query = Map<String, String>.from(resolvedUri.queryParameters);
+      query.putIfAbsent('kiosk', () => '1');
+      query.putIfAbsent('displayApp', () => '1');
+      final resolvedUrl = resolvedUri.replace(queryParameters: query).toString();
       final controller = WebViewController()
         ..setJavaScriptMode(JavaScriptMode.unrestricted)
+        ..clearCache()
         ..loadRequest(Uri.parse(resolvedUrl));
 
       setState(() {
@@ -308,16 +322,22 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
         _contentUrl = resolvedUrl;
         _paired = true;
         _loading = false;
+        _screenId = (json['screenId'] as String?)?.trim();
+        _tenantId = (json['tenantId'] as String?)?.trim();
+        _lastUpdated = (json['updatedAt'] as String?)?.trim();
+        _apiStatus = 'online';
       });
 
       _pairingPollTimer?.cancel();
       _pairingCountdownTimer?.cancel();
       _startHeartbeat();
+      _startContentRefresh();
       return true;
     } on TimeoutException {
       setState(() {
         _loading = false;
         _error = 'Verbindung wird wiederhergestellt …';
+        _apiStatus = 'reconnecting';
       });
       _scheduleContentRetry();
       return true;
@@ -325,10 +345,22 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
       setState(() {
         _loading = false;
         _error = 'Verbindung wird wiederhergestellt …';
+        _apiStatus = 'reconnecting';
       });
       _scheduleContentRetry();
       return true;
     }
+  }
+
+  void _startContentRefresh() {
+    _contentRefreshTimer?.cancel();
+    _contentRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      final controller = _webViewController;
+      if (controller != null) {
+        unawaited(controller.reload());
+      }
+      unawaited(_loadContentWithToken());
+    });
   }
 
   void _scheduleContentRetry() {
@@ -408,6 +440,19 @@ class _DisplayHomePageState extends State<_DisplayHomePage> with WidgetsBindingO
                       style: const TextStyle(color: Colors.white70, fontSize: 14),
                     ),
                   ),
+                ),
+              ),
+            if (kDebugMode)
+              Positioned(
+                left: 10,
+                right: 10,
+                bottom: 8,
+                child: Text(
+                  'debug: displayId=${_displayId ?? "-"} screenId=${_screenId ?? "-"} tenantId=${_tenantId ?? "-"} updated=${_lastUpdated ?? "-"} api=${_apiStatus ?? "-"}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white54, fontSize: 11),
                 ),
               ),
           ],

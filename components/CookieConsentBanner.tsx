@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   buildDefaultCookieConsent,
   COOKIE_CONSENT_KEY,
@@ -13,6 +13,7 @@ import {
 
 export default function CookieConsentBanner() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [hydrated, setHydrated] = useState(false);
   const [visible, setVisible] = useState(false);
   const [openSettings, setOpenSettings] = useState(false);
@@ -54,6 +55,8 @@ export default function CookieConsentBanner() {
     pathname?.startsWith("/admin") ||
     pathname?.startsWith("/superadmin") ||
     pathname?.startsWith("/chainadmin");
+  const isKioskRoute = pathname?.startsWith("/screen") || pathname?.startsWith("/display");
+  const isKioskQuery = searchParams?.get("kiosk") === "1" || searchParams?.get("displayApp") === "1";
 
   function saveConsent(next: CookieConsentState) {
     const payload = { ...next, savedAt: new Date().toISOString(), version: COOKIE_CONSENT_VERSION };
@@ -67,6 +70,7 @@ export default function CookieConsentBanner() {
 
   if (!hydrated) return null;
   if (isBackofficeArea) return null;
+  if (isKioskRoute || isKioskQuery) return null;
   if (!visible) {
     return (
       <button

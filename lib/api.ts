@@ -2690,7 +2690,9 @@ export async function deleteScreenDevice(id: string): Promise<void> {
 }
 
 export async function getPublicScreenFeed(deviceCode: string): Promise<PublicScreenFeed> {
-  const res = await fetch(`${API_BASE_URL}/api/screen/public/devices/${deviceCode}/feed`)
+  const res = await fetch(`${API_BASE_URL}/api/screen/public/devices/${deviceCode}/feed`, {
+    cache: 'no-store',
+  })
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)

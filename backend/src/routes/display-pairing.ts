@@ -39,6 +39,17 @@ function resolvePublicApiBaseUrl() {
   return 'https://api.klarando.com'
 }
 
+function resolvePublicWebBaseUrl() {
+  const candidate =
+    normalizeText(process.env.PUBLIC_WEB_BASE_URL) ??
+    normalizeText(process.env.NEXT_PUBLIC_WEB_BASE_URL) ??
+    normalizeText(process.env.NEXT_PUBLIC_APP_URL)
+  if (candidate) {
+    return candidate.replace(/\/+$/, '')
+  }
+  return 'https://klarando.com'
+}
+
 async function expireOutdatedSessions() {
   await prisma.displayPairingSession.updateMany({
     where: {
@@ -229,12 +240,15 @@ router.get('/display/content', async (req, res) => {
       return res.status(409).json({ code: 'SCREEN_NOT_AVAILABLE', message: 'Bildschirm ist aktuell nicht verfügbar.' })
     }
 
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Expires', '0')
     return res.json({
       displayId: device.id,
       tenantId: device.tenantId,
       screenId: device.screen.id,
       screenName: device.screen.name,
-      contentUrl: `/screen/${device.screen.deviceCode}`,
+      contentUrl: `${resolvePublicWebBaseUrl()}/screen/${device.screen.deviceCode}?kiosk=1&displayApp=1`,
       updatedAt: device.updatedAt.toISOString(),
     })
   } catch (error) {

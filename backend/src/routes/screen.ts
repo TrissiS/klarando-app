@@ -2003,6 +2003,9 @@ router.delete('/devices/:id', requirePermission(PermissionKey.SETTINGS_WRITE), a
 
 router.get('/public/devices/:deviceCode/feed', async (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+    res.setHeader('Pragma', 'no-cache')
+    res.setHeader('Expires', '0')
     const deviceCode = Array.isArray(req.params.deviceCode) ? req.params.deviceCode[0] : req.params.deviceCode
     if (!deviceCode) {
       return res.status(400).json({ error: 'deviceCode fehlt' })
