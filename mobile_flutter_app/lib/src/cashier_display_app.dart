@@ -873,36 +873,28 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     );
   }
 
-  String _buildGoogleMapsEmbedUrl(_DeliveryMapPayload payload) {
-    final destination = Uri.encodeComponent(payload.destinationAddress);
+  String _buildOsmEmbedUrl(_DeliveryMapPayload payload) {
     final hasDriverPosition =
         payload.driverLatitude != null && payload.driverLongitude != null;
-    if (googleMapsApiKey.isNotEmpty && hasDriverPosition) {
-      final origin =
-          '${payload.driverLatitude!.toStringAsFixed(6)},${payload.driverLongitude!.toStringAsFixed(6)}';
-      return 'https://www.google.com/maps/embed/v1/directions?key=${Uri.encodeComponent(googleMapsApiKey)}&origin=${Uri.encodeComponent(origin)}&destination=$destination&mode=driving';
-    }
-    if (googleMapsApiKey.isNotEmpty) {
-      return 'https://www.google.com/maps/embed/v1/place?key=${Uri.encodeComponent(googleMapsApiKey)}&q=$destination';
-    }
-    if (hasDriverPosition) {
-      final origin =
-          '${payload.driverLatitude!.toStringAsFixed(6)},${payload.driverLongitude!.toStringAsFixed(6)}';
-      return 'https://www.google.com/maps/dir/?api=1&origin=${Uri.encodeComponent(origin)}&destination=$destination&travelmode=driving&output=embed';
-    }
-    return 'https://www.google.com/maps?q=$destination&output=embed';
+    final centerLat = hasDriverPosition ? payload.driverLatitude! : 50.9375;
+    final centerLng = hasDriverPosition ? payload.driverLongitude! : 6.9603;
+    final delta = hasDriverPosition ? 0.02 : 0.01;
+    final west = centerLng - delta;
+    final south = centerLat - delta;
+    final east = centerLng + delta;
+    final north = centerLat + delta;
+
+    return 'https://www.openstreetmap.org/export/embed.html?bbox=${west.toStringAsFixed(6)}%2C${south.toStringAsFixed(6)}%2C${east.toStringAsFixed(6)}%2C${north.toStringAsFixed(6)}&layer=mapnik';
   }
 
-  String _buildGoogleMapsSearchUrl(_DeliveryMapPayload payload) {
+  String _buildOsmSearchUrl(_DeliveryMapPayload payload) {
     final destination = Uri.encodeComponent(payload.destinationAddress);
     final hasDriverPosition =
         payload.driverLatitude != null && payload.driverLongitude != null;
     if (hasDriverPosition) {
-      final origin =
-          '${payload.driverLatitude!.toStringAsFixed(6)},${payload.driverLongitude!.toStringAsFixed(6)}';
-      return 'https://www.google.com/maps/dir/?api=1&origin=${Uri.encodeComponent(origin)}&destination=$destination&travelmode=driving';
+      return 'https://www.openstreetmap.org/?mlat=${payload.driverLatitude!.toStringAsFixed(6)}&mlon=${payload.driverLongitude!.toStringAsFixed(6)}#map=15/${payload.driverLatitude!.toStringAsFixed(6)}/${payload.driverLongitude!.toStringAsFixed(6)}';
     }
-    return 'https://www.google.com/maps/search/?api=1&query=$destination';
+    return 'https://www.openstreetmap.org/search?query=$destination';
   }
 
   String _orderStatusLabel(String value) {
@@ -1082,14 +1074,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     );
   }
 
-  Future<void> _copyGoogleMapsLink(_DeliveryMapPayload payload) async {
-    final url = _buildGoogleMapsSearchUrl(payload);
+  Future<void> _copyOsmLink(_DeliveryMapPayload payload) async {
+    final url = _buildOsmSearchUrl(payload);
     await Clipboard.setData(ClipboardData(text: url));
     if (!mounted) {
       return;
     }
     setState(() {
-      _info = 'Google-Maps-Link wurde kopiert.';
+      _info = 'OpenStreetMap-Link wurde kopiert.';
     });
   }
 
@@ -1122,9 +1114,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               child: SizedBox(
                 height: 160,
                 width: double.infinity,
-                child: _GoogleMapsEmbed(
+                child: _OsmMapEmbed(
                   query: payload.destinationLabel,
-                  embedUrl: _buildGoogleMapsEmbedUrl(payload),
+                  embedUrl: _buildOsmEmbedUrl(payload),
                 ),
               ),
             ),
@@ -1146,9 +1138,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () => _copyGoogleMapsLink(payload),
+                  onPressed: () => _copyOsmLink(payload),
                   icon: const Icon(Icons.copy, size: 16),
-                  label: const Text('Maps-Link'),
+                  label: const Text('OSM-Link'),
                 ),
               ],
             ),
@@ -1199,6 +1191,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             ),
             const SizedBox(width: 8),
             const Text('Klarando OrderDesk'),
+            const SizedBox(width: 8),
+            Text(
+              'v0.1.21',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.9),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ],
         ),
         actions: [
@@ -1783,9 +1784,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               child: SizedBox(
                 height: 200,
                 width: double.infinity,
-                child: _GoogleMapsEmbed(
+                child: _OsmMapEmbed(
                   query: payload.destinationLabel,
-                  embedUrl: _buildGoogleMapsEmbedUrl(payload),
+                  embedUrl: _buildOsmEmbedUrl(payload),
                 ),
               ),
             ),
@@ -1804,9 +1805,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ),
             const SizedBox(height: 4),
             TextButton.icon(
-              onPressed: () => _copyGoogleMapsLink(payload),
+              onPressed: () => _copyOsmLink(payload),
               icon: const Icon(Icons.copy, size: 16),
-              label: const Text('Google-Maps-Link kopieren'),
+              label: const Text('OpenStreetMap-Link kopieren'),
             ),
             const SizedBox(height: 4),
             const Text(
@@ -1847,17 +1848,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 }
 
-class _GoogleMapsEmbed extends StatefulWidget {
-  const _GoogleMapsEmbed({required this.query, required this.embedUrl});
+class _OsmMapEmbed extends StatefulWidget {
+  const _OsmMapEmbed({required this.query, required this.embedUrl});
 
   final String query;
   final String embedUrl;
 
   @override
-  State<_GoogleMapsEmbed> createState() => _GoogleMapsEmbedState();
+  State<_OsmMapEmbed> createState() => _OsmMapEmbedState();
 }
 
-class _GoogleMapsEmbedState extends State<_GoogleMapsEmbed> {
+class _OsmMapEmbedState extends State<_OsmMapEmbed> {
   late final WebViewController _controller;
   bool _hasError = false;
 
@@ -1878,8 +1879,7 @@ class _GoogleMapsEmbedState extends State<_GoogleMapsEmbed> {
             });
           },
           onNavigationRequest: (request) {
-            if (request.url.startsWith('https://www.google.com/maps') ||
-                request.url.startsWith('https://maps.google.com') ||
+            if (request.url.startsWith('https://www.openstreetmap.org') ||
                 request.url.startsWith('about:blank')) {
               return NavigationDecision.navigate;
             }
@@ -1891,7 +1891,7 @@ class _GoogleMapsEmbedState extends State<_GoogleMapsEmbed> {
   }
 
   @override
-  void didUpdateWidget(covariant _GoogleMapsEmbed oldWidget) {
+  void didUpdateWidget(covariant _OsmMapEmbed oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.embedUrl != widget.embedUrl) {
       _hasError = false;
