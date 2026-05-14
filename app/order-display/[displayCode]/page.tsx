@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { InternalLiveMap, type InternalMapMarker } from '@/app/Components/maps/InternalLiveMap'
 import {
   acceptPublicOrderDisplayOrder,
   createPublicDriverDeviceSession,
@@ -47,7 +48,7 @@ type Props = {
 }
 
 const DISPLAY_META_PREFIX = '@@klarando-display-meta:'
-const MAPS_GEOCODING_ENDPOINT = 'https://maps.googleapis.com/maps/api/geocode/json'
+const OSM_GEOCODING_ENDPOINT = 'https://nominatim.openstreetmap.org/search'
 
 type DeliveryTargetCoordinates = {
   latitude: number
@@ -124,34 +125,34 @@ function resolveValidDriverCoordinates(order: Order): DeliveryTargetCoordinates 
   return { latitude, longitude }
 }
 
-function resolveStaticMapSrcByCoordinates(
-  coordinates: DeliveryTargetCoordinates
-) {
-  return `https://www.google.com/maps?q=${encodeURIComponent(
-    `${coordinates.latitude},${coordinates.longitude}`
-  )}&output=embed`
-}
-
-function resolveDriverMiniMapSrc(
+function resolveOrderMapMarkers(
   order: Order,
   destinationCoordinates: DeliveryTargetCoordinates | null
-) {
+): InternalMapMarker[] {
+  const markers: InternalMapMarker[] = []
   const driverCoordinates = resolveValidDriverCoordinates(order)
-  if (order.serviceType !== 'DELIVERY' || !driverCoordinates) {
-    return null
+
+  if (driverCoordinates) {
+    markers.push({
+      id: `${order.id}-driver`,
+      kind: 'driver',
+      label: 'Fahrer',
+      latitude: driverCoordinates.latitude,
+      longitude: driverCoordinates.longitude,
+    })
   }
 
   if (destinationCoordinates) {
-    return resolveStaticMapSrcByCoordinates(destinationCoordinates)
+    markers.push({
+      id: `${order.id}-customer`,
+      kind: 'customer',
+      label: 'Kunde',
+      latitude: destinationCoordinates.latitude,
+      longitude: destinationCoordinates.longitude,
+    })
   }
 
-  const delta = 0.0045
-  const west = driverCoordinates.longitude - delta
-  const south = driverCoordinates.latitude - delta
-  const east = driverCoordinates.longitude + delta
-  const north = driverCoordinates.latitude + delta
-
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${west}%2C${south}%2C${east}%2C${north}&layer=mapnik&marker=${driverCoordinates.latitude}%2C${driverCoordinates.longitude}`
+  return markers
 }
 
 function resolveOrderComplaintEntries(order: Order) {
@@ -160,19 +161,11 @@ function resolveOrderComplaintEntries(order: Order) {
   return unresolved.length > 0 ? unresolved : complaints
 }
 
-function resolveDriverRouteMapSrc(
-  order: Order,
-  destinationCoordinates: DeliveryTargetCoordinates | null
-) {
-  const driverCoordinates = resolveValidDriverCoordinates(order)
-  if (order.serviceType !== 'DELIVERY' || !driverCoordinates || !destinationCoordinates) {
+function resolveOpenStreetMapLink(coordinates: DeliveryTargetCoordinates | null) {
+  if (!coordinates) {
     return null
   }
-  const origin = `${driverCoordinates.latitude},${driverCoordinates.longitude}`
-  const destination = `${destinationCoordinates.latitude},${destinationCoordinates.longitude}`
-  return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(
-    origin
-  )}&destination=${encodeURIComponent(destination)}&travelmode=driving&output=embed`
+  return `https://www.openstreetmap.org/?mlat=${coordinates.latitude}&mlon=${coordinates.longitude}#map=16/${coordinates.latitude}/${coordinates.longitude}`
 }
 
 function playAlertBeep() {
@@ -414,8 +407,7 @@ export default function OrderDisplayPage({ params }: Props) {
   }, [displayCode])
 
   useEffect(() => {
-    const mapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() || ''
-    if (!feed?.orders || mapsApiKey.length === 0) {
+    if (!feed?.orders) {
       return
     }
 
@@ -454,29 +446,23 @@ export default function OrderDisplayPage({ params }: Props) {
 
         try {
           const query = new URLSearchParams({
-            address: destinationAddress,
-            key: mapsApiKey,
+            q: destinationAddress,
+            format: 'jsonv2',
+            limit: '1',
           })
-          const response = await fetch(`${MAPS_GEOCODING_ENDPOINT}?${query.toString()}`)
+          const response = await fetch(`${OSM_GEOCODING_ENDPOINT}?${query.toString()}`)
           if (!response.ok) {
             throw new Error(`Geocoding HTTP ${response.status}`)
           }
-          const payload = (await response.json()) as {
-            status?: string
-            results?: Array<{
-              geometry?: {
-                location?: {
-                  lat?: number
-                  lng?: number
-                }
-              }
-            }>
-          }
-          const location = payload.results?.[0]?.geometry?.location
+          const payload = (await response.json()) as Array<{
+            lat?: string | number
+            lon?: string | number
+          }>
+          const location = payload?.[0]
           const latitude = Number(location?.lat)
-          const longitude = Number(location?.lng)
+          const longitude = Number(location?.lon)
           if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-            throw new Error(`Geocoding ohne gültige Koordinaten (${payload.status || 'UNKNOWN'})`)
+            throw new Error('Geocoding ohne gültige Koordinaten')
           }
           if (cancelled) {
             return
@@ -996,12 +982,10 @@ export default function OrderDisplayPage({ params }: Props) {
   const activeAlertOrderDriverCoordinates = activeAlertOrder
     ? resolveValidDriverCoordinates(activeAlertOrder)
     : null
-  const activeAlertOrderRouteMapSrc = activeAlertOrder
-    ? resolveDriverRouteMapSrc(activeAlertOrder, activeAlertOrderTargetCoordinates)
-    : null
-  const activeAlertOrderTargetMapSrc = activeAlertOrderTargetCoordinates
-    ? resolveStaticMapSrcByCoordinates(activeAlertOrderTargetCoordinates)
-    : null
+  const activeAlertOrderMarkers = activeAlertOrder
+    ? resolveOrderMapMarkers(activeAlertOrder, activeAlertOrderTargetCoordinates)
+    : []
+  const activeAlertOrderTargetLink = resolveOpenStreetMapLink(activeAlertOrderTargetCoordinates)
   const mediaMode =
     feed.display.backgroundMediaMode === 'IMAGE' || feed.display.backgroundMediaMode === 'VIDEO'
       ? feed.display.backgroundMediaMode
@@ -1117,13 +1101,11 @@ export default function OrderDisplayPage({ params }: Props) {
                           deliveryMapExpanded ? 'h-72' : 'h-40'
                         }`}
                       >
-                        {activeAlertOrderRouteMapSrc || activeAlertOrderTargetMapSrc ? (
-                          <iframe
-                            title={`Lieferkarte ${activeAlertOrder.id}`}
-                            src={activeAlertOrderRouteMapSrc || activeAlertOrderTargetMapSrc || ''}
-                            className="h-full w-full border-0"
-                            loading="lazy"
-                            referrerPolicy="no-referrer-when-downgrade"
+                        {activeAlertOrderMarkers.length > 0 ? (
+                          <InternalLiveMap
+                            markers={activeAlertOrderMarkers}
+                            className="h-full w-full"
+                            showConnectionLine
                           />
                         ) : (
                           <div className="flex h-full items-center justify-center px-3 text-center text-xs text-amber-100/85">
@@ -1133,16 +1115,14 @@ export default function OrderDisplayPage({ params }: Props) {
                           </div>
                         )}
                       </div>
-                      {activeAlertOrderTargetCoordinates ? (
+                      {activeAlertOrderTargetLink ? (
                         <a
-                          href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                            `${activeAlertOrderTargetCoordinates.latitude},${activeAlertOrderTargetCoordinates.longitude}`
-                          )}`}
+                          href={activeAlertOrderTargetLink}
                           target="_blank"
                           rel="noreferrer"
                           className="mt-2 inline-block text-xs font-semibold text-cyan-200 underline"
                         >
-                          Ziel in Google Maps öffnen
+                          Ziel in OpenStreetMap öffnen
                         </a>
                       ) : null}
                       {!activeAlertOrderDriverCoordinates ? (
@@ -1394,8 +1374,7 @@ export default function OrderDisplayPage({ params }: Props) {
                 feed.display.orderAgeAlertThresholdSec > 0 &&
                 elapsedSeconds >= feed.display.orderAgeAlertThresholdSec
               const orderTargetCoordinates = deliveryTargetCoordinatesByOrderId[order.id] ?? null
-              const driverMiniMapSrc = resolveDriverMiniMapSrc(order, orderTargetCoordinates)
-              const driverRouteMapSrc = resolveDriverRouteMapSrc(order, orderTargetCoordinates)
+              const orderMapMarkers = resolveOrderMapMarkers(order, orderTargetCoordinates)
               const hasDriverCoordinates = Boolean(resolveValidDriverCoordinates(order))
               const acceptedRuntimeLabel = resolveAcceptedRuntimeLabel(order, nowMs)
               const deliveryRuntimeLabel = resolveDeliveryRuntimeLabel(order, nowMs)
@@ -1549,18 +1528,17 @@ export default function OrderDisplayPage({ params }: Props) {
                   </div>
 
                   <div className="flex max-w-full flex-wrap items-stretch justify-end gap-2.5">
-                    {driverMiniMapSrc || (order.serviceType === 'DELIVERY' && hasDriverCoordinates) ? (
+                    {orderMapMarkers.length > 0 || (order.serviceType === 'DELIVERY' && hasDriverCoordinates) ? (
                       <div className="w-[320px] rounded-xl border border-cyan-300/35 bg-slate-950/35 p-2">
                         <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-cyan-100">
                           Fahrer und Lieferziel
                         </p>
                         <div className="overflow-hidden rounded-lg border border-slate-700/80">
-                          {driverRouteMapSrc || driverMiniMapSrc ? (
-                            <iframe
-                              title={`Fahrerkarte ${order.id}`}
-                              src={driverRouteMapSrc || driverMiniMapSrc || ''}
+                          {orderMapMarkers.length > 0 ? (
+                            <InternalLiveMap
+                              markers={orderMapMarkers}
                               className="h-28 w-full"
-                              loading="lazy"
+                              showConnectionLine
                             />
                           ) : (
                             <div className="flex h-28 items-center justify-center px-2 text-center text-[11px] text-slate-300">
@@ -1946,10 +1924,8 @@ export default function OrderDisplayPage({ params }: Props) {
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               {mapModalOrders.map((mapOrder) => {
                 const orderTargetCoordinates = deliveryTargetCoordinatesByOrderId[mapOrder.id] ?? null
-                const embeddedMapSrc =
-                  resolveDriverRouteMapSrc(mapOrder, orderTargetCoordinates) ||
-                  resolveDriverMiniMapSrc(mapOrder, orderTargetCoordinates)
-                if (!embeddedMapSrc) {
+                const mapMarkers = resolveOrderMapMarkers(mapOrder, orderTargetCoordinates)
+                if (mapMarkers.length === 0) {
                   return (
                     <div
                       key={`route-map-${mapOrder.id}`}
@@ -1980,11 +1956,10 @@ export default function OrderDisplayPage({ params }: Props) {
                         .filter(Boolean)
                         .join(', ') || '-'}
                     </p>
-                    <iframe
-                      title={`Route ${mapOrder.id}`}
-                      src={embeddedMapSrc}
-                      className="h-64 w-full rounded-lg border-0"
-                      loading="lazy"
+                    <InternalLiveMap
+                      markers={mapMarkers}
+                      className="h-64 w-full rounded-lg"
+                      showConnectionLine
                     />
                   </div>
                 )

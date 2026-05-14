@@ -310,3 +310,4 @@ body {
   padding: 0.8rem 1rem;
   font-size: 0.95rem;
 }
+@import 'leaflet/dist/leaflet.css';
