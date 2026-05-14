@@ -612,7 +612,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                         const isActive = isItemActive(item)
 
                         return (
-                          <Link
+                          <a
                             key={item.href}
                             href={item.href}
                             aria-current={isActive ? 'page' : undefined}
@@ -624,7 +624,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                             onClick={() => setMobileNavOpen(false)}
                           >
                             {item.label}
-                          </Link>
+                          </a>
                         )
                       })}
                     </div>
@@ -638,14 +638,14 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               </p>
               <div className="mt-2 space-y-2">
                 {switchTarget ? (
-                  <Link
+                  <a
                     href={switchTarget.href}
                     title={switchTarget.label}
                     className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
                     data-nav-anchor="admin-sidebar-quicklink"
                   >
                     {switchTarget.label}
-                  </Link>
+                  </a>
                 ) : null}
                 <button
                   type="button"
@@ -791,7 +791,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                               const isActive = isItemActive(item)
 
                               return (
-                                <Link
+                                <a
                                   key={item.href}
                                   href={item.href}
                                   className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
@@ -802,7 +802,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                                   title={item.tooltip || item.label}
                                 >
                                   {item.label}
-                                </Link>
+                                </a>
                               )
                             })}
                           </div>
@@ -810,13 +810,13 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                       </div>
                     ))}
                     {switchTarget ? (
-                    <Link
-                      href={switchTarget.href}
-                      className="block rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-100"
-                      onClick={() => setMobileNavOpen(false)}
-                    >
-                      {switchTarget.label}
-                    </Link>
+                      <a
+                        href={switchTarget.href}
+                        className="block rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-100"
+                        onClick={() => setMobileNavOpen(false)}
+                      >
+                        {switchTarget.label}
+                      </a>
                     ) : null}
                     <button
                       type="button"

@@ -366,7 +366,7 @@ export default function BackofficeLayout({
                       {group.items.map((item) => {
                         const isActive = pathname === item.href
                         return (
-                          <Link
+                          <a
                             key={item.href}
                             href={item.href}
                             title={item.tooltip || item.label}
@@ -377,7 +377,7 @@ export default function BackofficeLayout({
                             onClick={() => setMobileNavOpen(false)}
                           >
                             {item.label}
-                          </Link>
+                          </a>
                         )
                       })}
                     </div>
@@ -392,14 +392,14 @@ export default function BackofficeLayout({
               </p>
               <div className="mt-2 space-y-2">
                 {canSwitchToAdmin ? (
-                  <Link
+                  <a
                     href="/admin"
                     title="Zum Adminbereich"
-                  className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
-                  data-nav-anchor="backoffice-sidebar-quicklink"
-                >
+                    className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
+                    data-nav-anchor="backoffice-sidebar-quicklink"
+                  >
                     Zum Adminbereich
-                  </Link>
+                  </a>
                 ) : null}
                 <button
                   type="button"
@@ -529,7 +529,7 @@ export default function BackofficeLayout({
                             {group.items.map((item) => {
                               const isActive = pathname === item.href
                               return (
-                                <Link
+                                <a
                                   key={item.href}
                                   href={item.href}
                                   title={item.tooltip || item.label}
@@ -540,7 +540,7 @@ export default function BackofficeLayout({
                                   }`}
                                 >
                                   {item.label}
-                                </Link>
+                                </a>
                               )
                             })}
                           </div>
@@ -548,12 +548,12 @@ export default function BackofficeLayout({
                       </div>
                     ))}
                     {canSwitchToAdmin ? (
-                      <Link
+                      <a
                         href="/admin"
                         className="block rounded-xl bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900 hover:bg-rose-100"
                       >
                         Zum Adminbereich
-                      </Link>
+                      </a>
                     ) : null}
                     <button
                       type="button"
