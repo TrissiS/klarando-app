@@ -12,7 +12,7 @@ class DisplayApi {
   Future<Map<String, dynamic>> createPairingSession() async {
     final response = await http.post(
       Uri.parse('$_baseUrl/api/display/pairing/session'),
-      headers: const {'Content-Type': 'application/json'},
+      headers: const {'Content-Type': 'application/json', 'Accept': 'application/json'},
       body: jsonEncode({
         'deviceName': 'Klarando Display',
         'platform': 'android-tv',
@@ -47,9 +47,12 @@ class DisplayApi {
   }
 
   Map<String, dynamic> _decode(http.Response response) {
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final body = response.body.isNotEmpty
+        ? (jsonDecode(response.body) as Map<String, dynamic>)
+        : <String, dynamic>{};
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw Exception(body['message'] ?? 'Display-API Fehler');
+      final message = '${body['message'] ?? body['error'] ?? 'Display-API Fehler'}';
+      throw Exception(message);
     }
     return body;
   }

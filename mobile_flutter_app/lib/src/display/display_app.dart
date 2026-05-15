@@ -45,8 +45,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
 
   String? _deviceToken;
   String? _pairingToken;
+  String? _pairingSessionId;
   String _pairingCode = '------';
   DateTime? _expiresAt;
+  Map<String, dynamic>? _qrPayload;
   Map<String, dynamic>? _content;
   String? _message;
 
@@ -96,8 +98,12 @@ class _DisplayRootState extends State<_DisplayRoot> {
     try {
       final response = await _api.createPairingSession();
       _pairingToken = '${response['pairingToken'] ?? ''}';
+      _pairingSessionId = '${response['sessionId'] ?? response['id'] ?? ''}'.trim();
       _pairingCode = '${response['pairingCode'] ?? '------'}';
       _expiresAt = DateTime.tryParse('${response['expiresAt'] ?? ''}');
+      _qrPayload = response['qrPayload'] is Map<String, dynamic>
+          ? response['qrPayload'] as Map<String, dynamic>
+          : null;
       _message = null;
       setState(() {});
 
@@ -114,7 +120,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
         }
       });
     } catch (error) {
-      _message = '$error';
+      _message = _toFriendlyError(error);
       setState(() {});
     }
   }
@@ -158,10 +164,21 @@ class _DisplayRootState extends State<_DisplayRoot> {
       if (message.contains('ungültig') || message.contains('ungultig')) {
         return false;
       }
-      _message = 'Verbindung wird wiederhergestellt …';
+      _message = _toFriendlyError(error);
       setState(() {});
       return true;
     }
+  }
+
+  String _toFriendlyError(Object error) {
+    final raw = error.toString().replaceFirst('Exception:', '').trim();
+    if (raw.contains('/api/display/pairing/session')) {
+      return 'Display-Pairing wird neu verbunden …';
+    }
+    if (raw.isEmpty) {
+      return 'Verbindung konnte nicht hergestellt werden.';
+    }
+    return raw;
   }
 
   void _startBackgroundJobs() {
@@ -195,13 +212,16 @@ class _DisplayRootState extends State<_DisplayRoot> {
       return DisplayContentScreen(content: _content!, connectionMessage: _message);
     }
 
-    final qrPayload = jsonEncode({
-      'type': 'DISPLAY_PAIRING',
-      'pairingToken': _pairingToken,
-      'pairingCode': _pairingCode,
-      'apiBaseUrl': 'https://api.klarando.com',
-      'expiresAt': _expiresAt?.toIso8601String(),
-    });
+    final qrPayloadMap = _qrPayload ??
+        <String, dynamic>{
+          'type': 'DISPLAY_PAIRING',
+          'pairingToken': _pairingToken,
+          'pairingCode': _pairingCode,
+          'apiBaseUrl': 'https://api.klarando.com',
+          'expiresAt': _expiresAt?.toIso8601String(),
+          if ((_pairingSessionId ?? '').isNotEmpty) 'sessionId': _pairingSessionId,
+        };
+    final qrPayload = jsonEncode(qrPayloadMap);
     final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=720x720&data=${Uri.encodeComponent(qrPayload)}';
 
     return DisplayPairingScreen(
