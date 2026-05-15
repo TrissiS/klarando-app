@@ -7,12 +7,14 @@ class DisplayPairingScreen extends StatelessWidget {
     required this.pairingCode,
     required this.countdown,
     required this.status,
+    this.debugLines = const <String>[],
   });
 
   final String qrUrl;
   final String pairingCode;
   final String countdown;
   final String? status;
+  final List<String> debugLines;
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +73,29 @@ class DisplayPairingScreen extends StatelessWidget {
                   if (status != null) ...[
                     const SizedBox(height: 10),
                     Text(status!, style: const TextStyle(fontSize: 14, color: Colors.white70)),
+                  ],
+                  if (debugLines.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.35),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(10),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: debugLines
+                              .map(
+                                (line) => Text(
+                                  line,
+                                  style: const TextStyle(fontSize: 12, color: Colors.white70),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ),
+                    ),
                   ],
                 ],
               ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -52,6 +53,9 @@ class _DisplayRootState extends State<_DisplayRoot> {
   Map<String, dynamic>? _content;
   String? _message;
   bool _pairingSessionReady = false;
+  int? _lastPairingHttpStatus;
+  DateTime? _lastPairingAttemptAt;
+  static const String _pairingEndpoint = '/api/display/pairing/session';
 
   @override
   void initState() {
@@ -96,6 +100,12 @@ class _DisplayRootState extends State<_DisplayRoot> {
     _heartbeatTimer?.cancel();
     _refreshTimer?.cancel();
 
+    _lastPairingAttemptAt = DateTime.now();
+    _lastPairingHttpStatus = null;
+    _message = null;
+    _pairingSessionReady = false;
+    setState(() {});
+
     try {
       final response = await _api.createPairingSession();
       _pairingToken = '${response['pairingToken'] ?? ''}';
@@ -106,7 +116,6 @@ class _DisplayRootState extends State<_DisplayRoot> {
           ? response['qrPayload'] as Map<String, dynamic>
           : null;
       _pairingSessionReady = _pairingToken != null && _pairingToken!.isNotEmpty;
-      _message = null;
       setState(() {});
 
       _pairingPollTimer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -123,6 +132,9 @@ class _DisplayRootState extends State<_DisplayRoot> {
       });
     } catch (error) {
       _pairingSessionReady = false;
+      if (error is DisplayApiException) {
+        _lastPairingHttpStatus = error.statusCode;
+      }
       _message = _toFriendlyError(error);
       setState(() {});
     }
@@ -253,12 +265,21 @@ class _DisplayRootState extends State<_DisplayRoot> {
         };
     final qrPayload = jsonEncode(qrPayloadMap);
     final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=720x720&data=${Uri.encodeComponent(qrPayload)}';
+    final debugLines = kDebugMode
+        ? <String>[
+            'API: ${_api.baseUrl}',
+            'Endpoint: $_pairingEndpoint',
+            'Letzter HTTP-Status: ${_lastPairingHttpStatus?.toString() ?? '-'}',
+            'Letzter Versuch: ${_lastPairingAttemptAt?.toIso8601String() ?? '-'}',
+          ]
+        : const <String>[];
 
     return DisplayPairingScreen(
       qrUrl: qrUrl,
       pairingCode: _pairingCode,
       countdown: _countdownLabel(),
       status: _message,
+      debugLines: debugLines,
     );
   }
 }

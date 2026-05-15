@@ -23,6 +23,7 @@ class DisplayApi {
   DisplayApi({String? baseUrl}) : _baseUrl = normalizeApiBaseUrl(baseUrl ?? defaultApiBaseUrl);
 
   final String _baseUrl;
+  String get baseUrl => _baseUrl;
 
   Future<Map<String, dynamic>> createPairingSession() async {
     final endpoint = '/api/display/pairing/session';
