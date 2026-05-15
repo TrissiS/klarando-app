@@ -6730,6 +6730,7 @@ export async function claimDisplayPairingSession(
     pairingToken?: string | null
     pairingCode?: string | null
     tenantId: string
+    displayId?: string | null
     screenId?: string | null
     displayName?: string | null
   }
@@ -6750,6 +6751,7 @@ export async function claimDisplayPairingSession(
       pairingToken: data.pairingToken || undefined,
       pairingCode: data.pairingCode || undefined,
       tenantId: data.tenantId,
+      displayId: data.displayId || undefined,
       screenId: data.screenId || undefined,
       displayName: data.displayName || undefined,
     }),

@@ -86,7 +86,8 @@ export default function DisplayDeviceManagementPanel({
   const [claimPayload, setClaimPayload] = useState('')
   const [claimPairingCode, setClaimPairingCode] = useState('')
   const [claimTenantId, setClaimTenantId] = useState(fixedTenantId || '')
-  const [claimScreenId, setClaimScreenId] = useState('')
+  const [selectedDisplayRowId, setSelectedDisplayRowId] = useState('')
+  const [createNewDisplayOnClaim, setCreateNewDisplayOnClaim] = useState(false)
   const [claimDisplayName, setClaimDisplayName] = useState('')
   const [claiming, setClaiming] = useState(false)
   const [scannerOpen, setScannerOpen] = useState(false)
@@ -102,6 +103,10 @@ export default function DisplayDeviceManagementPanel({
   const isTenantLocked = Boolean(fixedTenantId)
   const isChainLocked = Boolean(fixedChainId)
   const isAdminScope = roleScope === 'admin'
+  const selectedDisplayRow = useMemo(
+    () => rows.find((entry) => entry.id === selectedDisplayRowId) || null,
+    [rows, selectedDisplayRowId]
+  )
 
   const filteredTenants = useMemo(() => {
     if (!selectedChainId) {
@@ -407,17 +412,23 @@ export default function DisplayDeviceManagementPanel({
       if (!claimDisplayName.trim()) {
         throw new Error('Bitte gib einen Anzeigenamen ein.')
       }
+      if (!createNewDisplayOnClaim && !selectedDisplayRow) {
+        throw new Error('Bitte wähle unten einen Bildschirm aus.')
+      }
       const response = await claimDisplayPairingSession(token, {
         pairingToken,
         pairingCode: manualPairingCode,
         tenantId,
-        screenId: claimScreenId.trim() || null,
+        displayId: createNewDisplayOnClaim ? null : selectedDisplayRow?.entityId || null,
+        screenId: null,
         displayName: claimDisplayName.trim() || null,
       })
       setSuccess(response.message || 'Display erfolgreich verbunden.')
       setClaimPayload('')
       setClaimPairingCode('')
       setClaimDisplayName('')
+      setSelectedDisplayRowId('')
+      setCreateNewDisplayOnClaim(false)
       await loadOverview()
     } catch (claimError) {
       setError(claimError instanceof Error ? claimError.message : 'Display konnte nicht verbunden werden')
@@ -458,12 +469,6 @@ export default function DisplayDeviceManagementPanel({
             placeholder="z. B. Gastraum TV"
           />
           <AdminTextInput
-            label="Bildschirm-ID (optional)"
-            value={claimScreenId}
-            onChange={(event) => setClaimScreenId(event.target.value)}
-            placeholder="Leer = Bildschirm wird automatisch erstellt"
-          />
-          <AdminTextInput
             label="Pairing-Code (optional)"
             value={claimPairingCode}
             onChange={(event) => setClaimPairingCode(event.target.value)}
@@ -481,6 +486,19 @@ export default function DisplayDeviceManagementPanel({
             />
           </div>
         </AdminFormGrid>
+        {!createNewDisplayOnClaim && selectedDisplayRow ? (
+          <p className="mt-3 text-sm font-medium text-emerald-700">
+            Ausgewählt: {selectedDisplayRow.name}
+          </p>
+        ) : null}
+        {!createNewDisplayOnClaim && !selectedDisplayRow ? (
+          <p className="mt-3 text-sm text-amber-700">Bitte wähle unten einen Bildschirm aus.</p>
+        ) : null}
+        {createNewDisplayOnClaim ? (
+          <p className="mt-3 text-sm text-slate-700">
+            Neuer Bildschirm wird beim Verbinden automatisch erstellt.
+          </p>
+        ) : null}
         <AdminActionBar>
           <AdminButton
             type="button"
@@ -496,12 +514,23 @@ export default function DisplayDeviceManagementPanel({
           </AdminButton>
           <AdminButton
             type="button"
+            variant="secondary"
+            onClick={() => {
+              setCreateNewDisplayOnClaim(true)
+              setSelectedDisplayRowId('')
+            }}
+          >
+            Neuen Bildschirm erstellen und verbinden
+          </AdminButton>
+          <AdminButton
+            type="button"
             onClick={() => void handleClaimPairing()}
             disabled={
               claiming ||
               !(isTenantLocked ? fixedTenantId : claimTenantId)?.trim() ||
               !claimDisplayName.trim() ||
-              (!claimPairingCode.trim() && !claimPayload.trim())
+              (!claimPairingCode.trim() && !claimPayload.trim()) ||
+              (!createNewDisplayOnClaim && !selectedDisplayRow)
             }
           >
             {claiming ? 'Verbinde…' : 'Display verbinden'}
@@ -659,6 +688,20 @@ export default function DisplayDeviceManagementPanel({
                     </td> : null}
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <div className="flex flex-wrap gap-2">
+                        <AdminButton
+                          type="button"
+                          variant={selectedDisplayRowId === row.id && !createNewDisplayOnClaim ? 'primary' : 'secondary'}
+                          onClick={() => {
+                            setCreateNewDisplayOnClaim(false)
+                            setSelectedDisplayRowId(row.id)
+                            if (!claimDisplayName.trim() || claimDisplayName === selectedDisplayRow?.name) {
+                              setClaimDisplayName(row.name)
+                            }
+                            setSuccess('')
+                          }}
+                        >
+                          Dieses Display verbinden
+                        </AdminButton>
                         {!isAdminScope ? <AdminButton
                           type="button"
                           onClick={() => void handlePreview(row)}
