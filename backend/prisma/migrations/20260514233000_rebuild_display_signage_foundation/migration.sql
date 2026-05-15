@@ -241,73 +241,231 @@ CREATE INDEX IF NOT EXISTS "DisplayPairingSession_pairingCode_idx" ON "DisplayPa
 
 -- 5) Foreign keys / constraints (table + constraint existence checks)
 DO $$ BEGIN
-  IF to_regclass('"DisplayScreen"') IS NOT NULL
-     AND to_regclass('"Tenant"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayScreen_tenantId_fkey' AND conrelid = '"DisplayScreen"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayScreen'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'Tenant'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayScreen'
+         AND c.conname = 'DisplayScreen_tenantId_fkey'
+     ) THEN
     ALTER TABLE "DisplayScreen" ADD CONSTRAINT "DisplayScreen_tenantId_fkey"
       FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF to_regclass('"DisplayPlaylist"') IS NOT NULL
-     AND to_regclass('"Tenant"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPlaylist_tenantId_fkey' AND conrelid = '"DisplayPlaylist"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayPlaylist'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'Tenant'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayPlaylist'
+         AND c.conname = 'DisplayPlaylist_tenantId_fkey'
+     ) THEN
     ALTER TABLE "DisplayPlaylist" ADD CONSTRAINT "DisplayPlaylist_tenantId_fkey"
       FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF to_regclass('"DisplayPlaylist"') IS NOT NULL
-     AND to_regclass('"DisplayScreen"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPlaylist_screenId_fkey' AND conrelid = '"DisplayPlaylist"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayPlaylist'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayScreen'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayPlaylist'
+         AND c.conname = 'DisplayPlaylist_screenId_fkey'
+     ) THEN
     ALTER TABLE "DisplayPlaylist" ADD CONSTRAINT "DisplayPlaylist_screenId_fkey"
       FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF to_regclass('"DisplayPlaylistItem"') IS NOT NULL
-     AND to_regclass('"DisplayPlaylist"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPlaylistItem_playlistId_fkey' AND conrelid = '"DisplayPlaylistItem"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayPlaylistItem'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayPlaylist'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayPlaylistItem'
+         AND c.conname = 'DisplayPlaylistItem_playlistId_fkey'
+     ) THEN
     ALTER TABLE "DisplayPlaylistItem" ADD CONSTRAINT "DisplayPlaylistItem_playlistId_fkey"
       FOREIGN KEY ("playlistId") REFERENCES "DisplayPlaylist"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF to_regclass('"DisplayHeartbeatLog"') IS NOT NULL
-     AND to_regclass('"Tenant"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayHeartbeatLog_tenantId_fkey' AND conrelid = '"DisplayHeartbeatLog"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayHeartbeatLog'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'Tenant'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayHeartbeatLog'
+         AND c.conname = 'DisplayHeartbeatLog_tenantId_fkey'
+     ) THEN
     ALTER TABLE "DisplayHeartbeatLog" ADD CONSTRAINT "DisplayHeartbeatLog_tenantId_fkey"
       FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF to_regclass('"DisplayHeartbeatLog"') IS NOT NULL
-     AND to_regclass('"DisplayDevice"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayHeartbeatLog_deviceId_fkey' AND conrelid = '"DisplayHeartbeatLog"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayHeartbeatLog'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayDevice'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayHeartbeatLog'
+         AND c.conname = 'DisplayHeartbeatLog_deviceId_fkey'
+     ) THEN
     ALTER TABLE "DisplayHeartbeatLog" ADD CONSTRAINT "DisplayHeartbeatLog_deviceId_fkey"
       FOREIGN KEY ("deviceId") REFERENCES "DisplayDevice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF to_regclass('"DisplayDevice"') IS NOT NULL
-     AND to_regclass('"DisplayScreen"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayDevice_screenId_fkey' AND conrelid = '"DisplayDevice"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayDevice'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayScreen'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayDevice'
+         AND c.conname = 'DisplayDevice_screenId_fkey'
+     ) THEN
     ALTER TABLE "DisplayDevice" ADD CONSTRAINT "DisplayDevice_screenId_fkey"
       FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
-  IF to_regclass('"DisplayPairingSession"') IS NOT NULL
-     AND to_regclass('"DisplayScreen"') IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPairingSession_screenId_fkey' AND conrelid = '"DisplayPairingSession"'::regclass) THEN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayDevice'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'Tenant'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayDevice'
+         AND c.conname = 'DisplayDevice_tenantId_fkey'
+     ) THEN
+    ALTER TABLE "DisplayDevice" ADD CONSTRAINT "DisplayDevice_tenantId_fkey"
+      FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayPairingSession'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayScreen'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayPairingSession'
+         AND c.conname = 'DisplayPairingSession_screenId_fkey'
+     ) THEN
     ALTER TABLE "DisplayPairingSession" ADD CONSTRAINT "DisplayPairingSession_screenId_fkey"
       FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayPairingSession'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'DisplayDevice'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint c
+       JOIN pg_class t ON t.oid = c.conrelid
+       JOIN pg_namespace n ON n.oid = t.relnamespace
+       WHERE n.nspname = 'public'
+         AND t.relname = 'DisplayPairingSession'
+         AND c.conname = 'DisplayPairingSession_deviceId_fkey'
+     ) THEN
+    ALTER TABLE "DisplayPairingSession" ADD CONSTRAINT "DisplayPairingSession_deviceId_fkey"
+      FOREIGN KEY ("deviceId") REFERENCES "DisplayDevice"("id") ON DELETE SET NULL ON UPDATE CASCADE;
   END IF;
 END $$;
