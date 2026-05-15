@@ -75,14 +75,22 @@ CREATE TABLE IF NOT EXISTS "DisplayPlaylistItem" (
   CONSTRAINT "DisplayPlaylistItem_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE IF NOT EXISTS "DisplayHeartbeatLog" (
+CREATE TABLE IF NOT EXISTS "DisplayDevice" (
   "id" TEXT NOT NULL,
   "tenantId" TEXT NOT NULL,
-  "deviceId" TEXT NOT NULL,
-  "status" TEXT NOT NULL,
+  "screenId" TEXT,
+  "pairingSessionId" TEXT,
+  "name" TEXT NOT NULL,
+  "deviceTokenHash" TEXT NOT NULL,
+  "platform" TEXT NOT NULL DEFAULT 'unknown',
   "appVersion" TEXT,
+  "status" "DisplayDeviceStatus" NOT NULL DEFAULT 'OFFLINE',
+  "lastSeenAt" TIMESTAMP(3),
+  "lastIp" TEXT,
+  "revokedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT "DisplayHeartbeatLog_pkey" PRIMARY KEY ("id")
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "DisplayDevice_pkey" PRIMARY KEY ("id")
 );
 
 CREATE TABLE IF NOT EXISTS "DisplayPairingSession" (
@@ -103,6 +111,16 @@ CREATE TABLE IF NOT EXISTS "DisplayPairingSession" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "DisplayPairingSession_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "DisplayHeartbeatLog" (
+  "id" TEXT NOT NULL,
+  "tenantId" TEXT NOT NULL,
+  "deviceId" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "appVersion" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "DisplayHeartbeatLog_pkey" PRIMARY KEY ("id")
 );
 
 -- 3) Ensure additive columns for existing tables
