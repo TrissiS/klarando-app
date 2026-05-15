@@ -123,6 +123,27 @@ CREATE TABLE IF NOT EXISTS "DisplayHeartbeatLog" (
   CONSTRAINT "DisplayHeartbeatLog_pkey" PRIMARY KEY ("id")
 );
 
+-- Safety: ensure DisplayPairingSession exists before any ALTER/INDEX/FK uses it
+CREATE TABLE IF NOT EXISTS "DisplayPairingSession" (
+  "id" TEXT NOT NULL,
+  "pairingTokenHash" TEXT NOT NULL,
+  "pairingCode" TEXT NOT NULL,
+  "status" "DisplayPairingStatus" NOT NULL DEFAULT 'PENDING',
+  "expiresAt" TIMESTAMP(3) NOT NULL,
+  "claimedAt" TIMESTAMP(3),
+  "claimedByUserId" TEXT,
+  "tenantId" TEXT,
+  "screenId" TEXT,
+  "displayName" TEXT,
+  "platform" TEXT NOT NULL DEFAULT 'unknown',
+  "appVersion" TEXT,
+  "deviceName" TEXT NOT NULL DEFAULT 'Unbekanntes Display',
+  "deviceId" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "DisplayPairingSession_pkey" PRIMARY KEY ("id")
+);
+
 -- 3) Ensure additive columns for existing tables
 ALTER TABLE "DisplayScreen"
   ADD COLUMN IF NOT EXISTS "customWidth" INTEGER,
