@@ -419,7 +419,7 @@ export default function DisplayDeviceManagementPanel({
         pairingToken,
         pairingCode: manualPairingCode,
         tenantId,
-        displayId: createNewDisplayOnClaim ? null : selectedDisplayRow?.entityId || null,
+        displayId: createNewDisplayOnClaim ? null : selectedDisplayRow?.id || null,
         screenId: null,
         displayName: claimDisplayName.trim() || null,
       })
@@ -498,6 +498,13 @@ export default function DisplayDeviceManagementPanel({
           <p className="mt-3 text-sm text-slate-700">
             Neuer Bildschirm wird beim Verbinden automatisch erstellt.
           </p>
+        ) : null}
+        {process.env.NODE_ENV !== 'production' ? (
+          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            <p>Debug selectedDisplayId: {selectedDisplayRow?.id || '-'}</p>
+            <p>Debug selectedDisplayName: {selectedDisplayRow?.name || '-'}</p>
+            <p>Debug pairingCode vorhanden: {claimPairingCode.trim() ? 'ja' : 'nein'}</p>
+          </div>
         ) : null}
         <AdminActionBar>
           <AdminButton

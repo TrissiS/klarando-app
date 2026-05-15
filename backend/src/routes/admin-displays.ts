@@ -14,6 +14,21 @@ function normalizeText(value: unknown) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function parseDisplaySelectionRef(value: string | null) {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  if (trimmed.startsWith('order:')) {
+    const id = trimmed.slice('order:'.length).trim()
+    return id ? { kind: 'ORDER_DISPLAY' as const, id } : null
+  }
+  if (trimmed.startsWith('screen:')) {
+    const id = trimmed.slice('screen:'.length).trim()
+    return id ? { kind: 'SCREEN_DEVICE' as const, id } : null
+  }
+  return { kind: 'RAW' as const, id: trimmed }
+}
+
 router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
   try {
     const body = req.body as {
@@ -47,14 +62,73 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
 
     let targetDevice: { id: string; screenId: string | null } | null = null
     if (displayIdInput) {
+      const selection = parseDisplaySelectionRef(displayIdInput)
+      const selectedRawId = selection?.id ?? displayIdInput
       targetDevice = await prisma.displayDevice.findFirst({
-        where: { id: displayIdInput, tenantId, revokedAt: null },
+        where: { id: selectedRawId, tenantId, revokedAt: null },
         select: { id: true, screenId: true },
       })
-      if (!targetDevice) {
-        return res.status(404).json({ message: 'Ausgewählter Bildschirm wurde nicht gefunden.' })
+      if (!targetDevice && selection?.kind === 'ORDER_DISPLAY') {
+        const legacy = await prisma.orderDisplay.findFirst({
+          where: { id: selection.id, tenantId, isActive: true },
+          select: { id: true, name: true },
+        })
+        if (!legacy) {
+          return res.status(404).json({ message: 'Ausgewählter Bildschirm wurde nicht gefunden.' })
+        }
+        screen = await prisma.displayScreen.findFirst({
+          where: { tenantId, name: legacy.name, isActive: true },
+        })
+        if (!screen) {
+          screen = await prisma.displayScreen.create({
+            data: {
+              tenantId,
+              name: legacy.name.substring(0, 80),
+              layoutType: 'MENU_BOARD',
+              orientation: 'LANDSCAPE',
+              resolutionPreset: 'FULL_HD',
+              backgroundColor: '#111827',
+              accentColor: '#ff6b35',
+              isActive: true,
+            },
+          })
+        }
+      } else if (!targetDevice && selection?.kind === 'SCREEN_DEVICE') {
+        const legacy = await prisma.screenDevice.findFirst({
+          where: { id: selection.id, tenantId, isActive: true },
+          select: { id: true, name: true },
+        })
+        if (!legacy) {
+          return res.status(404).json({ message: 'Ausgewählter Bildschirm wurde nicht gefunden.' })
+        }
+        screen = await prisma.displayScreen.findFirst({
+          where: { tenantId, name: legacy.name, isActive: true },
+        })
+        if (!screen) {
+          screen = await prisma.displayScreen.create({
+            data: {
+              tenantId,
+              name: legacy.name.substring(0, 80),
+              layoutType: 'MENU_BOARD',
+              orientation: 'LANDSCAPE',
+              resolutionPreset: 'FULL_HD',
+              backgroundColor: '#111827',
+              accentColor: '#ff6b35',
+              isActive: true,
+            },
+          })
+        }
+      } else if (!targetDevice && selection?.kind === 'RAW') {
+        const existingScreen = await prisma.displayScreen.findFirst({
+          where: { id: selection.id, tenantId, isActive: true },
+        })
+        if (existingScreen) {
+          screen = existingScreen
+        } else {
+          return res.status(404).json({ message: 'Ausgewählter Bildschirm wurde nicht gefunden.' })
+        }
       }
-      if (!screen && targetDevice.screenId) {
+      if (!screen && targetDevice?.screenId) {
         screen = await prisma.displayScreen.findFirst({
           where: { id: targetDevice.screenId, tenantId, isActive: true },
         })
