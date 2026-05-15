@@ -483,6 +483,9 @@ model Tenant {
   orderDeskPairingSessions OrderDeskPairingSession[]
   displayPairingSessions DisplayPairingSession[]
   displayDevices DisplayDevice[]
+  displayScreens DisplayScreen[]
+  displayPlaylists DisplayPlaylist[]
+  displayHeartbeatLogs DisplayHeartbeatLog[]
   paymentConfig TenantPaymentConfig?
   providerAccounts TenantProviderAccount[]
   paymentTransactions PaymentTransaction[]
@@ -676,7 +679,7 @@ model ScreenSetting {
   offerWindowXPercent   Int      @default(84)
   offerWindowYPercent   Int      @default(14)
   offerWindowReserveSpace Boolean @default(true)
-  offerWindowBackgroundColor String @default("#f97316")
+  offerWindowBackgroundColor String @default("#ff6b35")
   offerWindowTextColor   String   @default("#ffffff")
   offerWindowOpacity     Int      @default(28)
   offerMediaUrls        Json?
@@ -748,8 +751,6 @@ model ScreenDevice {
   notes                       String?
   lastSeenAt                  DateTime?
   tenant                      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  displayPairingSessions      DisplayPairingSession[]
-  displayDevices              DisplayDevice[]
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -1594,7 +1595,7 @@ model OrderDisplay {
   displayBackgroundColor String @default("#020617")
   orderCardBackgroundColor String @default("#0f172a")
   statusColorPendingPayment String @default("#ef4444")
-  statusColorOpen  String   @default("#f97316")
+  statusColorOpen  String   @default("#ff6b35")
   statusColorPreparing String @default("#3b82f6")
   statusColorDone  String   @default("#16a34a")
   showOrderAge     Boolean  @default(true)
@@ -1666,7 +1667,7 @@ model OrderDeskDeviceBinding {
   displayCode    String
   deviceAlias    String?
   deviceModel    String?
-  devicePlatform String?
+  deviceplatform        String
   appVersion     String?
   boundByUserId  String?
   boundAt        DateTime @default(now())
@@ -1706,14 +1707,14 @@ model DisplayPairingSession {
   tenantId        String?
   screenId        String?
   displayName     String?
-  platform        String?
+  platform        String
   appVersion      String?
-  deviceName      String?
+  deviceName      String
   deviceId        String?
   device          DisplayDevice?
   claimedByUser   User?                @relation("DisplayPairingClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
   tenant          Tenant?              @relation(fields: [tenantId], references: [id], onDelete: SetNull)
-  screen          ScreenDevice?        @relation(fields: [screenId], references: [id], onDelete: SetNull)
+  screen          DisplayScreen?       @relation(fields: [screenId], references: [id], onDelete: SetNull)
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
@@ -1721,27 +1722,138 @@ model DisplayPairingSession {
   @@index([pairingCode])
 }
 
+enum DisplayDeviceStatus {
+  ONLINE
+  OFFLINE
+  REVOKED
+}
+
 model DisplayDevice {
-  id              String                @id @default(uuid())
-  tenantId        String
-  screenId        String?
-  pairingSessionId String?              @unique
-  name            String
-  deviceTokenHash String                @unique
-  platform        String?
-  status          String                @default("ACTIVE")
-  lastSeenAt      DateTime?
-  appVersion      String?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  revokedAt       DateTime?
-  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  screen          ScreenDevice?         @relation(fields: [screenId], references: [id], onDelete: SetNull)
-  pairingSession  DisplayPairingSession? @relation(fields: [pairingSessionId], references: [id], onDelete: SetNull)
+  id               String                 @id @default(uuid())
+  tenantId         String
+  screenId         String?
+  pairingSessionId String?                @unique
+  name             String
+  deviceTokenHash  String                 @unique
+  platform         String
+  appVersion       String?
+  status           DisplayDeviceStatus    @default(OFFLINE)
+  lastSeenAt       DateTime?
+  lastIp           String?
+  revokedAt        DateTime?
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @updatedAt
+  tenant           Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  screen           DisplayScreen?         @relation(fields: [screenId], references: [id], onDelete: SetNull)
+  pairingSession   DisplayPairingSession? @relation(fields: [pairingSessionId], references: [id], onDelete: SetNull)
+  heartbeatLogs    DisplayHeartbeatLog[]
 
   @@index([tenantId, status])
   @@index([screenId])
   @@index([lastSeenAt])
+}
+
+enum DisplayOrientation {
+  LANDSCAPE
+  PORTRAIT
+}
+
+enum DisplayResolutionPreset {
+  FULL_HD
+  HD
+  FOUR_K
+  CUSTOM
+}
+
+enum DisplayLayoutType {
+  MENU_BOARD
+  SLIDESHOW
+  PROMO_SPLIT
+  ORDER_STATUS
+}
+
+enum DisplayPlaylistItemType {
+  PRODUCT_GRID
+  CATEGORY_MENU
+  IMAGE
+  VIDEO
+  PROMOTION
+  URL
+  CUSTOM_TEXT
+}
+
+model DisplayScreen {
+  id               String                   @id @default(uuid())
+  tenantId         String
+  name             String
+  orientation      DisplayOrientation       @default(LANDSCAPE)
+  resolutionPreset DisplayResolutionPreset  @default(FULL_HD)
+  customWidth      Int?
+  customHeight     Int?
+  backgroundColor  String                   @default("#111827")
+  accentColor      String                   @default("#ff6b35")
+  layoutType       DisplayLayoutType        @default(MENU_BOARD)
+  isActive         Boolean                  @default(true)
+  settingsJson     Json?
+  tenant           Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  devices          DisplayDevice[]
+  pairingSessions  DisplayPairingSession[]
+  playlists        DisplayPlaylist[]
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, name])
+}
+
+model DisplayPlaylist {
+  id        String                @id @default(uuid())
+  tenantId  String
+  screenId  String
+  name      String
+  isActive  Boolean               @default(true)
+  settingsJson Json?
+  tenant    Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  screen    DisplayScreen         @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  items     DisplayPlaylistItem[]
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+
+  @@index([tenantId, isActive])
+  @@index([screenId, isActive])
+}
+
+model DisplayPlaylistItem {
+  id              String                  @id @default(uuid())
+  playlistId      String
+  type            DisplayPlaylistItemType
+  sortOrder       Int                     @default(0)
+  durationSeconds Int                     @default(12)
+  config          Json
+  activeFrom      DateTime?
+  activeUntil     DateTime?
+  weekdays        Json?
+  timeStart       String?
+  timeEnd         String?
+  playlist        DisplayPlaylist         @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  @@index([playlistId, sortOrder])
+}
+
+model DisplayHeartbeatLog {
+  id         String   @id @default(uuid())
+  tenantId   String
+  deviceId   String
+  status     String
+  appVersion String?
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  device     DisplayDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@index([deviceId, createdAt])
+  @@index([tenantId, createdAt])
 }
 
 model ProductModifier {
@@ -2043,3 +2155,4 @@ model AuditLog {
   @@index([tenantId])
   @@index([module, createdAt])
 }
+

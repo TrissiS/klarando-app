@@ -48,3 +48,20 @@ npm run start
 ```
 
 Details: `mobile-app/README.md`
+
+## Display-System (MVP Rebuild)
+
+- Display-App koppeln:
+  1. Display-App starten
+  2. QR-Code/Pairing-Code im TV anzeigen lassen
+  3. Im Adminbereich unter `/admin/displays` im Tab `Geräte` verbinden
+- Xiaomi/Android TV:
+  - APK mit Flavor `display` installieren
+  - App läuft im Vollbild (Kiosk-ähnlich)
+- Pairing-Sicherheit:
+  - Pairing-Code/Token 5 Minuten gültig
+  - Pairing nur einmal nutzbar
+  - Nach Claim erhält das Gerät ein `deviceToken` (nur gehasht gespeichert)
+- Fehlerbehebung:
+  - `Code abgelaufen` → neuen QR-Code erzeugen
+  - `Display noch nicht eingerichtet` → Screen/Playlist im Admin zuweisen

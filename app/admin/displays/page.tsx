@@ -1,56 +1,424 @@
 'use client'
 
-import Link from 'next/link'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
+import { API_BASE_URL } from '@/lib/config'
 
-const displaySections = [
-  {
-    href: '/admin/display-devices',
-    title: 'Display-Geräteverwaltung',
-    description:
-      'Online/Offline-Status, Pairing und Browser-Vorschau für gekoppelte Display-Geräte verwalten.',
-  },
-  {
-    href: '/admin/order-displays',
-    title: 'Bestell-Displays',
-    description:
-      'Kuechen-, Kassen- und Abhol-Displays fuer Status, Countdown und Darstellung konfigurieren.',
-  },
-  {
-    href: '/admin/terminals',
-    title: 'Bestellterminals',
-    description:
-      'Self-Order-Terminals erstellen, Zahlungsarten steuern und mit Displays verknuepfen.',
-  },
-  {
-    href: '/admin/screen',
-    title: 'Produkte auf Bildschirm',
-    description:
-      'Produktanzeige, Layout, Farben und Sichtbarkeit fuer Menuebilder und grosse Screens steuern (inkl. V2: Drag & Drop, Listenmodus, Angebotsfelder).',
-  },
-]
+type SessionUser = {
+  role?: string
+  tenantId?: string | null
+  accessToken?: string | null
+}
 
-export default function AdminDisplaysOverviewPage() {
+type DisplayDeviceRow = {
+  id: string
+  name: string
+  status: 'ONLINE' | 'OFFLINE' | 'REVOKED' | 'INSTABLE'
+  lastSeenAt: string | null
+  screenName?: string | null
+}
+
+type DisplayScreenRow = {
+  id: string
+  name: string
+  layoutType: string
+  orientation: string
+  resolutionPreset: string
+  backgroundColor: string
+  accentColor: string
+}
+
+type DisplayPlaylistRow = {
+  id: string
+  name: string
+  screenId: string
+  isActive: boolean
+}
+
+const tabs = [
+  { id: 'devices', label: 'Geräte' },
+  { id: 'screens', label: 'Bildschirme' },
+  { id: 'playlists', label: 'Inhalte / Playlist' },
+  { id: 'preview', label: 'Vorschau' },
+] as const
+
+type TabId = (typeof tabs)[number]['id']
+
+async function apiRequest<T>(url: string, token: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${url}`, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...(init?.headers || {}),
+    },
+  })
+  const data = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(data?.message || data?.error || 'Anfrage fehlgeschlagen.')
+  }
+  return data as T
+}
+
+export default function AdminDisplaysPage() {
+  const [tab, setTab] = useState<TabId>('devices')
+  const [token, setToken] = useState('')
+  const [tenantId, setTenantId] = useState('')
+  const [tenantLocked, setTenantLocked] = useState(true)
+
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+
+  const [devices, setDevices] = useState<DisplayDeviceRow[]>([])
+  const [screens, setScreens] = useState<DisplayScreenRow[]>([])
+  const [playlists, setPlaylists] = useState<DisplayPlaylistRow[]>([])
+
+  const [pairingToken, setPairingToken] = useState('')
+  const [pairingCode, setPairingCode] = useState('')
+  const [displayName, setDisplayName] = useState('')
+  const [claimScreenId, setClaimScreenId] = useState('')
+
+  const [screenName, setScreenName] = useState('')
+  const [screenLayoutType, setScreenLayoutType] = useState('MENU_BOARD')
+  const [screenOrientation, setScreenOrientation] = useState('LANDSCAPE')
+
+  const [playlistName, setPlaylistName] = useState('')
+  const [playlistScreenId, setPlaylistScreenId] = useState('')
+  const [selectedPlaylistId, setSelectedPlaylistId] = useState('')
+  const [itemType, setItemType] = useState('CUSTOM_TEXT')
+  const [itemDuration, setItemDuration] = useState(10)
+  const [itemConfig, setItemConfig] = useState('{"text":"Willkommen bei Klarando"}')
+
+  useEffect(() => {
+    const rawSession = localStorage.getItem('sessionUser')
+    const parsed = rawSession ? (JSON.parse(rawSession) as SessionUser) : null
+    const accessToken = parsed?.accessToken || localStorage.getItem('accessToken') || ''
+    if (!accessToken) {
+      window.location.href = '/'
+      return
+    }
+    setToken(accessToken)
+
+    const role = `${parsed?.role || ''}`.toLowerCase()
+    if (role === 'superadmin') {
+      setTenantLocked(false)
+      setTenantId(parsed?.tenantId || '')
+    } else {
+      setTenantLocked(true)
+      setTenantId(parsed?.tenantId || '')
+    }
+  }, [])
+
+  const previewUrl = useMemo(() => {
+    if (!token) return ''
+    return `${window.location.origin}/display-client?kiosk=1&displayApp=1&preview=1`
+  }, [token])
+
+  async function loadAll() {
+    if (!token || !tenantId) return
+    try {
+      setLoading(true)
+      setError('')
+      const list = await apiRequest<{ devices: DisplayDeviceRow[] }>(
+        `/api/admin/displays?tenantId=${encodeURIComponent(tenantId)}`,
+        token
+      )
+      setDevices(list.devices || [])
+
+      const screenResponse = await fetch(`${API_BASE_URL}/api/admin/displays/screens?tenantId=${encodeURIComponent(tenantId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const parsedScreens = await screenResponse.json().catch(() => ({ screens: [] }))
+      setScreens(Array.isArray(parsedScreens.screens) ? parsedScreens.screens : [])
+
+      const playlistResponse = await fetch(`${API_BASE_URL}/api/admin/displays/playlists?tenantId=${encodeURIComponent(tenantId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      const parsedPlaylists = await playlistResponse.json().catch(() => ({ playlists: [] }))
+      setPlaylists(Array.isArray(parsedPlaylists.playlists) ? parsedPlaylists.playlists : [])
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Daten konnten nicht geladen werden.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void loadAll()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, tenantId])
+
+  async function claimPairing(event: FormEvent) {
+    event.preventDefault()
+    if (!tenantId) {
+      setError('Bitte Tenant auswählen.')
+      return
+    }
+    try {
+      setLoading(true)
+      setError('')
+      setSuccess('')
+      await apiRequest('/api/admin/displays/pairing/claim', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          tenantId,
+          screenId: claimScreenId,
+          pairingToken: pairingToken || null,
+          pairingCode: pairingCode || null,
+          displayName: displayName || null,
+        }),
+      })
+      setSuccess('Display erfolgreich verbunden.')
+      setPairingToken('')
+      setPairingCode('')
+      setDisplayName('')
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Display konnte nicht verbunden werden.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function createScreen(event: FormEvent) {
+    event.preventDefault()
+    if (!tenantId) return
+    try {
+      setLoading(true)
+      setError('')
+      await apiRequest('/api/admin/displays/screens', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          tenantId,
+          name: screenName,
+          layoutType: screenLayoutType,
+          orientation: screenOrientation,
+        }),
+      })
+      setSuccess('Screen erstellt.')
+      setScreenName('')
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Screen konnte nicht erstellt werden.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function createPlaylist(event: FormEvent) {
+    event.preventDefault()
+    if (!tenantId) return
+    try {
+      setLoading(true)
+      setError('')
+      await apiRequest('/api/admin/displays/playlists', token, {
+        method: 'POST',
+        body: JSON.stringify({
+          tenantId,
+          screenId: playlistScreenId,
+          name: playlistName,
+          isActive: true,
+        }),
+      })
+      setSuccess('Playlist erstellt.')
+      setPlaylistName('')
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Playlist konnte nicht erstellt werden.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function addPlaylistItem(event: FormEvent) {
+    event.preventDefault()
+    if (!tenantId || !selectedPlaylistId) return
+    try {
+      setLoading(true)
+      setError('')
+      await apiRequest(`/api/admin/displays/playlists/${selectedPlaylistId}/items`, token, {
+        method: 'POST',
+        body: JSON.stringify({
+          tenantId,
+          type: itemType,
+          durationSeconds: itemDuration,
+          config: JSON.parse(itemConfig),
+        }),
+      })
+      setSuccess('Playlist-Element hinzugefügt.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Playlist-Element konnte nicht erstellt werden.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function revokeDevice(deviceId: string) {
+    if (!tenantId) return
+    try {
+      setLoading(true)
+      setError('')
+      await apiRequest(`/api/admin/displays/${deviceId}/revoke`, token, {
+        method: 'POST',
+        body: JSON.stringify({ tenantId }),
+      })
+      setSuccess('Gerät wurde getrennt.')
+      await loadAll()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gerät konnte nicht getrennt werden.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   return (
-    <AdminLayout
-      title="Bildschirme & Displays"
-      subtitle="Alle Bildschirm- und Displaybereiche zentral an einem Ort verwalten"
-    >
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {displaySections.map((section) => (
-          <Link
-            key={section.href}
-            href={section.href}
-            className="rounded-3xl bg-white p-6 shadow-sm ring-1 ring-[var(--brand-border)] transition hover:-translate-y-0.5 hover:shadow-md"
+    <AdminLayout title="Displays" subtitle="Neues Klarando Display-System (Pairing, Screens, Playlist)">
+      <div className="mb-4 flex flex-wrap gap-2">
+        {tabs.map((entry) => (
+          <button
+            key={entry.id}
+            type="button"
+            onClick={() => setTab(entry.id)}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold ${tab === entry.id ? 'bg-slate-900 text-white' : 'bg-white text-slate-700 ring-1 ring-slate-200'}`}
           >
-            <h2 className="text-xl font-semibold text-[var(--brand-ink)]">{section.title}</h2>
-            <p className="mt-2 text-sm text-rose-900/75">{section.description}</p>
-            <span className="mt-4 inline-flex rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white">
-              Bereich oeffnen
-            </span>
-          </Link>
+            {entry.label}
+          </button>
         ))}
-      </section>
+      </div>
+
+      {!tenantLocked ? (
+        <div className="mb-4 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+          <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Tenant-ID</label>
+          <input
+            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            value={tenantId}
+            onChange={(event) => setTenantId(event.target.value)}
+            placeholder="Tenant-ID eingeben"
+          />
+        </div>
+      ) : null}
+
+      {error ? <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
+      {success ? <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{success}</div> : null}
+
+      {tab === 'devices' ? (
+        <div className="space-y-4">
+          <form onSubmit={claimPairing} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 className="mb-3 text-lg font-semibold">Display verbinden</h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Pairing-Token" value={pairingToken} onChange={(event) => setPairingToken(event.target.value)} />
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Pairing-Code" value={pairingCode} onChange={(event) => setPairingCode(event.target.value)} />
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Displayname" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={claimScreenId} onChange={(event) => setClaimScreenId(event.target.value)}>
+                <option value="">Screen wählen</option>
+                {screens.map((screen) => <option key={screen.id} value={screen.id}>{screen.name}</option>)}
+              </select>
+            </div>
+            <button disabled={loading} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Display verbinden</button>
+          </form>
+
+          <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 className="mb-3 text-lg font-semibold">Geräte</h2>
+            <div className="space-y-2">
+              {devices.map((device) => (
+                <div key={device.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 px-3 py-2">
+                  <div>
+                    <p className="font-semibold">{device.name}</p>
+                    <p className="text-xs text-slate-500">{device.status} · Letzter Kontakt: {device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('de-DE') : '-'}</p>
+                    <p className="text-xs text-slate-500">Screen: {device.screenName || '-'}</p>
+                  </div>
+                  <button type="button" onClick={() => void revokeDevice(device.id)} className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700">Trennen</button>
+                </div>
+              ))}
+              {devices.length === 0 ? <p className="text-sm text-slate-500">Noch keine Geräte verbunden.</p> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'screens' ? (
+        <div className="space-y-4">
+          <form onSubmit={createScreen} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 className="mb-3 text-lg font-semibold">Screen erstellen</h2>
+            <div className="grid gap-3 md:grid-cols-3">
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Name" value={screenName} onChange={(event) => setScreenName(event.target.value)} />
+              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={screenLayoutType} onChange={(event) => setScreenLayoutType(event.target.value)}>
+                <option value="MENU_BOARD">Menu Board</option>
+                <option value="SLIDESHOW">Slideshow</option>
+                <option value="PROMO_SPLIT">Promo Split</option>
+                <option value="ORDER_STATUS">Order Status</option>
+              </select>
+              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={screenOrientation} onChange={(event) => setScreenOrientation(event.target.value)}>
+                <option value="LANDSCAPE">Querformat</option>
+                <option value="PORTRAIT">Hochformat</option>
+              </select>
+            </div>
+            <button disabled={loading} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Screen speichern</button>
+          </form>
+
+          <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 className="mb-3 text-lg font-semibold">Bildschirme</h2>
+            <div className="grid gap-2 md:grid-cols-2">
+              {screens.map((screen) => (
+                <div key={screen.id} className="rounded-xl border border-slate-200 px-3 py-2">
+                  <p className="font-semibold">{screen.name}</p>
+                  <p className="text-xs text-slate-500">{screen.layoutType} · {screen.orientation} · {screen.resolutionPreset}</p>
+                </div>
+              ))}
+              {screens.length === 0 ? <p className="text-sm text-slate-500">Noch keine Bildschirme vorhanden.</p> : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {tab === 'playlists' ? (
+        <div className="space-y-4">
+          <form onSubmit={createPlaylist} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 className="mb-3 text-lg font-semibold">Playlist erstellen</h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Playlist-Name" value={playlistName} onChange={(event) => setPlaylistName(event.target.value)} />
+              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={playlistScreenId} onChange={(event) => setPlaylistScreenId(event.target.value)}>
+                <option value="">Screen wählen</option>
+                {screens.map((screen) => <option key={screen.id} value={screen.id}>{screen.name}</option>)}
+              </select>
+            </div>
+            <button disabled={loading} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Playlist speichern</button>
+          </form>
+
+          <form onSubmit={addPlaylistItem} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 className="mb-3 text-lg font-semibold">Playlist-Element hinzufügen</h2>
+            <div className="grid gap-3 md:grid-cols-3">
+              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={selectedPlaylistId} onChange={(event) => setSelectedPlaylistId(event.target.value)}>
+                <option value="">Playlist wählen</option>
+                {playlists.map((playlist) => <option key={playlist.id} value={playlist.id}>{playlist.name}</option>)}
+              </select>
+              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={itemType} onChange={(event) => setItemType(event.target.value)}>
+                <option value="PRODUCT_GRID">Produkt Grid</option>
+                <option value="CATEGORY_MENU">Kategorie Menü</option>
+                <option value="IMAGE">Bild</option>
+                <option value="VIDEO">Video</option>
+                <option value="PROMOTION">Promotion</option>
+                <option value="URL">URL</option>
+                <option value="CUSTOM_TEXT">Text</option>
+              </select>
+              <input type="number" min={1} className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={itemDuration} onChange={(event) => setItemDuration(Number(event.target.value))} />
+            </div>
+            <textarea className="mt-3 min-h-[120px] w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-mono" value={itemConfig} onChange={(event) => setItemConfig(event.target.value)} />
+            <button disabled={loading} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Element speichern</button>
+          </form>
+        </div>
+      ) : null}
+
+      {tab === 'preview' ? (
+        <div className="space-y-3 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+          <h2 className="text-lg font-semibold">Vorschau</h2>
+          <p className="text-sm text-slate-600">Kiosk-Vorschau ohne Cookie-Banner.</p>
+          <button type="button" onClick={() => window.open(previewUrl, '_blank', 'noopener,noreferrer')} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">
+            Vorschau öffnen
+          </button>
+        </div>
+      ) : null}
     </AdminLayout>
   )
 }

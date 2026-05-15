@@ -46,6 +46,10 @@ Write-Host "Baue OrderDesk Debug APK..."
 flutter build apk --flavor orderdesk -t lib/orderdesk_main.dart --debug --no-shrink
 
 Write-Host ""
+Write-Host "Baue Display Debug APK..."
+flutter build apk --flavor display -t lib/display_main.dart --debug --no-shrink
+
+Write-Host ""
 Write-Host "======================================="
 Write-Host " Fertig! APKs:"
 Write-Host "======================================="
