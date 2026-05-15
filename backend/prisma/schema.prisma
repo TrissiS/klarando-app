@@ -1667,7 +1667,7 @@ model OrderDeskDeviceBinding {
   displayCode    String
   deviceAlias    String?
   deviceModel    String?
-  deviceplatform        String
+  devicePlatform String @map("deviceplatform")
   appVersion     String?
   boundByUserId  String?
   boundAt        DateTime @default(now())
