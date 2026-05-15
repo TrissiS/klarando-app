@@ -457,7 +457,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         uri,
         headers: const {
           'Accept': 'application/json',
-          'User-Agent': 'KlarandoOrderDesk/0.1.21',
+          'User-Agent': 'KlarandoOrderDesk/0.1.22',
         },
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -1537,7 +1537,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             const Text('Klarando OrderDesk'),
             const SizedBox(width: 8),
             Text(
-              'v0.1.21',
+              'v0.1.22',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.9),
                 fontSize: 12,
@@ -2656,3 +2656,4 @@ class _DispatchTarget {
 String _normalizeBaseUrl(String value) {
   return normalizeApiBaseUrl(value);
 }
+
