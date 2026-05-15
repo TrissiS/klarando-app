@@ -17,6 +17,7 @@ function formatPrice(value: number | null) {
 }
 
 export default function SuperadminMenuImportPage() {
+  const [preferredTenantId, setPreferredTenantId] = useState('')
   const [session, setSession] = useState<SessionUser | null>(null)
   const [token, setToken] = useState('')
   const [sessionLoading, setSessionLoading] = useState(true)
@@ -45,6 +46,12 @@ export default function SuperadminMenuImportPage() {
     }
     setSession(parsed)
     setToken(parsed.accessToken || localStorage.getItem('accessToken') || '')
+    try {
+      const parsedUrl = new URL(window.location.href)
+      setPreferredTenantId(parsedUrl.searchParams.get('tenantId')?.trim() || '')
+    } catch {
+      setPreferredTenantId('')
+    }
     setSessionLoading(false)
   }, [])
 
@@ -55,7 +62,9 @@ export default function SuperadminMenuImportPage() {
         setContextLoading(true)
         const loaded = await getAccessContext(token)
         setContext(loaded)
-        if (!tenantId && loaded.tenants[0]?.id) {
+        if (preferredTenantId && loaded.tenants.some((entry) => entry.id === preferredTenantId)) {
+          setTenantId(preferredTenantId)
+        } else if (!tenantId && loaded.tenants[0]?.id) {
           setTenantId(loaded.tenants[0].id)
         }
       } catch (loadError) {
@@ -65,7 +74,7 @@ export default function SuperadminMenuImportPage() {
       }
     }
     void loadContext()
-  }, [token, contextLoading, context, tenantId])
+  }, [token, contextLoading, context, tenantId, preferredTenantId])
 
   function handleFiles(nextFiles: FileList | null) {
     if (!nextFiles) {

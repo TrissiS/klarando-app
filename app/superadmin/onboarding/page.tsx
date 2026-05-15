@@ -6,7 +6,9 @@ import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   getBusinessTemplates,
+  getAccessContext,
   onboardBusiness,
+  type AccessContext,
   type BusinessTemplateOverview,
   type BusinessTemplateImportOptions,
   type OnboardingBusinessResponse,
@@ -81,6 +83,8 @@ export default function SuperadminOnboardingPage() {
   const [templateId, setTemplateId] = useState('')
   const [importOptions, setImportOptions] = useState<BusinessTemplateImportOptions>(defaultImportOptions)
   const [passwordReveal, setPasswordReveal] = useState('')
+  const [accessContext, setAccessContext] = useState<AccessContext | null>(null)
+  const [selectedTenantId, setSelectedTenantId] = useState('')
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -117,6 +121,31 @@ export default function SuperadminOnboardingPage() {
       cancelled = true
     }
   }, [token])
+
+  useEffect(() => {
+    if (!token || accessContext) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const context = await getAccessContext(token)
+        if (cancelled) return
+        setAccessContext(context)
+        if (context.tenants[0]?.id) {
+          setSelectedTenantId(context.tenants[0].id)
+        }
+      } catch {
+        if (!cancelled) setAccessContext(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [token, accessContext])
+
+  const selectedTenant = useMemo(
+    () => accessContext?.tenants.find((entry) => entry.id === selectedTenantId) || null,
+    [accessContext, selectedTenantId]
+  )
 
   useEffect(() => {
     if (companyType === 'INDEPENDENT') {
@@ -258,6 +287,43 @@ export default function SuperadminOnboardingPage() {
       subtitle="Unternehmen, Filiale und Admin strukturiert in fünf Schritten anlegen"
       navItems={SUPERADMIN_NAV_ITEMS}
     >
+      <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+        <h3 className="text-lg font-semibold text-[var(--brand-ink)]">Onboarding-Zentrale</h3>
+        <p className="mt-1 text-sm text-rose-900/80">
+          Filiale wählen und Premium-Onboarding-Schritte direkt starten.
+        </p>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-rose-900/85">Kunde / Filiale</span>
+            <select
+              className="input-ui"
+              value={selectedTenantId}
+              onChange={(event) => setSelectedTenantId(event.target.value)}
+            >
+              <option value="">Filiale wählen</option>
+              {(accessContext?.tenants || []).map((tenant) => (
+                <option key={tenant.id} value={tenant.id}>
+                  {tenant.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85">
+            <p className="font-semibold">Aktive Auswahl</p>
+            <p>{selectedTenant?.name || 'Noch keine Filiale gewählt'}</p>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <Link href={selectedTenantId ? `/superadmin/menu-import?tenantId=${selectedTenantId}` : '/superadmin/menu-import'} className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Menü-Import starten</Link>
+          <Link href="/superadmin/business-templates" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Business-Vorlage wählen</Link>
+          <Link href="/superadmin/app-settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Betreiberlogo / Titelbild</Link>
+          <Link href="/admin/settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Öffnungszeiten prüfen</Link>
+          <Link href="/admin/settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Liefergebiet prüfen</Link>
+          <Link href="/superadmin/payments" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Zahlungsstatus prüfen</Link>
+          <Link href="/superadmin/display-devices" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Display / OrderDesk verbinden</Link>
+        </div>
+      </section>
+
       {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
         <div className="mb-4 grid gap-2 sm:grid-cols-5">

@@ -87,11 +87,12 @@ router.post('/analyze', requireAuth, upload.array('files', 10), async (req, res)
       return res.status(413).json({ error: 'Datei ist zu groß (max. 20 MB je Datei).' })
     }
     if (error instanceof Error && error.message.includes('OPENAI_API_KEY')) {
-      return res.status(500).json({ error: error.message })
+      return res
+        .status(500)
+        .json({ error: 'KI-Analyse ist noch nicht eingerichtet. OPENAI_API_KEY fehlt.' })
     }
     return res.status(500).json({ error: 'Analyse konnte nicht durchgeführt werden.' })
   }
 })
 
 export default router
-
