@@ -7,7 +7,21 @@ import { Router } from 'express'
 
 const router = Router()
 
-router.all('/display/pairing/session', (_req, res) => {
+// Keep explicit 410 only on legacy routes, never on the new
+// /api/display/pairing/session endpoint.
+router.all('/display/pairing', (_req, res) => {
+  return res.status(410).json({
+    message: 'Diese Route wurde ersetzt. Bitte /api/display/pairing/session verwenden.',
+  })
+})
+
+router.all('/displays/pairing', (_req, res) => {
+  return res.status(410).json({
+    message: 'Diese Route wurde ersetzt. Bitte /api/display/pairing/session verwenden.',
+  })
+})
+
+router.all('/display/session', (_req, res) => {
   return res.status(410).json({
     message: 'Diese Route wurde ersetzt. Bitte /api/display/pairing/session verwenden.',
   })
