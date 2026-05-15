@@ -32,6 +32,7 @@ import {
 
 type VisibilityFilter = 'ALL' | 'VISIBLE' | 'HIDDEN' | 'FEATURED'
 type TickerApiCheckState = 'IDLE' | 'CHECKING' | 'OK' | 'ERROR'
+type ScreenEditorTab = 'CONTENT' | 'DESIGN' | 'SCREENS'
 
 const COMMON_RESOLUTIONS = [
   { width: 1280, height: 720, label: '1280 x 720 (HD)' },
@@ -562,6 +563,8 @@ export default function AdminScreenPage() {
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('ALL')
   const [visibilityFilter, setVisibilityFilter] = useState<VisibilityFilter>('ALL')
+  const [activeTab, setActiveTab] = useState<ScreenEditorTab>('CONTENT')
+  const [showExpertSettings, setShowExpertSettings] = useState(false)
 
   const [loading, setLoading] = useState(true)
   const [savingConfig, setSavingConfig] = useState(false)
@@ -575,6 +578,23 @@ export default function AdminScreenPage() {
   const [tickerApiCheckState, setTickerApiCheckState] = useState<TickerApiCheckState>('IDLE')
   const [tickerApiCheckMessage, setTickerApiCheckMessage] = useState('')
   const tickerApiCheckRunRef = useRef(0)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const stored = window.localStorage.getItem('klarando-screen-expert-mode')
+    if (stored === '1') {
+      setShowExpertSettings(true)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    window.localStorage.setItem('klarando-screen-expert-mode', showExpertSettings ? '1' : '0')
+  }, [showExpertSettings])
 
   const editingProduct = useMemo(
     () => products.find((entry) => entry.id === editingProductId) || null,
@@ -1728,14 +1748,36 @@ export default function AdminScreenPage() {
   return (
     <AdminLayout
       title="Produkte auf Bildschirm"
-      subtitle="Bildschirmverwaltung, Produktdarstellung und Live-Feed in einem Modul (Screen V2)"
+      subtitle="Inhalte, Design und Bildschirme klar getrennt verwalten"
     >
-      <div className="mb-4 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm text-orange-900">
-        <p className="font-semibold">Screen V2 aktiv</p>
-        <p className="mt-1">
-          Neu: Angebotsfenster mit Position/Groesse/Bildwechsel, Produktnummern, Listenmodus ohne
-          Karten, sowie Drag & Drop Sortierung.
-        </p>
+      <div className="mb-4 rounded-2xl border border-[var(--brand-border)] bg-white p-3">
+        <div className="flex flex-wrap gap-2">
+          {[
+            { id: 'CONTENT', label: 'Inhalte' },
+            { id: 'DESIGN', label: 'Design' },
+            { id: 'SCREENS', label: 'Bildschirme' },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id as ScreenEditorTab)}
+              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                activeTab === tab.id
+                  ? 'bg-slate-900 text-white'
+                  : 'border border-[var(--brand-border)] bg-white text-rose-900/90 hover:bg-rose-50'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setShowExpertSettings((current) => !current)}
+            className="ml-auto rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900/80 hover:bg-rose-50"
+          >
+            {showExpertSettings ? 'Expertenmodus ausblenden' : 'Expertenmodus anzeigen'}
+          </button>
+        </div>
       </div>
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1762,11 +1804,41 @@ export default function AdminScreenPage() {
 
       <div className="grid gap-6 xl:grid-cols-[430px_1fr]">
         <section className="space-y-6">
+          {activeTab === 'DESIGN' ? (
           <form onSubmit={handleSaveConfig} className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">Globale Bildschirm-Einstellungen</h2>
             <p className="mt-1 text-sm text-rose-900/70">
               Diese Werte gelten als Standard fuer alle Bildschirme.
             </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setConfigDraft((current) => ({
+                    ...current,
+                    cardStyle: 'SOFT',
+                    backgroundMode: 'COLOR',
+                    backgroundValue: '#131a2f',
+                    accentColor: '#ff7a1a',
+                    textColor: '#ffffff',
+                    productNameColor: '#ffffff',
+                    ingredientTextColor: '#d1d8e8',
+                    categoryTextColor: '#ffb38b',
+                    priceTextColor: '#ffffff',
+                    productFontSize: 28,
+                    ingredientFontSize: 11,
+                    categoryFontSize: 11,
+                    priceFontSize: 24,
+                  }))
+                }
+                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+              >
+                Klarando Modern anwenden
+              </button>
+              <span className="text-xs text-rose-900/70">
+                Empfohlen fuer 1920x1080 und 1080x1920.
+              </span>
+            </div>
 
             <div className="mt-4 space-y-3">
               <Field label="Titel">
@@ -2940,7 +3012,9 @@ export default function AdminScreenPage() {
               {savingConfig ? 'Speichert...' : 'Globale Einstellungen speichern'}
             </button>
           </form>
+          ) : null}
 
+          {activeTab === 'CONTENT' ? (
           <form onSubmit={handleSaveProduct} className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">Produktdarstellung</h2>
             {!editingProduct ? (
@@ -2979,6 +3053,8 @@ export default function AdminScreenPage() {
               </div>
             )}
           </form>
+          ) : null}
+          {activeTab === 'SCREENS' ? (
           <form onSubmit={handleSaveDevice} className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">
               {editingDeviceId ? 'Bildschirm bearbeiten' : 'Neuen Bildschirm anlegen'}
@@ -2991,9 +3067,11 @@ export default function AdminScreenPage() {
               <Field label="Name">
                 <input value={deviceName} onChange={(event) => setDeviceName(event.target.value)} required className="input-ui" />
               </Field>
-              <Field label="Device-Code (optional bei Neuanlage)">
-                <input value={deviceCode} onChange={(event) => setDeviceCode(event.target.value)} disabled={Boolean(editingDeviceId)} className="input-ui disabled:bg-rose-50" />
-              </Field>
+              {showExpertSettings ? (
+                <Field label="Device-Code (optional bei Neuanlage)">
+                  <input value={deviceCode} onChange={(event) => setDeviceCode(event.target.value)} disabled={Boolean(editingDeviceId)} className="input-ui disabled:bg-rose-50" />
+                </Field>
+              ) : null}
               <Field label="Standort">
                 <input value={deviceLocation} onChange={(event) => setDeviceLocation(event.target.value)} className="input-ui" />
               </Field>
@@ -3055,9 +3133,11 @@ export default function AdminScreenPage() {
                 </div>
               ) : null}
 
-              <Field label="Refresh Sekunden">
-                <input type="number" min="5" max="3600" value={deviceRefreshIntervalSec} onChange={(event) => setDeviceRefreshIntervalSec(event.target.value)} className="input-ui" />
-              </Field>
+              {showExpertSettings ? (
+                <Field label="Refresh Sekunden">
+                  <input type="number" min="5" max="3600" value={deviceRefreshIntervalSec} onChange={(event) => setDeviceRefreshIntervalSec(event.target.value)} className="input-ui" />
+                </Field>
+              ) : null}
 
               <Field label="Spalten fuer diesen Bildschirm (optional)">
                 <input
@@ -3275,9 +3355,11 @@ export default function AdminScreenPage() {
                 </Field>
               </div>
 
-              <Field label="Notizen">
-                <textarea value={deviceNotes} onChange={(event) => setDeviceNotes(event.target.value)} className="input-ui min-h-[70px]" />
-              </Field>
+              {showExpertSettings ? (
+                <Field label="Notizen">
+                  <textarea value={deviceNotes} onChange={(event) => setDeviceNotes(event.target.value)} className="input-ui min-h-[70px]" />
+                </Field>
+              ) : null}
             </div>
 
             <button type="submit" disabled={savingDevice} className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2.5 font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60">
@@ -3290,9 +3372,11 @@ export default function AdminScreenPage() {
               </button>
             ) : null}
           </form>
+          ) : null}
         </section>
 
-        <section className="space-y-6">
+        <section className={`space-y-6 ${activeTab === 'DESIGN' ? '' : 'xl:col-span-2'}`}>
+          {activeTab === 'DESIGN' ? (
           <div className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
             <div className="grid gap-3 md:grid-cols-3">
               <Field label="Vorschau fuer">
@@ -3348,7 +3432,9 @@ export default function AdminScreenPage() {
               </p>
             )}
           </div>
+          ) : null}
 
+          {activeTab === 'DESIGN' ? (
           <div
             ref={previewViewportRef}
             style={{
@@ -3708,7 +3794,9 @@ export default function AdminScreenPage() {
             ) : null}
             </div>
           </div>
+          ) : null}
 
+          {activeTab === 'CONTENT' ? (
           <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <div className="grid gap-3 md:grid-cols-3">
               <Field label="Suche">
@@ -3805,7 +3893,9 @@ export default function AdminScreenPage() {
               Reihenfolge kann direkt per Drag & Drop angepasst werden.
             </p>
           </div>
+          ) : null}
 
+          {activeTab === 'SCREENS' ? (
           <div className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">Bildschirme und Feed-Links</h2>
             <p className="mt-1 text-sm text-rose-900/70">
@@ -3856,6 +3946,7 @@ export default function AdminScreenPage() {
               )}
             </div>
           </div>
+          ) : null}
         </section>
       </div>
 
