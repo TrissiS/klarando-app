@@ -1,8 +1,8 @@
 {
-  "version": "0.1.17",
+  "version": "0.1.21",
   "releaseName": "Release",
-  "buildNumber": 17,
+  "buildNumber": 21,
   "gitCommit": null,
-  "buildTime": "2026-05-14T21:20:00.000Z",
+  "buildTime": "2026-05-15T03:37:07.796Z",
   "environment": null
 }
