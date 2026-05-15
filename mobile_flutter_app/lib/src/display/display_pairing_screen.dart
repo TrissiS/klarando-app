@@ -8,6 +8,7 @@ class DisplayPairingScreen extends StatelessWidget {
     required this.countdown,
     required this.status,
     this.debugLines = const <String>[],
+    this.onRetry,
   });
 
   final String qrUrl;
@@ -15,6 +16,7 @@ class DisplayPairingScreen extends StatelessWidget {
   final String countdown;
   final String? status;
   final List<String> debugLines;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +75,13 @@ class DisplayPairingScreen extends StatelessWidget {
                   if (status != null) ...[
                     const SizedBox(height: 10),
                     Text(status!, style: const TextStyle(fontSize: 14, color: Colors.white70)),
+                    if (onRetry != null) ...[
+                      const SizedBox(height: 10),
+                      FilledButton.tonal(
+                        onPressed: onRetry,
+                        child: const Text('Erneut versuchen'),
+                      ),
+                    ],
                   ],
                   if (debugLines.isNotEmpty) ...[
                     const SizedBox(height: 12),

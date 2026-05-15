@@ -11,6 +11,9 @@ import 'display_content_screen.dart';
 import 'display_pairing_screen.dart';
 
 const _prefsDeviceToken = 'klarando_display_device_token';
+const _prefsDisplayId = 'klarando_display_id';
+const _prefsScreenId = 'klarando_display_screen_id';
+const _prefsTenantId = 'klarando_display_tenant_id';
 
 class KlarandoDisplayApp extends StatelessWidget {
   const KlarandoDisplayApp({super.key});
@@ -145,22 +148,72 @@ class _DisplayRootState extends State<_DisplayRoot> {
     if (token == null || token.isEmpty) return;
 
     try {
+      _lastPairingAttemptAt = DateTime.now();
       final response = await _api.getPairingStatus(token);
-      if ('${response['status']}'.toUpperCase() != 'CLAIMED') return;
+      final rawStatus = '${response['state'] ?? response['status']}'.toUpperCase();
+      if (rawStatus == 'PENDING') {
+        _message = null;
+        setState(() {});
+        return;
+      }
+      if (rawStatus == 'EXPIRED') {
+        _message = 'Code abgelaufen. Neuer QR-Code wird erstellt …';
+        setState(() {});
+        await _startPairing();
+        return;
+      }
+      if (rawStatus != 'CLAIMED' && rawStatus != 'CONNECTED') {
+        _message = 'Unbekannter Pairing-Status: $rawStatus';
+        setState(() {});
+        return;
+      }
 
       final deviceToken = '${response['deviceToken'] ?? ''}'.trim();
-      if (deviceToken.isEmpty) return;
+      if (deviceToken.isEmpty) {
+        _message = 'Display verbunden, aber es fehlt ein gültiges Gerätetoken.';
+        setState(() {});
+        return;
+      }
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsDeviceToken, deviceToken);
+      final displayId = '${response['displayId'] ?? response['deviceId'] ?? ''}'.trim();
+      final screenId = '${response['screenId'] ?? ''}'.trim();
+      final tenantId = '${response['tenantId'] ?? ''}'.trim();
+      if (displayId.isNotEmpty) {
+        await prefs.setString(_prefsDisplayId, displayId);
+      }
+      if (screenId.isNotEmpty) {
+        await prefs.setString(_prefsScreenId, screenId);
+      }
+      if (tenantId.isNotEmpty) {
+        await prefs.setString(_prefsTenantId, tenantId);
+      }
       _deviceToken = deviceToken;
+      _pairingPollTimer?.cancel();
+      _countdownTimer?.cancel();
+      _pairingSessionReady = false;
+      _message = 'Display wird verbunden …';
+      setState(() {});
 
       final ok = await _loadContent();
       if (ok) {
         _startBackgroundJobs();
+      } else {
+        await _startPairing();
       }
-    } catch (_) {
-      // pending/temporary errors
+    } catch (error) {
+      if (error is DisplayApiException) {
+        _lastPairingHttpStatus = error.statusCode;
+        if (error.statusCode == 410) {
+          _message = 'Code abgelaufen. Neuer QR-Code wird erstellt …';
+          setState(() {});
+          await _startPairing();
+          return;
+        }
+      }
+      _message = _toFriendlyError(error);
+      setState(() {});
     }
   }
 
@@ -280,6 +333,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
       countdown: _countdownLabel(),
       status: _message,
       debugLines: debugLines,
+      onRetry: _startPairing,
     );
   }
 }

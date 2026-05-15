@@ -100,7 +100,7 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
     })
 
     if (!session) {
-      return res.status(404).json({ status: 'EXPIRED', message: 'Code nicht gefunden.' })
+      return res.status(404).json({ status: 'expired', state: 'EXPIRED', message: 'Code nicht gefunden.' })
     }
 
     if (session.status === DisplayPairingStatus.EXPIRED || session.expiresAt.getTime() <= Date.now()) {
@@ -110,26 +110,28 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
           data: { status: DisplayPairingStatus.EXPIRED },
         })
       }
-      return res.status(410).json({ status: 'EXPIRED', message: 'Code abgelaufen.' })
+      return res.status(410).json({ status: 'expired', state: 'EXPIRED', message: 'Code abgelaufen.' })
     }
 
     if (session.status !== DisplayPairingStatus.CLAIMED) {
-      return res.json({ status: 'PENDING' })
+      return res.json({ status: 'pending', state: 'PENDING' })
     }
 
     const oneTimeToken = claimedDeviceTokenBySession.get(session.id)
     if (!oneTimeToken || !session.device) {
-      return res.json({ status: 'PENDING' })
+      return res.json({ status: 'pending', state: 'PENDING' })
     }
 
-    claimedDeviceTokenBySession.delete(session.id)
-
     return res.json({
-      status: 'CLAIMED',
+      status: 'connected',
+      state: 'CLAIMED',
       deviceToken: oneTimeToken,
       deviceId: session.device.id,
       tenantId: session.device.tenantId,
       screenId: session.device.screenId,
+      displayId: session.device.id,
+      displayCode: session.device.id,
+      authToken: oneTimeToken,
     })
   } catch (error) {
     console.error('DISPLAY PAIRING STATUS ERROR:', error)
