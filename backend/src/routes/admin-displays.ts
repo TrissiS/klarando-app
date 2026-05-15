@@ -47,6 +47,14 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
     const displayIdInput = normalizeText(body.displayId)
     const displayName = normalizeText(body.displayName) ?? normalizeText(body.pairingCode) ?? 'Display'
 
+    console.info('ADMIN DISPLAY PAIRING CLAIM START', {
+      tenantIdInput,
+      hasPairingToken: Boolean(pairingToken),
+      hasPairingCode: Boolean(pairingCode),
+      displayIdInput,
+      screenIdInput,
+    })
+
     if (!tenantIdInput || (!pairingToken && !pairingCode)) {
       return res.status(400).json({ message: 'pairingToken oder pairingCode sowie tenantId sind erforderlich.' })
     }
@@ -159,8 +167,15 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       : await prisma.displayPairingSession.findFirst({ where: { pairingCode: pairingCode!, status: DisplayPairingStatus.PENDING } })
 
     if (!session) {
+      console.info('ADMIN DISPLAY PAIRING CLAIM SESSION', { found: false, by: pairingToken ? 'token' : 'code' })
       return res.status(404).json({ message: 'Pairing-Code nicht gefunden.' })
     }
+    console.info('ADMIN DISPLAY PAIRING CLAIM SESSION', {
+      found: true,
+      sessionId: session.id,
+      sessionStatus: session.status,
+      by: pairingToken ? 'token' : 'code',
+    })
     if (session.status !== DisplayPairingStatus.PENDING) {
       return res.status(409).json({ message: 'Code bereits verwendet.' })
     }
@@ -174,6 +189,7 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       ? await prisma.displayDevice.update({
           where: { id: targetDevice.id },
           data: {
+            pairingSessionId: session.id,
             screenId: screen.id,
             name: normalizeText(body.displayName) ?? session.deviceName,
             deviceTokenHash: hashToken(deviceToken),
@@ -186,6 +202,7 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       : await prisma.displayDevice.create({
           data: {
             tenantId,
+            pairingSessionId: session.id,
             screenId: screen.id,
             name: normalizeText(body.displayName) ?? session.deviceName,
             deviceTokenHash: hashToken(deviceToken),
@@ -204,6 +221,14 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
         tenantId,
         screenId: screen.id,
       },
+    })
+
+    console.info('ADMIN DISPLAY PAIRING CLAIM FINALIZED', {
+      sessionId: session.id,
+      deviceId: device.id,
+      screenId: device.screenId,
+      tenantId,
+      statusAfter: 'CLAIMED',
     })
 
     setClaimedDeviceToken(session.id, deviceToken)

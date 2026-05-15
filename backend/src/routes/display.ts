@@ -100,6 +100,7 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
     })
 
     if (!session) {
+      console.info('DISPLAY PAIRING POLL', { found: false })
       return res.status(404).json({ status: 'expired', state: 'EXPIRED', message: 'Code nicht gefunden.' })
     }
 
@@ -114,11 +115,23 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
     }
 
     if (session.status !== DisplayPairingStatus.CLAIMED) {
+      console.info('DISPLAY PAIRING POLL', {
+        found: true,
+        sessionId: session.id,
+        state: 'PENDING',
+      })
       return res.json({ status: 'pending', state: 'PENDING' })
     }
 
     const oneTimeToken = claimedDeviceTokenBySession.get(session.id)
     if (!oneTimeToken || !session.device) {
+      console.info('DISPLAY PAIRING POLL', {
+        found: true,
+        sessionId: session.id,
+        state: 'CLAIMED_BUT_WAITING_TOKEN',
+        hasDevice: Boolean(session.device),
+        hasOneTimeToken: Boolean(oneTimeToken),
+      })
       return res.json({ status: 'pending', state: 'PENDING' })
     }
 
@@ -131,6 +144,7 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
       screenId: session.device.screenId,
       displayId: session.device.id,
       displayCode: session.device.id,
+      apiBaseUrl: process.env.API_BASE_URL || 'https://api.klarando.com',
       authToken: oneTimeToken,
     })
   } catch (error) {
