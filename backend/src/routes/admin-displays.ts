@@ -21,6 +21,7 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       pairingCode?: string | null
       tenantId?: string | null
       screenId?: string | null
+      displayId?: string | null
       displayName?: string | null
     }
 
@@ -28,6 +29,7 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
     const pairingCode = normalizeText(body.pairingCode)
     const tenantIdInput = normalizeText(body.tenantId)
     const screenIdInput = normalizeText(body.screenId)
+    const displayIdInput = normalizeText(body.displayId)
     const displayName = normalizeText(body.displayName) ?? normalizeText(body.pairingCode) ?? 'Display'
 
     if (!tenantIdInput || (!pairingToken && !pairingCode)) {
@@ -43,7 +45,23 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
         })
       : null
 
-    if (!screen) {
+    let targetDevice: { id: string; screenId: string | null } | null = null
+    if (displayIdInput) {
+      targetDevice = await prisma.displayDevice.findFirst({
+        where: { id: displayIdInput, tenantId, revokedAt: null },
+        select: { id: true, screenId: true },
+      })
+      if (!targetDevice) {
+        return res.status(404).json({ message: 'Ausgewählter Bildschirm wurde nicht gefunden.' })
+      }
+      if (!screen && targetDevice.screenId) {
+        screen = await prisma.displayScreen.findFirst({
+          where: { id: targetDevice.screenId, tenantId, isActive: true },
+        })
+      }
+    }
+
+    if (!screen && !targetDevice) {
       const fallbackScreenName = `Screen ${displayName}`
       screen = await prisma.displayScreen.create({
         data: {
@@ -57,6 +75,9 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
           isActive: true,
         },
       })
+    }
+    if (!screen) {
+      return res.status(400).json({ message: 'Bitte wähle einen Bildschirm aus oder lege zuerst einen neuen an.' })
     }
 
     const session = pairingToken
@@ -75,17 +96,30 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
     }
 
     const deviceToken = createToken(32)
-    const device = await prisma.displayDevice.create({
-      data: {
-        tenantId,
-        screenId: screen.id,
-        name: normalizeText(body.displayName) ?? session.deviceName,
-        deviceTokenHash: hashToken(deviceToken),
-        platform: session.platform,
-        appVersion: session.appVersion,
-        status: DisplayDeviceStatus.OFFLINE,
-      },
-    })
+    const device = targetDevice
+      ? await prisma.displayDevice.update({
+          where: { id: targetDevice.id },
+          data: {
+            screenId: screen.id,
+            name: normalizeText(body.displayName) ?? session.deviceName,
+            deviceTokenHash: hashToken(deviceToken),
+            platform: session.platform,
+            appVersion: session.appVersion,
+            status: DisplayDeviceStatus.OFFLINE,
+            revokedAt: null,
+          },
+        })
+      : await prisma.displayDevice.create({
+          data: {
+            tenantId,
+            screenId: screen.id,
+            name: normalizeText(body.displayName) ?? session.deviceName,
+            deviceTokenHash: hashToken(deviceToken),
+            platform: session.platform,
+            appVersion: session.appVersion,
+            status: DisplayDeviceStatus.OFFLINE,
+          },
+        })
 
     await prisma.displayPairingSession.update({
       where: { id: session.id },

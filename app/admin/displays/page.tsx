@@ -16,6 +16,7 @@ type DisplayDeviceRow = {
   status: 'ONLINE' | 'OFFLINE' | 'REVOKED' | 'INSTABLE'
   lastSeenAt: string | null
   screenName?: string | null
+  screenId?: string | null
 }
 
 type DisplayScreenRow = {
@@ -78,6 +79,7 @@ export default function AdminDisplaysPage() {
   const [pairingCode, setPairingCode] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [claimScreenId, setClaimScreenId] = useState('')
+  const [claimDisplayId, setClaimDisplayId] = useState('')
 
   const [screenName, setScreenName] = useState('')
   const [screenLayoutType, setScreenLayoutType] = useState('MENU_BOARD')
@@ -149,6 +151,15 @@ export default function AdminDisplaysPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, tenantId])
 
+  useEffect(() => {
+    if (!token || !tenantId) return
+    const interval = window.setInterval(() => {
+      void loadAll()
+    }, 15000)
+    return () => window.clearInterval(interval)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, tenantId])
+
   async function claimPairing(event: FormEvent) {
     event.preventDefault()
     if (!tenantId) {
@@ -164,6 +175,7 @@ export default function AdminDisplaysPage() {
         body: JSON.stringify({
           tenantId,
           screenId: claimScreenId,
+          displayId: claimDisplayId || null,
           pairingToken: pairingToken || null,
           pairingCode: pairingCode || null,
           displayName: displayName || null,
@@ -173,6 +185,7 @@ export default function AdminDisplaysPage() {
       setPairingToken('')
       setPairingCode('')
       setDisplayName('')
+      setClaimDisplayId('')
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Display konnte nicht verbunden werden.')
@@ -317,6 +330,55 @@ export default function AdminDisplaysPage() {
             </div>
             <button disabled={loading} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Display verbinden</button>
           </form>
+
+          <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
+            <h2 className="mb-3 text-lg font-semibold">Vorhandene Bildschirme</h2>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {devices.map((device) => {
+                const isOnline = device.status === 'ONLINE'
+                const selected = claimDisplayId === device.id
+                const inferredType =
+                  (screens.find((screen) => screen.id === device.screenId)?.layoutType ?? 'MENU_BOARD')
+                const typeLabel =
+                  inferredType === 'ORDER_STATUS'
+                    ? 'Abholmonitor'
+                    : inferredType === 'PROMO_SPLIT'
+                    ? 'TV-Menüboard'
+                    : inferredType === 'SLIDESHOW'
+                    ? 'Bestell-Display'
+                    : 'Küchenmonitor'
+                return (
+                  <div
+                    key={`select-device-${device.id}`}
+                    className={`rounded-2xl border p-3 ${selected ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}
+                  >
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="font-semibold text-slate-900">{device.name}</p>
+                      <span className={`h-2.5 w-2.5 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                    </div>
+                    <p className="text-xs text-slate-600">Typ: {typeLabel}</p>
+                    <p className="text-xs text-slate-600">Status: {isOnline ? 'Online' : 'Offline'}</p>
+                    <p className="text-xs text-slate-600">
+                      Zuletzt online: {device.lastSeenAt ? new Date(device.lastSeenAt).toLocaleString('de-DE') : '-'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setClaimDisplayId(device.id)
+                        if (device.screenId) setClaimScreenId(device.screenId)
+                        if (!displayName.trim()) setDisplayName(device.name)
+                        setSuccess('')
+                      }}
+                      className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100"
+                    >
+                      Dieses Gerät verbinden
+                    </button>
+                  </div>
+                )
+              })}
+              {devices.length === 0 ? <p className="text-sm text-slate-500">Noch keine Bildschirme vorhanden. Dann bitte zuerst „Neuen Bildschirm erstellen“ unter Tab „Bildschirme“ nutzen.</p> : null}
+            </div>
+          </div>
 
           <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
             <h2 className="mb-3 text-lg font-semibold">Geräte</h2>
