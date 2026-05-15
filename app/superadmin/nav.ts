@@ -7,7 +7,7 @@ type BackofficeNavItem = {
 export const SUPERADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/superadmin', label: 'Übersicht' },
   { href: '/superadmin/business-data', label: 'Unternehmen & Filialen' },
-  { href: '/superadmin/onboarding', label: 'Neues Unternehmen' },
+  { href: '/superadmin/onboarding', label: 'Onboarding' },
   { href: '/superadmin/business-templates', label: 'Vorlagen' },
   { href: '/superadmin/template-editor', label: 'Vorlagen-Editor' },
   { href: '/superadmin/promotions', label: 'Aktionen & News' },

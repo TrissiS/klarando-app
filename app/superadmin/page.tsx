@@ -594,7 +594,7 @@ export default function SuperadminPage() {
                   Release: <span className="font-semibold">{backendVersion?.releaseName || rootVersion.releaseName || '-'}</span>
                 </p>
                 <p>
-                  Backend: <span className="font-semibold">{backendHealth?.backendVersion || backendVersion?.version || rootVersion.version}</span>
+                  Backend: <span className="font-semibold">{backendVersion?.version || backendHealth?.backendVersion || rootVersion.version}</span>
                 </p>
                 <p>
                   Buildnummer: <span className="font-semibold">{backendVersion?.buildNumber ?? rootVersion.buildNumber}</span>
