@@ -51,6 +51,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
   Map<String, dynamic>? _qrPayload;
   Map<String, dynamic>? _content;
   String? _message;
+  bool _pairingSessionReady = false;
 
   @override
   void initState() {
@@ -104,6 +105,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
       _qrPayload = response['qrPayload'] is Map<String, dynamic>
           ? response['qrPayload'] as Map<String, dynamic>
           : null;
+      _pairingSessionReady = _pairingToken != null && _pairingToken!.isNotEmpty;
       _message = null;
       setState(() {});
 
@@ -120,6 +122,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
         }
       });
     } catch (error) {
+      _pairingSessionReady = false;
       _message = _toFriendlyError(error);
       setState(() {});
     }
@@ -161,7 +164,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
       return true;
     } catch (error) {
       final message = '$error';
-      if (message.contains('ungültig') || message.contains('ungultig')) {
+      if (message.contains('ungültig') || message.contains('ungultig') || message.contains('401')) {
         return false;
       }
       _message = _toFriendlyError(error);
@@ -171,10 +174,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
   }
 
   String _toFriendlyError(Object error) {
-    final raw = error.toString().replaceFirst('Exception:', '').trim();
-    if (raw.contains('/api/display/pairing/session')) {
-      return 'Display-Pairing wird neu verbunden …';
+    if (error is DisplayApiException) {
+      return 'Fehler ${error.statusCode} bei ${error.endpoint}: ${error.message}';
     }
+    final raw = error.toString().replaceFirst('Exception:', '').trim();
     if (raw.isEmpty) {
       return 'Verbindung konnte nicht hergestellt werden.';
     }
@@ -210,6 +213,33 @@ class _DisplayRootState extends State<_DisplayRoot> {
   Widget build(BuildContext context) {
     if (_content != null) {
       return DisplayContentScreen(content: _content!, connectionMessage: _message);
+    }
+
+    if (!_pairingSessionReady) {
+      return Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(
+                  _message ?? 'Pairing-Session wird geladen …',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70, fontSize: 16),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: _startPairing,
+                  child: const Text('Erneut versuchen'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
     }
 
     final qrPayloadMap = _qrPayload ??
