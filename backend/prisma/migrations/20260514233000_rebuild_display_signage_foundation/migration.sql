@@ -1,50 +1,37 @@
--- Display signage foundation rebuild
-CREATE TYPE "DisplayDeviceStatus" AS ENUM ('ONLINE', 'OFFLINE', 'REVOKED');
-CREATE TYPE "DisplayOrientation" AS ENUM ('LANDSCAPE', 'PORTRAIT');
-CREATE TYPE "DisplayResolutionPreset" AS ENUM ('HD', 'FULL_HD', 'FOUR_K', 'CUSTOM');
-CREATE TYPE "DisplayLayoutType" AS ENUM ('MENU_BOARD', 'SLIDESHOW', 'PROMO_SPLIT', 'ORDER_STATUS');
-CREATE TYPE "DisplayPlaylistItemType" AS ENUM ('PRODUCT_GRID', 'CATEGORY_MENU', 'IMAGE', 'VIDEO', 'PROMOTION', 'URL', 'CUSTOM_TEXT');
+-- Display signage foundation rebuild (resilient / idempotent)
 
-ALTER TABLE "DisplayPairingSession"
-  ALTER COLUMN "platform" SET NOT NULL,
-  ALTER COLUMN "deviceName" SET NOT NULL;
-
-ALTER TABLE "DisplayPairingSession"
-  DROP CONSTRAINT IF EXISTS "DisplayPairingSession_screenId_fkey";
-
-ALTER TABLE "DisplayDevice"
-  ADD COLUMN "lastIp" TEXT,
-  ALTER COLUMN "platform" SET NOT NULL;
-
-ALTER TABLE "DisplayDevice"
-  ALTER COLUMN "status" DROP DEFAULT;
-
-ALTER TABLE "DisplayDevice"
-  ALTER COLUMN "status" TYPE "DisplayDeviceStatus" USING (
-    CASE
-      WHEN "status" = 'REVOKED' THEN 'REVOKED'::"DisplayDeviceStatus"
-      WHEN "status" = 'ONLINE' THEN 'ONLINE'::"DisplayDeviceStatus"
-      ELSE 'OFFLINE'::"DisplayDeviceStatus"
-    END
-  );
-
-ALTER TABLE "DisplayDevice"
-  ALTER COLUMN "status" SET DEFAULT 'OFFLINE';
-
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'DisplayDevice' AND column_name = 'displayScreenId') THEN
-    ALTER TABLE "DisplayDevice" DROP COLUMN "displayScreenId";
-  END IF;
+-- 1) Enums first (duplicate-safe)
+DO $$ BEGIN
+  CREATE TYPE "DisplayPairingStatus" AS ENUM ('PENDING', 'CLAIMED', 'EXPIRED');
+EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'DisplayScreenOrientation') THEN
-    ALTER TYPE "DisplayScreenOrientation" RENAME TO "DisplayOrientation";
-  END IF;
+DO $$ BEGIN
+  CREATE TYPE "DisplayDeviceStatus" AS ENUM ('ONLINE', 'OFFLINE', 'REVOKED');
+EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+DO $$ BEGIN
+  CREATE TYPE "DisplayOrientation" AS ENUM ('LANDSCAPE', 'PORTRAIT');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "DisplayResolutionPreset" AS ENUM ('HD', 'FULL_HD', 'FOUR_K', 'CUSTOM');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "DisplayLayoutType" AS ENUM ('MENU_BOARD', 'SLIDESHOW', 'PROMO_SPLIT', 'ORDER_STATUS');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+  CREATE TYPE "DisplayPlaylistItemType" AS ENUM ('PRODUCT_GRID', 'CATEGORY_MENU', 'IMAGE', 'VIDEO', 'PROMOTION', 'URL', 'CUSTOM_TEXT');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- 2) Base tables
 CREATE TABLE IF NOT EXISTS "DisplayScreen" (
   "id" TEXT NOT NULL,
   "tenantId" TEXT NOT NULL,
@@ -56,14 +43,9 @@ CREATE TABLE IF NOT EXISTS "DisplayScreen" (
   "layoutType" "DisplayLayoutType" NOT NULL DEFAULT 'MENU_BOARD',
   "isActive" BOOLEAN NOT NULL DEFAULT true,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "DisplayScreen_pkey" PRIMARY KEY ("id")
 );
-
-ALTER TABLE "DisplayScreen"
-  ADD COLUMN IF NOT EXISTS "customWidth" INTEGER,
-  ADD COLUMN IF NOT EXISTS "customHeight" INTEGER,
-  ADD COLUMN IF NOT EXISTS "settingsJson" JSONB;
 
 CREATE TABLE IF NOT EXISTS "DisplayPlaylist" (
   "id" TEXT NOT NULL,
@@ -72,12 +54,9 @@ CREATE TABLE IF NOT EXISTS "DisplayPlaylist" (
   "name" TEXT NOT NULL,
   "isActive" BOOLEAN NOT NULL DEFAULT true,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "DisplayPlaylist_pkey" PRIMARY KEY ("id")
 );
-
-ALTER TABLE "DisplayPlaylist"
-  ADD COLUMN IF NOT EXISTS "settingsJson" JSONB;
 
 CREATE TABLE IF NOT EXISTS "DisplayPlaylistItem" (
   "id" TEXT NOT NULL,
@@ -92,7 +71,7 @@ CREATE TABLE IF NOT EXISTS "DisplayPlaylistItem" (
   "timeStart" TEXT,
   "timeEnd" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt" TIMESTAMP(3) NOT NULL,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "DisplayPlaylistItem_pkey" PRIMARY KEY ("id")
 );
 
@@ -106,6 +85,132 @@ CREATE TABLE IF NOT EXISTS "DisplayHeartbeatLog" (
   CONSTRAINT "DisplayHeartbeatLog_pkey" PRIMARY KEY ("id")
 );
 
+CREATE TABLE IF NOT EXISTS "DisplayPairingSession" (
+  "id" TEXT NOT NULL,
+  "pairingTokenHash" TEXT NOT NULL,
+  "pairingCode" TEXT NOT NULL,
+  "status" "DisplayPairingStatus" NOT NULL DEFAULT 'PENDING',
+  "expiresAt" TIMESTAMP(3) NOT NULL,
+  "claimedAt" TIMESTAMP(3),
+  "claimedByUserId" TEXT,
+  "tenantId" TEXT,
+  "screenId" TEXT,
+  "displayName" TEXT,
+  "platform" TEXT NOT NULL DEFAULT 'unknown',
+  "appVersion" TEXT,
+  "deviceName" TEXT NOT NULL DEFAULT 'Unbekanntes Display',
+  "deviceId" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "DisplayPairingSession_pkey" PRIMARY KEY ("id")
+);
+
+-- 3) Ensure additive columns for existing tables
+ALTER TABLE "DisplayScreen"
+  ADD COLUMN IF NOT EXISTS "customWidth" INTEGER,
+  ADD COLUMN IF NOT EXISTS "customHeight" INTEGER,
+  ADD COLUMN IF NOT EXISTS "settingsJson" JSONB;
+
+ALTER TABLE "DisplayPlaylist"
+  ADD COLUMN IF NOT EXISTS "settingsJson" JSONB;
+
+ALTER TABLE "DisplayPairingSession"
+  ADD COLUMN IF NOT EXISTS "displayName" TEXT,
+  ADD COLUMN IF NOT EXISTS "deviceId" TEXT,
+  ADD COLUMN IF NOT EXISTS "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "DisplayDevice"
+  ADD COLUMN IF NOT EXISTS "lastIp" TEXT;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'DisplayDevice' AND column_name = 'platform'
+  ) THEN
+    UPDATE "DisplayDevice" SET "platform" = COALESCE(NULLIF(TRIM("platform"), ''), 'unknown');
+    ALTER TABLE "DisplayDevice" ALTER COLUMN "platform" SET NOT NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'DisplayPairingSession' AND column_name = 'platform'
+  ) THEN
+    UPDATE "DisplayPairingSession" SET "platform" = COALESCE(NULLIF(TRIM("platform"), ''), 'unknown');
+    ALTER TABLE "DisplayPairingSession" ALTER COLUMN "platform" SET NOT NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'DisplayPairingSession' AND column_name = 'deviceName'
+  ) THEN
+    UPDATE "DisplayPairingSession" SET "deviceName" = COALESCE(NULLIF(TRIM("deviceName"), ''), 'Unbekanntes Display');
+    ALTER TABLE "DisplayPairingSession" ALTER COLUMN "deviceName" SET NOT NULL;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'DisplayDevice' AND column_name = 'status'
+  ) THEN
+    IF EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'DisplayDevice'
+        AND column_name = 'status'
+        AND udt_name <> 'DisplayDeviceStatus'
+    ) THEN
+      ALTER TABLE "DisplayDevice"
+        ALTER COLUMN "status" DROP DEFAULT;
+      ALTER TABLE "DisplayDevice"
+        ALTER COLUMN "status" TYPE "DisplayDeviceStatus" USING (
+          CASE
+            WHEN "status"::text = 'REVOKED' THEN 'REVOKED'::"DisplayDeviceStatus"
+            WHEN "status"::text = 'ONLINE' THEN 'ONLINE'::"DisplayDeviceStatus"
+            ELSE 'OFFLINE'::"DisplayDeviceStatus"
+          END
+        );
+    END IF;
+
+    ALTER TABLE "DisplayDevice"
+      ALTER COLUMN "status" SET DEFAULT 'OFFLINE';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'DisplayDevice' AND column_name = 'displayScreenId'
+  ) THEN
+    ALTER TABLE "DisplayDevice" DROP COLUMN "displayScreenId";
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'DisplayScreenOrientation')
+     AND NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'DisplayOrientation') THEN
+    ALTER TYPE "DisplayScreenOrientation" RENAME TO "DisplayOrientation";
+  END IF;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
+
+-- 4) Indexes
 CREATE INDEX IF NOT EXISTS "DisplayScreen_tenantId_isActive_idx" ON "DisplayScreen"("tenantId", "isActive");
 CREATE INDEX IF NOT EXISTS "DisplayScreen_tenantId_name_idx" ON "DisplayScreen"("tenantId", "name");
 CREATE INDEX IF NOT EXISTS "DisplayPlaylist_tenantId_isActive_idx" ON "DisplayPlaylist"("tenantId", "isActive");
@@ -113,12 +218,78 @@ CREATE INDEX IF NOT EXISTS "DisplayPlaylist_screenId_isActive_idx" ON "DisplayPl
 CREATE INDEX IF NOT EXISTS "DisplayPlaylistItem_playlistId_sortOrder_idx" ON "DisplayPlaylistItem"("playlistId", "sortOrder");
 CREATE INDEX IF NOT EXISTS "DisplayHeartbeatLog_deviceId_createdAt_idx" ON "DisplayHeartbeatLog"("deviceId", "createdAt");
 CREATE INDEX IF NOT EXISTS "DisplayHeartbeatLog_tenantId_createdAt_idx" ON "DisplayHeartbeatLog"("tenantId", "createdAt");
+CREATE INDEX IF NOT EXISTS "DisplayPairingSession_status_expiresAt_idx" ON "DisplayPairingSession"("status", "expiresAt");
+CREATE INDEX IF NOT EXISTS "DisplayPairingSession_pairingCode_idx" ON "DisplayPairingSession"("pairingCode");
 
-ALTER TABLE "DisplayScreen" ADD CONSTRAINT "DisplayScreen_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "DisplayPlaylist" ADD CONSTRAINT "DisplayPlaylist_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "DisplayPlaylist" ADD CONSTRAINT "DisplayPlaylist_screenId_fkey" FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "DisplayPlaylistItem" ADD CONSTRAINT "DisplayPlaylistItem_playlistId_fkey" FOREIGN KEY ("playlistId") REFERENCES "DisplayPlaylist"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "DisplayHeartbeatLog" ADD CONSTRAINT "DisplayHeartbeatLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "DisplayHeartbeatLog" ADD CONSTRAINT "DisplayHeartbeatLog_deviceId_fkey" FOREIGN KEY ("deviceId") REFERENCES "DisplayDevice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "DisplayDevice" ADD CONSTRAINT "DisplayDevice_screenId_fkey" FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "DisplayPairingSession" ADD CONSTRAINT "DisplayPairingSession_screenId_fkey" FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- 5) Foreign keys / constraints (table + constraint existence checks)
+DO $$ BEGIN
+  IF to_regclass('"DisplayScreen"') IS NOT NULL
+     AND to_regclass('"Tenant"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayScreen_tenantId_fkey' AND conrelid = '"DisplayScreen"'::regclass) THEN
+    ALTER TABLE "DisplayScreen" ADD CONSTRAINT "DisplayScreen_tenantId_fkey"
+      FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('"DisplayPlaylist"') IS NOT NULL
+     AND to_regclass('"Tenant"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPlaylist_tenantId_fkey' AND conrelid = '"DisplayPlaylist"'::regclass) THEN
+    ALTER TABLE "DisplayPlaylist" ADD CONSTRAINT "DisplayPlaylist_tenantId_fkey"
+      FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('"DisplayPlaylist"') IS NOT NULL
+     AND to_regclass('"DisplayScreen"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPlaylist_screenId_fkey' AND conrelid = '"DisplayPlaylist"'::regclass) THEN
+    ALTER TABLE "DisplayPlaylist" ADD CONSTRAINT "DisplayPlaylist_screenId_fkey"
+      FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('"DisplayPlaylistItem"') IS NOT NULL
+     AND to_regclass('"DisplayPlaylist"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPlaylistItem_playlistId_fkey' AND conrelid = '"DisplayPlaylistItem"'::regclass) THEN
+    ALTER TABLE "DisplayPlaylistItem" ADD CONSTRAINT "DisplayPlaylistItem_playlistId_fkey"
+      FOREIGN KEY ("playlistId") REFERENCES "DisplayPlaylist"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('"DisplayHeartbeatLog"') IS NOT NULL
+     AND to_regclass('"Tenant"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayHeartbeatLog_tenantId_fkey' AND conrelid = '"DisplayHeartbeatLog"'::regclass) THEN
+    ALTER TABLE "DisplayHeartbeatLog" ADD CONSTRAINT "DisplayHeartbeatLog_tenantId_fkey"
+      FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('"DisplayHeartbeatLog"') IS NOT NULL
+     AND to_regclass('"DisplayDevice"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayHeartbeatLog_deviceId_fkey' AND conrelid = '"DisplayHeartbeatLog"'::regclass) THEN
+    ALTER TABLE "DisplayHeartbeatLog" ADD CONSTRAINT "DisplayHeartbeatLog_deviceId_fkey"
+      FOREIGN KEY ("deviceId") REFERENCES "DisplayDevice"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('"DisplayDevice"') IS NOT NULL
+     AND to_regclass('"DisplayScreen"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayDevice_screenId_fkey' AND conrelid = '"DisplayDevice"'::regclass) THEN
+    ALTER TABLE "DisplayDevice" ADD CONSTRAINT "DisplayDevice_screenId_fkey"
+      FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('"DisplayPairingSession"') IS NOT NULL
+     AND to_regclass('"DisplayScreen"') IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'DisplayPairingSession_screenId_fkey' AND conrelid = '"DisplayPairingSession"'::regclass) THEN
+    ALTER TABLE "DisplayPairingSession" ADD CONSTRAINT "DisplayPairingSession_screenId_fkey"
+      FOREIGN KEY ("screenId") REFERENCES "DisplayScreen"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+  END IF;
+END $$;
