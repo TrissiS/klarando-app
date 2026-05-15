@@ -118,6 +118,15 @@ export default function AdminDisplaysPage() {
     return `${window.location.origin}/display-client?kiosk=1&displayApp=1&preview=1`
   }, [token])
 
+  function openScreenPreview(screenId: string) {
+    const boundDevice = devices.find((device) => device.screenId === screenId)
+    if (!boundDevice?.id) {
+      setError('Bildschirm wurde nicht gefunden. Bitte zuerst ein Gerät zuordnen.')
+      return
+    }
+    window.open(`/screen/${boundDevice.id}?kiosk=1&preview=1`, '_blank', 'noopener,noreferrer')
+  }
+
   async function loadAll() {
     if (!token || !tenantId) return
     try {
@@ -454,7 +463,7 @@ export default function AdminDisplaysPage() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => window.open(`/screen/${screen.id}?kiosk=1&preview=1`, '_blank', 'noopener,noreferrer')}
+                      onClick={() => openScreenPreview(screen.id)}
                       className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                     >
                       Vorschau öffnen
