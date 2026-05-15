@@ -1810,34 +1810,81 @@ export default function AdminScreenPage() {
             <p className="mt-1 text-sm text-rose-900/70">
               Diese Werte gelten als Standard fuer alle Bildschirme.
             </p>
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  setConfigDraft((current) => ({
-                    ...current,
-                    cardStyle: 'SOFT',
-                    backgroundMode: 'COLOR',
-                    backgroundValue: '#131a2f',
-                    accentColor: '#ff7a1a',
-                    textColor: '#ffffff',
-                    productNameColor: '#ffffff',
-                    ingredientTextColor: '#d1d8e8',
-                    categoryTextColor: '#ffb38b',
-                    priceTextColor: '#ffffff',
-                    productFontSize: 28,
-                    ingredientFontSize: 11,
-                    categoryFontSize: 11,
-                    priceFontSize: 24,
-                  }))
-                }
-                className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
-              >
-                Klarando Modern anwenden
-              </button>
-              <span className="text-xs text-rose-900/70">
-                Empfohlen fuer 1920x1080 und 1080x1920.
-              </span>
+            <div className="mt-3 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/70">Design-Vorlagen</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {[
+                  { label: 'Klarando Modern', cardStyle: 'SOFT' as ScreenCardStyle, background: '#131a2f', accent: '#ff7a1a' },
+                  { label: 'Klassische Preistafel', cardStyle: 'SHARP' as ScreenCardStyle, background: '#151515', accent: '#f59e0b' },
+                  { label: 'Glas / Premium', cardStyle: 'GLASS' as ScreenCardStyle, background: '#0b1220', accent: '#22d3ee' },
+                  { label: 'Fastfood Board', cardStyle: 'BOLD' as ScreenCardStyle, background: '#1f2937', accent: '#ef4444' },
+                  { label: 'Minimal Dunkel', cardStyle: 'MINIMAL' as ScreenCardStyle, background: '#0a0a0a', accent: '#a3a3a3' },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() =>
+                      setConfigDraft((current) => ({
+                        ...current,
+                        cardStyle: preset.cardStyle,
+                        backgroundMode: 'COLOR',
+                        backgroundValue: preset.background,
+                        accentColor: preset.accent,
+                        textColor: '#ffffff',
+                        productNameColor: '#ffffff',
+                        ingredientTextColor: '#d1d8e8',
+                        categoryTextColor: '#ffb38b',
+                        priceTextColor: '#ffffff',
+                      }))
+                    }
+                    className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-left text-sm font-semibold text-slate-800 transition hover:bg-rose-50"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Schriftgroesse">
+                  <select
+                    className="input-ui"
+                    value={configDraft.productFontSize <= 24 ? 'SMALL' : configDraft.productFontSize <= 30 ? 'MEDIUM' : 'LARGE'}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      if (value === 'SMALL') {
+                        setConfigDraft((current) => ({ ...current, productFontSize: 22, ingredientFontSize: 10, categoryFontSize: 10, priceFontSize: 20 }))
+                      } else if (value === 'LARGE') {
+                        setConfigDraft((current) => ({ ...current, productFontSize: 34, ingredientFontSize: 14, categoryFontSize: 14, priceFontSize: 30 }))
+                      } else {
+                        setConfigDraft((current) => ({ ...current, productFontSize: 28, ingredientFontSize: 12, categoryFontSize: 12, priceFontSize: 24 }))
+                      }
+                    }}
+                  >
+                    <option value="SMALL">Klein</option>
+                    <option value="MEDIUM">Mittel</option>
+                    <option value="LARGE">Gross</option>
+                  </select>
+                </Field>
+                <Field label="Produktkarten">
+                  <select
+                    className="input-ui"
+                    value={configDraft.cardPadding <= 10 ? 'COMPACT' : configDraft.cardPadding <= 16 ? 'COMFORT' : 'LARGE'}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      if (value === 'COMPACT') {
+                        setConfigDraft((current) => ({ ...current, cardPadding: 8 }))
+                      } else if (value === 'LARGE') {
+                        setConfigDraft((current) => ({ ...current, cardPadding: 22 }))
+                      } else {
+                        setConfigDraft((current) => ({ ...current, cardPadding: 16 }))
+                      }
+                    }}
+                  >
+                    <option value="COMPACT">Kompakt</option>
+                    <option value="COMFORT">Komfort</option>
+                    <option value="LARGE">Gross</option>
+                  </select>
+                </Field>
+              </div>
             </div>
 
             <div className="mt-4 space-y-3">

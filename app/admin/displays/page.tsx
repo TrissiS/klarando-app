@@ -80,6 +80,7 @@ export default function AdminDisplaysPage() {
   const [displayName, setDisplayName] = useState('')
   const [claimScreenId, setClaimScreenId] = useState('')
   const [claimDisplayId, setClaimDisplayId] = useState('')
+  const [createNewScreenOnClaim, setCreateNewScreenOnClaim] = useState(false)
 
   const [screenName, setScreenName] = useState('')
   const [screenLayoutType, setScreenLayoutType] = useState('MENU_BOARD')
@@ -174,8 +175,8 @@ export default function AdminDisplaysPage() {
         method: 'POST',
         body: JSON.stringify({
           tenantId,
-          screenId: claimScreenId,
-          displayId: claimDisplayId || null,
+          screenId: createNewScreenOnClaim ? null : claimScreenId || null,
+          displayId: createNewScreenOnClaim ? null : claimDisplayId || null,
           pairingToken: pairingToken || null,
           pairingCode: pairingCode || null,
           displayName: displayName || null,
@@ -186,6 +187,8 @@ export default function AdminDisplaysPage() {
       setPairingCode('')
       setDisplayName('')
       setClaimDisplayId('')
+      setClaimScreenId('')
+      setCreateNewScreenOnClaim(false)
       await loadAll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Display konnte nicht verbunden werden.')
@@ -319,16 +322,33 @@ export default function AdminDisplaysPage() {
         <div className="space-y-4">
           <form onSubmit={claimPairing} className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
             <h2 className="mb-3 text-lg font-semibold">Display verbinden</h2>
+            <p className="mb-3 text-sm text-slate-600">1) Pairing-Code/Token eingeben, 2) vorhandenes Display wählen, 3) verbinden.</p>
             <div className="grid gap-3 md:grid-cols-2">
               <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Pairing-Token" value={pairingToken} onChange={(event) => setPairingToken(event.target.value)} />
               <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Pairing-Code" value={pairingCode} onChange={(event) => setPairingCode(event.target.value)} />
               <input className="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="Displayname" value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-              <select className="rounded-xl border border-slate-200 px-3 py-2 text-sm" value={claimScreenId} onChange={(event) => setClaimScreenId(event.target.value)}>
-                <option value="">Screen wählen</option>
-                {screens.map((screen) => <option key={screen.id} value={screen.id}>{screen.name}</option>)}
-              </select>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                {createNewScreenOnClaim
+                  ? 'Neuer Bildschirm wird beim Verbinden automatisch erstellt'
+                  : claimDisplayId
+                  ? `Ausgewähltes Display: ${devices.find((device) => device.id === claimDisplayId)?.name || '-'}`
+                  : 'Noch kein bestehendes Display ausgewählt'}
+              </div>
             </div>
-            <button disabled={loading} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white">Display verbinden</button>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button disabled={loading || (!createNewScreenOnClaim && !claimDisplayId)} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60">Display verbinden</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCreateNewScreenOnClaim(true)
+                  setClaimDisplayId('')
+                  setClaimScreenId('')
+                }}
+                className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+              >
+                Neuen Bildschirm erstellen und verbinden
+              </button>
+            </div>
           </form>
 
           <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
@@ -364,9 +384,10 @@ export default function AdminDisplaysPage() {
                     <button
                       type="button"
                       onClick={() => {
+                        setCreateNewScreenOnClaim(false)
                         setClaimDisplayId(device.id)
                         if (device.screenId) setClaimScreenId(device.screenId)
-                        if (!displayName.trim()) setDisplayName(device.name)
+                        setDisplayName(device.name)
                         setSuccess('')
                       }}
                       className="mt-3 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-800 hover:bg-slate-100"
@@ -421,11 +442,56 @@ export default function AdminDisplaysPage() {
 
           <div className="rounded-2xl bg-white p-4 ring-1 ring-slate-200">
             <h2 className="mb-3 text-lg font-semibold">Bildschirme</h2>
-            <div className="grid gap-2 md:grid-cols-2">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {screens.map((screen) => (
-                <div key={screen.id} className="rounded-xl border border-slate-200 px-3 py-2">
-                  <p className="font-semibold">{screen.name}</p>
+                <div key={screen.id} className="rounded-2xl border border-slate-200 p-3">
+                  <p className="font-semibold text-slate-900">{screen.name}</p>
                   <p className="text-xs text-slate-500">{screen.layoutType} · {screen.orientation} · {screen.resolutionPreset}</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Status: {devices.some((device) => device.screenId === screen.id && device.status === 'ONLINE') ? 'Online' : 'Offline'}
+                  </p>
+                  <p className="text-xs text-slate-500">Design: {screen.layoutType}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => window.open(`/screen/${screen.id}?kiosk=1&preview=1`, '_blank', 'noopener,noreferrer')}
+                      className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Vorschau öffnen
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTab('devices')
+                        setCreateNewScreenOnClaim(false)
+                        setClaimScreenId(screen.id)
+                        const existingDevice = devices.find((device) => device.screenId === screen.id)
+                        if (existingDevice) {
+                          setClaimDisplayId(existingDevice.id)
+                          setDisplayName(existingDevice.name)
+                        } else {
+                          setClaimDisplayId('')
+                          setDisplayName(screen.name)
+                        }
+                      }}
+                      className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Gerät verbinden
+                    </button>
+                    {devices
+                      .filter((device) => device.screenId === screen.id)
+                      .slice(0, 1)
+                      .map((device) => (
+                        <button
+                          key={`deactivate-${screen.id}-${device.id}`}
+                          type="button"
+                          onClick={() => void revokeDevice(device.id)}
+                          className="rounded-lg border border-rose-300 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                        >
+                          Deaktivieren
+                        </button>
+                      ))}
+                  </div>
                 </div>
               ))}
               {screens.length === 0 ? <p className="text-sm text-slate-500">Noch keine Bildschirme vorhanden.</p> : null}
