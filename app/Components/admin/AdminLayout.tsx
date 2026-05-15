@@ -129,7 +129,6 @@ const navSections: NavSection[] = [
     id: 'devices',
     label: 'Geräte',
     items: [
-      { href: '/admin/displays', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/display-devices', label: 'Display-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/screen', label: 'Menübildschirme', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/order-displays', label: 'Abholmonitore', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },

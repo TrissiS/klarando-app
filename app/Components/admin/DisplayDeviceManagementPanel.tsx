@@ -101,6 +101,7 @@ export default function DisplayDeviceManagementPanel({
 
   const isTenantLocked = Boolean(fixedTenantId)
   const isChainLocked = Boolean(fixedChainId)
+  const isAdminScope = roleScope === 'admin'
 
   const filteredTenants = useMemo(() => {
     if (!selectedChainId) {
@@ -403,6 +404,9 @@ export default function DisplayDeviceManagementPanel({
       if (!tenantId) {
         throw new Error('Bitte Filiale auswählen.')
       }
+      if (!claimDisplayName.trim()) {
+        throw new Error('Bitte gib einen Anzeigenamen ein.')
+      }
       const response = await claimDisplayPairingSession(token, {
         pairingToken,
         pairingCode: manualPairingCode,
@@ -413,7 +417,6 @@ export default function DisplayDeviceManagementPanel({
       setSuccess(response.message || 'Display erfolgreich verbunden.')
       setClaimPayload('')
       setClaimPairingCode('')
-      setClaimScreenId('')
       setClaimDisplayName('')
       await loadOverview()
     } catch (claimError) {
@@ -458,7 +461,7 @@ export default function DisplayDeviceManagementPanel({
             label="Bildschirm-ID (optional)"
             value={claimScreenId}
             onChange={(event) => setClaimScreenId(event.target.value)}
-            placeholder="Automatisch, wenn leer"
+            placeholder="Leer = Bildschirm wird automatisch erstellt"
           />
           <AdminTextInput
             label="Pairing-Code (optional)"
@@ -491,7 +494,16 @@ export default function DisplayDeviceManagementPanel({
           >
             QR-Code mit Webcam scannen
           </AdminButton>
-          <AdminButton type="button" onClick={() => void handleClaimPairing()} disabled={claiming}>
+          <AdminButton
+            type="button"
+            onClick={() => void handleClaimPairing()}
+            disabled={
+              claiming ||
+              !(isTenantLocked ? fixedTenantId : claimTenantId)?.trim() ||
+              !claimDisplayName.trim() ||
+              (!claimPairingCode.trim() && !claimPayload.trim())
+            }
+          >
             {claiming ? 'Verbinde…' : 'Display verbinden'}
           </AdminButton>
         </AdminActionBar>
@@ -533,6 +545,7 @@ export default function DisplayDeviceManagementPanel({
         </div>
       ) : null}
 
+      {!isAdminScope ? (
       <AdminSectionCard title="Display-Verwaltung" description="Filtere Displays nach Status, Typ, Kette und Filiale.">
         <AdminFormGrid>
           <div className="md:col-span-2">
@@ -599,8 +612,9 @@ export default function DisplayDeviceManagementPanel({
           </AdminButton>
         </AdminActionBar>
       </AdminSectionCard>
+      ) : null}
 
-      <AdminSectionCard title="Geräteübersicht">
+      <AdminSectionCard title={isAdminScope ? 'Verbundene Displays' : 'Geräteübersicht'}>
         {loading ? (
           <p className="text-sm text-rose-900/75">Lade Display-Geräte...</p>
         ) : rows.length === 0 ? (
@@ -610,13 +624,11 @@ export default function DisplayDeviceManagementPanel({
             <thead>
               <tr>
                 <th className="th-ui">Display</th>
-                <th className="th-ui">Typ</th>
                 <th className="th-ui">Status</th>
                 <th className="th-ui">Filiale</th>
-                <th className="th-ui">Kette</th>
                 <th className="th-ui">Zuletzt gesehen</th>
-                <th className="th-ui">Letzter Sync</th>
-                <th className="th-ui">Geräteinfo</th>
+                {!isAdminScope ? <th className="th-ui">Letzter Sync</th> : null}
+                {!isAdminScope ? <th className="th-ui">Geräteinfo</th> : null}
                 <th className="th-ui">Aktionen</th>
               </tr>
             </thead>
@@ -629,7 +641,6 @@ export default function DisplayDeviceManagementPanel({
                       <p className="font-semibold text-[var(--brand-ink)]">{row.name}</p>
                       <p className="text-xs text-rose-900/70">{row.code} | {row.sourceKind === 'ORDER_DISPLAY' ? 'Bestell-Display' : 'Screen-Device'}</p>
                     </td>
-                    <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.displayType}</td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <AdminStatusBadge
                         status={row.status === 'online' ? 'online' : row.status === 'offline' ? 'offline' : 'inactive'}
@@ -637,32 +648,31 @@ export default function DisplayDeviceManagementPanel({
                       />
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.tenantName || row.tenantId}</td>
-                    <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.chainName || '-'}</td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatDateTime(row.lastSeenAt)}</td>
-                    <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatDateTime(row.lastSyncAt)}</td>
-                    <td className="border-t border-slate-100 px-3 py-2 text-xs text-rose-900/80">
+                    {!isAdminScope ? <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatDateTime(row.lastSyncAt)}</td> : null}
+                    {!isAdminScope ? <td className="border-t border-slate-100 px-3 py-2 text-xs text-rose-900/80">
                       <p>Alias: {row.deviceInfo?.alias || '-'}</p>
                       <p>Modell: {row.deviceInfo?.model || '-'}</p>
                       <p>Plattform: {row.deviceInfo?.platform || '-'}</p>
                       <p>App: {row.deviceInfo?.appVersion || '-'}</p>
                       <p>Auflösung: {row.resolution || '-'}</p>
-                    </td>
+                    </td> : null}
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <div className="flex flex-wrap gap-2">
-                        <AdminButton
+                        {!isAdminScope ? <AdminButton
                           type="button"
                           onClick={() => void handlePreview(row)}
                           disabled={busyDisplayRef === row.id}
                         >
                           Vorschau öffnen
-                        </AdminButton>
-                        <AdminButton
+                        </AdminButton> : null}
+                        {!isAdminScope ? <AdminButton
                           type="button"
                           variant="secondary"
                           onClick={() => window.open(row.editablePath, '_blank', 'noopener,noreferrer')}
                         >
                           Bearbeiten
-                        </AdminButton>
+                        </AdminButton> : null}
                         <AdminButton
                           type="button"
                           variant="secondary"
@@ -671,7 +681,7 @@ export default function DisplayDeviceManagementPanel({
                         >
                           {row.isActive ? 'Deaktivieren' : 'Aktivieren'}
                         </AdminButton>
-                        {row.pairingSupported ? (
+                        {row.pairingSupported && !isAdminScope ? (
                           <AdminButton
                             type="button"
                             variant="secondary"

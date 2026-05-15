@@ -27,20 +27,36 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
     const pairingToken = normalizeText(body.pairingToken)
     const pairingCode = normalizeText(body.pairingCode)
     const tenantIdInput = normalizeText(body.tenantId)
-    const screenId = normalizeText(body.screenId)
+    const screenIdInput = normalizeText(body.screenId)
+    const displayName = normalizeText(body.displayName) ?? normalizeText(body.pairingCode) ?? 'Display'
 
-    if (!tenantIdInput || (!pairingToken && !pairingCode) || !screenId) {
-      return res.status(400).json({ message: 'pairingToken oder pairingCode sowie tenantId und screenId sind erforderlich.' })
+    if (!tenantIdInput || (!pairingToken && !pairingCode)) {
+      return res.status(400).json({ message: 'pairingToken oder pairingCode sowie tenantId sind erforderlich.' })
     }
 
     const scope = await resolveTenantScope(req, tenantIdInput)
     const tenantId = scope.tenantId as string
 
-    const screen = await prisma.displayScreen.findFirst({
-      where: { id: screenId, tenantId, isActive: true },
-    })
+    let screen = screenIdInput
+      ? await prisma.displayScreen.findFirst({
+          where: { id: screenIdInput, tenantId, isActive: true },
+        })
+      : null
+
     if (!screen) {
-      return res.status(404).json({ message: 'Kein Screen ausgewählt.' })
+      const fallbackScreenName = `Screen ${displayName}`
+      screen = await prisma.displayScreen.create({
+        data: {
+          tenantId,
+          name: fallbackScreenName.substring(0, 80),
+          layoutType: 'MENU_BOARD',
+          orientation: 'LANDSCAPE',
+          resolutionPreset: 'FULL_HD',
+          backgroundColor: '#111827',
+          accentColor: '#ff6b35',
+          isActive: true,
+        },
+      })
     }
 
     const session = pairingToken
