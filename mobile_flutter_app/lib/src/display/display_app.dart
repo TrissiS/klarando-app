@@ -58,6 +58,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
   bool _pairingSessionReady = false;
   int? _lastPairingHttpStatus;
   DateTime? _lastPairingAttemptAt;
+  String _lastPollStatus = '-';
+  String _lastPollState = '-';
+  String _lastPollError = '-';
+  bool _lastPollTokenReceived = false;
   static const String _pairingEndpoint = '/api/display/pairing/session';
 
   @override
@@ -150,25 +154,43 @@ class _DisplayRootState extends State<_DisplayRoot> {
     try {
       _lastPairingAttemptAt = DateTime.now();
       final response = await _api.getPairingStatus(token);
-      final rawStatus = '${response['state'] ?? response['status']}'.toUpperCase();
-      if (rawStatus == 'PENDING') {
+      final rawStatus = '${response['status'] ?? ''}'.trim();
+      final rawState = '${response['state'] ?? ''}'.trim();
+      final statusUpper = rawStatus.toUpperCase();
+      final stateUpper = rawState.toUpperCase();
+      _lastPollStatus = rawStatus.isEmpty ? '-' : rawStatus;
+      _lastPollState = rawState.isEmpty ? '-' : rawState;
+      _lastPollError = '-';
+      if (statusUpper == 'PENDING' || stateUpper == 'PENDING') {
+        _lastPollTokenReceived = false;
         _message = null;
         setState(() {});
         return;
       }
-      if (rawStatus == 'EXPIRED') {
+      if (statusUpper == 'EXPIRED' || stateUpper == 'EXPIRED') {
+        _lastPollTokenReceived = false;
         _message = 'Code abgelaufen. Neuer QR-Code wird erstellt …';
         setState(() {});
         await _startPairing();
         return;
       }
-      if (rawStatus != 'CLAIMED' && rawStatus != 'CONNECTED') {
-        _message = 'Unbekannter Pairing-Status: $rawStatus';
+      final isConnectedLike = statusUpper == 'CONNECTED' ||
+          statusUpper == 'CLAIMED' ||
+          rawStatus.toLowerCase() == 'connected' ||
+          rawStatus.toLowerCase() == 'claimed' ||
+          stateUpper == 'CONNECTED' ||
+          stateUpper == 'CLAIMED' ||
+          rawState.toLowerCase() == 'connected' ||
+          rawState.toLowerCase() == 'claimed';
+      if (!isConnectedLike) {
+        _lastPollTokenReceived = false;
+        _message = 'Unbekannter Pairing-Status: ${rawStatus.isEmpty ? rawState : rawStatus}';
         setState(() {});
         return;
       }
 
-      final deviceToken = '${response['deviceToken'] ?? ''}'.trim();
+      final deviceToken = '${response['deviceToken'] ?? response['authToken'] ?? ''}'.trim();
+      _lastPollTokenReceived = deviceToken.isNotEmpty;
       if (deviceToken.isEmpty) {
         _message = 'Display verbunden, aber es fehlt ein gültiges Gerätetoken.';
         setState(() {});
@@ -203,15 +225,18 @@ class _DisplayRootState extends State<_DisplayRoot> {
         await _startPairing();
       }
     } catch (error) {
+      _lastPollTokenReceived = false;
       if (error is DisplayApiException) {
         _lastPairingHttpStatus = error.statusCode;
         if (error.statusCode == 410) {
+          _lastPollError = error.message;
           _message = 'Code abgelaufen. Neuer QR-Code wird erstellt …';
           setState(() {});
           await _startPairing();
           return;
         }
       }
+      _lastPollError = error.toString();
       _message = _toFriendlyError(error);
       setState(() {});
     }
@@ -324,6 +349,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
             'Endpoint: $_pairingEndpoint',
             'Letzter HTTP-Status: ${_lastPairingHttpStatus?.toString() ?? '-'}',
             'Letzter Versuch: ${_lastPairingAttemptAt?.toIso8601String() ?? '-'}',
+            'Letzter Poll status: $_lastPollStatus',
+            'Letzter Poll state: $_lastPollState',
+            'Token erhalten: ${_lastPollTokenReceived ? 'ja' : 'nein'}',
+            'Letzter Fehler: $_lastPollError',
           ]
         : const <String>[];
 
