@@ -6738,9 +6738,16 @@ export async function claimDisplayPairingSession(
   display: {
     id: string
     tenantId: string
-    screenId: string
+    screenId: string | null
     name: string
     status: string
+  }
+  pairing?: {
+    sessionId: string
+    state: string
+    claimedAt: string
+    hasPairingToken: boolean
+    hasPairingCode: boolean
   }
   message: string
 }> {

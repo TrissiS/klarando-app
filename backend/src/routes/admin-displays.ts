@@ -247,6 +247,13 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
         tenantId,
         screenId: device.screenId,
       },
+      pairing: {
+        sessionId: session.id,
+        state: 'CLAIMED',
+        claimedAt: new Date().toISOString(),
+        hasPairingToken: Boolean(pairingToken),
+        hasPairingCode: Boolean(pairingCode),
+      },
       message: 'Display erfolgreich verbunden.',
     })
   } catch (error) {

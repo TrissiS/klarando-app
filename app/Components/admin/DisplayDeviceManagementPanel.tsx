@@ -90,6 +90,15 @@ export default function DisplayDeviceManagementPanel({
   const [createNewDisplayOnClaim, setCreateNewDisplayOnClaim] = useState(false)
   const [claimDisplayName, setClaimDisplayName] = useState('')
   const [claiming, setClaiming] = useState(false)
+  const [lastClaimDiagnostic, setLastClaimDiagnostic] = useState<{
+    sessionId: string
+    state: string
+    claimedAt: string
+    displayId: string
+    tenantId: string
+    hasPairingToken: boolean
+    hasPairingCode: boolean
+  } | null>(null)
   const [scannerOpen, setScannerOpen] = useState(false)
   const [scannerError, setScannerError] = useState('')
   const [scannerStatus, setScannerStatus] = useState('')
@@ -423,6 +432,15 @@ export default function DisplayDeviceManagementPanel({
         screenId: null,
         displayName: claimDisplayName.trim() || null,
       })
+      setLastClaimDiagnostic({
+        sessionId: response.pairing?.sessionId || '-',
+        state: response.pairing?.state || 'UNKNOWN',
+        claimedAt: response.pairing?.claimedAt || new Date().toISOString(),
+        displayId: response.display.id,
+        tenantId: response.display.tenantId,
+        hasPairingToken: response.pairing?.hasPairingToken ?? Boolean(pairingToken),
+        hasPairingCode: response.pairing?.hasPairingCode ?? Boolean(manualPairingCode),
+      })
       setSuccess(response.message || 'Display erfolgreich verbunden.')
       setClaimPayload('')
       setClaimPairingCode('')
@@ -504,6 +522,17 @@ export default function DisplayDeviceManagementPanel({
             <p>Debug selectedDisplayId: {selectedDisplayRow?.id || '-'}</p>
             <p>Debug selectedDisplayName: {selectedDisplayRow?.name || '-'}</p>
             <p>Debug pairingCode vorhanden: {claimPairingCode.trim() ? 'ja' : 'nein'}</p>
+          </div>
+        ) : null}
+        {lastClaimDiagnostic ? (
+          <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+            <p className="font-semibold">Letzter Pairing-Claim</p>
+            <p>Session: {lastClaimDiagnostic.sessionId}</p>
+            <p>Status: {lastClaimDiagnostic.state}</p>
+            <p>Display: {lastClaimDiagnostic.displayId}</p>
+            <p>Tenant: {lastClaimDiagnostic.tenantId}</p>
+            <p>Token genutzt: {lastClaimDiagnostic.hasPairingToken ? 'ja' : 'nein'} | Code genutzt: {lastClaimDiagnostic.hasPairingCode ? 'ja' : 'nein'}</p>
+            <p>Zeitpunkt: {new Date(lastClaimDiagnostic.claimedAt).toLocaleString('de-DE')}</p>
           </div>
         ) : null}
         <AdminActionBar>
