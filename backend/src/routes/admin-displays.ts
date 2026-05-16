@@ -630,4 +630,44 @@ router.post('/:deviceId/revoke', requirePermission(PermissionKey.SETTINGS_WRITE)
   }
 })
 
+router.delete('/:deviceId', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const deviceId = normalizeText(req.params.deviceId)
+    const tenantIdInput = normalizeText(
+      (req.body as { tenantId?: string | null } | undefined)?.tenantId ?? req.query.tenantId
+    )
+    if (!deviceId || !tenantIdInput) {
+      return res.status(400).json({ message: 'deviceId oder tenantId fehlt.' })
+    }
+    const scope = await resolveTenantScope(req, tenantIdInput)
+    const tenantId = scope.tenantId as string
+
+    const device = await prisma.displayDevice.findFirst({
+      where: { id: deviceId, tenantId },
+      select: { id: true, name: true, tenantId: true },
+    })
+    if (!device) {
+      return res.status(404).json({ message: 'Display nicht gefunden.' })
+    }
+
+    // Soft-delete for production safety: revoke and detach from screen/session.
+    await prisma.displayDevice.update({
+      where: { id: device.id },
+      data: {
+        status: DisplayDeviceStatus.REVOKED,
+        revokedAt: new Date(),
+        screenId: null,
+        pairingSessionId: null,
+      },
+    })
+
+    return res.json({ ok: true, message: 'Display wurde gelöscht.' })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) return res.status(scopeError.status).json({ message: scopeError.message })
+    console.error('ADMIN DISPLAY DELETE ERROR:', error)
+    return res.status(500).json({ message: 'Display konnte nicht gelöscht werden.' })
+  }
+})
+
 export default router

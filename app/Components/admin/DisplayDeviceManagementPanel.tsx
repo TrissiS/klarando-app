@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   claimDisplayPairingSession,
+  deleteDisplayDevice,
   getAccessContext,
   getDisplayDeviceOverview,
   getDisplayDevicePreview,
@@ -261,6 +262,33 @@ export default function DisplayDeviceManagementPanel({
       setSuccess(`Neuer Pairing-Code für ${row.name} wurde erzeugt.`)
     } catch (pairingError) {
       setError(pairingError instanceof Error ? pairingError.message : 'Pairing-Code konnte nicht erzeugt werden')
+    } finally {
+      setBusyDisplayRef(null)
+    }
+  }
+
+  async function handleDeleteDisplay(row: DisplayDeviceOverviewRow) {
+    const tenantId = row.tenantId || (isTenantLocked ? fixedTenantId || '' : claimTenantId || selectedTenantId || '')
+    if (!tenantId) {
+      setError('Filiale konnte für das Löschen nicht ermittelt werden.')
+      return
+    }
+    const firstConfirm = window.confirm('Möchtest du dieses Display wirklich löschen?')
+    if (!firstConfirm) return
+    const secondConfirm = window.confirm(
+      'Bitte bestätige endgültig: Dieses Display wird dauerhaft gelöscht.\n\nWenn du dieses Display löschst:\n- wird die Verbindung zu diesem Bildschirm getrennt\n- das Display verschwindet aus der Display-Liste\n- zugewiesene Produkte/Designs werden entfernt oder entkoppelt\n- das Gerät muss später neu verbunden werden\n- diese Aktion kann nicht rückgängig gemacht werden'
+    )
+    if (!secondConfirm) return
+
+    try {
+      setBusyDisplayRef(row.id)
+      setError('')
+      setSuccess('')
+      const result = await deleteDisplayDevice(token, row.entityId, tenantId)
+      setSuccess(result.message || 'Display wurde gelöscht.')
+      await loadOverview()
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : 'Display konnte nicht gelöscht werden')
     } finally {
       setBusyDisplayRef(null)
     }
@@ -856,6 +884,16 @@ export default function DisplayDeviceManagementPanel({
                         >
                           {row.isActive ? 'Deaktivieren' : 'Aktivieren'}
                         </AdminButton>
+                        {row.sourceKind === 'DISPLAY_DEVICE' ? (
+                          <AdminButton
+                            type="button"
+                            variant="secondary"
+                            onClick={() => void handleDeleteDisplay(row)}
+                            disabled={busyDisplayRef === row.id}
+                          >
+                            Display löschen
+                          </AdminButton>
+                        ) : null}
                         {row.pairingSupported && !isAdminScope ? (
                           <AdminButton
                             type="button"

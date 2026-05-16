@@ -7496,6 +7496,25 @@ export async function getPublicCmsPage(slug: string): Promise<CmsPage | null> {
   }
 }
 
+export async function deleteDisplayDevice(
+  token: string,
+  deviceId: string,
+  tenantId: string
+): Promise<{ ok: boolean; message?: string }> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/displays/${encodeURIComponent(deviceId)}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+    body: JSON.stringify({ tenantId }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Display konnte nicht gelöscht werden')
+  }
+
+  return res.json()
+}
+
 export type MenuImportAnalysisResult = {
   restaurantName: string | null
   sourceLanguage: 'de'
