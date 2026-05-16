@@ -110,7 +110,8 @@ router.post('/analyze', requireAuth, upload.array('files', 10), async (req, res)
         .status(500)
         .json({ error: 'KI-Analyse ist noch nicht eingerichtet. OPENAI_API_KEY fehlt.' })
     }
-    return res.status(500).json({ error: 'Analyse konnte nicht durchgeführt werden.' })
+    const message = error instanceof Error ? error.message : 'Unbekannter Fehler'
+    return res.status(500).json({ error: `KI-Analyse fehlgeschlagen: ${message}` })
   }
 })
 

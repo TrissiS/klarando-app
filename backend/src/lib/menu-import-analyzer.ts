@@ -185,11 +185,22 @@ export async function analyzeMenuImages(
     throw new Error('OPENAI_API_KEY ist nicht gesetzt.')
   }
 
-  const inputParts: Array<Record<string, unknown>> = [
+  const selectedModel = (process.env.OPENAI_MENU_IMPORT_MODEL || '').trim() || 'gpt-4.1-mini'
+  if (/gpt-5-nano/i.test(selectedModel)) {
+    throw new Error('Das gewählte Modell unterstützt keine Bildanalyse. Bitte gpt-4.1-mini nutzen.')
+  }
+
+  console.info('MENU_IMPORT_ANALYZE_START', {
+    model: selectedModel,
+    imageCount: images.length,
+    mimeTypes: images.map((entry) => entry.mimeType),
+  })
+
+  const userContent: Array<Record<string, unknown>> = [
     {
-      type: 'input_text',
+      type: 'text',
       text: [
-        'Analysiere Speisekartenbilder fuer einen internen Import-Assistenten.',
+        'Analysiere Speisekartenbilder für einen internen Import-Assistenten.',
         `Tenant: ${tenantContext.tenantName} (${tenantContext.tenantId}).`,
         'Sprache: Deutsch.',
         'Erkenne Kategorien, Produkte, Preise, Varianten, Tagesangebote, Zutaten, Allergene und Zusatzstoffe.',
@@ -197,56 +208,92 @@ export async function analyzeMenuImages(
         'Wenn Preis unklar ist: price = null.',
         'Wenn Allergene/Zutaten unklar sind: leer lassen und Warnung schreiben.',
         'Confidence immer zwischen 0 und 1.',
+        'Antworte nur mit gültigem JSON.',
       ].join('\n'),
     },
   ]
 
   for (const image of images) {
-    inputParts.push({
-      type: 'input_image',
-      image_url: `data:${image.mimeType};base64,${image.base64Data}`,
-      detail: 'high',
+    userContent.push({
+      type: 'image_url',
+      image_url: {
+        url: `data:${image.mimeType};base64,${image.base64Data}`,
+      },
     })
   }
 
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MENU_IMPORT_MODEL || 'gpt-4.1-mini',
-      input: [
+      model: selectedModel,
+      messages: [
         {
           role: 'system',
-          content: inputParts,
+          content:
+            'Du extrahierst Speisekarten strukturiert für Klarando. Gib ausschließlich JSON gemäß Schema zurück.',
+        },
+        {
+          role: 'user',
+          content: userContent,
         },
       ],
-      text: {
-        format: {
-          type: 'json_schema',
-          json_schema: menuImportSchema,
-        },
+      response_format: {
+        type: 'json_schema',
+        json_schema: menuImportSchema,
       },
-      max_output_tokens: 6000,
+      max_tokens: 6000,
     }),
   })
 
   if (!response.ok) {
     const failureBody = await response.text()
+    console.error('MENU_IMPORT_ANALYZE_OPENAI_ERROR', {
+      model: selectedModel,
+      imageCount: images.length,
+      mimeTypes: images.map((entry) => entry.mimeType),
+      status: response.status,
+      message: failureBody.slice(0, 500),
+    })
     throw new Error(`OpenAI Analyse fehlgeschlagen (${response.status}): ${failureBody.slice(0, 500)}`)
   }
 
   const payload = (await response.json()) as {
-    output_text?: string
+    choices?: Array<{
+      message?: {
+        content?: string | Array<{ type?: string; text?: string }>
+      }
+    }>
   }
 
-  if (!payload.output_text) {
+  const messageContent = payload.choices?.[0]?.message?.content
+  const rawOutput =
+    typeof messageContent === 'string'
+      ? messageContent
+      : Array.isArray(messageContent)
+        ? messageContent
+            .map((entry) => (typeof entry.text === 'string' ? entry.text : ''))
+            .join('\n')
+            .trim()
+        : ''
+
+  if (!rawOutput) {
     throw new Error('OpenAI Analyse lieferte kein strukturiertes Ergebnis.')
   }
 
-  const parsed = JSON.parse(payload.output_text) as MenuImportAnalysisResult
-  return normalizeAnalysis(parsed)
+  try {
+    const parsed = JSON.parse(rawOutput) as MenuImportAnalysisResult
+    return normalizeAnalysis(parsed)
+  } catch (parseError) {
+    console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
+      model: selectedModel,
+      imageCount: images.length,
+      message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
+      responsePreview: rawOutput.slice(0, 800),
+    })
+    throw new Error('OpenAI Antwort konnte nicht als JSON gelesen werden.')
+  }
 }
-
