@@ -55,101 +55,116 @@ class DisplayPairingScreen extends StatelessWidget {
             SafeArea(
               child: LayoutBuilder(
                 builder: (BuildContext context, BoxConstraints constraints) {
-                  final double qrSize = (constraints.biggest.shortestSide * 0.58).clamp(360.0, 860.0);
-                  final double logoWidth = (constraints.maxWidth * 0.52).clamp(240.0, 560.0);
+                  final Size screenSize = MediaQuery.of(context).size;
+                  final double pixelRatio = MediaQuery.of(context).devicePixelRatio;
+                  final bool isLandscape = screenSize.width >= screenSize.height;
+                  final int physicalWidth = (screenSize.width * pixelRatio).round();
+                  final int physicalHeight = (screenSize.height * pixelRatio).round();
+                  final String orientationLabel = isLandscape ? 'Querformat' : 'Hochformat';
+                  final double qrSizeByWidth = constraints.maxWidth * 0.52;
+                  final double qrSizeByHeight = constraints.maxHeight * 0.42;
+                  final double qrSize = qrSizeByWidth < qrSizeByHeight ? qrSizeByWidth : qrSizeByHeight;
+                  final double finalQrSize = qrSize.clamp(220.0, 720.0);
+                  final double logoWidth = (constraints.maxWidth * 0.5).clamp(180.0, 520.0);
                   return Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 1200),
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: <Widget>[
-                            Image.asset(
-                              'assets/klarando_logo_transparent.png',
-                              width: logoWidth,
-                              fit: BoxFit.contain,
-                              filterQuality: FilterQuality.high,
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'QR-Code mit Klarando OrderDesk scannen',
-                              style: theme.textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                        child: SingleChildScrollView(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: <Widget>[
+                              Image.asset(
+                                'assets/klarando_logo_transparent.png',
+                                width: logoWidth,
+                                fit: BoxFit.contain,
+                                filterQuality: FilterQuality.high,
                               ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 14),
-                            DecoratedBox(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: <BoxShadow>[
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.25),
-                                    blurRadius: 16,
-                                    offset: const Offset(0, 8),
-                                  ),
-                                ],
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(24),
-                                child: SizedBox.square(
-                                  dimension: qrSize,
-                                  child: Image.network(qrUrl, fit: BoxFit.contain),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              pairingCode,
-                              style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w800, letterSpacing: 6),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Code gültig: $countdown',
-                              style: const TextStyle(fontSize: 18, color: Colors.white),
-                            ),
-                            if (status != null) ...<Widget>[
-                              const SizedBox(height: 8),
+                              const SizedBox(height: 10),
                               Text(
-                                status!,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(fontSize: 14, color: Colors.white),
-                              ),
-                              if (onRetry != null) ...<Widget>[
-                                const SizedBox(height: 8),
-                                FilledButton.tonal(
-                                  onPressed: onRetry,
-                                  child: const Text('Erneut versuchen'),
+                                'QR-Code mit Klarando OrderDesk scannen',
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
                                 ),
-                              ],
-                            ],
-                            if (debugLines.isNotEmpty) ...<Widget>[
+                                textAlign: TextAlign.center,
+                              ),
                               const SizedBox(height: 10),
                               DecoratedBox(
                                 decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(0.28),
-                                  borderRadius: BorderRadius.circular(10),
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: <BoxShadow>[
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.25),
+                                      blurRadius: 16,
+                                      offset: const Offset(0, 8),
+                                    ),
+                                  ],
                                 ),
                                 child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: debugLines
-                                        .map(
-                                          (String line) => Text(
-                                            line,
-                                            style: const TextStyle(fontSize: 11, color: Colors.white70),
-                                          ),
-                                        )
-                                        .toList(),
+                                  padding: const EdgeInsets.all(20),
+                                  child: SizedBox.square(
+                                    dimension: finalQrSize,
+                                    child: Image.network(qrUrl, fit: BoxFit.contain),
                                   ),
                                 ),
                               ),
+                              Text(
+                                '${physicalWidth} x ${physicalHeight} · ${pixelRatio.toStringAsFixed(2)}x · $orientationLabel',
+                                style: const TextStyle(fontSize: 13, color: Colors.white70),
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                pairingCode,
+                                style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w800, letterSpacing: 6),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Code gültig: $countdown',
+                                style: const TextStyle(fontSize: 18, color: Colors.white),
+                              ),
+                              if (status != null) ...<Widget>[
+                                const SizedBox(height: 8),
+                                Text(
+                                  status!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(fontSize: 14, color: Colors.white),
+                                ),
+                                if (onRetry != null) ...<Widget>[
+                                  const SizedBox(height: 8),
+                                  FilledButton.tonal(
+                                    onPressed: onRetry,
+                                    child: const Text('Erneut versuchen'),
+                                  ),
+                                ],
+                              ],
+                              if (debugLines.isNotEmpty) ...<Widget>[
+                                const SizedBox(height: 10),
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Colors.black.withOpacity(0.28),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: debugLines
+                                          .map(
+                                            (String line) => Text(
+                                              line,
+                                              style: const TextStyle(fontSize: 11, color: Colors.white70),
+                                            ),
+                                          )
+                                          .toList(),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ],
-                          ],
+                          ),
                         ),
                       ),
                     ),
