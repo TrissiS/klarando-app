@@ -20,215 +20,134 @@ class DisplayPairingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: <Color>[
-              Color(0xFF4A0033),
-              Color(0xFFD21277),
-              Color(0xFFF97316),
-              Color(0xFFFACC15),
-            ],
+            colors: <Color>[Color(0xFF4A0033), Color(0xFFD21277), Color(0xFFF97316), Color(0xFFFACC15)],
             stops: <double>[0.0, 0.34, 0.72, 1.0],
           ),
         ),
-        child: Stack(
-          children: <Widget>[
-            Positioned.fill(
-              child: DecoratedBox(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (BuildContext context, BoxConstraints constraints) {
+              final media = MediaQuery.of(context);
+              final size = media.size;
+              final isLandscape = size.width >= size.height;
+              final overscanPad = EdgeInsets.symmetric(
+                horizontal: constraints.maxWidth * 0.04,
+                vertical: constraints.maxHeight * 0.04,
+              );
+              final qrMax = (isLandscape
+                      ? (constraints.maxHeight * 0.55)
+                      : (constraints.maxWidth * 0.42 < constraints.maxHeight * 0.55
+                          ? constraints.maxWidth * 0.42
+                          : constraints.maxHeight * 0.55))
+                  .clamp(220.0, 720.0);
+              final logoWidth = (constraints.maxWidth * (isLandscape ? 0.32 : 0.56)).clamp(160.0, 520.0);
+              final codeSize = (constraints.maxWidth * 0.03).clamp(22.0, 40.0);
+
+              Widget infoBox = DecoratedBox(
                 decoration: BoxDecoration(
-                  gradient: RadialGradient(
-                    center: const Alignment(-0.95, -0.85),
-                    radius: 1.15,
-                    colors: <Color>[
-                      Colors.white.withOpacity(0.17),
-                      Colors.transparent,
+                  color: Colors.black.withOpacity(0.35),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      Text(
+                        'Auflösung: ${(size.width * media.devicePixelRatio).round()} × ${(size.height * media.devicePixelRatio).round()}',
+                        style: const TextStyle(fontSize: 11, color: Colors.white70),
+                      ),
+                      Text(
+                        'Skalierung: ${media.devicePixelRatio.toStringAsFixed(2)}x · ${isLandscape ? 'Querformat' : 'Hochformat'}',
+                        style: const TextStyle(fontSize: 11, color: Colors.white70),
+                      ),
+                      for (final line in debugLines)
+                        Text(line, style: const TextStyle(fontSize: 11, color: Colors.white70)),
                     ],
                   ),
                 ),
-              ),
-            ),
-            SafeArea(
-              child: LayoutBuilder(
-                builder: (BuildContext context, BoxConstraints constraints) {
-                  final Size screenSize = MediaQuery.of(context).size;
-                  final double pixelRatio = MediaQuery.of(context).devicePixelRatio;
-                  final bool isLandscape = screenSize.width >= screenSize.height;
-                  final bool showInfoAside = isLandscape && constraints.maxWidth >= 980;
-                  final int physicalWidth = (screenSize.width * pixelRatio).round();
-                  final int physicalHeight = (screenSize.height * pixelRatio).round();
-                  final String orientationLabel = isLandscape ? 'Querformat' : 'Hochformat';
-                  final double qrSizeByWidth = constraints.maxWidth * 0.52;
-                  final double qrSizeByHeight = constraints.maxHeight * 0.42;
-                  final double qrSize = qrSizeByWidth < qrSizeByHeight ? qrSizeByWidth : qrSizeByHeight;
-                  final double finalQrSize = qrSize.clamp(220.0, 720.0);
-                  final double logoWidth = (constraints.maxWidth * 0.5).clamp(180.0, 520.0);
-                  final Widget infoBox = DecoratedBox(
+              );
+
+              final pairingMain = Column(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Image.asset('assets/klarando_logo_transparent.png', width: logoWidth, fit: BoxFit.contain),
+                  SizedBox(height: (constraints.maxHeight * 0.015).clamp(8.0, 16.0)),
+                  const Text(
+                    'QR-Code mit Klarando OrderDesk scannen',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 24),
+                  ),
+                  SizedBox(height: (constraints.maxHeight * 0.02).clamp(10.0, 18.0)),
+                  DecoratedBox(
                     decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(0.28),
-                      borderRadius: BorderRadius.circular(10),
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: <BoxShadow>[
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.25),
+                          blurRadius: 14,
+                          offset: const Offset(0, 8),
+                        ),
+                      ],
                     ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      padding: const EdgeInsets.all(18),
+                      child: SizedBox.square(
+                        dimension: qrMax,
+                        child: Image.network(qrUrl, fit: BoxFit.contain),
+                      ),
+                    ),
+                  ),
+                  SizedBox(height: (constraints.maxHeight * 0.015).clamp(8.0, 14.0)),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      pairingCode,
+                      style: TextStyle(fontSize: codeSize, fontWeight: FontWeight.w800, letterSpacing: 4),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('Code gültig: $countdown', style: const TextStyle(fontSize: 16, color: Colors.white)),
+                  if (status != null) ...<Widget>[
+                    const SizedBox(height: 6),
+                    Text(status!, textAlign: TextAlign.center, style: const TextStyle(fontSize: 13, color: Colors.white)),
+                    if (onRetry != null) ...<Widget>[
+                      const SizedBox(height: 6),
+                      FilledButton.tonal(onPressed: onRetry, child: const Text('Erneut versuchen')),
+                    ],
+                  ],
+                ],
+              );
+
+              return Padding(
+                padding: overscanPad,
+                child: isLandscape
+                    ? Row(
                         children: <Widget>[
-                          const Text(
-                            'Display-Info',
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Auflösung: $physicalWidth × $physicalHeight',
-                            style: const TextStyle(fontSize: 12, color: Colors.white70),
-                          ),
-                          Text(
-                            'Skalierung: ${pixelRatio.toStringAsFixed(2)}x',
-                            style: const TextStyle(fontSize: 12, color: Colors.white70),
-                          ),
-                          Text(
-                            'Modus: $orientationLabel',
-                            style: const TextStyle(fontSize: 12, color: Colors.white70),
-                          ),
-                          if (debugLines.isNotEmpty) ...<Widget>[
-                            const SizedBox(height: 8),
-                            ...debugLines.map(
-                              (String line) => Text(
-                                line,
-                                style: const TextStyle(fontSize: 11, color: Colors.white70),
-                              ),
-                            ),
-                          ],
+                          Expanded(child: Center(child: FittedBox(fit: BoxFit.contain, child: SizedBox(width: 980, height: 760, child: pairingMain)))),
+                          const SizedBox(width: 12),
+                          SizedBox(width: 280, child: infoBox),
+                        ],
+                      )
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          Flexible(child: Center(child: FittedBox(fit: BoxFit.contain, child: SizedBox(width: 720, height: 980, child: pairingMain)))),
+                          const SizedBox(height: 8),
+                          infoBox,
                         ],
                       ),
-                    ),
-                  );
-                  return Center(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1200),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                        child: SingleChildScrollView(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: <Widget>[
-                              Image.asset(
-                                'assets/klarando_logo_transparent.png',
-                                width: logoWidth,
-                                fit: BoxFit.contain,
-                                filterQuality: FilterQuality.high,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                'QR-Code mit Klarando OrderDesk scannen',
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 10),
-                              if (showInfoAside)
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: <Widget>[
-                                    DecoratedBox(
-                                      decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius: BorderRadius.circular(20),
-                                        boxShadow: <BoxShadow>[
-                                          BoxShadow(
-                                            color: Colors.black.withOpacity(0.25),
-                                            blurRadius: 16,
-                                            offset: const Offset(0, 8),
-                                          ),
-                                        ],
-                                      ),
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(20),
-                                        child: SizedBox.square(
-                                          dimension: finalQrSize,
-                                          child: Image.network(qrUrl, fit: BoxFit.contain),
-                                        ),
-                                      ),
-                                    ),
-                                    const SizedBox(width: 16),
-                                    SizedBox(
-                                      width: (constraints.maxWidth * 0.25).clamp(220.0, 320.0),
-                                      child: infoBox,
-                                    ),
-                                  ],
-                                )
-                              else
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(20),
-                                    boxShadow: <BoxShadow>[
-                                      BoxShadow(
-                                        color: Colors.black.withOpacity(0.25),
-                                        blurRadius: 16,
-                                        offset: const Offset(0, 8),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.all(20),
-                                    child: SizedBox.square(
-                                      dimension: finalQrSize,
-                                      child: Image.network(qrUrl, fit: BoxFit.contain),
-                                    ),
-                                  ),
-                                ),
-                              if (!showInfoAside) ...<Widget>[
-                                const SizedBox(height: 10),
-                                infoBox,
-                              ],
-                              const SizedBox(height: 10),
-                              Text(
-                                pairingCode,
-                                style: TextStyle(
-                                  fontSize: constraints.maxWidth < 500 ? 28 : 40,
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: constraints.maxWidth < 500 ? 3 : 6,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                'Code gültig: $countdown',
-                                style: const TextStyle(fontSize: 18, color: Colors.white),
-                              ),
-                              if (status != null) ...<Widget>[
-                                const SizedBox(height: 8),
-                                Text(
-                                  status!,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(fontSize: 14, color: Colors.white),
-                                ),
-                                if (onRetry != null) ...<Widget>[
-                                  const SizedBox(height: 8),
-                                  FilledButton.tonal(
-                                    onPressed: onRetry,
-                                    child: const Text('Erneut versuchen'),
-                                  ),
-                                ],
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
+              );
+            },
+          ),
         ),
       ),
     );
