@@ -5,9 +5,12 @@ import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
   deleteDisplayDevice,
   getDisplayDeviceOverview,
+  getScreenConfig,
   getScreenProducts,
+  updateScreenConfig,
   updateDisplayDeviceActiveState,
   type DisplayDeviceOverviewRow,
+  type ScreenConfig,
   type ScreenProduct,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
@@ -37,6 +40,22 @@ const DESIGN_TEMPLATES = [
   'Burger',
 ]
 
+const TEMPLATE_STYLES: Record<
+  string,
+  { primary: string; accent: string; backgroundMode: 'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD'; font: FontSizeMode; density: CardDensity; anim: boolean }
+> = {
+  'Klarando Modern': { primary: '#f97316', accent: '#ec4899', backgroundMode: 'VERLAUF', font: 'MITTEL', density: 'KOMFORT', anim: true },
+  'Fastfood Board': { primary: '#ef4444', accent: '#f59e0b', backgroundMode: 'DUNKEL', font: 'GROSS', density: 'KOMPAKT', anim: false },
+  'Premium Glas': { primary: '#0ea5e9', accent: '#8b5cf6', backgroundMode: 'DUNKEL', font: 'MITTEL', density: 'KOMFORT', anim: true },
+  'Klassische Preistafel': { primary: '#1f2937', accent: '#facc15', backgroundMode: 'HELL', font: 'MITTEL', density: 'KOMPAKT', anim: false },
+  'Minimal Dunkel': { primary: '#111827', accent: '#4f46e5', backgroundMode: 'DUNKEL', font: 'KLEIN', density: 'KOMPAKT', anim: false },
+  'Tagesangebot': { primary: '#f97316', accent: '#dc2626', backgroundMode: 'VERLAUF', font: 'GROSS', density: 'GROSS', anim: true },
+  'Café/Bäckerei': { primary: '#a16207', accent: '#f59e0b', backgroundMode: 'HELL', font: 'MITTEL', density: 'KOMFORT', anim: false },
+  'Döner/Imbiss': { primary: '#ea580c', accent: '#b91c1c', backgroundMode: 'DUNKEL', font: 'GROSS', density: 'KOMFORT', anim: true },
+  'Pizza': { primary: '#dc2626', accent: '#16a34a', backgroundMode: 'VERLAUF', font: 'MITTEL', density: 'KOMFORT', anim: true },
+  'Burger': { primary: '#d97706', accent: '#ef4444', backgroundMode: 'DUNKEL', font: 'GROSS', density: 'GROSS', anim: false },
+}
+
 export default function AdminScreenStudioPage() {
   const [session, setSession] = useState<SessionUser | null>(null)
   const [token, setToken] = useState('')
@@ -58,7 +77,13 @@ export default function AdminScreenStudioPage() {
   const [cardDensity, setCardDensity] = useState<CardDensity>('KOMFORT')
   const [showLogo, setShowLogo] = useState(true)
   const [highlightPrice, setHighlightPrice] = useState(true)
+  const [enableAnimations, setEnableAnimations] = useState(true)
   const [expertMode, setExpertMode] = useState(false)
+  const [fontFamily, setFontFamily] = useState('Poppins, sans-serif')
+  const [scalePercent, setScalePercent] = useState(100)
+  const [pixelPadding, setPixelPadding] = useState(16)
+  const [savingDesign, setSavingDesign] = useState(false)
+  const [configId, setConfigId] = useState<string>('')
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -89,6 +114,20 @@ export default function AdminScreenStudioPage() {
         const tenantId = session.tenantId
         if (!tenantId) return
         await loadStudioData(token, tenantId)
+        const config = await getScreenConfig()
+        setConfigId(config.id)
+        setPrimaryColor(config.productNameColor || config.textColor || '#f97316')
+        setAccentColor(config.accentColor || '#ec4899')
+        setBackgroundMode(
+          config.backgroundMode === 'IMAGE' ? 'BILD' : config.backgroundMode === 'COLOR' ? 'DUNKEL' : 'VERLAUF'
+        )
+        setShowLogo(Boolean(config.logoUrl))
+        setHighlightPrice(config.showPrices)
+        setEnableAnimations(config.overlayAnimation !== 'NONE')
+        setFontFamily(config.fontFamily || 'Poppins, sans-serif')
+        setPixelPadding(config.cardPadding || 16)
+        setFontSizeMode(config.productFontSize >= 32 ? 'GROSS' : config.productFontSize <= 22 ? 'KLEIN' : 'MITTEL')
+        setCardDensity(config.cardPadding <= 12 ? 'KOMPAKT' : config.cardPadding >= 22 ? 'GROSS' : 'KOMFORT')
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : 'Screen Studio konnte nicht geladen werden.')
       } finally {
@@ -174,6 +213,33 @@ export default function AdminScreenStudioPage() {
   }
 
   if (!session || !token) return null
+
+  async function handleSaveDesign() {
+    try {
+      setSavingDesign(true)
+      setError('')
+      const payload: Partial<ScreenConfig> = {
+        id: configId || undefined,
+        accentColor,
+        productNameColor: primaryColor,
+        textColor: primaryColor,
+        backgroundMode: backgroundMode === 'BILD' ? 'IMAGE' : 'COLOR',
+        backgroundValue: backgroundMode === 'HELL' ? '#f8fafc' : backgroundMode === 'DUNKEL' ? '#0f172a' : `linear-gradient(135deg, ${primaryColor}, ${accentColor})`,
+        showPrices: highlightPrice,
+        logoUrl: showLogo ? '/klarando_logo.png' : null,
+        overlayAnimation: enableAnimations ? 'FLOAT' : 'NONE',
+        fontFamily,
+        cardPadding: pixelPadding,
+        productFontSize: fontSizeMode === 'KLEIN' ? 20 : fontSizeMode === 'GROSS' ? 34 : 28,
+      }
+      await updateScreenConfig(payload)
+      setSuccess('Design wurde gespeichert.')
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Design konnte nicht gespeichert werden.')
+    } finally {
+      setSavingDesign(false)
+    }
+  }
 
   return (
     <AdminLayout
@@ -273,13 +339,24 @@ export default function AdminScreenStudioPage() {
         {activeTab === 'DESIGN' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Design</h2>
-            <div className="mt-4 grid gap-4 xl:grid-cols-[1.25fr_1fr]">
+            <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_1fr]">
               <div className="grid gap-3 sm:grid-cols-2">
                 {DESIGN_TEMPLATES.map((template) => (
                   <button
                     key={template}
                     type="button"
-                    onClick={() => setSelectedTemplate(template)}
+                    onClick={() => {
+                      setSelectedTemplate(template)
+                      const preset = TEMPLATE_STYLES[template]
+                      if (preset) {
+                        setPrimaryColor(preset.primary)
+                        setAccentColor(preset.accent)
+                        setBackgroundMode(preset.backgroundMode)
+                        setFontSizeMode(preset.font)
+                        setCardDensity(preset.density)
+                        setEnableAnimations(preset.anim)
+                      }
+                    }}
                     className={`rounded-2xl border px-4 py-4 text-left text-sm font-medium ${
                       selectedTemplate === template ? 'border-orange-500 bg-orange-50 text-orange-800' : 'border-rose-200 bg-rose-50 text-rose-900'
                     }`}
@@ -302,12 +379,19 @@ export default function AdminScreenStudioPage() {
                             ? `linear-gradient(135deg, ${primaryColor}, ${accentColor})`
                             : '#111827',
                     color: backgroundMode === 'HELL' ? '#0f172a' : '#ffffff',
+                    padding: `${pixelPadding}px`,
+                    fontFamily,
+                    transform: `scale(${scalePercent / 100})`,
+                    transformOrigin: 'top left',
                   }}
                 >
                   <p className="text-xs uppercase">{selectedTemplate}</p>
                   <p className="mt-1 text-lg font-bold">Menüvorschau</p>
                   <p className="mt-1 text-sm">Burger Classic</p>
                   <p className="text-sm">{highlightPrice ? '9,90 €' : 'Preis dezent'}</p>
+                </div>
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  Warnung: Wenn viele Produkte aktiv sind, kann der Inhalt je nach Auflösung nicht komplett passen.
                 </div>
               </div>
             </div>
@@ -348,6 +432,12 @@ export default function AdminScreenStudioPage() {
                   <option value="NEIN">Nein</option>
                 </select>
               </Field>
+              <Field label="Animationen">
+                <select value={enableAnimations ? 'JA' : 'NEIN'} onChange={(e) => setEnableAnimations(e.target.value === 'JA')} className="input-ui">
+                  <option value="JA">Ja</option>
+                  <option value="NEIN">Nein</option>
+                </select>
+              </Field>
               <Field label="Expertenmodus">
                 <select value={expertMode ? 'AKTIV' : 'INAKTIV'} onChange={(e) => setExpertMode(e.target.value === 'AKTIV')} className="input-ui">
                   <option value="INAKTIV">Inaktiv</option>
@@ -356,10 +446,28 @@ export default function AdminScreenStudioPage() {
               </Field>
             </div>
             {expertMode ? (
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Expertenmodus: Pixelwerte, einzelne Farbwerte, Font-Family und Skalierungswerte werden im Detail-Editor gepflegt.
+              <div className="mt-4 grid gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 md:grid-cols-3">
+                <Field label="Font Family">
+                  <input value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="input-ui" />
+                </Field>
+                <Field label="Skalierung (%)">
+                  <input type="number" value={scalePercent} onChange={(e) => setScalePercent(Math.max(70, Math.min(130, Number(e.target.value) || 100)))} className="input-ui" />
+                </Field>
+                <Field label="Pixel-Padding">
+                  <input type="number" value={pixelPadding} onChange={(e) => setPixelPadding(Math.max(8, Math.min(40, Number(e.target.value) || 16)))} className="input-ui" />
+                </Field>
               </div>
             ) : null}
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void handleSaveDesign()}
+                disabled={savingDesign}
+                className="rounded-xl bg-orange-600 px-5 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+              >
+                {savingDesign ? 'Speichert…' : 'Design speichern'}
+              </button>
+            </div>
           </section>
         ) : null}
 
