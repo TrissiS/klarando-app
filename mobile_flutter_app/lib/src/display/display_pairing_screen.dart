@@ -40,11 +40,9 @@ class DisplayPairingScreen extends StatelessWidget {
                 horizontal: constraints.maxWidth * 0.04,
                 vertical: constraints.maxHeight * 0.04,
               );
-              final qrMax = (isLandscape
-                      ? (constraints.maxHeight * 0.55)
-                      : (constraints.maxWidth * 0.42 < constraints.maxHeight * 0.55
-                          ? constraints.maxWidth * 0.42
-                          : constraints.maxHeight * 0.55))
+              final qrMax = ((constraints.maxWidth * 0.42) < (constraints.maxHeight * 0.55)
+                      ? (constraints.maxWidth * 0.42)
+                      : (constraints.maxHeight * 0.55))
                   .clamp(220.0, 720.0);
               final logoWidth = (constraints.maxWidth * (isLandscape ? 0.32 : 0.56)).clamp(160.0, 520.0);
               final codeSize = (constraints.maxWidth * 0.03).clamp(22.0, 40.0);
