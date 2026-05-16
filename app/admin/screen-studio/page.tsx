@@ -6,13 +6,14 @@ import DisplayDeviceManagementPanel from '@/app/Components/admin/DisplayDeviceMa
 import { getDisplayDeviceOverview, getScreenProducts, type DisplayDeviceOverviewRow, type ScreenProduct } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
-type StudioTab = 'OVERVIEW' | 'CONTENT' | 'DESIGN' | 'SCHEDULE' | 'DEVICES' | 'PREVIEW'
+type StudioTab = 'OVERVIEW' | 'CONTENT' | 'DESIGN' | 'SCHEDULE' | 'WALLS' | 'DEVICES' | 'PREVIEW'
 
 const STUDIO_TABS: Array<{ key: StudioTab; label: string }> = [
   { key: 'OVERVIEW', label: 'Übersicht' },
   { key: 'CONTENT', label: 'Inhalte' },
   { key: 'DESIGN', label: 'Design' },
   { key: 'SCHEDULE', label: 'Zeitplan' },
+  { key: 'WALLS', label: 'Screen-Walls' },
   { key: 'DEVICES', label: 'Geräte' },
   { key: 'PREVIEW', label: 'Vorschau' },
 ]
@@ -177,6 +178,26 @@ export default function AdminScreenStudioPage() {
           <DisplayDeviceManagementPanel token={token} roleScope="admin" fixedTenantId={session.tenantId || null} studioMode />
         ) : null}
 
+        {activeTab === 'WALLS' ? (
+          <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Screen-Walls</h2>
+            <p className="mt-1 text-sm text-rose-900/75">
+              Architektur für Multi-Screen-Wände (2–6 Displays) ist vorbereitet: synchronisierte Wiedergabe über Serverzeit, Positionszuweisung und Drift-Korrektur.
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <InfoCard title="Wall anlegen" text="Layouts: 2x1, 3x1, 4x1, 5x1, 6x1. Später 2x2 und 3x2." />
+              <InfoCard title="Sync-Engine" text="wallSessionId, startsAt, timelineDuration, serverzeitbasierte Phase." />
+              <InfoCard title="Virtuelles Canvas" text="Ein großes Canvas, jedes Display rendert nur seinen Ausschnitt." />
+              <InfoCard title="Fallback" text="Offline-Geräte werden markiert, restliche Wand läuft weiter." />
+              <InfoCard title="Drift-Check" text="Regelmäßiger Abgleich, automatische Timeline-Korrektur pro Device." />
+              <InfoCard title="Admin-Vorschau" text="Gesamtwand + Einzelanzeige pro Display mit Sync-Status." />
+            </div>
+            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+              Umsetzungsschritt: Datenmodell + API-Verträge sind dokumentiert in <code>SCREEN_WALL_ARCHITECTURE.md</code>. UI-MVP folgt auf dieser Basis.
+            </div>
+          </section>
+        ) : null}
+
         {activeTab === 'PREVIEW' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Vorschau</h2>
@@ -239,5 +260,14 @@ function ActionCard({
     <button type="button" onClick={onClick} className="block w-full text-left">
       {content}
     </button>
+  )
+}
+
+function InfoCard({ title, text }: { title: string; text: string }) {
+  return (
+    <article className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-3">
+      <p className="text-sm font-semibold text-[var(--brand-ink)]">{title}</p>
+      <p className="mt-1 text-xs text-rose-900/75">{text}</p>
+    </article>
   )
 }
