@@ -111,6 +111,18 @@ export default function SuperadminSecurityPage() {
     [users, selectedUserId]
   )
 
+  const stats = useMemo(() => {
+    const active = filteredUsers.filter((entry) => entry.isActive).length
+    const inactive = filteredUsers.length - active
+    const roles = new Set(filteredUsers.map((entry) => entry.role))
+    return {
+      total: filteredUsers.length,
+      active,
+      inactive,
+      roleCount: roles.size,
+    }
+  }, [filteredUsers])
+
   const groupedPermissions = useMemo(() => {
     const map = new Map<string, AccessPermission[]>()
     for (const permission of selectedPermissions) {
@@ -187,13 +199,20 @@ export default function SuperadminSecurityPage() {
       subtitle="Benutzer, Rollen und individuelle Rechte – ohne Paket-/Gebührenverwaltung"
       navItems={SUPERADMIN_NAV_ITEMS}
     >
-      <div className="space-y-5">
+      <div className="mx-auto w-full max-w-[1700px] space-y-5">
         {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{info}</div> : null}
 
+        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <StatCard label="Benutzer gesamt" value={stats.total.toString()} />
+          <StatCard label="Aktiv" value={stats.active.toString()} tone="emerald" />
+          <StatCard label="Inaktiv" value={stats.inactive.toString()} tone="slate" />
+          <StatCard label="Rollen im Filter" value={stats.roleCount.toString()} tone="amber" />
+        </section>
+
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-5">
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Benutzer suchen…" className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5 text-sm" />
+          <div className="grid gap-3 lg:grid-cols-5">
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Benutzer suchen…" className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5 text-sm outline-none transition focus:border-slate-400" />
             <select value={chainId} onChange={(event) => setChainId(event.target.value)} className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5 text-sm">
               <option value="">Alle Unternehmen</option>
               {(context?.chains || []).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
@@ -217,38 +236,50 @@ export default function SuperadminSecurityPage() {
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {TABS.map((entry) => (
-              <button key={entry.key} type="button" onClick={() => setTab(entry.key)} className={`rounded-xl px-3 py-2 text-sm font-medium ${tab === entry.key ? 'bg-slate-900 text-white' : 'border border-[var(--brand-border)] bg-white text-slate-700'}`}>
+              <button key={entry.key} type="button" onClick={() => setTab(entry.key)} className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === entry.key ? 'bg-slate-900 text-white shadow-sm' : 'border border-[var(--brand-border)] bg-white text-slate-700 hover:bg-slate-50'}`}>
                 {entry.label}
               </button>
             ))}
           </div>
+          <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+            Module und Pakete werden unter <strong>Modulfreigaben</strong> verwaltet. Gebühren und Provisionen liegen unter <strong>Gebühren & Provisionen</strong>.
+          </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
+        <section className="grid gap-4 xl:grid-cols-[minmax(460px,1fr)_minmax(560px,1.35fr)]">
           <article className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-[var(--brand-ink)]">Benutzerliste</h2>
-            <div className="mt-3 space-y-2">
-              {filteredUsers.map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedUserId(entry.id)
-                    void loadUserPermissions(entry.id)
-                  }}
-                  className={`w-full rounded-2xl border px-3 py-3 text-left ${selectedUserId === entry.id ? 'border-orange-300 bg-orange-50' : 'border-[var(--brand-border)] bg-rose-50/20'}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="font-medium text-[var(--brand-ink)]">{entry.name}</p>
-                    <span className={`rounded-full px-2 py-1 text-[11px] font-semibold ${entry.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
-                      {entry.isActive ? 'aktiv' : 'inaktiv'}
+            <div className="flex items-center justify-between gap-2">
+              <h2 className="text-base font-semibold text-[var(--brand-ink)]">Benutzerliste</h2>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">{filteredUsers.length} Treffer</span>
+            </div>
+            <div className="mt-3 overflow-hidden rounded-2xl border border-[var(--brand-border)]">
+              <div className="grid grid-cols-[2fr_2fr_1fr_1fr] bg-slate-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <span>Name</span>
+                <span>E-Mail</span>
+                <span>Rolle</span>
+                <span>Status</span>
+              </div>
+              <div className="max-h-[620px] overflow-auto">
+                {filteredUsers.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedUserId(entry.id)
+                      void loadUserPermissions(entry.id)
+                    }}
+                    className={`grid w-full grid-cols-[2fr_2fr_1fr_1fr] items-center gap-2 border-t border-[var(--brand-border)] px-3 py-2.5 text-left text-sm transition first:border-t-0 ${selectedUserId === entry.id ? 'bg-orange-50' : 'bg-white hover:bg-slate-50'}`}
+                  >
+                    <span className="font-medium text-[var(--brand-ink)]">{entry.name}</span>
+                    <span className="truncate text-slate-600">{entry.email}</span>
+                    <span className="text-xs font-semibold text-slate-700">{entry.role}</span>
+                    <span className={`inline-flex w-fit rounded-full px-2 py-0.5 text-[11px] font-semibold ${entry.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700'}`}>
+                      {entry.isActive ? 'Aktiv' : 'Inaktiv'}
                     </span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-600 break-all">{entry.email}</p>
-                  <p className="mt-1 text-xs text-slate-500">{entry.role}</p>
-                </button>
-              ))}
-              {!loading && filteredUsers.length === 0 ? <p className="text-sm text-slate-600">Keine Benutzer gefunden.</p> : null}
+                  </button>
+                ))}
+              </div>
+              {!loading && filteredUsers.length === 0 ? <p className="px-3 py-4 text-sm text-slate-600">Keine Benutzer gefunden.</p> : null}
             </div>
           </article>
 
@@ -302,11 +333,6 @@ export default function SuperadminSecurityPage() {
                 {tab === 'RIGHTS' ? (
                   <div className="space-y-3">
                     <h2 className="text-sm font-semibold text-[var(--brand-ink)]">Individuelle Rechte</h2>
-                    <div className="rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-                      Module und Pakete werden zentral unter <strong>Modulfreigaben</strong> verwaltet.
-                      <br />
-                      Gebühren und Provisionen werden unter <strong>Gebühren & Provisionen</strong> verwaltet.
-                    </div>
                     <div className="space-y-3">
                       {groupedPermissions.map((group) => (
                         <div key={group.label} className="rounded-2xl border border-[var(--brand-border)] p-3">
@@ -337,7 +363,7 @@ export default function SuperadminSecurityPage() {
 
                 {tab === 'INVITES' ? (
                   <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 px-3 py-3 text-sm text-slate-700">
-                    Einladungsmanagement ist vorbereitet. Fokus dieser Seite bleibt auf Benutzer, Rollen und individuellen Rechten.
+                    Einladungsmanagement ist vorbereitet. Diese Seite fokussiert bewusst nur Benutzer, Rollen und individuelle Rechte.
                   </div>
                 ) : null}
               </div>
@@ -354,6 +380,31 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/30 px-3 py-2">
       <p className="text-[11px] uppercase tracking-wide text-slate-500">{label}</p>
       <p className="text-sm font-medium text-slate-900 break-words">{value}</p>
+    </div>
+  )
+}
+
+function StatCard({
+  label,
+  value,
+  tone = 'rose',
+}: {
+  label: string
+  value: string
+  tone?: 'rose' | 'emerald' | 'slate' | 'amber'
+}) {
+  const toneClass =
+    tone === 'emerald'
+      ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+      : tone === 'slate'
+        ? 'bg-slate-100 border-slate-200 text-slate-800'
+        : tone === 'amber'
+          ? 'bg-amber-50 border-amber-200 text-amber-900'
+          : 'bg-rose-50 border-rose-200 text-rose-900'
+  return (
+    <div className={`rounded-2xl border px-4 py-3 shadow-sm ${toneClass}`}>
+      <p className="text-xs font-semibold uppercase tracking-wide opacity-80">{label}</p>
+      <p className="mt-1 text-2xl font-semibold leading-none">{value}</p>
     </div>
   )
 }
