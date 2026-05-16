@@ -410,6 +410,37 @@ export default function DisplayDeviceManagementPanel({
       setError('')
       setSuccess('')
       const pairingToken = resolvePairingTokenFromPayload(claimPayload)
+      let resolutionFromPayload:
+        | {
+            width?: number
+            height?: number
+            orientation?: string
+          }
+        | null = null
+      if (claimPayload.trim().startsWith('{')) {
+        try {
+          const parsed = JSON.parse(claimPayload) as {
+            deviceResolution?: {
+              width?: unknown
+              height?: unknown
+              orientation?: unknown
+            }
+          }
+          const candidate = parsed.deviceResolution
+          if (candidate && typeof candidate === 'object') {
+            const width = Number(candidate.width)
+            const height = Number(candidate.height)
+            const orientation = typeof candidate.orientation === 'string' ? candidate.orientation : undefined
+            resolutionFromPayload = {
+              width: Number.isFinite(width) ? width : undefined,
+              height: Number.isFinite(height) ? height : undefined,
+              orientation,
+            }
+          }
+        } catch {
+          // ignore non-JSON payload metadata extraction
+        }
+      }
       const manualPairingCode = claimPairingCode.trim() || null
       if (!pairingToken && !manualPairingCode) {
         throw new Error('Bitte QR-Payload/Pairing-Token oder einen Pairing-Code eingeben.')
@@ -440,6 +471,9 @@ export default function DisplayDeviceManagementPanel({
         displayId: createNewDisplayOnClaim ? null : selectedDisplayRow?.id || null,
         screenId: null,
         displayName: claimDisplayName.trim() || null,
+        resolutionWidth: resolutionFromPayload?.width,
+        resolutionHeight: resolutionFromPayload?.height,
+        orientation: resolutionFromPayload?.orientation,
       })
       if (process.env.NODE_ENV !== 'production') {
         console.log('DISPLAY CLAIM RESPONSE', {

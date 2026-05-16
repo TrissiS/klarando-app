@@ -6733,6 +6733,9 @@ export async function claimDisplayPairingSession(
     displayId?: string | null
     screenId?: string | null
     displayName?: string | null
+    resolutionWidth?: number
+    resolutionHeight?: number
+    orientation?: string
   }
 ): Promise<{
   display: {
@@ -6761,6 +6764,9 @@ export async function claimDisplayPairingSession(
       displayId: data.displayId || undefined,
       screenId: data.screenId || undefined,
       displayName: data.displayName || undefined,
+      resolutionWidth: data.resolutionWidth || undefined,
+      resolutionHeight: data.resolutionHeight || undefined,
+      orientation: data.orientation || undefined,
     }),
   })
 

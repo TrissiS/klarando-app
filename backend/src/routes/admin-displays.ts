@@ -29,6 +29,13 @@ function parseDisplaySelectionRef(value: string | null) {
   return { kind: 'RAW' as const, id: trimmed }
 }
 
+function inferResolutionPreset(width?: number | null, height?: number | null): 'HD' | 'FULL_HD' | 'FOUR_K' {
+  const maxDimension = Math.max(width ?? 0, height ?? 0)
+  if (maxDimension >= 3000) return 'FOUR_K'
+  if (maxDimension >= 1700) return 'FULL_HD'
+  return 'HD'
+}
+
 router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
   try {
     const body = req.body as {
@@ -38,6 +45,9 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       screenId?: string | null
       displayId?: string | null
       displayName?: string | null
+      resolutionWidth?: number | null
+      resolutionHeight?: number | null
+      orientation?: string | null
     }
 
     const pairingToken = normalizeText(body.pairingToken)
@@ -46,6 +56,10 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
     const screenIdInput = normalizeText(body.screenId)
     const displayIdInput = normalizeText(body.displayId)
     const displayName = normalizeText(body.displayName) ?? normalizeText(body.pairingCode) ?? 'Display'
+    const resolutionWidth = typeof body.resolutionWidth === 'number' ? Math.max(0, Math.trunc(body.resolutionWidth)) : null
+    const resolutionHeight = typeof body.resolutionHeight === 'number' ? Math.max(0, Math.trunc(body.resolutionHeight)) : null
+    const displayOrientation = normalizeText(body.orientation)?.toUpperCase() === 'PORTRAIT' ? 'PORTRAIT' : 'LANDSCAPE'
+    const resolutionPreset = inferResolutionPreset(resolutionWidth, resolutionHeight)
 
     console.info('DISPLAY CLAIM REQUEST', {
       tenantIdInput,
@@ -96,8 +110,8 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
               tenantId,
               name: legacy.name.substring(0, 80),
               layoutType: 'MENU_BOARD',
-              orientation: 'LANDSCAPE',
-              resolutionPreset: 'FULL_HD',
+              orientation: displayOrientation,
+              resolutionPreset,
               backgroundColor: '#111827',
               accentColor: '#ff6b35',
               isActive: true,
@@ -121,8 +135,8 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
               tenantId,
               name: legacy.name.substring(0, 80),
               layoutType: 'MENU_BOARD',
-              orientation: 'LANDSCAPE',
-              resolutionPreset: 'FULL_HD',
+              orientation: displayOrientation,
+              resolutionPreset,
               backgroundColor: '#111827',
               accentColor: '#ff6b35',
               isActive: true,
@@ -153,8 +167,8 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
           tenantId,
           name: fallbackScreenName.substring(0, 80),
           layoutType: 'MENU_BOARD',
-          orientation: 'LANDSCAPE',
-          resolutionPreset: 'FULL_HD',
+          orientation: displayOrientation,
+          resolutionPreset,
           backgroundColor: '#111827',
           accentColor: '#ff6b35',
           isActive: true,

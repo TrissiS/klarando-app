@@ -34,6 +34,9 @@ class DisplayApi {
         'deviceName': 'Klarando Display',
         'platform': 'android-tv',
         'appVersion': 'display-1',
+        'deviceMeta': {
+          'supportsKiosk': true,
+        }
       }),
     );
     return _decode(response, endpoint);

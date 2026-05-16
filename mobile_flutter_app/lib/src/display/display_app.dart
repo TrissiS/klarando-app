@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -114,6 +115,8 @@ class _DisplayRootState extends State<_DisplayRoot> {
     setState(() {});
 
     try {
+      final ui.FlutterView view = ui.PlatformDispatcher.instance.views.first;
+      final Size logicalSize = view.physicalSize / view.devicePixelRatio;
       final response = await _api.createPairingSession();
       _pairingToken = '${response['pairingToken'] ?? ''}';
       _pairingSessionId = '${response['sessionId'] ?? response['id'] ?? ''}'.trim();
@@ -122,6 +125,19 @@ class _DisplayRootState extends State<_DisplayRoot> {
       _qrPayload = response['qrPayload'] is Map<String, dynamic>
           ? response['qrPayload'] as Map<String, dynamic>
           : null;
+      if (_qrPayload != null) {
+        _qrPayload = {
+          ..._qrPayload!,
+          'deviceResolution': {
+            'width': view.physicalSize.width.round(),
+            'height': view.physicalSize.height.round(),
+            'dpr': double.parse(view.devicePixelRatio.toStringAsFixed(2)),
+            'logicalWidth': double.parse(logicalSize.width.toStringAsFixed(1)),
+            'logicalHeight': double.parse(logicalSize.height.toStringAsFixed(1)),
+            'orientation': view.physicalSize.width >= view.physicalSize.height ? 'LANDSCAPE' : 'PORTRAIT',
+          }
+        };
+      }
       _pairingSessionReady = _pairingToken != null && _pairingToken!.isNotEmpty;
       setState(() {});
 
