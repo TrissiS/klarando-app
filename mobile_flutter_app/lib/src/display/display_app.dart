@@ -63,6 +63,12 @@ class _DisplayRootState extends State<_DisplayRoot> {
   String _lastPollState = '-';
   String _lastPollError = '-';
   bool _lastPollTokenReceived = false;
+  String _lastContentEndpoint = '/api/display/content';
+  int? _lastContentHttpStatus;
+  String _lastContentError = '-';
+  int _lastContentProductCount = 0;
+  String _savedDisplayId = '-';
+  String _savedTenantId = '-';
   static const String _pairingEndpoint = '/api/display/pairing/session';
 
   @override
@@ -220,12 +226,14 @@ class _DisplayRootState extends State<_DisplayRoot> {
       final tenantId = '${response['tenantId'] ?? ''}'.trim();
       if (displayId.isNotEmpty) {
         await prefs.setString(_prefsDisplayId, displayId);
+        _savedDisplayId = displayId;
       }
       if (screenId.isNotEmpty) {
         await prefs.setString(_prefsScreenId, screenId);
       }
       if (tenantId.isNotEmpty) {
         await prefs.setString(_prefsTenantId, tenantId);
+        _savedTenantId = tenantId;
       }
       _deviceToken = deviceToken;
       _pairingPollTimer?.cancel();
@@ -263,17 +271,45 @@ class _DisplayRootState extends State<_DisplayRoot> {
     if (token == null || token.isEmpty) return false;
 
     try {
+      debugPrint('DISPLAY CONTENT LOAD START');
+      debugPrint('DISPLAY CONTENT TOKEN PRESENT: true');
+      final prefs = await SharedPreferences.getInstance();
+      _savedDisplayId = prefs.getString(_prefsDisplayId) ?? '-';
+      _savedTenantId = prefs.getString(_prefsTenantId) ?? '-';
+      debugPrint('DISPLAY CONTENT DISPLAY ID: $_savedDisplayId');
+      debugPrint('DISPLAY CONTENT TENANT ID: $_savedTenantId');
       final response = await _api.getContent(token);
+      final products = (response['products'] as List?) ?? const [];
+      _lastContentProductCount = products.length;
+      _lastContentHttpStatus = 200;
+      _lastContentError = '-';
+      debugPrint('DISPLAY CONTENT PRODUCTS COUNT: $_lastContentProductCount');
       _content = response;
-      _message = null;
+      if (_lastContentProductCount == 0) {
+        _message = 'Keine Produkte für diesen Bildschirm freigegeben.';
+      } else {
+        _message = null;
+      }
       setState(() {});
       return true;
     } catch (error) {
+      debugPrint('DISPLAY CONTENT ERROR: $error');
+      _lastContentProductCount = 0;
       final message = '$error';
+      if (error is DisplayApiException) {
+        _lastContentHttpStatus = error.statusCode;
+        _lastContentEndpoint = error.endpoint;
+      }
+      _lastContentError = _toFriendlyError(error);
       if (message.contains('ungültig') || message.contains('ungultig') || message.contains('401')) {
         return false;
       }
-      _message = _toFriendlyError(error);
+      _message = _lastContentError;
+      _content = {
+        'screen': <String, dynamic>{},
+        'items': const <dynamic>[],
+        'products': const <dynamic>[],
+      };
       setState(() {});
       return true;
     }
@@ -318,7 +354,20 @@ class _DisplayRootState extends State<_DisplayRoot> {
   @override
   Widget build(BuildContext context) {
     if (_content != null) {
-      return DisplayContentScreen(content: _content!, connectionMessage: _message);
+      return DisplayContentScreen(
+        content: _content!,
+        connectionMessage: _message,
+        debugLines: kDebugMode
+            ? <String>[
+                'tenantId: $_savedTenantId',
+                'displayId: $_savedDisplayId',
+                'endpoint: $_lastContentEndpoint',
+                'HTTP: ${_lastContentHttpStatus?.toString() ?? '-'}',
+                'Produkte: $_lastContentProductCount',
+                'Fehler: $_lastContentError',
+              ]
+            : const <String>[],
+      );
     }
 
     if (!_pairingSessionReady) {

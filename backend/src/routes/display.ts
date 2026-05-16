@@ -167,7 +167,9 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
 
 router.get('/content', async (req, res) => {
   try {
+    console.info('DISPLAY CONTENT LOAD START')
     const deviceToken = parseBearerToken(req.header('authorization') ?? undefined)
+    console.info('DISPLAY CONTENT TOKEN PRESENT', Boolean(deviceToken))
     if (!deviceToken) {
       return res.status(401).json({ message: 'Device-Token fehlt.' })
     }
@@ -194,6 +196,8 @@ router.get('/content', async (req, res) => {
     if (!device) {
       return res.status(401).json({ message: 'Device-Token ungültig.' })
     }
+    console.info('DISPLAY CONTENT DISPLAY ID', device.id)
+    console.info('DISPLAY CONTENT TENANT ID', device.tenantId)
 
     if (device.status === DisplayDeviceStatus.REVOKED || device.revokedAt) {
       return res.status(403).json({ message: 'Gerät wurde getrennt.' })
@@ -210,6 +214,67 @@ router.get('/content', async (req, res) => {
       if (item.activeUntil && now > item.activeUntil) return false
       return true
     })
+
+    const screenProductSettings = await prisma.screenProductSetting.findMany({
+      where: { tenantId: device.tenantId, showOnScreen: true },
+      select: {
+        productId: true,
+        displayCategory: true,
+        sortOrder: true,
+        isFeatured: true,
+      },
+      orderBy: { sortOrder: 'asc' },
+    })
+    const productSettingById = new Map(screenProductSettings.map((entry) => [entry.productId, entry]))
+    const configuredProductIds = new Set(screenProductSettings.map((entry) => entry.productId))
+
+    const allTenantProducts = await prisma.product.findMany({
+      where: {
+        tenantId: device.tenantId,
+        available: true,
+      },
+      select: {
+        id: true,
+        name: true,
+        price: true,
+        productNumber: true,
+        category: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ category: { name: 'asc' } }, { name: 'asc' }],
+    })
+
+    const filteredProducts = allTenantProducts.filter((product) => {
+      if (configuredProductIds.size === 0) return true
+      return configuredProductIds.has(product.id)
+    })
+
+    const normalizedProducts = filteredProducts
+      .map((product) => {
+        const settings = productSettingById.get(product.id)
+        const categoryName = settings?.displayCategory || product.category?.name || 'Weitere'
+        return {
+          id: product.id,
+          name: product.name,
+          price: Number(product.price),
+          productNumber: product.productNumber,
+          categoryName,
+          sortOrder: settings?.sortOrder ?? 9999,
+          isFeatured: settings?.isFeatured ?? false,
+        }
+      })
+      .sort((left, right) => {
+        if (left.sortOrder !== right.sortOrder) return left.sortOrder - right.sortOrder
+        if (left.categoryName !== right.categoryName) return left.categoryName.localeCompare(right.categoryName, 'de')
+        return left.name.localeCompare(right.name, 'de')
+      })
+
+    const categories = Array.from(new Set(normalizedProducts.map((entry) => entry.categoryName)))
+    console.info('DISPLAY CONTENT PRODUCTS COUNT', normalizedProducts.length)
 
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
     res.setHeader('Pragma', 'no-cache')
@@ -244,13 +309,15 @@ router.get('/content', async (req, res) => {
         durationSeconds: item.durationSeconds,
         config: item.config,
       })),
+      categories,
+      products: normalizedProducts,
       tenantBranding: {
         tenantId: device.tenantId,
       },
       updatedAt: device.updatedAt.toISOString(),
     })
   } catch (error) {
-    console.error('DISPLAY CONTENT ERROR:', error)
+    console.error('DISPLAY CONTENT ERROR', error)
     return res.status(500).json({ message: 'Display-Inhalte konnten nicht geladen werden.' })
   }
 })

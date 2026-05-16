@@ -386,6 +386,10 @@ class TenantDiscoveryTenant {
     required this.addressLine,
     required this.deliveryAvailable,
     required this.pickupAvailable,
+    required this.deliveryStatus,
+    required this.pickupStatus,
+    required this.deliveryConfigPending,
+    required this.pickupConfigPending,
     required this.distanceKm,
     required this.orderingEnabled,
     required this.guestCheckoutEnabled,
@@ -407,6 +411,10 @@ class TenantDiscoveryTenant {
   final String? addressLine;
   final bool deliveryAvailable;
   final bool pickupAvailable;
+  final String deliveryStatus;
+  final String pickupStatus;
+  final bool deliveryConfigPending;
+  final bool pickupConfigPending;
   final double? distanceKm;
   final bool orderingEnabled;
   final bool guestCheckoutEnabled;
@@ -457,6 +465,10 @@ class TenantDiscoveryTenant {
       addressLine: _buildAddressLine(address),
       deliveryAvailable: _readBool(delivery?['available']),
       pickupAvailable: _readBool(pickup?['available']),
+      deliveryStatus: _readNullableString(delivery?['status']) ?? 'OUT_OF_AREA',
+      pickupStatus: _readNullableString(pickup?['status']) ?? 'OUT_OF_AREA',
+      deliveryConfigPending: _readBool(delivery?['configurationIncomplete']),
+      pickupConfigPending: _readBool(pickup?['configurationIncomplete']),
       distanceKm: deliveryDistance ?? pickupDistance,
       orderingEnabled: customerApp == null
           ? false

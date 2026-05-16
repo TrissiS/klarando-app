@@ -6,8 +6,10 @@ import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   analyzeSuperadminMenuImport,
   getAccessContext,
+  getSuperadminMenuImportStatus,
   type AccessContext,
   type MenuImportAnalysisResult,
+  type SuperadminMenuImportStatus,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
@@ -30,6 +32,7 @@ export default function SuperadminMenuImportPage() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [status, setStatus] = useState<SuperadminMenuImportStatus | null>(null)
 
   const selectedTenant = useMemo(
     () => context?.tenants.find((entry) => entry.id === tenantId) || null,
@@ -75,6 +78,18 @@ export default function SuperadminMenuImportPage() {
     }
     void loadContext()
   }, [token, contextLoading, context, tenantId, preferredTenantId])
+
+  useEffect(() => {
+    if (!token) return
+    void (async () => {
+      try {
+        const loadedStatus = await getSuperadminMenuImportStatus(token)
+        setStatus(loadedStatus)
+      } catch (statusError) {
+        setError(statusError instanceof Error ? statusError.message : 'Status konnte nicht geladen werden.')
+      }
+    })()
+  }, [token])
 
   function handleFiles(nextFiles: FileList | null) {
     if (!nextFiles) {
@@ -145,6 +160,20 @@ export default function SuperadminMenuImportPage() {
       ) : null}
 
       <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+        <div className="mb-4 grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 md:grid-cols-3">
+          <p>
+            <span className="font-semibold">Aktives KI-Modell:</span>{' '}
+            {status?.modelLabel || 'Standardmodell aktiv'}
+          </p>
+          <p>
+            <span className="font-semibold">API verbunden:</span>{' '}
+            {status?.apiConnected ? '✅' : '❌'}
+          </p>
+          <p>
+            <span className="font-semibold">API-Key vorhanden:</span>{' '}
+            {status?.apiKeyPresent ? '✅' : '❌'}
+          </p>
+        </div>
         <div className="grid gap-3 md:grid-cols-2">
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-rose-900/85">Filiale</span>

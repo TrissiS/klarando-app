@@ -319,10 +319,6 @@ router.post(
 
 router.post('/bindings/:bindingId/reset', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
   try {
-    if (req.authUser?.role !== UserRole.SUPERADMIN) {
-      return res.status(403).json({ error: 'Nur Superadmin darf OrderDesk-Bindings zurücksetzen' })
-    }
-
     const bindingId = normalizeText(req.params.bindingId)
     if (!bindingId) {
       return res.status(400).json({ error: 'bindingId fehlt' })
@@ -348,6 +344,12 @@ router.post('/bindings/:bindingId/reset', requirePermission(PermissionKey.ORDERS
     if (!binding) {
       return res.status(404).json({ error: 'OrderDesk-Binding nicht gefunden' })
     }
+
+    const scope = await resolveTenantScope(req, binding.tenantId)
+    if (!scope.allowedTenantIds.includes(binding.tenantId)) {
+      return res.status(403).json({ error: 'Kein Zugriff auf dieses OrderDesk-Gerät' })
+    }
+
     if (!binding.isActive) {
       return res.status(409).json({ error: 'Binding wurde bereits getrennt' })
     }
@@ -392,6 +394,163 @@ router.post('/bindings/:bindingId/reset', requirePermission(PermissionKey.ORDERS
   } catch (error) {
     console.error('RESET ORDERDESK BINDING ERROR:', error)
     return res.status(500).json({ error: 'OrderDesk-Binding konnte nicht zurückgesetzt werden' })
+  }
+})
+
+router.patch('/bindings/:bindingId/deactivate', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
+  try {
+    const bindingId = normalizeText(req.params.bindingId)
+    if (!bindingId) {
+      return res.status(400).json({ error: 'bindingId fehlt' })
+    }
+
+    const binding = await prisma.orderDeskDeviceBinding.findUnique({
+      where: { id: bindingId },
+      select: {
+        id: true,
+        tenantId: true,
+        isActive: true,
+      },
+    })
+
+    if (!binding) {
+      return res.status(404).json({ error: 'OrderDesk-Gerät nicht gefunden' })
+    }
+    await resolveTenantScope(req, binding.tenantId)
+
+    if (!binding.isActive) {
+      return res.json({ ok: true, alreadyInactive: true })
+    }
+
+    await prisma.orderDeskDeviceBinding.update({
+      where: { id: binding.id },
+      data: {
+        isActive: false,
+        resetAt: new Date(),
+        resetByUserId: req.authUser?.id ?? null,
+        resetReason: 'Manuell deaktiviert',
+      },
+    })
+    return res.json({ ok: true })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('DEACTIVATE ORDERDESK BINDING ERROR:', error)
+    return res.status(500).json({ error: 'OrderDesk-Gerät konnte nicht deaktiviert werden' })
+  }
+})
+
+router.delete('/bindings/:bindingId', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
+  try {
+    const bindingId = normalizeText(req.params.bindingId)
+    if (!bindingId) {
+      return res.status(400).json({ error: 'bindingId fehlt' })
+    }
+
+    const binding = await prisma.orderDeskDeviceBinding.findUnique({
+      where: { id: bindingId },
+      select: { id: true, tenantId: true },
+    })
+    if (!binding) {
+      return res.status(404).json({ error: 'OrderDesk-Gerät nicht gefunden' })
+    }
+    await resolveTenantScope(req, binding.tenantId)
+
+    await prisma.orderDeskDeviceBinding.update({
+      where: { id: binding.id },
+      data: {
+        isActive: false,
+        resetAt: new Date(),
+        resetByUserId: req.authUser?.id ?? null,
+        resetReason: 'Gerät gelöscht/entkoppelt',
+      },
+    })
+
+    return res.json({ ok: true, softDeleted: true })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('DELETE ORDERDESK BINDING ERROR:', error)
+    return res.status(500).json({ error: 'OrderDesk-Gerät konnte nicht gelöscht werden' })
+  }
+})
+
+router.post('/bindings/:bindingId/reset-pairing', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
+  try {
+    const bindingId = normalizeText(req.params.bindingId)
+    if (!bindingId) {
+      return res.status(400).json({ error: 'bindingId fehlt' })
+    }
+
+    const binding = await prisma.orderDeskDeviceBinding.findUnique({
+      where: { id: bindingId },
+      select: {
+        id: true,
+        tenantId: true,
+        displayId: true,
+        displayCode: true,
+        deviceAlias: true,
+      },
+    })
+    if (!binding) {
+      return res.status(404).json({ error: 'OrderDesk-Gerät nicht gefunden' })
+    }
+    await resolveTenantScope(req, binding.tenantId)
+
+    const sessionId = createPairingSessionId()
+    const expiresAt = new Date(Date.now() + ORDERDESK_PAIRING_EXPIRES_MINUTES * 60 * 1000)
+    const deviceAlias = binding.deviceAlias ?? createDefaultAlias()
+    await prisma.orderDeskPairingSession.create({
+      data: {
+        id: sessionId,
+        tenantId: binding.tenantId,
+        displayId: binding.displayId,
+        displayCode: binding.displayCode,
+        deviceAlias,
+        createdByUserId: req.authUser?.id ?? null,
+        expiresAt,
+      },
+    })
+
+    const pairingToken = signOrderDeskDeviceToken({
+      sid: sessionId,
+      tenantId: binding.tenantId,
+      displayCode: binding.displayCode,
+      bindingId: null,
+      deviceSerial: null,
+      deviceAlias,
+      kind: 'PAIRING',
+      expiresAtMs: expiresAt.getTime(),
+    })
+    const apiBaseUrl = resolvePublicApiBaseUrl()
+    const pairingPayload = JSON.stringify({
+      type: 'ORDER_DESK_PAIRING',
+      apiBaseUrl,
+      tenantId: binding.tenantId,
+      displayCode: binding.displayCode,
+      pairingToken,
+      expiresAt: expiresAt.toISOString(),
+    })
+
+    return res.status(201).json({
+      ok: true,
+      sessionId,
+      pairingToken,
+      pairingPayload,
+      expiresAt: expiresAt.toISOString(),
+      qrImageUrl: `https://api.qrserver.com/v1/create-qr-code/?size=360x360&data=${encodeURIComponent(pairingPayload)}`,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('RESET ORDERDESK PAIRING ERROR:', error)
+    return res.status(500).json({ error: 'Pairing-Code konnte nicht neu erstellt werden' })
   }
 })
 

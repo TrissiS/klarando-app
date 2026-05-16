@@ -524,6 +524,20 @@ router.get('/public/discovery', async (req, res) => {
         const matchesDelivery = Boolean(deliveryMatch?.matched)
         const matchesPickup = Boolean(pickupMatch?.matched)
         const outOfArea = !matchesDelivery && !matchesPickup
+        const deliveryStatus = matchesDelivery
+          ? 'AVAILABLE'
+          : deliveryMatch?.configurationIncomplete
+            ? 'CONFIG_PENDING'
+            : deliveryMatch?.requiresLocation
+              ? 'LOCATION_REQUIRED'
+              : 'OUT_OF_AREA'
+        const pickupStatus = matchesPickup
+          ? 'AVAILABLE'
+          : pickupMatch?.configurationIncomplete
+            ? 'CONFIG_PENDING'
+            : pickupMatch?.requiresLocation
+              ? 'LOCATION_REQUIRED'
+              : 'OUT_OF_AREA'
 
         if (!matchesDelivery && !matchesPickup && !includeOutOfArea) {
           return null
@@ -574,6 +588,10 @@ router.get('/public/discovery', async (req, res) => {
               matchedByZip: deliveryMatch?.matchedByZip ?? false,
               matchedByRadius: deliveryMatch?.matchedByRadius ?? false,
               matchedByPolygon: deliveryMatch?.matchedByPolygon ?? false,
+              usedZipFallback: deliveryMatch?.usedZipFallback ?? false,
+              configurationIncomplete: deliveryMatch?.configurationIncomplete ?? false,
+              requiresLocation: deliveryMatch?.requiresLocation ?? false,
+              status: deliveryStatus,
               distanceKm: deliveryMatch?.distanceKm ?? null,
             },
             pickup: {
@@ -582,6 +600,10 @@ router.get('/public/discovery', async (req, res) => {
               matchedByZip: pickupMatch?.matchedByZip ?? false,
               matchedByRadius: pickupMatch?.matchedByRadius ?? false,
               matchedByPolygon: pickupMatch?.matchedByPolygon ?? false,
+              usedZipFallback: pickupMatch?.usedZipFallback ?? false,
+              configurationIncomplete: pickupMatch?.configurationIncomplete ?? false,
+              requiresLocation: pickupMatch?.requiresLocation ?? false,
+              status: pickupStatus,
               distanceKm: pickupMatch?.distanceKm ?? null,
             },
           },

@@ -322,6 +322,11 @@ export default function ServiceAreaEditor({
           <p className="mt-1 text-xs text-rose-900/75">
             Klicke in die Karte, um Polygonpunkte zu setzen. Punkte können danach verschoben oder entfernt werden.
           </p>
+          {value.strategy === 'POLYGON' && polygonPath.length < 3 ? (
+            <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Für Polygonprüfung ist noch kein gültiges Gebiet gezeichnet. Bis dahin wird die PLZ-Regel verwendet.
+            </p>
+          ) : null}
           {!mapsConsentGranted ? (
             <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               Standort/Maps ist im Consent noch nicht freigegeben.

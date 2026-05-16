@@ -22,6 +22,25 @@ function parseTenantId(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+router.get('/status', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const model = (process.env.OPENAI_MENU_IMPORT_MODEL || '').trim()
+    const hasApiKey = Boolean((process.env.OPENAI_API_KEY || '').trim())
+    return res.json({
+      model: model || null,
+      modelLabel: model || 'Standardmodell aktiv',
+      apiConnected: hasApiKey,
+      apiKeyPresent: hasApiKey,
+    })
+  } catch (error) {
+    console.error('SUPERADMIN MENU IMPORT STATUS ERROR:', error)
+    return res.status(500).json({ error: 'Status konnte nicht geladen werden.' })
+  }
+})
+
 router.post('/analyze', requireAuth, upload.array('files', 10), async (req, res) => {
   try {
     if (req.authUser?.role !== UserRole.SUPERADMIN) {

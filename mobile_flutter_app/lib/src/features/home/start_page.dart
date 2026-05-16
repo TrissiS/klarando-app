@@ -526,7 +526,11 @@ class _TenantCard extends StatelessWidget {
     final serviceAvailable = mode == DiscoveryMode.delivery
         ? item.deliveryAvailable
         : item.pickupAvailable;
-    final isOpen = serviceAvailable && item.orderingEnabled;
+    final serviceStatus = mode == DiscoveryMode.delivery ? item.deliveryStatus : item.pickupStatus;
+    final isConfigPending = mode == DiscoveryMode.delivery
+        ? item.deliveryConfigPending
+        : item.pickupConfigPending;
+    final isOpen = (serviceAvailable || isConfigPending) && item.orderingEnabled;
     final baseRatingAverage = item.ratingAverage ?? 0;
     final baseRatingCount = item.ratingCount;
     final localRatingAverage = rating?.average ?? 0;
@@ -682,7 +686,7 @@ class _TenantCard extends StatelessWidget {
                             child: Text(
                               isOpen
                                   ? _t(languageCode, 'open_menu')
-                                  : _t(languageCode, 'not_available'),
+                                  : _unavailableLabel(languageCode, serviceStatus, isConfigPending),
                             ),
                           ),
                         ),
@@ -701,7 +705,7 @@ class _TenantCard extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    _t(languageCode, 'closed_overlay'),
+                    _overlayLabel(languageCode, serviceStatus, isConfigPending),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.white,
@@ -714,6 +718,29 @@ class _TenantCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _unavailableLabel(String languageCode, String serviceStatus, bool isConfigPending) {
+    if (isConfigPending || serviceStatus == 'CONFIG_PENDING') {
+      return _t(languageCode, 'area_checking');
+    }
+    if (serviceStatus == 'LOCATION_REQUIRED') {
+      return _t(languageCode, 'location_required');
+    }
+    return _t(languageCode, 'not_available');
+  }
+
+  String _overlayLabel(String languageCode, String serviceStatus, bool isConfigPending) {
+    if (isConfigPending || serviceStatus == 'CONFIG_PENDING') {
+      return _t(languageCode, 'area_checking_overlay');
+    }
+    if (serviceStatus == 'LOCATION_REQUIRED') {
+      return _t(languageCode, 'location_required_overlay');
+    }
+    if (serviceStatus == 'OUT_OF_AREA') {
+      return _t(languageCode, 'out_of_area_overlay');
+    }
+    return _t(languageCode, 'closed_overlay');
   }
 }
 
@@ -909,7 +936,12 @@ String _t(String languageCode, String key) {
     'delivery_fee': 'Liefergebühr',
     'open_menu': 'Speisekarte',
     'not_available': 'Nicht verfügbar',
+    'area_checking': 'Liefergebiet wird geprüft',
+    'location_required': 'Adresse prüfen',
     'closed_overlay': 'Geschlossen / aktuell keine Bestellannahme möglich',
+    'area_checking_overlay': 'Liefergebiet wird geprüft. Bitte Adresse prüfen.',
+    'location_required_overlay': 'Bitte Standort oder Adresse freigeben.',
+    'out_of_area_overlay': 'Adresse liegt außerhalb des Liefergebiets.',
   };
 
   const en = {
@@ -924,7 +956,12 @@ String _t(String languageCode, String key) {
     'delivery_fee': 'Delivery fee',
     'open_menu': 'Open menu',
     'not_available': 'Unavailable',
+    'area_checking': 'Area check pending',
+    'location_required': 'Check address',
     'closed_overlay': 'Closed / no orders possible right now',
+    'area_checking_overlay': 'Service area is being checked. Please verify address.',
+    'location_required_overlay': 'Please allow location or enter your address.',
+    'out_of_area_overlay': 'Address is outside the delivery area.',
   };
 
   const tr = {
@@ -939,7 +976,12 @@ String _t(String languageCode, String key) {
     'delivery_fee': 'Teslimat ucreti',
     'open_menu': 'Menue',
     'not_available': 'Uygun degil',
+    'area_checking': 'Bolge kontrol ediliyor',
+    'location_required': 'Adresi kontrol et',
     'closed_overlay': 'Kapali / su anda siparis alinmiyor',
+    'area_checking_overlay': 'Teslimat bolgesi kontrol ediliyor. Lutfen adresi kontrol edin.',
+    'location_required_overlay': 'Lutfen konumu acin veya adres girin.',
+    'out_of_area_overlay': 'Adres teslimat bolgesi disinda.',
   };
 
   if (languageCode == 'en') {

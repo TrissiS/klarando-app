@@ -6,9 +6,11 @@ import {
   getAdminFinanceOverview,
   getBillingInvoices,
   getBillingMailboxMessages,
+  getFinanceUsageCurrent,
   type AdminFinanceOverviewResponse,
   type BillingInvoice,
   type BillingMailboxMessage,
+  type FinanceUsageCurrent,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
@@ -33,6 +35,7 @@ export default function AdminFinanzenPage() {
   const [data, setData] = useState<AdminFinanceOverviewResponse | null>(null)
   const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [mailboxMessages, setMailboxMessages] = useState<BillingMailboxMessage[]>([])
+  const [usage, setUsage] = useState<FinanceUsageCurrent | null>(null)
 
   useEffect(() => {
     const raw = localStorage.getItem('sessionUser')
@@ -62,10 +65,12 @@ export default function AdminFinanzenPage() {
           getBillingInvoices(token, { tenantId }),
           getBillingMailboxMessages(token, { tenantId }),
         ])
+        const usageRow = await getFinanceUsageCurrent(token, { tenantId })
         if (!cancelled) {
           setData(response)
           setInvoices(invoiceRows)
           setMailboxMessages(mailboxRows)
+          setUsage(usageRow)
         }
       } catch (cause) {
         if (!cancelled) {
@@ -145,6 +150,20 @@ export default function AdminFinanzenPage() {
             <p className="mt-1 text-xl font-semibold text-[var(--brand-ink)]">{paidCount}</p>
           </article>
         </section>
+
+        {usage ? (
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4">
+            <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Abo & Inklusivbestellungen</h3>
+            <p className="mt-2 text-sm text-rose-900/80">{usage.infoMessage}</p>
+            <p className="mt-1 text-sm text-rose-900/80">{usage.thresholdMessage}</p>
+            <div className="mt-3 grid gap-3 md:grid-cols-4">
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm">Monatsgebühr: <strong>{centsToEuro(usage.monthlyFeeCents)}</strong></div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm">Provision: <strong>{usage.commissionPercentApplied.toFixed(2)} %</strong></div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm">Fixbetrag: <strong>{centsToEuro(usage.fixedFeePerOrderCents)}</strong></div>
+              <div className="rounded-xl bg-slate-50 px-3 py-2 text-sm">Voraussichtliche Monatsrechnung: <strong>{centsToEuro(usage.totalFeeGrossCents)}</strong></div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Transaktionen</h3>

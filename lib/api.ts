@@ -6044,6 +6044,108 @@ export type BillingPreviewResponse = {
   invoicesPreview: BillingPreviewItem[]
 }
 
+export type FinanceUsageCurrent = BillingTenantRow & {
+  month: string
+  remainingIncludedOrders: number
+  infoMessage: string
+  thresholdMessage: string
+}
+
+export async function getFinanceUsageCurrent(
+  token: string,
+  params: { tenantId: string; month?: string }
+): Promise<FinanceUsageCurrent> {
+  const query = new URLSearchParams({ tenantId: params.tenantId })
+  if (params.month) query.set('month', params.month)
+  return apiJson<FinanceUsageCurrent>(
+    buildApiUrl(`/api/finance/usage/current?${query.toString()}`),
+    { headers: authHeaders(token) },
+    'Usage-Daten konnten nicht geladen werden'
+  )
+}
+
+export type ChainFinanceUsageCurrent = {
+  month: string
+  chainId: string
+  summary: BillingSummaryResponse['summary']
+  rows: BillingTenantRow[]
+}
+
+export async function getChainFinanceUsageCurrent(
+  token: string,
+  params: { month?: string; chainId?: string } = {}
+): Promise<ChainFinanceUsageCurrent> {
+  const query = new URLSearchParams()
+  if (params.month) query.set('month', params.month)
+  if (params.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<ChainFinanceUsageCurrent>(
+    buildApiUrl(`/api/finance/chain/usage/current${suffix}`),
+    { headers: authHeaders(token) },
+    'Chain-Usage konnte nicht geladen werden'
+  )
+}
+
+export async function getChainFinanceInvoices(
+  token: string,
+  params: { chainId?: string } = {}
+): Promise<BillingInvoice[]> {
+  const query = new URLSearchParams()
+  if (params.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<BillingInvoice[]>(
+    buildApiUrl(`/api/finance/chain/invoices${suffix}`),
+    { headers: authHeaders(token) },
+    'Chain-Rechnungen konnten nicht geladen werden'
+  )
+}
+
+export type BillingTenantRow = {
+  tenantId: string
+  tenantName: string
+  chainId: string | null
+  chainName: string | null
+  planType: string
+  monthlyFeeCents: number
+  includedOrders: number
+  ordersCounted: number
+  extraOrders: number
+  includedUsagePercent: number
+  countedRevenueCents: number
+  commissionPercentApplied: number
+  commissionCents: number
+  fixedFeePerOrderCents: number
+  fixedFeesCents: number
+  totalFeeNetCents: number
+  vatRatePercent: number
+  vatCents: number
+  totalFeeGrossCents: number
+  marginNetCents: number
+  status: string
+  warnings: string[]
+}
+
+export type BillingSummaryResponse = {
+  month: string
+  periodStart: string
+  periodEnd: string
+  summary: {
+    tenants: number
+    platformRevenueNetCents: number
+    platformRevenueGrossCents: number
+    estimatedMarginNetCents: number
+    openInvoices: number
+    paidInvoices: number
+    includedTenants: number
+    chargeableTenants: number
+  }
+}
+
+export type BillingTenantsResponse = {
+  month: string
+  rows: BillingTenantRow[]
+}
+
 export type BillingInvoice = {
   id: string
   invoiceNumber: string
@@ -6090,6 +6192,79 @@ export async function finalizeBillingRun(token: string, period: string): Promise
       body: JSON.stringify({ period }),
     },
     'Monatslauf konnte nicht finalisiert werden'
+  )
+}
+
+export async function getBillingSummary(
+  token: string,
+  params: { month: string; chainId?: string; tenantId?: string }
+): Promise<BillingSummaryResponse> {
+  const query = new URLSearchParams({ month: params.month })
+  if (params.chainId) query.set('chainId', params.chainId)
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  return apiJson<BillingSummaryResponse>(
+    buildApiUrl(`/api/billing/summary?${query.toString()}`),
+    { headers: authHeaders(token) },
+    'Billing-Summary konnte nicht geladen werden'
+  )
+}
+
+export async function getBillingTenants(
+  token: string,
+  params: { month: string; chainId?: string; tenantId?: string; status?: string }
+): Promise<BillingTenantsResponse> {
+  const query = new URLSearchParams({ month: params.month })
+  if (params.chainId) query.set('chainId', params.chainId)
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  if (params.status) query.set('status', params.status)
+  return apiJson<BillingTenantsResponse>(
+    buildApiUrl(`/api/billing/tenants?${query.toString()}`),
+    { headers: authHeaders(token) },
+    'Tenant-Abrechnung konnte nicht geladen werden'
+  )
+}
+
+export async function createBillingRunPreview(
+  token: string,
+  params: { month: string; chainId?: string; tenantId?: string }
+): Promise<{ month: string; rows: BillingTenantRow[]; warnings: Array<{ tenantId: string; message: string }> }> {
+  return apiJson<{ month: string; rows: BillingTenantRow[]; warnings: Array<{ tenantId: string; message: string }> }>(
+    buildApiUrl('/api/billing/runs/preview'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(params),
+    },
+    'Abrechnungsvorschau konnte nicht erzeugt werden'
+  )
+}
+
+export async function createBillingRun(
+  token: string,
+  params: { month: string }
+): Promise<{ billingRunId: string; invoicesCreated: number; invoiceIds: string[] }> {
+  return apiJson<{ billingRunId: string; invoicesCreated: number; invoiceIds: string[] }>(
+    buildApiUrl('/api/billing/runs'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(params),
+    },
+    'Monatsabrechnung konnte nicht erstellt werden'
+  )
+}
+
+export async function finalizeBillingInvoice(
+  token: string,
+  invoiceId: string
+): Promise<{ ok: boolean; invoiceId: string; status: string }> {
+  return apiJson<{ ok: boolean; invoiceId: string; status: string }>(
+    buildApiUrl(`/api/billing/invoices/${encodeURIComponent(invoiceId)}/finalize`),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+    },
+    'Rechnung konnte nicht finalisiert werden'
   )
 }
 
@@ -7515,6 +7690,90 @@ export async function deleteDisplayDevice(
   return res.json()
 }
 
+export async function deactivateOrderDeskDeviceBinding(
+  token: string,
+  bindingId: string
+): Promise<{ ok: boolean; alreadyInactive?: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/api/orderdesk-devices/bindings/${bindingId}/deactivate`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'OrderDesk-Gerät konnte nicht deaktiviert werden')
+  }
+  return res.json()
+}
+
+export async function deleteOrderDeskDeviceBinding(
+  token: string,
+  bindingId: string
+): Promise<{ ok: boolean; softDeleted: boolean }> {
+  const res = await fetch(`${API_BASE_URL}/api/orderdesk-devices/bindings/${bindingId}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'OrderDesk-Gerät konnte nicht gelöscht werden')
+  }
+  return res.json()
+}
+
+export async function resetOrderDeskDevicePairing(
+  token: string,
+  bindingId: string
+): Promise<{
+  ok: boolean
+  sessionId: string
+  pairingToken: string
+  pairingPayload: string
+  expiresAt: string
+  qrImageUrl: string
+}> {
+  const res = await fetch(`${API_BASE_URL}/api/orderdesk-devices/bindings/${bindingId}/reset-pairing`, {
+    method: 'POST',
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Pairing-Code konnte nicht neu erstellt werden')
+  }
+  return res.json()
+}
+
+export async function getOrderDeskDeviceBindingsForScope(
+  token: string,
+  params?: {
+    includeInactive?: boolean
+    tenantId?: string
+  }
+): Promise<{
+  total: number
+  bindings: OrderDeskDeviceBinding[]
+  generatedAt: string
+}> {
+  const query = new URLSearchParams()
+  if (params?.tenantId) query.set('tenantId', params.tenantId)
+  if (typeof params?.includeInactive === 'boolean') {
+    query.set('includeInactive', String(params.includeInactive))
+  }
+  const suffix = query.toString().length > 0 ? `?${query.toString()}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/orderdesk-devices/bindings${suffix}`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'OrderDesk-Bindings konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
 export type MenuImportAnalysisResult = {
   restaurantName: string | null
   sourceLanguage: 'de'
@@ -7546,6 +7805,25 @@ export type MenuImportAnalysisResult = {
     confidence: number
   }>
   warnings: string[]
+}
+
+export type SuperadminMenuImportStatus = {
+  model: string | null
+  modelLabel: string
+  apiConnected: boolean
+  apiKeyPresent: boolean
+}
+
+export async function getSuperadminMenuImportStatus(token: string): Promise<SuperadminMenuImportStatus> {
+  const response = await apiFetch('/api/superadmin/menu-import/status', {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null)
+    throw new Error(errorData?.error || 'Menü-Import-Status konnte nicht geladen werden')
+  }
+  return (await response.json()) as SuperadminMenuImportStatus
 }
 
 export async function analyzeSuperadminMenuImport(

@@ -215,6 +215,9 @@ export type ServiceAreaMatchResult = {
   matchedByZip: boolean
   matchedByRadius: boolean
   matchedByPolygon: boolean
+  usedZipFallback: boolean
+  configurationIncomplete: boolean
+  requiresLocation: boolean
   excludedByZip: boolean
   excludedByStreet: boolean
   distanceKm: number | null
@@ -377,27 +380,62 @@ function normalizeRadius(value: unknown) {
 }
 
 function normalizePolygonPath(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [] as ServiceAreaPolygonPoint[]
-  }
-
   const points: ServiceAreaPolygonPoint[] = []
-  for (const entry of value) {
-    if (!entry || typeof entry !== 'object') {
-      continue
-    }
-
-    const source = entry as { lat?: unknown; lng?: unknown }
-    const lat = normalizeCoordinate(source.lat, -90, 90)
-    const lng = normalizeCoordinate(source.lng, -180, 180)
+  const addPoint = (latCandidate: unknown, lngCandidate: unknown) => {
+    const lat = normalizeCoordinate(latCandidate, -90, 90)
+    const lng = normalizeCoordinate(lngCandidate, -180, 180)
     if (lat === null || lng === null) {
-      continue
+      return
     }
-
     points.push({ lat, lng })
   }
 
-  return points.slice(0, 200)
+  const parseEntry = (entry: unknown): void => {
+    if (Array.isArray(entry)) {
+      if (entry.length >= 2 && !Array.isArray(entry[0])) {
+        // GeoJSON coordinate order: [lng, lat]
+        addPoint(entry[1], entry[0])
+        return
+      }
+      for (const nested of entry) {
+        parseEntry(nested)
+      }
+      return
+    }
+
+    if (!entry || typeof entry !== 'object') {
+      return
+    }
+
+    const source = entry as { lat?: unknown; lng?: unknown; type?: unknown; coordinates?: unknown }
+    if (typeof source.type === 'string' && source.type.toUpperCase() === 'POLYGON' && Array.isArray(source.coordinates)) {
+      parseEntry(source.coordinates)
+      return
+    }
+    if (source.lat !== undefined || source.lng !== undefined) {
+      addPoint(source.lat, source.lng)
+      return
+    }
+    if (Array.isArray(source.coordinates)) {
+      parseEntry(source.coordinates)
+    }
+  }
+
+  parseEntry(value)
+
+  const normalized = points.filter((entry, index) => {
+    const previous = points[index - 1]
+    return !previous || previous.lat !== entry.lat || previous.lng !== entry.lng
+  })
+  if (normalized.length >= 2) {
+    const first = normalized[0]
+    const last = normalized[normalized.length - 1]
+    if (first.lat === last.lat && first.lng === last.lng) {
+      normalized.pop()
+    }
+  }
+
+  return normalized.slice(0, 200)
 }
 
 function normalizeUniqueList(items: string[]) {
@@ -1188,6 +1226,9 @@ export function matchServiceArea(
       matchedByZip: false,
       matchedByRadius: false,
       matchedByPolygon: false,
+      usedZipFallback: false,
+      configurationIncomplete: false,
+      requiresLocation: false,
       excludedByZip: false,
       excludedByStreet: false,
       distanceKm: null,
@@ -1211,6 +1252,9 @@ export function matchServiceArea(
       matchedByZip: false,
       matchedByRadius: false,
       matchedByPolygon: false,
+      usedZipFallback: false,
+      configurationIncomplete: false,
+      requiresLocation: false,
       excludedByZip,
       excludedByStreet,
       distanceKm: null,
@@ -1224,6 +1268,9 @@ export function matchServiceArea(
 
   let matchedByRadius = false
   let matchedByPolygon = false
+  let usedZipFallback = false
+  let configurationIncomplete = false
+  let requiresLocation = false
   let distanceKm: number | null = null
   const hasRadius = typeof area.radiusKm === 'number' && area.radiusKm > 0
   const hasCenterCoordinates =
@@ -1249,7 +1296,8 @@ export function matchServiceArea(
     distanceKm = 0
   }
 
-  if (hasInputCoordinates && area.polygonPath.length >= 3) {
+  const polygonConfigured = area.polygonPath.length >= 3
+  if (hasInputCoordinates && polygonConfigured) {
     matchedByPolygon = isPointInPolygon(
       input.latitude as number,
       input.longitude as number,
@@ -1265,7 +1313,18 @@ export function matchServiceArea(
     // use ZIP matching so a branch is not silently hidden in the app.
     matched = radiusConfigured ? matchedByRadius : matchedByZip
   } else if (area.strategy === 'POLYGON') {
-    matched = matchedByPolygon
+    if (polygonConfigured && hasInputCoordinates) {
+      matched = matchedByPolygon
+    } else if (zipRuleConfigured) {
+      matched = matchedByZip
+      usedZipFallback = true
+      configurationIncomplete = !polygonConfigured
+      requiresLocation = polygonConfigured && !hasInputCoordinates
+    } else {
+      matched = false
+      configurationIncomplete = !polygonConfigured
+      requiresLocation = polygonConfigured && !hasInputCoordinates
+    }
   } else if (area.strategy === 'ZIP_OR_RADIUS') {
     matched = matchedByZip || matchedByRadius
   } else {
@@ -1278,6 +1337,9 @@ export function matchServiceArea(
     matchedByZip,
     matchedByRadius,
     matchedByPolygon,
+    usedZipFallback,
+    configurationIncomplete,
+    requiresLocation,
     excludedByZip,
     excludedByStreet,
     distanceKm,

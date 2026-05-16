@@ -8,10 +8,12 @@ class DisplayContentScreen extends StatefulWidget {
     super.key,
     required this.content,
     required this.connectionMessage,
+    this.debugLines = const <String>[],
   });
 
   final Map<String, dynamic> content;
   final String? connectionMessage;
+  final List<String> debugLines;
 
   @override
   State<DisplayContentScreen> createState() => _DisplayContentScreenState();
@@ -32,7 +34,16 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final screen = (widget.content['screen'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final items =
         (widget.content['items'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
+    final products =
+        (widget.content['products'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
     final backgroundColor = _parseColor(screen['backgroundColor'] as String?) ?? const Color(0xFF111827);
+    final menuRows = products
+        .map((entry) => <String, String>{
+              'name': '${entry['name'] ?? '-'}',
+              'category': '${entry['categoryName'] ?? 'Weitere'}',
+              'price': _formatPrice(entry['price']),
+            })
+        .toList(growable: false);
 
     return Scaffold(
       body: LayoutBuilder(
@@ -62,14 +73,21 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                 Positioned.fill(
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
-                    child: pages.isEmpty
+                    child: pages.isEmpty && menuRows.isEmpty
                         ? const Center(
                             child: Text(
-                              'Display noch nicht eingerichtet',
+                              'Keine Produkte für diesen Bildschirm freigegeben.',
                               style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w600),
+                              textAlign: TextAlign.center,
                             ),
                           )
-                        : Column(
+                        : menuRows.isNotEmpty
+                            ? _MenuProductBoard(
+                                rows: menuRows,
+                                maxHeight: usableHeight,
+                                maxWidth: constraints.maxWidth - (horizontalPadding * 2),
+                              )
+                            : Column(
                             children: <Widget>[
                               for (int i = 0; i < pages[safePageIndex].length; i++) ...<Widget>[
                                 _ItemCard(
@@ -139,7 +157,8 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                           'dpr ${media.devicePixelRatio.toStringAsFixed(2)} · '
                           '${isLandscape ? 'LANDSCAPE' : 'PORTRAIT'} · '
                           'scale ${scaleFactor.toStringAsFixed(2)} · '
-                          'pro Seite $itemsPerPage',
+                          'pro Seite $itemsPerPage'
+                          '${widget.debugLines.isNotEmpty ? '\n${widget.debugLines.join(' | ')}' : ''}',
                           style: const TextStyle(fontSize: 11, color: Colors.white70),
                         ),
                       ),
@@ -151,6 +170,12 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
         },
       ),
     );
+  }
+
+  String _formatPrice(dynamic value) {
+    final parsed = value is num ? value.toDouble() : double.tryParse('$value');
+    if (parsed == null) return '-';
+    return '${parsed.toStringAsFixed(2).replaceAll('.', ',')} €';
   }
 
   void _syncPageTimer(int pageCount) {
@@ -180,6 +205,99 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final parsed = int.tryParse('FF$normalized', radix: 16);
     if (parsed == null) return null;
     return Color(parsed);
+  }
+}
+
+class _MenuProductBoard extends StatelessWidget {
+  const _MenuProductBoard({
+    required this.rows,
+    required this.maxHeight,
+    required this.maxWidth,
+  });
+
+  final List<Map<String, String>> rows;
+  final double maxHeight;
+  final double maxWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final isLandscape = maxWidth >= maxHeight;
+    final columnCount = isLandscape ? 2 : 1;
+    final rowHeight = isLandscape ? 74.0 : 68.0;
+    final rowsPerColumn = (maxHeight / rowHeight).floor().clamp(1, 20);
+    final maxRowsVisible = rowsPerColumn * columnCount;
+    final visibleRows = rows.take(maxRowsVisible).toList(growable: false);
+    final chunks = <List<Map<String, String>>>[];
+    for (int i = 0; i < visibleRows.length; i += rowsPerColumn) {
+      chunks.add(visibleRows.sublist(i, (i + rowsPerColumn).clamp(0, visibleRows.length)));
+    }
+
+    return Row(
+      children: [
+        for (int column = 0; column < chunks.length; column++) ...[
+          Expanded(
+            child: Column(
+              children: [
+                for (final row in chunks[column])
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 4),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.24),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Text(
+                                      row['name'] ?? '-',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 24,
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      row['category'] ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 14, color: Colors.white70),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Text(
+                                row['price'] ?? '-',
+                                style: const TextStyle(
+                                  fontSize: 24,
+                                  color: Color(0xFFFBBF24),
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (column < chunks.length - 1) const SizedBox(width: 10),
+        ],
+      ],
+    );
   }
 }
 
