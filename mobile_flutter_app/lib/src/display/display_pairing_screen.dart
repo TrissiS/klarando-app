@@ -58,6 +58,7 @@ class DisplayPairingScreen extends StatelessWidget {
                   final Size screenSize = MediaQuery.of(context).size;
                   final double pixelRatio = MediaQuery.of(context).devicePixelRatio;
                   final bool isLandscape = screenSize.width >= screenSize.height;
+                  final bool showInfoAside = isLandscape && constraints.maxWidth >= 980;
                   final int physicalWidth = (screenSize.width * pixelRatio).round();
                   final int physicalHeight = (screenSize.height * pixelRatio).round();
                   final String orientationLabel = isLandscape ? 'Querformat' : 'Hochformat';
@@ -66,6 +67,46 @@ class DisplayPairingScreen extends StatelessWidget {
                   final double qrSize = qrSizeByWidth < qrSizeByHeight ? qrSizeByWidth : qrSizeByHeight;
                   final double finalQrSize = qrSize.clamp(220.0, 720.0);
                   final double logoWidth = (constraints.maxWidth * 0.5).clamp(180.0, 520.0);
+                  final Widget infoBox = DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.28),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          const Text(
+                            'Display-Info',
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Auflösung: $physicalWidth × $physicalHeight',
+                            style: const TextStyle(fontSize: 12, color: Colors.white70),
+                          ),
+                          Text(
+                            'Skalierung: ${pixelRatio.toStringAsFixed(2)}x',
+                            style: const TextStyle(fontSize: 12, color: Colors.white70),
+                          ),
+                          Text(
+                            'Modus: $orientationLabel',
+                            style: const TextStyle(fontSize: 12, color: Colors.white70),
+                          ),
+                          if (debugLines.isNotEmpty) ...<Widget>[
+                            const SizedBox(height: 8),
+                            ...debugLines.map(
+                              (String line) => Text(
+                                line,
+                                style: const TextStyle(fontSize: 11, color: Colors.white70),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
                   return Center(
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 1200),
@@ -91,34 +132,72 @@ class DisplayPairingScreen extends StatelessWidget {
                                 textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 10),
-                              DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: <BoxShadow>[
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.25),
-                                      blurRadius: 16,
-                                      offset: const Offset(0, 8),
+                              if (showInfoAside)
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: <Widget>[
+                                    DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(20),
+                                        boxShadow: <BoxShadow>[
+                                          BoxShadow(
+                                            color: Colors.black.withOpacity(0.25),
+                                            blurRadius: 16,
+                                            offset: const Offset(0, 8),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(20),
+                                        child: SizedBox.square(
+                                          dimension: finalQrSize,
+                                          child: Image.network(qrUrl, fit: BoxFit.contain),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    SizedBox(
+                                      width: (constraints.maxWidth * 0.25).clamp(220.0, 320.0),
+                                      child: infoBox,
                                     ),
                                   ],
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.all(20),
-                                  child: SizedBox.square(
-                                    dimension: finalQrSize,
-                                    child: Image.network(qrUrl, fit: BoxFit.contain),
+                                )
+                              else
+                                DecoratedBox(
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(20),
+                                    boxShadow: <BoxShadow>[
+                                      BoxShadow(
+                                        color: Colors.black.withOpacity(0.25),
+                                        blurRadius: 16,
+                                        offset: const Offset(0, 8),
+                                      ),
+                                    ],
+                                  ),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(20),
+                                    child: SizedBox.square(
+                                      dimension: finalQrSize,
+                                      child: Image.network(qrUrl, fit: BoxFit.contain),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              Text(
-                                '${physicalWidth} x ${physicalHeight} · ${pixelRatio.toStringAsFixed(2)}x · $orientationLabel',
-                                style: const TextStyle(fontSize: 13, color: Colors.white70),
-                              ),
+                              if (!showInfoAside) ...<Widget>[
+                                const SizedBox(height: 10),
+                                infoBox,
+                              ],
                               const SizedBox(height: 10),
                               Text(
                                 pairingCode,
-                                style: const TextStyle(fontSize: 40, fontWeight: FontWeight.w800, letterSpacing: 6),
+                                style: TextStyle(
+                                  fontSize: constraints.maxWidth < 500 ? 28 : 40,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: constraints.maxWidth < 500 ? 3 : 6,
+                                ),
+                                textAlign: TextAlign.center,
                               ),
                               const SizedBox(height: 2),
                               Text(
@@ -139,29 +218,6 @@ class DisplayPairingScreen extends StatelessWidget {
                                     child: const Text('Erneut versuchen'),
                                   ),
                                 ],
-                              ],
-                              if (debugLines.isNotEmpty) ...<Widget>[
-                                const SizedBox(height: 10),
-                                DecoratedBox(
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.28),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: debugLines
-                                          .map(
-                                            (String line) => Text(
-                                              line,
-                                              style: const TextStyle(fontSize: 11, color: Colors.white70),
-                                            ),
-                                          )
-                                          .toList(),
-                                    ),
-                                  ),
-                                ),
                               ],
                             ],
                           ),
