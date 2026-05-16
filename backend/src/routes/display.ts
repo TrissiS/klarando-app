@@ -123,16 +123,28 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
       return res.json({ status: 'pending', state: 'PENDING' })
     }
 
-    const oneTimeToken = claimedDeviceTokenBySession.get(session.id)
-    if (!oneTimeToken || !session.device) {
+    if (!session.device) {
       console.info('DISPLAY PAIRING POLL', {
         found: true,
         sessionId: session.id,
-        state: 'CLAIMED_BUT_WAITING_TOKEN',
-        hasDevice: Boolean(session.device),
-        hasOneTimeToken: Boolean(oneTimeToken),
+        state: 'CLAIMED_BUT_MISSING_DEVICE',
       })
       return res.json({ status: 'pending', state: 'PENDING' })
+    }
+
+    let oneTimeToken = claimedDeviceTokenBySession.get(session.id) ?? null
+    if (!oneTimeToken) {
+      // Recovery path: if backend restarted after claim, recreate a device token once.
+      oneTimeToken = createToken(32)
+      await prisma.displayDevice.update({
+        where: { id: session.device.id },
+        data: { deviceTokenHash: hashToken(oneTimeToken) },
+      })
+      claimedDeviceTokenBySession.set(session.id, oneTimeToken)
+      console.info('DISPLAY PAIRING POLL RECOVERY TOKEN CREATED', {
+        sessionId: session.id,
+        deviceId: session.device.id,
+      })
     }
 
     return res.json({

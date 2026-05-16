@@ -47,10 +47,12 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
     const displayIdInput = normalizeText(body.displayId)
     const displayName = normalizeText(body.displayName) ?? normalizeText(body.pairingCode) ?? 'Display'
 
-    console.info('ADMIN DISPLAY PAIRING CLAIM START', {
+    console.info('DISPLAY CLAIM REQUEST', {
       tenantIdInput,
       hasPairingToken: Boolean(pairingToken),
       hasPairingCode: Boolean(pairingCode),
+      pairingToken: pairingToken ?? null,
+      pairingCode: pairingCode ?? null,
       displayIdInput,
       screenIdInput,
     })
@@ -167,13 +169,18 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       : await prisma.displayPairingSession.findFirst({ where: { pairingCode: pairingCode!, status: DisplayPairingStatus.PENDING } })
 
     if (!session) {
-      console.info('ADMIN DISPLAY PAIRING CLAIM SESSION', { found: false, by: pairingToken ? 'token' : 'code' })
+      console.info('DISPLAY CLAIM SESSION', {
+        found: false,
+        by: pairingToken ? 'token' : 'code',
+        pairingToken: pairingToken ?? null,
+        pairingCode: pairingCode ?? null,
+      })
       return res.status(404).json({ message: 'Pairing-Code nicht gefunden.' })
     }
-    console.info('ADMIN DISPLAY PAIRING CLAIM SESSION', {
+    console.info('DISPLAY CLAIM SESSION', {
       found: true,
       sessionId: session.id,
-      sessionStatus: session.status,
+      sessionStateBefore: session.status,
       by: pairingToken ? 'token' : 'code',
     })
     if (session.status !== DisplayPairingStatus.PENDING) {
@@ -223,12 +230,12 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       },
     })
 
-    console.info('ADMIN DISPLAY PAIRING CLAIM FINALIZED', {
+    console.info('DISPLAY CLAIM FINALIZED', {
       sessionId: session.id,
       deviceId: device.id,
       screenId: device.screenId,
       tenantId,
-      statusAfter: 'CLAIMED',
+      sessionStateAfter: 'CLAIMED',
     })
 
     setClaimedDeviceToken(session.id, deviceToken)
