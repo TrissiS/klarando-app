@@ -90,12 +90,17 @@ export default function AdminScreenStudioPage() {
     uploadedMenuFileUrl?: string
     detectedBrandColors?: string[]
     suggestedTemplate?: string
+    logoFileName?: string
+    menuFileName?: string
   }>({
     designAssistantStatus: 'IDLE',
     uploadedMenuFileUrl: undefined,
     detectedBrandColors: undefined,
     suggestedTemplate: undefined,
+    logoFileName: undefined,
+    menuFileName: undefined,
   })
+  const [assistantNotice, setAssistantNotice] = useState('')
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -253,6 +258,39 @@ export default function AdminScreenStudioPage() {
     }
   }
 
+  function handlePreparedLogoUpload(file: File | null) {
+    if (!file) return
+    setDesignAssistant((current) => ({
+      ...current,
+      logoFileName: file.name,
+      detectedBrandColors: current.detectedBrandColors && current.detectedBrandColors.length
+        ? current.detectedBrandColors
+        : ['#f97316', '#ec4899'],
+      designAssistantStatus: current.menuFileName ? 'READY_FOR_SUGGESTION' : 'LOGO_UPLOADED',
+    }))
+    setAssistantNotice('Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.')
+  }
+
+  function handlePreparedMenuUpload(file: File | null) {
+    if (!file) return
+    const localMenuUrl = `local://${file.name}`
+    setDesignAssistant((current) => {
+      const autoTemplate =
+        current.suggestedTemplate ||
+        (current.detectedBrandColors?.some((entry) => entry.toLowerCase().includes('ec4899'))
+          ? 'Klarando Modern'
+          : 'Fastfood Board')
+      return {
+        ...current,
+        menuFileName: file.name,
+        uploadedMenuFileUrl: localMenuUrl,
+        suggestedTemplate: autoTemplate,
+        designAssistantStatus: current.logoFileName ? 'READY_FOR_SUGGESTION' : 'MENU_UPLOADED',
+      }
+    })
+    setAssistantNotice('Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.')
+  }
+
   return (
     <AdminLayout
       title="Screen Studio"
@@ -364,50 +402,56 @@ export default function AdminScreenStudioPage() {
                 </span>
               </div>
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <label className="cursor-pointer rounded-xl border border-blue-200 bg-white px-3 py-3 text-left text-xs font-medium text-blue-900 shadow-sm transition hover:bg-blue-100">
+                  <span className="text-sm font-semibold">Logo & Farben</span>
+                  <p className="mt-1 text-[11px] text-blue-700/90">Logo-Datei auswählen (MVP vorbereitet)</p>
+                  <p className="mt-2 text-[11px] text-blue-800">
+                    {designAssistant.logoFileName ? `Ausgewählt: ${designAssistant.logoFileName}` : 'Noch kein Logo ausgewählt'}
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                    className="hidden"
+                    onChange={(event) => handlePreparedLogoUpload(event.target.files?.[0] || null)}
+                  />
+                </label>
+                <label className="cursor-pointer rounded-xl border border-blue-200 bg-white px-3 py-3 text-left text-xs font-medium text-blue-900 shadow-sm transition hover:bg-blue-100">
+                  <span className="text-sm font-semibold">Speisekarte importieren</span>
+                  <p className="mt-1 text-[11px] text-blue-700/90">Datei auswählen (Bild/PDF, MVP vorbereitet)</p>
+                  <p className="mt-2 text-[11px] text-blue-800">
+                    {designAssistant.menuFileName ? `Ausgewählt: ${designAssistant.menuFileName}` : 'Noch keine Speisekarte ausgewählt'}
+                  </p>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,application/pdf"
+                    className="hidden"
+                    onChange={(event) => handlePreparedMenuUpload(event.target.files?.[0] || null)}
+                  />
+                </label>
                 <button
                   type="button"
-                  disabled
-                  className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-left text-xs font-medium text-blue-800 opacity-70"
-                  title="Upload-Assistent folgt."
-                  onClick={() =>
-                    setDesignAssistant((current) => ({
-                      ...current,
-                      designAssistantStatus: current.uploadedMenuFileUrl ? 'READY_FOR_SUGGESTION' : 'LOGO_UPLOADED',
-                    }))
-                  }
+                  onClick={() => {
+                    setAssistantNotice('Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.')
+                    if (designAssistant.suggestedTemplate) {
+                      setSelectedTemplate(designAssistant.suggestedTemplate)
+                    }
+                  }}
+                  className="rounded-xl border border-blue-200 bg-white px-3 py-3 text-left text-xs font-medium text-blue-900 shadow-sm transition hover:bg-blue-100"
                 >
-                  Logo hochladen
-                  <p className="mt-1 text-[11px] text-blue-700/80">Upload-Assistent folgt.</p>
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-left text-xs font-medium text-blue-800 opacity-70"
-                  title="Upload-Assistent folgt."
-                  onClick={() =>
-                    setDesignAssistant((current) => ({
-                      ...current,
-                      designAssistantStatus: current.designAssistantStatus === 'LOGO_UPLOADED' ? 'READY_FOR_SUGGESTION' : 'MENU_UPLOADED',
-                    }))
-                  }
-                >
-                  Speisekarte hochladen
-                  <p className="mt-1 text-[11px] text-blue-700/80">Upload-Assistent folgt.</p>
-                </button>
-                <button
-                  type="button"
-                  disabled
-                  className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-left text-xs font-medium text-blue-800 opacity-70"
-                  title="Automatischer Vorschlag folgt."
-                >
-                  Designvorschlag generieren
-                  <p className="mt-1 text-[11px] text-blue-700/80">Farberkennung und Vorschlag folgen.</p>
+                  <span className="text-sm font-semibold">Designvorschlag</span>
+                  <p className="mt-1 text-[11px] text-blue-700/90">Template-Vorschlag wird als nächstes automatisch generiert.</p>
+                  <p className="mt-2 text-[11px] text-blue-800">
+                    Vorgeschlagen: {designAssistant.suggestedTemplate || 'Noch kein Vorschlag'}
+                  </p>
                 </button>
               </div>
-              <div className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-xs text-blue-900 ring-1 ring-blue-100">
-                <p>uploadedMenuFileUrl: {designAssistant.uploadedMenuFileUrl || '—'}</p>
-                <p>detectedBrandColors: {designAssistant.detectedBrandColors?.join(', ') || '—'}</p>
-                <p>suggestedTemplate: {designAssistant.suggestedTemplate || '—'}</p>
+              <div className="mt-3 grid gap-2 rounded-xl bg-white/80 px-3 py-3 text-xs text-blue-900 ring-1 ring-blue-100 sm:grid-cols-3">
+                <p><span className="font-semibold">Logo:</span> {designAssistant.logoFileName || 'Noch nicht gewählt'}</p>
+                <p><span className="font-semibold">Speisekarte:</span> {designAssistant.menuFileName || 'Noch nicht gewählt'}</p>
+                <p><span className="font-semibold">Vorschlag:</span> {designAssistant.suggestedTemplate || 'Noch offen'}</p>
+              </div>
+              <div className="mt-2 rounded-xl border border-dashed border-blue-200 bg-white/60 px-3 py-2 text-xs text-blue-900">
+                {assistantNotice || 'Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.'}
               </div>
             </div>
             <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_1fr]">
