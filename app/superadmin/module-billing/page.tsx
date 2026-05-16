@@ -21,14 +21,13 @@ import {
 import { ACCESS_PACKAGES, formatAccessPermission, permissionsFromPackageIds } from '@/lib/access-packages'
 import type { SessionUser } from '@/lib/app-data'
 
-type TabKey = 'PACKAGES' | 'MODULES' | 'PERMISSIONS' | 'DEVICES' | 'FEES'
+type TabKey = 'PACKAGES' | 'MODULES' | 'PERMISSIONS' | 'DEVICES'
 
 const tabs: Array<{ key: TabKey; label: string }> = [
   { key: 'PACKAGES', label: 'Pakete' },
-  { key: 'MODULES', label: 'Modulfreigaben' },
+  { key: 'MODULES', label: 'Module' },
   { key: 'PERMISSIONS', label: 'Einzelrechte' },
   { key: 'DEVICES', label: 'Geräte & Zugänge' },
-  { key: 'FEES', label: 'Gebühren' },
 ]
 
 export default function SuperadminModuleBillingPage() {
@@ -162,7 +161,7 @@ export default function SuperadminModuleBillingPage() {
   const activeModules = modules.filter((entry) => entry.enabled).length
 
   return (
-    <BackofficeLayout brand="Superadmin" title="Modulfreigaben & Pakete" subtitle="Zentrale Verwaltung für Pakete, Rechte, Geräte und Gebühren" navItems={SUPERADMIN_NAV_ITEMS}>
+    <BackofficeLayout brand="Superadmin" title="Modulfreigaben" subtitle="Pakete, Module, Einzelrechte und Gerätezugänge sauber verwalten" navItems={SUPERADMIN_NAV_ITEMS}>
       <div className="space-y-4">
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
         {info ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{info}</div> : null}
@@ -187,7 +186,7 @@ export default function SuperadminModuleBillingPage() {
             <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Paketvorlagen</div><div className="text-xl font-bold">{packages.length}</div></div>
             <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Aktive Module</div><div className="text-xl font-bold">{activeModules}</div></div>
             <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Einzelrechte</div><div className="text-xl font-bold">{permissions.length}</div></div>
-            <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Zusatzkosten</div><div className="text-xl font-bold">individuell</div></div>
+            <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Gerätezugänge</div><div className="text-xl font-bold">zentral</div></div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             {tabs.map((entry) => (
@@ -306,34 +305,6 @@ export default function SuperadminModuleBillingPage() {
           </div>
         ) : null}
 
-        {tab === 'FEES' ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-2 text-sm font-semibold">Gebühren / Paketpreise</h3>
-            <div className="overflow-auto">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead><tr className="text-left text-xs text-slate-500"><th>Paket</th><th>Einrichtungsgebühr</th><th>monatlich</th><th>jährlich</th><th>enthaltene Module</th><th>Status</th><th>Aktionen</th></tr></thead>
-                <tbody>
-                  {ACCESS_PACKAGES.map((entry) => (
-                    <tr key={entry.id} className="border-t">
-                      <td className="py-2">{entry.name}</td>
-                      <td>—</td>
-                      <td>—</td>
-                      <td>—</td>
-                      <td>{entry.permissions.length}</td>
-                      <td>aktiv</td>
-                      <td className="space-x-1">
-                        <button type="button" className="rounded border px-2 py-1">Bearbeiten</button>
-                        <button type="button" className="rounded border px-2 py-1">Duplizieren</button>
-                        <button type="button" className="rounded border px-2 py-1">Deaktivieren</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <button type="button" className="mt-3 rounded-xl border px-3 py-2 text-sm">Neues Paket anlegen</button>
-          </div>
-        ) : null}
       </div>
     </BackofficeLayout>
   )
