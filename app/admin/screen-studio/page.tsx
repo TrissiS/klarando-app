@@ -18,6 +18,7 @@ import type { SessionUser } from '@/lib/app-data'
 type StudioTab = 'OVERVIEW' | 'CONTENT' | 'DESIGN' | 'DEVICES' | 'PREVIEW'
 type FontSizeMode = 'KLEIN' | 'MITTEL' | 'GROSS'
 type CardDensity = 'KOMPAKT' | 'KOMFORT' | 'GROSS'
+type DesignAssistantStatus = 'IDLE' | 'MENU_UPLOADED' | 'LOGO_UPLOADED' | 'READY_FOR_SUGGESTION'
 
 const STUDIO_TABS: Array<{ key: StudioTab; label: string }> = [
   { key: 'OVERVIEW', label: 'Übersicht' },
@@ -84,6 +85,17 @@ export default function AdminScreenStudioPage() {
   const [pixelPadding, setPixelPadding] = useState(16)
   const [savingDesign, setSavingDesign] = useState(false)
   const [configId, setConfigId] = useState<string>('')
+  const [designAssistant, setDesignAssistant] = useState<{
+    designAssistantStatus: DesignAssistantStatus
+    uploadedMenuFileUrl?: string
+    detectedBrandColors?: string[]
+    suggestedTemplate?: string
+  }>({
+    designAssistantStatus: 'IDLE',
+    uploadedMenuFileUrl: undefined,
+    detectedBrandColors: undefined,
+    suggestedTemplate: undefined,
+  })
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -339,6 +351,65 @@ export default function AdminScreenStudioPage() {
         {activeTab === 'DESIGN' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Design</h2>
+            <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-blue-900">Design-Assistent</p>
+                  <p className="mt-1 text-xs text-blue-800/90">
+                    Klarando kann später aus Logo, Farben und Speisekarte automatisch ein Bildschirmdesign vorschlagen.
+                  </p>
+                </div>
+                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-blue-800 ring-1 ring-blue-200">
+                  Status: {designAssistant.designAssistantStatus}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-left text-xs font-medium text-blue-800 opacity-70"
+                  title="Upload-Assistent folgt."
+                  onClick={() =>
+                    setDesignAssistant((current) => ({
+                      ...current,
+                      designAssistantStatus: current.uploadedMenuFileUrl ? 'READY_FOR_SUGGESTION' : 'LOGO_UPLOADED',
+                    }))
+                  }
+                >
+                  Logo hochladen
+                  <p className="mt-1 text-[11px] text-blue-700/80">Upload-Assistent folgt.</p>
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-left text-xs font-medium text-blue-800 opacity-70"
+                  title="Upload-Assistent folgt."
+                  onClick={() =>
+                    setDesignAssistant((current) => ({
+                      ...current,
+                      designAssistantStatus: current.designAssistantStatus === 'LOGO_UPLOADED' ? 'READY_FOR_SUGGESTION' : 'MENU_UPLOADED',
+                    }))
+                  }
+                >
+                  Speisekarte hochladen
+                  <p className="mt-1 text-[11px] text-blue-700/80">Upload-Assistent folgt.</p>
+                </button>
+                <button
+                  type="button"
+                  disabled
+                  className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-left text-xs font-medium text-blue-800 opacity-70"
+                  title="Automatischer Vorschlag folgt."
+                >
+                  Designvorschlag generieren
+                  <p className="mt-1 text-[11px] text-blue-700/80">Farberkennung und Vorschlag folgen.</p>
+                </button>
+              </div>
+              <div className="mt-3 rounded-xl bg-white/80 px-3 py-2 text-xs text-blue-900 ring-1 ring-blue-100">
+                <p>uploadedMenuFileUrl: {designAssistant.uploadedMenuFileUrl || '—'}</p>
+                <p>detectedBrandColors: {designAssistant.detectedBrandColors?.join(', ') || '—'}</p>
+                <p>suggestedTemplate: {designAssistant.suggestedTemplate || '—'}</p>
+              </div>
+            </div>
             <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_1fr]">
               <div className="grid gap-3 sm:grid-cols-2">
                 {DESIGN_TEMPLATES.map((template) => (
