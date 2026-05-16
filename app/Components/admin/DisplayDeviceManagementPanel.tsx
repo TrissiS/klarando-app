@@ -424,6 +424,15 @@ export default function DisplayDeviceManagementPanel({
       if (!createNewDisplayOnClaim && !selectedDisplayRow) {
         throw new Error('Bitte wähle unten einen Bildschirm aus.')
       }
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('DISPLAY CLAIM CLICK', {
+          selectedDisplayId: createNewDisplayOnClaim ? null : selectedDisplayRow?.id ?? null,
+          selectedDisplayName: selectedDisplayRow?.name ?? null,
+          hasPairingToken: Boolean(pairingToken),
+          hasPairingCode: Boolean(manualPairingCode),
+          tenantId,
+        })
+      }
       const response = await claimDisplayPairingSession(token, {
         pairingToken,
         pairingCode: manualPairingCode,
@@ -432,6 +441,12 @@ export default function DisplayDeviceManagementPanel({
         screenId: null,
         displayName: claimDisplayName.trim() || null,
       })
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('DISPLAY CLAIM RESPONSE', {
+          status: 200,
+          body: response,
+        })
+      }
       setLastClaimDiagnostic({
         sessionId: response.pairing?.sessionId || '-',
         state: response.pairing?.state || 'UNKNOWN',
@@ -449,6 +464,12 @@ export default function DisplayDeviceManagementPanel({
       setCreateNewDisplayOnClaim(false)
       await loadOverview()
     } catch (claimError) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.log('DISPLAY CLAIM RESPONSE', {
+          status: 'error',
+          error: claimError instanceof Error ? claimError.message : claimError,
+        })
+      }
       setError(claimError instanceof Error ? claimError.message : 'Display konnte nicht verbunden werden')
     } finally {
       setClaiming(false)
@@ -704,7 +725,9 @@ export default function DisplayDeviceManagementPanel({
                   <tr key={row.id}>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <p className="font-semibold text-[var(--brand-ink)]">{row.name}</p>
-                      <p className="text-xs text-rose-900/70">{row.code} | {row.sourceKind === 'ORDER_DISPLAY' ? 'Bestell-Display' : 'Screen-Device'}</p>
+                      <p className="text-xs text-rose-900/70">
+                        {row.code} | {row.sourceKind === 'ORDER_DISPLAY' ? 'Bestell-Display' : row.sourceKind === 'DISPLAY_DEVICE' ? 'Klarando-Display' : 'Screen-Device'}
+                      </p>
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <AdminStatusBadge

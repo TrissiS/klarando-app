@@ -95,7 +95,7 @@ type DisplayManagementType =
 
 type DisplayManagementStatus = 'online' | 'offline' | 'inactive'
 
-type DisplaySourceKind = 'ORDER_DISPLAY' | 'SCREEN_DEVICE'
+type DisplaySourceKind = 'ORDER_DISPLAY' | 'SCREEN_DEVICE' | 'DISPLAY_DEVICE'
 
 type DisplayRecord = {
   id: string
@@ -117,7 +117,7 @@ type DisplayRecord = {
     model: string | null
     platform: string | null
     appVersion: string | null
-    source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE'
+    source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE' | 'DISPLAY_DEVICE'
   } | null
   status: DisplayManagementStatus
   previewPath: string
@@ -493,7 +493,7 @@ function enforceAuditScope(req: Request, where: Record<string, unknown>) {
 }
 
 async function loadDisplayOverviewRows(tenantIds: string[]) {
-  const [orderDisplays, screenDevices, orderDeskBindings] = await Promise.all([
+  const [orderDisplays, screenDevices, orderDeskBindings, displayDevices] = await Promise.all([
     prisma.orderDisplay.findMany({
       where: {
         tenantId: {
@@ -576,6 +576,48 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
         updatedAt: true,
       },
       orderBy: [{ updatedAt: 'desc' }],
+    }),
+    prisma.displayDevice.findMany({
+      where: {
+        tenantId: {
+          in: tenantIds,
+        },
+        revokedAt: null,
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        status: true,
+        screenId: true,
+        lastSeenAt: true,
+        appVersion: true,
+        platform: true,
+        updatedAt: true,
+        screen: {
+          select: {
+            id: true,
+            name: true,
+            orientation: true,
+            resolutionPreset: true,
+            layoutType: true,
+          },
+        },
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            chainId: true,
+            chain: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ tenantId: 'asc' }, { name: 'asc' }],
     }),
   ])
 
@@ -712,6 +754,39 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
       status: computeDisplayStatus(device.isActive, device.lastSeenAt),
       previewPath: `/screen/${device.deviceCode}`,
       editablePath: '/admin/screen',
+      pairingSupported: false,
+    })
+  }
+
+  for (const device of displayDevices) {
+    const status = !device.screenId
+      ? 'inactive'
+      : computeDisplayStatus(device.status !== 'REVOKED', device.lastSeenAt)
+    rows.push({
+      id: device.id,
+      entityId: device.id,
+      sourceKind: 'DISPLAY_DEVICE',
+      tenantId: device.tenantId,
+      tenantName: device.tenant?.name ?? null,
+      chainId: device.tenant?.chainId ?? null,
+      chainName: device.tenant?.chain?.name ?? null,
+      name: device.name,
+      displayType: parseScreenDeviceType(device.screen?.layoutType ?? null, device.screen?.name ?? device.name),
+      code: device.id,
+      isActive: device.status !== 'REVOKED' && Boolean(device.screenId),
+      lastSeenAt: device.lastSeenAt ? device.lastSeenAt.toISOString() : null,
+      lastSyncAt: device.updatedAt ? device.updatedAt.toISOString() : null,
+      resolution: device.screen?.resolutionPreset ?? null,
+      deviceInfo: {
+        alias: device.name,
+        model: device.screen?.name ?? null,
+        platform: device.platform,
+        appVersion: device.appVersion,
+        source: 'DISPLAY_DEVICE',
+      },
+      status,
+      previewPath: `/display-client?deviceId=${encodeURIComponent(device.id)}`,
+      editablePath: '/admin/displays',
       pairingSupported: false,
     })
   }

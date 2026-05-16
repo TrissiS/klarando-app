@@ -5369,7 +5369,7 @@ export type DisplayDeviceStatus = 'online' | 'offline' | 'inactive'
 export type DisplayDeviceOverviewRow = {
   id: string
   entityId: string
-  sourceKind: 'ORDER_DISPLAY' | 'SCREEN_DEVICE'
+  sourceKind: 'ORDER_DISPLAY' | 'SCREEN_DEVICE' | 'DISPLAY_DEVICE'
   tenantId: string
   tenantName: string | null
   chainId: string | null
@@ -5386,7 +5386,7 @@ export type DisplayDeviceOverviewRow = {
     model: string | null
     platform: string | null
     appVersion: string | null
-    source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE'
+    source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE' | 'DISPLAY_DEVICE'
   } | null
   status: DisplayDeviceStatus
   previewPath: string

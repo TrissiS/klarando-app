@@ -56,6 +56,7 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       displayIdInput,
       screenIdInput,
     })
+    console.info('DISPLAY CLAIM BODY', req.body)
 
     if (!tenantIdInput || (!pairingToken && !pairingCode)) {
       return res.status(400).json({ message: 'pairingToken oder pairingCode sowie tenantId sind erforderlich.' })
@@ -177,12 +178,14 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       })
       return res.status(404).json({ message: 'Pairing-Code nicht gefunden.' })
     }
+    console.info('DISPLAY CLAIM SESSION FOUND', { sessionId: session.id, sessionStatus: session.status })
     console.info('DISPLAY CLAIM SESSION', {
       found: true,
       sessionId: session.id,
       sessionStateBefore: session.status,
       by: pairingToken ? 'token' : 'code',
     })
+    console.info('DISPLAY CLAIM BEFORE STATE', { sessionId: session.id, state: session.status })
     if (session.status !== DisplayPairingStatus.PENDING) {
       return res.status(409).json({ message: 'Code bereits verwendet.' })
     }
@@ -217,7 +220,18 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
             appVersion: session.appVersion,
             status: DisplayDeviceStatus.OFFLINE,
           },
-        })
+      })
+    console.info('DISPLAY CLAIM DISPLAY FOUND', {
+      displayId: device.id,
+      tenantId: device.tenantId,
+      screenId: device.screenId,
+    })
+    console.info('DISPLAY CLAIM BINDING CREATED', {
+      displayId: device.id,
+      pairingSessionId: session.id,
+      screenId: device.screenId,
+      tenantId: device.tenantId,
+    })
 
     await prisma.displayPairingSession.update({
       where: { id: session.id },
@@ -236,6 +250,11 @@ router.post('/pairing/claim', requirePermission(PermissionKey.SETTINGS_WRITE), a
       screenId: device.screenId,
       tenantId,
       sessionStateAfter: 'CLAIMED',
+    })
+    console.info('DISPLAY CLAIM AFTER STATE', {
+      sessionId: session.id,
+      state: 'CLAIMED',
+      claimedAt: new Date().toISOString(),
     })
 
     setClaimedDeviceToken(session.id, deviceToken)
