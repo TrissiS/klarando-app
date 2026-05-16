@@ -20,96 +20,144 @@ class DisplayPairingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 980),
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text(
-                    'Display verbinden',
-                    style: TextStyle(fontSize: 42, fontWeight: FontWeight.w700),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Scanne diesen QR-Code im Klarando Adminbereich.',
-                    style: TextStyle(fontSize: 20, color: Colors.white70),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 20),
-                  Expanded(
-                    child: Center(
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 640, maxHeight: 640),
-                        child: AspectRatio(
-                          aspectRatio: 1,
-                          child: DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(22),
-                              child: Container(
-                                color: Colors.white,
-                                child: Image.network(qrUrl, fit: BoxFit.contain),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    pairingCode,
-                    style: const TextStyle(fontSize: 52, fontWeight: FontWeight.w800, letterSpacing: 8),
-                  ),
-                  const SizedBox(height: 8),
-                  Text('Gültig: $countdown', style: const TextStyle(fontSize: 20, color: Colors.white70)),
-                  if (status != null) ...[
-                    const SizedBox(height: 10),
-                    Text(status!, style: const TextStyle(fontSize: 14, color: Colors.white70)),
-                    if (onRetry != null) ...[
-                      const SizedBox(height: 10),
-                      FilledButton.tonal(
-                        onPressed: onRetry,
-                        child: const Text('Erneut versuchen'),
-                      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: <Color>[
+              Color(0xFF4A0033),
+              Color(0xFFD21277),
+              Color(0xFFF97316),
+              Color(0xFFFACC15),
+            ],
+            stops: <double>[0.0, 0.34, 0.72, 1.0],
+          ),
+        ),
+        child: Stack(
+          children: <Widget>[
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: RadialGradient(
+                    center: const Alignment(-0.95, -0.85),
+                    radius: 1.15,
+                    colors: <Color>[
+                      Colors.white.withOpacity(0.17),
+                      Colors.transparent,
                     ],
-                  ],
-                  if (debugLines.isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.35),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(10),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: debugLines
-                              .map(
-                                (line) => Text(
-                                  line,
-                                  style: const TextStyle(fontSize: 12, color: Colors.white70),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ),
-                    ),
-                  ],
-                ],
+                  ),
+                ),
               ),
             ),
-          ),
+            SafeArea(
+              child: LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+                  final double qrSize = (constraints.biggest.shortestSide * 0.58).clamp(360.0, 860.0);
+                  final double logoWidth = (constraints.maxWidth * 0.52).clamp(240.0, 560.0);
+                  return Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1200),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: <Widget>[
+                            Image.asset(
+                              'assets/klarando_logo_transparent.png',
+                              width: logoWidth,
+                              fit: BoxFit.contain,
+                              filterQuality: FilterQuality.high,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'QR-Code mit Klarando OrderDesk scannen',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 14),
+                            DecoratedBox(
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                boxShadow: <BoxShadow>[
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.25),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 8),
+                                  ),
+                                ],
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: SizedBox.square(
+                                  dimension: qrSize,
+                                  child: Image.network(qrUrl, fit: BoxFit.contain),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              pairingCode,
+                              style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w800, letterSpacing: 6),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'Code gültig: $countdown',
+                              style: const TextStyle(fontSize: 18, color: Colors.white),
+                            ),
+                            if (status != null) ...<Widget>[
+                              const SizedBox(height: 8),
+                              Text(
+                                status!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(fontSize: 14, color: Colors.white),
+                              ),
+                              if (onRetry != null) ...<Widget>[
+                                const SizedBox(height: 8),
+                                FilledButton.tonal(
+                                  onPressed: onRetry,
+                                  child: const Text('Erneut versuchen'),
+                                ),
+                              ],
+                            ],
+                            if (debugLines.isNotEmpty) ...<Widget>[
+                              const SizedBox(height: 10),
+                              DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.28),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: debugLines
+                                        .map(
+                                          (String line) => Text(
+                                            line,
+                                            style: const TextStyle(fontSize: 11, color: Colors.white70),
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

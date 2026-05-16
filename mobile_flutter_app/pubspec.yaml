@@ -74,6 +74,7 @@ flutter:
 
   assets:
     - assets/klarando_logo.png
+    - assets/klarando_logo_transparent.png
     - assets/klarando_icon.png
     - assets/klarando_logo_wordmark.png
 
