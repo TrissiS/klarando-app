@@ -97,17 +97,17 @@ export default function SuperadminFeesPage() {
       subtitle="Abrechnung, Provisionen, Zusatzkosten und Marge klar getrennt von Modulfreigaben"
       navItems={SUPERADMIN_NAV_ITEMS}
     >
-      <div className="space-y-4">
-        {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
-        {info ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{info}</div> : null}
+      <div className="space-y-5">
+        {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div> : null}
+        {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 shadow-sm">{info}</div> : null}
 
-        <section className="rounded-2xl border bg-white p-4">
+        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-sm">
               Monat
-              <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="ml-2 rounded-xl border px-3 py-2" />
+              <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="ml-2 rounded-xl border border-[var(--brand-border)] px-3 py-2.5" />
             </label>
-            <button type="button" onClick={() => void handleCreateClosing()} className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+            <button type="button" onClick={() => void handleCreateClosing()} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">
               Monatsabrechnung erstellen
             </button>
           </div>
@@ -119,7 +119,7 @@ export default function SuperadminFeesPage() {
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {TABS.map((entry) => (
-              <button key={entry.key} type="button" onClick={() => setTab(entry.key)} className={`rounded-xl px-3 py-1.5 text-sm ${tab === entry.key ? 'bg-slate-900 text-white' : 'border bg-white'}`}>
+              <button key={entry.key} type="button" onClick={() => setTab(entry.key)} className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === entry.key ? 'bg-slate-900 text-white shadow-sm' : 'border border-[var(--brand-border)] bg-white text-slate-700 hover:bg-slate-50'}`}>
                 {entry.label}
               </button>
             ))}
@@ -127,17 +127,17 @@ export default function SuperadminFeesPage() {
         </section>
 
         {tab === 'MODELS' ? (
-          <section className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Gebührenmodelle</h3>
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Gebührenmodelle</h3>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {tenantRows.map((row) => (
-                <article key={row.tenantId} className="rounded-xl border p-3">
-                  <p className="font-semibold text-slate-900">{row.tenantName}</p>
+                <article key={row.tenantId} className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/30 p-4">
+                  <p className="font-semibold text-[var(--brand-ink)]">{row.tenantName}</p>
                   <p className="mt-1 text-xs text-slate-600">Monatsgebühr: {centsToEuro(row.monthlyFeeCents)}</p>
                   <p className="text-xs text-slate-600">Preis pro weiterer Bestellung: {centsToEuro(row.fixedFeePerOrderCents)}</p>
                   <p className="text-xs text-slate-600">Zusatzkosten Display/OrderDesk/Fahrer-App: vorbereitet</p>
                   <div className="mt-2">
-                    <button type="button" className="rounded-lg border px-2 py-1 text-xs">Gebühren speichern</button>
+                    <button type="button" className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800">Gebühren speichern</button>
                   </div>
                 </article>
               ))}
@@ -146,11 +146,11 @@ export default function SuperadminFeesPage() {
         ) : null}
 
         {tab === 'COMMISSIONS' ? (
-          <section className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Provisionen</h3>
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Provisionen</h3>
             <div className="overflow-auto">
               <table className="w-full min-w-[760px] text-sm">
-                <thead><tr className="text-left text-xs text-slate-500"><th>Filiale</th><th>Provision</th><th>Zusatzbestellungen</th><th>Provisionsbetrag</th></tr></thead>
+                <thead><tr className="text-left text-xs text-slate-500"><th className="py-2">Filiale</th><th className="py-2">Provision</th><th className="py-2">Zusatzbestellungen</th><th className="py-2">Provisionsbetrag</th></tr></thead>
                 <tbody>
                   {tenantRows.map((row) => (
                     <tr key={row.tenantId} className="border-t">
@@ -167,12 +167,12 @@ export default function SuperadminFeesPage() {
         ) : null}
 
         {tab === 'INCLUDED' ? (
-          <section className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Inklusivkontingente</h3>
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Inklusivkontingente</h3>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {tenantRows.map((row) => (
-                <article key={row.tenantId} className="rounded-xl border p-3">
-                  <p className="font-semibold text-slate-900">{row.tenantName}</p>
+                <article key={row.tenantId} className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/30 p-4">
+                  <p className="font-semibold text-[var(--brand-ink)]">{row.tenantName}</p>
                   <p className="mt-1 text-sm text-slate-700">{row.ordersCounted} von {row.includedOrders} verbraucht</p>
                   <div className="mt-2 h-2 w-full rounded-full bg-slate-200">
                     <div className="h-2 rounded-full bg-orange-500" style={{ width: `${Math.min(100, row.includedUsagePercent)}%` }} />
@@ -185,23 +185,23 @@ export default function SuperadminFeesPage() {
         ) : null}
 
         {tab === 'CLOSING' ? (
-          <section className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Monatsabrechnung</h3>
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Monatsabrechnung</h3>
             <p className="text-sm text-slate-700">
               Monat {month}: {chargeableRows.length} Filialen haben kostenpflichtige Zusatzbestellungen.
             </p>
-            <button type="button" onClick={() => void handleCreateClosing()} className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white">
+            <button type="button" onClick={() => void handleCreateClosing()} className="mt-3 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800">
               Monatsabrechnung erstellen
             </button>
           </section>
         ) : null}
 
         {tab === 'INVOICES' ? (
-          <section className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Rechnungen</h3>
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>
             <div className="overflow-auto">
               <table className="w-full min-w-[820px] text-sm">
-                <thead><tr className="text-left text-xs text-slate-500"><th>Rechnung</th><th>Filiale</th><th>Status</th><th>Betrag</th><th>Zeitraum</th></tr></thead>
+                <thead><tr className="text-left text-xs text-slate-500"><th className="py-2">Rechnung</th><th className="py-2">Filiale</th><th className="py-2">Status</th><th className="py-2">Betrag</th><th className="py-2">Zeitraum</th></tr></thead>
                 <tbody>
                   {invoices.slice(0, 100).map((invoice) => (
                     <tr key={invoice.id} className="border-t">
@@ -226,9 +226,9 @@ export default function SuperadminFeesPage() {
 
 function Kpi({ label, value }: { label: string; value: string | number }) {
   return (
-    <article className="rounded-xl border p-3">
+    <article className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 p-3">
       <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-xl font-semibold text-slate-900">{value}</p>
+      <p className="mt-1 text-xl font-semibold text-[var(--brand-ink)]">{value}</p>
     </article>
   )
 }

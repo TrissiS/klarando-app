@@ -162,35 +162,35 @@ export default function SuperadminModuleBillingPage() {
 
   return (
     <BackofficeLayout brand="Superadmin" title="Modulfreigaben" subtitle="Pakete, Module, Einzelrechte und Gerätezugänge sauber verwalten" navItems={SUPERADMIN_NAV_ITEMS}>
-      <div className="space-y-4">
-        {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700">{error}</div> : null}
-        {info ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{info}</div> : null}
+      <div className="space-y-5">
+        {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 shadow-sm">{error}</div> : null}
+        {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800 shadow-sm">{info}</div> : null}
 
-        <div className="rounded-2xl border bg-white p-4">
+        <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <div className="grid gap-3 md:grid-cols-4">
-            <select className="rounded-xl border px-3 py-2" value={chainId} onChange={(event) => setChainId(event.target.value)}>
+            <select className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5 text-sm" value={chainId} onChange={(event) => setChainId(event.target.value)}>
               <option value="">Alle Ketten</option>
               {(context?.chains || []).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
             </select>
-            <select className="rounded-xl border px-3 py-2" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+            <select className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5 text-sm" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
               <option value="">Filiale auswählen</option>
               {filteredTenants.map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
             </select>
-            <select className="rounded-xl border px-3 py-2" value={userId} onChange={(event) => setUserId(event.target.value)}>
+            <select className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5 text-sm" value={userId} onChange={(event) => setUserId(event.target.value)}>
               <option value="">Benutzer auswählen</option>
               {filteredUsers.map((entry) => <option key={entry.id} value={entry.id}>{entry.name} ({entry.email})</option>)}
             </select>
-            <input className="rounded-xl border px-3 py-2" placeholder="Suchen in Modulen/Rechten ..." value={query} onChange={(event) => setQuery(event.target.value)} />
+            <input className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5 text-sm" placeholder="Suchen in Modulen/Rechten ..." value={query} onChange={(event) => setQuery(event.target.value)} />
           </div>
           <div className="mt-3 grid gap-3 md:grid-cols-4">
-            <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Paketvorlagen</div><div className="text-xl font-bold">{packages.length}</div></div>
-            <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Aktive Module</div><div className="text-xl font-bold">{activeModules}</div></div>
-            <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Einzelrechte</div><div className="text-xl font-bold">{permissions.length}</div></div>
-            <div className="rounded-xl border p-3"><div className="text-xs text-slate-500">Gerätezugänge</div><div className="text-xl font-bold">zentral</div></div>
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 p-3"><div className="text-xs text-slate-500">Paketvorlagen</div><div className="text-xl font-bold text-[var(--brand-ink)]">{packages.length}</div></div>
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 p-3"><div className="text-xs text-slate-500">Aktive Module</div><div className="text-xl font-bold text-[var(--brand-ink)]">{activeModules}</div></div>
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 p-3"><div className="text-xs text-slate-500">Einzelrechte</div><div className="text-xl font-bold text-[var(--brand-ink)]">{permissions.length}</div></div>
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 p-3"><div className="text-xs text-slate-500">Gerätezugänge</div><div className="text-xl font-bold text-[var(--brand-ink)]">zentral</div></div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
             {tabs.map((entry) => (
-              <button key={entry.key} type="button" className={`rounded-xl px-3 py-1.5 text-sm ${tab === entry.key ? 'bg-slate-900 text-white' : 'border bg-white'}`} onClick={() => setTab(entry.key)}>
+              <button key={entry.key} type="button" className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === entry.key ? 'bg-slate-900 text-white shadow-sm' : 'border border-[var(--brand-border)] bg-white text-slate-700 hover:bg-slate-50'}`} onClick={() => setTab(entry.key)}>
                 {entry.label}
               </button>
             ))}
@@ -198,39 +198,52 @@ export default function SuperadminModuleBillingPage() {
         </div>
 
         {tab === 'PACKAGES' ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Pakete</h3>
-            <div className="overflow-auto">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead><tr className="text-left text-xs text-slate-500"><th>Paket</th><th>Beschreibung</th><th>enthaltene Module</th><th>Status</th><th>Aktion</th></tr></thead>
-                <tbody>
-                  {packages.map((entry) => (
-                    <tr key={entry.key} className="border-t">
-                      <td className="py-2 font-medium">{entry.name}</td>
-                      <td>{entry.description}</td>
-                      <td>{entry.features.join(', ') || '-'}</td>
-                      <td>aktiv</td>
-                      <td><button type="button" className="rounded border px-2 py-1" onClick={() => void applyPackage(entry.key)} disabled={loading || !tenantId}>Auf Filiale anwenden</button></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Pakete</h3>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {packages.map((entry) => (
+                <article key={entry.key} className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/30 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-semibold text-[var(--brand-ink)]">{entry.name}</p>
+                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-semibold text-emerald-700">aktiv</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-600">{entry.description}</p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {(entry.features || []).map((feature) => (
+                      <span key={feature} className="rounded-full border border-rose-200 bg-white px-2 py-1 text-[11px] text-rose-900">
+                        {feature.replaceAll('_', ' ')}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-3">
+                    <button type="button" className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-60" onClick={() => void applyPackage(entry.key)} disabled={loading || !tenantId}>
+                      Paket anwenden
+                    </button>
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
         ) : null}
 
         {tab === 'MODULES' ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Modulfreigaben</h3>
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Module</h3>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {filteredModules.map((entry) => (
-                <div key={entry.key} className="rounded-xl border p-3">
+                <div key={entry.key} className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/30 p-3">
                   <div className="flex items-center justify-between">
-                    <p className="font-semibold">{entry.name}</p>
+                    <p className="font-semibold text-[var(--brand-ink)]">{entry.name}</p>
                     <span className={`rounded-full px-2 py-0.5 text-xs ${entry.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{entry.enabled ? 'aktiv' : 'inaktiv'}</span>
                   </div>
                   <p className="mt-1 text-xs text-slate-600">{entry.description}</p>
-                  <p className="mt-2 text-xs text-slate-500">Unterrechte: {entry.requiredPermissions.map(formatAccessPermission).join(', ') || '-'}</p>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {entry.requiredPermissions.length ? entry.requiredPermissions.map((permission) => (
+                      <span key={permission} className="rounded-full border border-rose-200 bg-white px-2 py-1 text-[11px] text-rose-900">
+                        {formatAccessPermission(permission)}
+                      </span>
+                    )) : <span className="text-xs text-slate-500">Keine Unterrechte</span>}
+                  </div>
                 </div>
               ))}
             </div>
@@ -238,11 +251,11 @@ export default function SuperadminModuleBillingPage() {
         ) : null}
 
         {tab === 'PERMISSIONS' ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-3 text-sm font-semibold">Einzelrechte</h3>
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Einzelrechte</h3>
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
               {ACCESS_PACKAGES.map((entry) => (
-                <label key={entry.id} className="flex items-start gap-2 rounded-xl border p-3 text-sm">
+                <label key={entry.id} className="flex items-start gap-2 rounded-2xl border border-[var(--brand-border)] bg-rose-50/30 p-3 text-sm">
                   <input
                     type="checkbox"
                     checked={selectedPackageIds.includes(entry.id)}
@@ -263,7 +276,7 @@ export default function SuperadminModuleBillingPage() {
 
             <div className="mt-4 grid gap-3 lg:grid-cols-2">
               {groupedPermissions.map(([group, entries]) => (
-                <div key={group} className="rounded-xl border p-3">
+                <div key={group} className="rounded-2xl border border-[var(--brand-border)] p-3">
                   <p className="mb-2 text-sm font-semibold">{group}</p>
                   <div className="grid gap-1 sm:grid-cols-2">
                     {entries.map((permission) => {
@@ -291,7 +304,7 @@ export default function SuperadminModuleBillingPage() {
             </div>
 
             <div className="mt-4">
-              <button type="button" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white" onClick={() => void savePermissions()} disabled={loading || !userId}>
+              <button type="button" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60" onClick={() => void savePermissions()} disabled={loading || !userId}>
                 Einzelrechte speichern
               </button>
             </div>
@@ -299,8 +312,8 @@ export default function SuperadminModuleBillingPage() {
         ) : null}
 
         {tab === 'DEVICES' ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-2 text-sm font-semibold">Geräte & Zugänge</h3>
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <h3 className="mb-2 text-sm font-semibold text-[var(--brand-ink)]">Geräte & Zugänge</h3>
             <p className="text-sm text-slate-600">Die zentrale Geräteübersicht findest du unter <strong>/superadmin/devices</strong> mit Tabs für Displays, OrderDesk, Fahrergeräte und Offline-Status.</p>
           </div>
         ) : null}
