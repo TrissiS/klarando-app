@@ -130,7 +130,7 @@ const navSections: NavSection[] = [
     label: 'Geräte',
     items: [
       { href: '/admin/display-devices', label: 'Display-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/screen', label: 'Menübildschirme', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/screen-studio', label: 'Bildschirmstudio', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/order-displays', label: 'Abholmonitore', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/terminals', label: 'Kassen-/OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
     ],
@@ -496,6 +496,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       return (
         pathname.startsWith('/admin/displays') ||
         pathname.startsWith('/admin/screen') ||
+        pathname.startsWith('/admin/screen-studio') ||
         pathname.startsWith('/admin/terminals') ||
         pathname.startsWith('/admin/order-displays')
       )
@@ -549,7 +550,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       path.startsWith('/admin/displays') ||
       path.startsWith('/admin/terminals') ||
       path.startsWith('/admin/order-displays') ||
-      path.startsWith('/admin/screen')
+      path.startsWith('/admin/screen') ||
+      path.startsWith('/admin/screen-studio')
     ) {
       return 'displays'
     }

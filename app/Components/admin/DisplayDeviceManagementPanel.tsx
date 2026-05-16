@@ -33,6 +33,7 @@ type DisplayDeviceManagementPanelProps = {
   roleScope: 'admin' | 'chainadmin' | 'superadmin'
   fixedTenantId?: string | null
   fixedChainId?: string | null
+  studioMode?: boolean
 }
 
 const STATUS_LABEL: Record<DisplayDeviceStatus, string> = {
@@ -70,6 +71,7 @@ export default function DisplayDeviceManagementPanel({
   roleScope,
   fixedTenantId,
   fixedChainId,
+  studioMode = false,
 }: DisplayDeviceManagementPanelProps) {
   const [rows, setRows] = useState<DisplayDeviceOverviewRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -826,9 +828,15 @@ export default function DisplayDeviceManagementPanel({
                   <tr key={row.id}>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <p className="font-semibold text-[var(--brand-ink)]">{row.name}</p>
-                      <p className="text-xs text-rose-900/70">
-                        {row.code} | {row.sourceKind === 'ORDER_DISPLAY' ? 'Bestell-Display' : row.sourceKind === 'DISPLAY_DEVICE' ? 'Klarando-Display' : 'Screen-Device'}
-                      </p>
+                      {!studioMode ? (
+                        <p className="text-xs text-rose-900/70">
+                          {row.code} | {row.sourceKind === 'ORDER_DISPLAY' ? 'Bestell-Display' : row.sourceKind === 'DISPLAY_DEVICE' ? 'Klarando-Display' : 'Screen-Device'}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-rose-900/70">
+                          {row.sourceKind === 'ORDER_DISPLAY' ? 'Bestell-Display' : row.sourceKind === 'DISPLAY_DEVICE' ? 'Klarando-Display' : 'Screen-Device'}
+                        </p>
+                      )}
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <AdminStatusBadge
