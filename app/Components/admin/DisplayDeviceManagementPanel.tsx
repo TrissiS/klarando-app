@@ -116,6 +116,35 @@ export default function DisplayDeviceManagementPanel({
     () => rows.find((entry) => entry.id === selectedDisplayRowId) || null,
     [rows, selectedDisplayRowId]
   )
+  const detectedResolutionFromPayload = useMemo(() => {
+    const raw = claimPayload.trim()
+    if (!raw.startsWith('{')) return null
+    try {
+      const parsed = JSON.parse(raw) as {
+        deviceResolution?: {
+          width?: unknown
+          height?: unknown
+          dpr?: unknown
+          orientation?: unknown
+        }
+      }
+      const resolution = parsed.deviceResolution
+      if (!resolution || typeof resolution !== 'object') return null
+      const width = Number(resolution.width)
+      const height = Number(resolution.height)
+      const dpr = Number(resolution.dpr)
+      const orientation = typeof resolution.orientation === 'string' ? resolution.orientation : null
+      if (!Number.isFinite(width) || !Number.isFinite(height)) return null
+      return {
+        width: Math.round(width),
+        height: Math.round(height),
+        dpr: Number.isFinite(dpr) ? Number(dpr.toFixed(2)) : null,
+        orientation,
+      }
+    } catch {
+      return null
+    }
+  }, [claimPayload])
 
   const filteredTenants = useMemo(() => {
     if (!selectedChainId) {
@@ -577,6 +606,16 @@ export default function DisplayDeviceManagementPanel({
             <p>Debug selectedDisplayId: {selectedDisplayRow?.id || '-'}</p>
             <p>Debug selectedDisplayName: {selectedDisplayRow?.name || '-'}</p>
             <p>Debug pairingCode vorhanden: {claimPairingCode.trim() ? 'ja' : 'nein'}</p>
+          </div>
+        ) : null}
+        {detectedResolutionFromPayload ? (
+          <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+            <p className="font-semibold">Erkannte Display-Auflösung aus QR</p>
+            <p>
+              {detectedResolutionFromPayload.width} × {detectedResolutionFromPayload.height}
+              {detectedResolutionFromPayload.orientation ? ` · ${detectedResolutionFromPayload.orientation}` : ''}
+              {detectedResolutionFromPayload.dpr ? ` · DPR ${detectedResolutionFromPayload.dpr}` : ''}
+            </p>
           </div>
         ) : null}
         {lastClaimDiagnostic ? (
