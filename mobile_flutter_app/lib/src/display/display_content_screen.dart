@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 
 class DisplayContentScreen extends StatefulWidget {
   const DisplayContentScreen({
@@ -21,26 +22,44 @@ class DisplayContentScreen extends StatefulWidget {
 class _DisplayContentScreenState extends State<DisplayContentScreen> {
   Timer? _pageTimer;
   int _pageIndex = 0;
+  VideoPlayerController? _videoController;
+  String? _videoUrl;
+
+  @override
+  void didUpdateWidget(covariant DisplayContentScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _syncBackgroundVideoIfNeeded();
+  }
 
   @override
   void dispose() {
     _pageTimer?.cancel();
+    _videoController?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final screen = (widget.content['screen'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final screenConfig =
+        (widget.content['screenConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final items =
         (widget.content['items'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
     final products =
         (widget.content['products'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
     final backgroundColor = _parseColor(screen['backgroundColor'] as String?) ?? const Color(0xFF111827);
+    final backgroundMode = '${screenConfig['backgroundMode'] ?? ''}'.toUpperCase();
+    final backgroundValue = screenConfig['backgroundValue'] as String?;
+    final backgroundMediaUrl = screenConfig['backgroundMediaUrl'] as String?;
+    final showPrices = (screenConfig['showPrices'] as bool?) ?? true;
+    final showCategory = (screenConfig['showCategoryOnCard'] as bool?) ?? true;
+    final configuredColumns = (screenConfig['defaultColumnCount'] as num?)?.toInt();
+    _syncBackgroundVideo(backgroundMediaUrl, backgroundMode);
     final menuRows = products
         .map((entry) => <String, String>{
               'name': '${entry['name'] ?? '-'}',
               'category': '${entry['categoryName'] ?? 'Weitere'}',
-              'price': _formatPrice(entry['price']),
+              'price': showPrices ? _formatPrice(entry['price']) : '',
             })
         .toList(growable: false);
 
@@ -66,9 +85,25 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
           final scaleFactor = (constraints.maxWidth / 1920).clamp(0.72, 1.35);
 
           return Container(
-            color: backgroundColor,
+            decoration: BoxDecoration(
+              color: backgroundColor,
+              gradient: backgroundMode == 'COLOR' && (backgroundValue?.startsWith('linear-gradient') ?? false)
+                  ? const LinearGradient(colors: [Color(0xFF111827), Color(0xFF1f2937)])
+                  : null,
+            ),
             child: Stack(
               children: <Widget>[
+                if (_videoController != null && _videoController!.value.isInitialized)
+                  Positioned.fill(
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: _videoController!.value.size.width,
+                        height: _videoController!.value.size.height,
+                        child: VideoPlayer(_videoController!),
+                      ),
+                    ),
+                  ),
                 Positioned.fill(
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
@@ -85,6 +120,8 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                 rows: menuRows,
                                 maxHeight: usableHeight,
                                 maxWidth: constraints.maxWidth - (horizontalPadding * 2),
+                                showCategory: showCategory,
+                                configuredColumns: configuredColumns,
                               )
                             : Column(
                             children: <Widget>[
@@ -153,6 +190,43 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     return '${parsed.toStringAsFixed(2).replaceAll('.', ',')} €';
   }
 
+  void _syncBackgroundVideoIfNeeded() {
+    final screenConfig =
+        (widget.content['screenConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final mode = '${screenConfig['backgroundMode'] ?? ''}'.toUpperCase();
+    final mediaUrl = screenConfig['backgroundMediaUrl'] as String?;
+    _syncBackgroundVideo(mediaUrl, mode);
+  }
+
+  void _syncBackgroundVideo(String? mediaUrl, String backgroundMode) {
+    final normalizedUrl = mediaUrl?.trim();
+    final canUseVideo = backgroundMode == 'IMAGE' &&
+        normalizedUrl != null &&
+        normalizedUrl.isNotEmpty &&
+        (normalizedUrl.toLowerCase().endsWith('.mp4') || normalizedUrl.toLowerCase().endsWith('.webm'));
+    if (!canUseVideo) {
+      if (_videoController != null) {
+        _videoController!.dispose();
+        _videoController = null;
+        _videoUrl = null;
+      }
+      return;
+    }
+    if (_videoUrl == normalizedUrl && _videoController != null) return;
+    _videoController?.dispose();
+    _videoController = VideoPlayerController.networkUrl(Uri.parse(normalizedUrl!))
+      ..setLooping(true)
+      ..setVolume(0);
+    _videoUrl = normalizedUrl;
+    _videoController!.initialize().then((_) {
+      if (!mounted) return;
+      _videoController!.play();
+      setState(() {});
+    }).catchError((_) {
+      // Keep static background if video cannot be loaded.
+    });
+  }
+
   void _syncPageTimer(int pageCount) {
     _pageTimer?.cancel();
     if (pageCount <= 1) return;
@@ -188,16 +262,23 @@ class _MenuProductBoard extends StatelessWidget {
     required this.rows,
     required this.maxHeight,
     required this.maxWidth,
+    required this.showCategory,
+    this.configuredColumns,
   });
 
   final List<Map<String, String>> rows;
   final double maxHeight;
   final double maxWidth;
+  final bool showCategory;
+  final int? configuredColumns;
 
   @override
   Widget build(BuildContext context) {
     final isLandscape = maxWidth >= maxHeight;
-    final columnCount = isLandscape ? 2 : 1;
+    final requestedColumns = configuredColumns != null && configuredColumns! > 0
+        ? configuredColumns!.clamp(1, 5)
+        : null;
+    final columnCount = requestedColumns ?? (isLandscape ? 2 : 1);
     final rowHeight = isLandscape ? 74.0 : 68.0;
     final rowsPerColumn = (maxHeight / rowHeight).floor().clamp(1, 20);
     final maxRowsVisible = rowsPerColumn * columnCount;
@@ -242,24 +323,26 @@ class _MenuProductBoard extends StatelessWidget {
                                       ),
                                     ),
                                     const SizedBox(height: 2),
-                                    Text(
-                                      row['category'] ?? '',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(fontSize: 14, color: Colors.white70),
-                                    ),
+                                    if (showCategory)
+                                      Text(
+                                        row['category'] ?? '',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(fontSize: 14, color: Colors.white70),
+                                      ),
                                   ],
                                 ),
                               ),
                               const SizedBox(width: 12),
-                              Text(
-                                row['price'] ?? '-',
-                                style: const TextStyle(
-                                  fontSize: 24,
-                                  color: Color(0xFFFBBF24),
-                                  fontWeight: FontWeight.w700,
+                              if ((row['price'] ?? '').isNotEmpty)
+                                Text(
+                                  row['price'] ?? '-',
+                                  style: const TextStyle(
+                                    fontSize: 24,
+                                    color: Color(0xFFFBBF24),
+                                    fontWeight: FontWeight.w700,
+                                  ),
                                 ),
-                              ),
                             ],
                           ),
                         ),

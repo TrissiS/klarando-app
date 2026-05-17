@@ -133,8 +133,14 @@ export default function AdminScreenStudioPage() {
   const [primaryColor, setPrimaryColor] = useState('#f97316')
   const [accentColor, setAccentColor] = useState('#ec4899')
   const [backgroundMode, setBackgroundMode] = useState<'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD'>('VERLAUF')
+  const [backgroundMediaUrl, setBackgroundMediaUrl] = useState('')
   const [fontSizeMode, setFontSizeMode] = useState<FontSizeMode>('MITTEL')
   const [cardDensity, setCardDensity] = useState<CardDensity>('KOMFORT')
+  const [ingredientFontSize, setIngredientFontSize] = useState(16)
+  const [categoryFontSize, setCategoryFontSize] = useState(16)
+  const [priceFontSize, setPriceFontSize] = useState(28)
+  const [defaultColumnCount, setDefaultColumnCount] = useState(2)
+  const [showCategoryOnCard, setShowCategoryOnCard] = useState(true)
   const [showLogo, setShowLogo] = useState(true)
   const [highlightPrice, setHighlightPrice] = useState(true)
   const [enableAnimations, setEnableAnimations] = useState(true)
@@ -207,11 +213,17 @@ export default function AdminScreenStudioPage() {
         setBackgroundMode(
           config.backgroundMode === 'IMAGE' ? 'BILD' : config.backgroundMode === 'COLOR' ? 'DUNKEL' : 'VERLAUF'
         )
+        setBackgroundMediaUrl(config.backgroundMediaUrl || '')
         setShowLogo(Boolean(config.logoUrl))
         setHighlightPrice(config.showPrices)
+        setShowCategoryOnCard(config.showCategoryOnCard)
         setEnableAnimations(config.overlayAnimation !== 'NONE')
         setFontFamily(config.fontFamily || 'Poppins, sans-serif')
         setPixelPadding(config.cardPadding || 16)
+        setDefaultColumnCount(Math.max(1, Math.min(5, config.defaultColumnCount || 2)))
+        setIngredientFontSize(Math.max(12, Math.min(32, config.ingredientFontSize || 16)))
+        setCategoryFontSize(Math.max(12, Math.min(32, config.categoryFontSize || 16)))
+        setPriceFontSize(Math.max(14, Math.min(54, config.priceFontSize || 28)))
         setFontSizeMode(config.productFontSize >= 32 ? 'GROSS' : config.productFontSize <= 22 ? 'KLEIN' : 'MITTEL')
         setCardDensity(config.cardPadding <= 12 ? 'KOMPAKT' : config.cardPadding >= 22 ? 'GROSS' : 'KOMFORT')
       } catch (loadError) {
@@ -391,12 +403,18 @@ export default function AdminScreenStudioPage() {
         textColor: primaryColor,
         backgroundMode: backgroundMode === 'BILD' ? 'IMAGE' : 'COLOR',
         backgroundValue: backgroundMode === 'HELL' ? '#f8fafc' : backgroundMode === 'DUNKEL' ? '#0f172a' : `linear-gradient(135deg, ${primaryColor}, ${accentColor})`,
+        backgroundMediaUrl: backgroundMode === 'BILD' ? backgroundMediaUrl.trim() || null : null,
         showPrices: highlightPrice,
+        showCategoryOnCard,
         logoUrl: showLogo ? '/klarando_logo.png' : null,
         overlayAnimation: enableAnimations ? 'FLOAT' : 'NONE',
         fontFamily,
         cardPadding: pixelPadding,
         productFontSize: fontSizeMode === 'KLEIN' ? 20 : fontSizeMode === 'GROSS' ? 34 : 28,
+        ingredientFontSize,
+        categoryFontSize,
+        priceFontSize,
+        defaultColumnCount: Math.max(1, Math.min(5, defaultColumnCount)),
       }
       await updateScreenConfig(payload)
       if (selectedDesignScreenId && session?.tenantId) {
@@ -728,6 +746,14 @@ export default function AdminScreenStudioPage() {
                   <option value="BILD">Bild</option>
                 </select>
               </Field>
+              <Field label="Video-/Bild-URL (Hintergrund)">
+                <input
+                  value={backgroundMediaUrl}
+                  onChange={(e) => setBackgroundMediaUrl(e.target.value)}
+                  placeholder="https://.../background.mp4"
+                  className="input-ui"
+                />
+              </Field>
               <Field label="Schriftgröße">
                 <select value={fontSizeMode} onChange={(e) => setFontSizeMode(e.target.value as FontSizeMode)} className="input-ui">
                   <option value="KLEIN">Klein</option>
@@ -754,10 +780,38 @@ export default function AdminScreenStudioPage() {
                   <option value="NEIN">Nein</option>
                 </select>
               </Field>
+              <Field label="Kategorie auf Produktkarte">
+                <select value={showCategoryOnCard ? 'JA' : 'NEIN'} onChange={(e) => setShowCategoryOnCard(e.target.value === 'JA')} className="input-ui">
+                  <option value="JA">Ja</option>
+                  <option value="NEIN">Nein</option>
+                </select>
+              </Field>
               <Field label="Animationen">
                 <select value={enableAnimations ? 'JA' : 'NEIN'} onChange={(e) => setEnableAnimations(e.target.value === 'JA')} className="input-ui">
                   <option value="JA">Ja</option>
                   <option value="NEIN">Nein</option>
+                </select>
+              </Field>
+              <Field label="Spalten pro Bildschirm">
+                <select
+                  value={String(defaultColumnCount)}
+                  onChange={(e) => setDefaultColumnCount(Number(e.target.value))}
+                  className="input-ui"
+                >
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
+                </select>
+              </Field>
+              <Field label="Ziel: Produktmenge auf Displays">
+                <select value={String(defaultColumnCount)} onChange={(e) => setDefaultColumnCount(Number(e.target.value))} className="input-ui">
+                  <option value="1">1 Display</option>
+                  <option value="2">2 Displays</option>
+                  <option value="3">3 Displays</option>
+                  <option value="4">4 Displays</option>
+                  <option value="5">5 Displays</option>
                 </select>
               </Field>
               <Field label="Expertenmodus">
@@ -777,6 +831,15 @@ export default function AdminScreenStudioPage() {
                 </Field>
                 <Field label="Pixel-Padding">
                   <input type="number" value={pixelPadding} onChange={(e) => setPixelPadding(Math.max(8, Math.min(40, Number(e.target.value) || 16)))} className="input-ui" />
+                </Field>
+                <Field label="Zutaten Schriftgröße">
+                  <input type="number" value={ingredientFontSize} onChange={(e) => setIngredientFontSize(Math.max(12, Math.min(32, Number(e.target.value) || 16)))} className="input-ui" />
+                </Field>
+                <Field label="Kategorie Schriftgröße">
+                  <input type="number" value={categoryFontSize} onChange={(e) => setCategoryFontSize(Math.max(12, Math.min(32, Number(e.target.value) || 16)))} className="input-ui" />
+                </Field>
+                <Field label="Preis Schriftgröße">
+                  <input type="number" value={priceFontSize} onChange={(e) => setPriceFontSize(Math.max(14, Math.min(54, Number(e.target.value) || 28)))} className="input-ui" />
                 </Field>
               </div>
             ) : null}

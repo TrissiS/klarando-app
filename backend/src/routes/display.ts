@@ -302,7 +302,48 @@ router.get('/content', async (req, res) => {
       })
 
     const categories = Array.from(new Set(normalizedProducts.map((entry) => entry.categoryName)))
-    console.info('DISPLAY CONTENT PRODUCTS COUNT', normalizedProducts.length)
+    const tenantScreenDevices = await prisma.displayDevice.findMany({
+      where: {
+        tenantId: device.tenantId,
+        screenId: resolvedScreen.id,
+        revokedAt: null,
+      },
+      select: {
+        id: true,
+        lastSeenAt: true,
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+    const activeWindowMs = 3 * 60 * 1000
+    const nowMs = Date.now()
+    const activeDevices = tenantScreenDevices.filter((entry) => {
+      if (entry.id === device.id) return true
+      if (!entry.lastSeenAt) return false
+      return nowMs - entry.lastSeenAt.getTime() <= activeWindowMs
+    })
+    const wallDevices = activeDevices.length > 0 ? activeDevices : tenantScreenDevices
+    const displayCount = Math.max(1, wallDevices.length)
+    const displayIndex = Math.max(0, wallDevices.findIndex((entry) => entry.id === device.id))
+    const perDisplay = Math.max(1, Math.ceil(normalizedProducts.length / displayCount))
+    const start = Math.min(normalizedProducts.length, displayIndex * perDisplay)
+    const end = Math.min(normalizedProducts.length, start + perDisplay)
+    const distributedProducts = normalizedProducts.slice(start, end)
+
+    const screenConfig = {
+      backgroundMode: 'COLOR',
+      backgroundValue: resolvedScreen.backgroundColor,
+      backgroundMediaUrl: null,
+      cardPadding: 16,
+      productFontSize: 28,
+      categoryFontSize: 16,
+      ingredientFontSize: 16,
+      priceFontSize: 28,
+      defaultColumnCount: Math.max(1, Math.min(5, displayCount)),
+      showPrices: true,
+      showCategoryOnCard: true,
+      fontFamily: 'Poppins, sans-serif',
+    }
+    console.info('DISPLAY CONTENT PRODUCTS COUNT', distributedProducts.length)
 
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
     res.setHeader('Pragma', 'no-cache')
@@ -338,7 +379,14 @@ router.get('/content', async (req, res) => {
         config: item.config,
       })),
       categories,
-      products: normalizedProducts,
+      products: distributedProducts,
+      screenConfig,
+      layout: {
+        displayCount,
+        displayIndex,
+        productsTotal: normalizedProducts.length,
+        productsOnDisplay: distributedProducts.length,
+      },
       tenantBranding: {
         tenantId: device.tenantId,
       },
