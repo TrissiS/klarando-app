@@ -12,6 +12,7 @@ import {
   type ManagedTenant,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
+type SettingsTab = 'APP' | 'STAMMDATEN'
 
 function confirmDoubleSave(tenantName: string) {
   const firstCheck = window.confirm(`Einstellungen für "${tenantName}" wirklich ändern?`)
@@ -22,6 +23,7 @@ function confirmDoubleSave(tenantName: string) {
 }
 
 export default function SuperadminAppSettingsPage() {
+  const [tab, setTab] = useState<SettingsTab>('APP')
   const [session, setSession] = useState<SessionUser | null>(null)
   const [token, setToken] = useState('')
   const [tenants, setTenants] = useState<ManagedTenant[]>([])
@@ -45,6 +47,13 @@ export default function SuperadminAppSettingsPage() {
     const accessToken = parsed.accessToken || localStorage.getItem('accessToken') || ''
     setSession(parsed)
     setToken(accessToken)
+    try {
+      const params = new URL(window.location.href).searchParams
+      const requestedTab = params.get('tab')?.trim().toLowerCase()
+      if (requestedTab === 'stammdaten') setTab('STAMMDATEN')
+    } catch {
+      // ignore
+    }
   }, [])
 
   useEffect(() => {
@@ -240,6 +249,10 @@ export default function SuperadminAppSettingsPage() {
         </section>
       ) : (
         <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+          <div className="mb-4 flex flex-wrap gap-2">
+            <button type="button" onClick={() => setTab('APP')} className={`rounded-xl px-3 py-2 text-sm font-medium ${tab === 'APP' ? 'bg-slate-900 text-white' : 'border border-[var(--brand-border)] bg-white text-slate-700'}`}>App-Einstellungen</button>
+            <button type="button" onClick={() => setTab('STAMMDATEN')} className={`rounded-xl px-3 py-2 text-sm font-medium ${tab === 'STAMMDATEN' ? 'bg-slate-900 text-white' : 'border border-[var(--brand-border)] bg-white text-slate-700'}`}>Stammdaten & Abrechnung</button>
+          </div>
           <label className="block max-w-xl">
             <span className="mb-1 block text-sm font-medium text-rose-900/85">Filiale</span>
             <select
@@ -260,6 +273,8 @@ export default function SuperadminAppSettingsPage() {
             <p className="mt-4 text-sm text-rose-900/70">Lade App-Einstellungen...</p>
           ) : (
             <>
+              {tab === 'APP' ? (
+              <>
               <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3">
                 <p className="text-xs uppercase tracking-wide text-rose-900/70">App Baukasten</p>
                 <p className="mt-1 text-sm text-rose-900/85">
@@ -342,6 +357,21 @@ export default function SuperadminAppSettingsPage() {
               <div className="mt-4">
                 <AppSettingsFields settings={settings} onChange={setSettings} showComplianceControls />
               </div>
+              </>
+              ) : (
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <SettingsInput label="USt-ID" value={settings.vatId || ''} onChange={(v) => updateField('vatId', v || null)} />
+                  <SettingsInput label="Steuernummer" value={settings.taxNumber || ''} onChange={(v) => updateField('taxNumber', v || null)} />
+                  <SettingsInput label="Umsatz-ID / GLN" value={settings.revenueId || ''} onChange={(v) => updateField('revenueId', v || null)} />
+                  <SettingsInput label="Finanzamt" value={settings.taxOffice || ''} onChange={(v) => updateField('taxOffice', v || null)} />
+                  <SettingsInput label="Kontoinhaber" value={settings.payoutAccountHolder || ''} onChange={(v) => updateField('payoutAccountHolder', v || null)} className="sm:col-span-2" />
+                  <SettingsInput label="IBAN" value={settings.payoutIban || ''} onChange={(v) => updateField('payoutIban', (v || '').toUpperCase() || null)} />
+                  <SettingsInput label="BIC" value={settings.payoutBic || ''} onChange={(v) => updateField('payoutBic', (v || '').toUpperCase() || null)} />
+                  <SettingsInput label="Bankname" value={settings.payoutBankName || ''} onChange={(v) => updateField('payoutBankName', v || null)} />
+                  <SettingsInput label="Abrechnungs E-Mail" value={settings.payoutEmail || ''} onChange={(v) => updateField('payoutEmail', v || null)} />
+                  <SettingsInput label="Zahlungsreferenz" value={settings.payoutReference || ''} onChange={(v) => updateField('payoutReference', v || null)} className="sm:col-span-2" />
+                </div>
+              )}
               <div className="mt-5 flex justify-end">
                 <button
                   type="button"
@@ -357,6 +387,29 @@ export default function SuperadminAppSettingsPage() {
         </section>
       )}
     </BackofficeLayout>
+  )
+}
+
+function SettingsInput({
+  label,
+  value,
+  onChange,
+  className,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  className?: string
+}) {
+  return (
+    <label className={`block ${className || ''}`}>
+      <span className="mb-1 block text-sm font-medium text-rose-900/85">{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+      />
+    </label>
   )
 }
 
