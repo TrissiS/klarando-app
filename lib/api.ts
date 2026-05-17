@@ -7835,6 +7835,7 @@ export type MenuImportAnalysisResult = {
     confidence: number
     products: Array<{
       name: string
+      productNumber: string | null
       description: string | null
       price: number | null
       variants: Array<{
@@ -7901,4 +7902,35 @@ export async function analyzeSuperadminMenuImport(
   }
 
   return (await response.json()) as MenuImportAnalysisResult
+}
+
+export async function importSuperadminMenuImport(
+  token: string,
+  payload: {
+    tenantId: string
+    categories: MenuImportAnalysisResult['categories']
+  }
+): Promise<{
+  ok: boolean
+  importedProducts: number
+  importedCategories: number
+  message: string
+}> {
+  const response = await apiFetch('/api/superadmin/menu-import/import', {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : undefined,
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null)
+    throw new Error(errorData?.error || 'Import konnte nicht gestartet werden')
+  }
+
+  return (await response.json()) as {
+    ok: boolean
+    importedProducts: number
+    importedCategories: number
+    message: string
+  }
 }

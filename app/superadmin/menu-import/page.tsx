@@ -6,6 +6,7 @@ import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   analyzeSuperadminMenuImport,
   getAccessContext,
+  importSuperadminMenuImport,
   getSuperadminMenuImportStatus,
   type AccessContext,
   type MenuImportAnalysisResult,
@@ -30,9 +31,11 @@ export default function SuperadminMenuImportPage() {
   const [files, setFiles] = useState<File[]>([])
   const [result, setResult] = useState<MenuImportAnalysisResult | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [isImporting, setIsImporting] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [status, setStatus] = useState<SuperadminMenuImportStatus | null>(null)
+  const [editableResult, setEditableResult] = useState<MenuImportAnalysisResult | null>(null)
 
   const selectedTenant = useMemo(
     () => context?.tenants.find((entry) => entry.id === tenantId) || null,
@@ -120,6 +123,7 @@ export default function SuperadminMenuImportPage() {
       setSuccess('')
       const analyzed = await analyzeSuperadminMenuImport(token, tenantId, files)
       setResult(analyzed)
+      setEditableResult(analyzed)
       setSuccess('Speisekarte wurde analysiert. Bitte Ergebnis prüfen.')
     } catch (analysisError) {
       setResult(null)
@@ -130,12 +134,56 @@ export default function SuperadminMenuImportPage() {
   }
 
   async function copyJson() {
-    if (!result) return
+    if (!editableResult) return
     try {
-      await navigator.clipboard.writeText(JSON.stringify(result, null, 2))
+      await navigator.clipboard.writeText(JSON.stringify(editableResult, null, 2))
       setSuccess('JSON wurde in die Zwischenablage kopiert.')
     } catch {
       setError('JSON konnte nicht kopiert werden.')
+    }
+  }
+
+  function updateProductField(
+    categoryIndex: number,
+    productIndex: number,
+    field: 'name' | 'productNumber' | 'description' | 'price',
+    value: string
+  ) {
+    setEditableResult((current) => {
+      if (!current) return current
+      const next = structuredClone(current)
+      const target = next.categories[categoryIndex]?.products[productIndex]
+      if (!target) return current
+      if (field === 'price') {
+        const normalized = value.replace(',', '.')
+        const parsed = Number(normalized)
+        target.price = Number.isFinite(parsed) ? parsed : null
+      } else if (field === 'productNumber') {
+        target.productNumber = value.trim() || null
+      } else if (field === 'description') {
+        target.description = value.trim() || null
+      } else {
+        target.name = value
+      }
+      return next
+    })
+  }
+
+  async function runImport() {
+    if (!token || !tenantId || !editableResult) return
+    try {
+      setIsImporting(true)
+      setError('')
+      setSuccess('')
+      const response = await importSuperadminMenuImport(token, {
+        tenantId,
+        categories: editableResult.categories,
+      })
+      setSuccess(response.message)
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : 'Import fehlgeschlagen.')
+    } finally {
+      setIsImporting(false)
     }
   }
 
@@ -226,19 +274,20 @@ export default function SuperadminMenuImportPage() {
           </button>
           <button
             type="button"
-            disabled
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-500"
-            title="Finaler Produktimport folgt in Phase 2."
+            onClick={() => void runImport()}
+            disabled={!editableResult || isImporting}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            title="Importiert Produkte in die gewählte Filiale."
           >
-            Import starten (Phase 2)
+            {isImporting ? 'Import läuft…' : 'Import starten'}
           </button>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          Finaler Import in Produkte folgt nach Prüfung.
+          Produkte werden mit Status „nicht aktiv“ importiert und können danach im Produktbereich freigegeben werden.
         </p>
       </section>
 
-      {result ? (
+      {result && editableResult ? (
         <section className="mt-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
           <h2 className="text-lg font-semibold text-rose-950">Ergebnis-Vorschau</h2>
           <p className="mt-1 text-sm text-rose-900/75">
@@ -257,7 +306,7 @@ export default function SuperadminMenuImportPage() {
           ) : null}
 
           <div className="mt-4 space-y-4">
-            {result.categories.map((category) => (
+            {editableResult.categories.map((category, categoryIndex) => (
               <div key={`${category.name}-${category.sortOrder}`} className="rounded-2xl border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-slate-900">{category.name}</h3>
@@ -268,13 +317,42 @@ export default function SuperadminMenuImportPage() {
                 <div className="mt-2 space-y-2">
                   {category.products.map((product, index) => (
                     <div key={`${product.name}-${index}`} className="rounded-xl bg-slate-50 p-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <strong className="text-sm text-slate-900">{product.name}</strong>
-                        <span className="text-sm font-semibold text-slate-800">{formatPrice(product.price)}</span>
+                      <div className="grid gap-2 md:grid-cols-4">
+                        <label className="block md:col-span-2">
+                          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Produktname</span>
+                          <input
+                            value={product.name}
+                            onChange={(event) => updateProductField(categoryIndex, index, 'name', event.target.value)}
+                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Produktnummer</span>
+                          <input
+                            value={product.productNumber || ''}
+                            onChange={(event) => updateProductField(categoryIndex, index, 'productNumber', event.target.value)}
+                            placeholder="z. B. 101"
+                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preis (€)</span>
+                          <input
+                            value={product.price === null ? '' : String(product.price).replace('.', ',')}
+                            onChange={(event) => updateProductField(categoryIndex, index, 'price', event.target.value)}
+                            placeholder="0,00"
+                            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                          />
+                        </label>
                       </div>
-                      {product.description ? (
-                        <p className="mt-1 text-xs text-slate-700">{product.description}</p>
-                      ) : null}
+                      <label className="mt-2 block">
+                        <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Beschreibung</span>
+                        <input
+                          value={product.description || ''}
+                          onChange={(event) => updateProductField(categoryIndex, index, 'description', event.target.value)}
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                        />
+                      </label>
                       {product.variants.length > 0 ? (
                         <p className="mt-1 text-xs text-slate-600">
                           Varianten: {product.variants.map((variant) => `${variant.name} (${formatPrice(variant.price)})`).join(', ')}
@@ -296,7 +374,7 @@ export default function SuperadminMenuImportPage() {
           <details className="mt-5">
             <summary className="cursor-pointer text-sm font-semibold text-slate-800">Rohes JSON anzeigen</summary>
             <pre className="mt-2 max-h-[420px] overflow-auto rounded-xl bg-slate-950 p-3 text-xs text-slate-100">
-              {JSON.stringify(result, null, 2)}
+              {JSON.stringify(editableResult, null, 2)}
             </pre>
           </details>
         </section>

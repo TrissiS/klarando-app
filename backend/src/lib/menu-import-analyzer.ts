@@ -18,6 +18,7 @@ export type MenuImportAnalysisResult = {
     confidence: number
     products: Array<{
       name: string
+      productNumber: string | null
       description: string | null
       price: number | null
       variants: Array<{
@@ -69,6 +70,7 @@ const menuImportSchema = {
                 additionalProperties: false,
                 required: [
                   'name',
+                  'productNumber',
                   'description',
                   'price',
                   'variants',
@@ -80,6 +82,7 @@ const menuImportSchema = {
                 ],
                 properties: {
                   name: { type: 'string' },
+                  productNumber: { type: ['string', 'null'] },
                   description: { type: ['string', 'null'] },
                   price: { type: ['number', 'null'] },
                   variants: {
@@ -158,6 +161,10 @@ function normalizeAnalysis(result: MenuImportAnalysisResult): MenuImportAnalysis
       confidence: clampConfidence(category.confidence),
       products: (category.products || []).map((product) => ({
         ...product,
+        productNumber:
+          typeof product.productNumber === 'string' && product.productNumber.trim().length > 0
+            ? product.productNumber.trim()
+            : null,
         price: product.price === null || Number.isFinite(Number(product.price)) ? product.price : null,
         confidence: clampConfidence(product.confidence),
         variants: (product.variants || []).map((variant) => ({
@@ -205,6 +212,7 @@ export async function analyzeMenuImages(
         'Sprache: Deutsch.',
         'Erkenne Kategorien, Produkte, Preise, Varianten, Tagesangebote, Zutaten, Allergene und Zusatzstoffe.',
         'Wichtig: Keine Produkte oder Preise erfinden.',
+        'Wenn eine Produktnummer/Artikelnummer erkennbar ist, trage sie als productNumber ein, sonst null.',
         'Wenn Preis unklar ist: price = null.',
         'Wenn Allergene/Zutaten unklar sind: leer lassen und Warnung schreiben.',
         'Confidence immer zwischen 0 und 1.',
