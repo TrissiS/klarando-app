@@ -95,6 +95,11 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
           _syncPageTimer(pages.length);
           final scaleFactor = (constraints.maxWidth / 1920).clamp(0.72, 1.35);
 
+          final hasPlaylistItems = pages.isNotEmpty;
+          final currentItem =
+              hasPlaylistItems ? pages[safePageIndex].isNotEmpty ? pages[safePageIndex][0] : null : null;
+          final currentItemType = '${currentItem?['type'] ?? ''}'.toUpperCase();
+
           return Container(
             decoration: BoxDecoration(
               color: backgroundColor,
@@ -126,26 +131,34 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                               textAlign: TextAlign.center,
                             ),
                           )
-                        : menuRows.isNotEmpty
-                            ? _MenuProductBoard(
+                        : hasPlaylistItems
+                            ? (currentItemType == 'PRODUCT_GRID' || menuRows.isNotEmpty)
+                                ? _MenuProductBoard(
+                                    rows: menuRows,
+                                    maxHeight: usableHeight,
+                                    maxWidth: constraints.maxWidth - (horizontalPadding * 2),
+                                    showCategory: showCategory,
+                                    configuredColumns: configuredColumns,
+                                  )
+                                : Column(
+                                    children: <Widget>[
+                                      for (int i = 0; i < pages[safePageIndex].length; i++) ...<Widget>[
+                                        _ItemCard(
+                                          item: pages[safePageIndex][i],
+                                          scaleFactor: scaleFactor,
+                                          fixedHeight: cardHeight,
+                                        ),
+                                        if (i < pages[safePageIndex].length - 1) SizedBox(height: gap),
+                                      ],
+                                    ],
+                                  )
+                            : _MenuProductBoard(
                                 rows: menuRows,
                                 maxHeight: usableHeight,
                                 maxWidth: constraints.maxWidth - (horizontalPadding * 2),
                                 showCategory: showCategory,
                                 configuredColumns: configuredColumns,
-                              )
-                            : Column(
-                            children: <Widget>[
-                              for (int i = 0; i < pages[safePageIndex].length; i++) ...<Widget>[
-                                _ItemCard(
-                                  item: pages[safePageIndex][i],
-                                  scaleFactor: scaleFactor,
-                                  fixedHeight: cardHeight,
-                                ),
-                                if (i < pages[safePageIndex].length - 1) SizedBox(height: gap),
-                              ],
-                            ],
-                          ),
+                              ),
                   ),
                 ),
                 if (widget.connectionMessage != null)

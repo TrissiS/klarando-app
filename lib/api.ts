@@ -7703,6 +7703,16 @@ export type AdminDisplayScreen = {
   isActive: boolean
 }
 
+export type AdminDisplayPlaylist = {
+  id: string
+  tenantId: string
+  screenId: string
+  name: string
+  isActive: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
 export async function getAdminDisplayScreens(
   token: string,
   tenantId: string
@@ -7740,6 +7750,71 @@ export async function updateAdminDisplayScreen(
   }
   const payload = (await res.json()) as { screen: AdminDisplayScreen }
   return payload.screen
+}
+
+export async function getAdminDisplayPlaylists(
+  token: string,
+  tenantId: string
+): Promise<AdminDisplayPlaylist[]> {
+  const query = new URLSearchParams({ tenantId })
+  const res = await fetch(`${API_BASE_URL}/api/admin/displays/playlists?${query.toString()}`, {
+    headers: authHeaders(token),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Playlists konnten nicht geladen werden')
+  }
+  const payload = (await res.json()) as { playlists: AdminDisplayPlaylist[] }
+  return payload.playlists
+}
+
+export async function createAdminDisplayPlaylist(
+  token: string,
+  data: {
+    tenantId: string
+    screenId: string
+    name: string
+    isActive?: boolean
+  }
+): Promise<AdminDisplayPlaylist> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/displays/playlists`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Playlist konnte nicht erstellt werden')
+  }
+  const payload = (await res.json()) as { playlist: AdminDisplayPlaylist }
+  return payload.playlist
+}
+
+export async function createAdminDisplayPlaylistItem(
+  token: string,
+  playlistId: string,
+  data: {
+    tenantId: string
+    type: 'PRODUCT_GRID' | 'CATEGORY_MENU' | 'IMAGE' | 'VIDEO' | 'PROMOTION' | 'URL' | 'CUSTOM_TEXT'
+    sortOrder: number
+    durationSeconds: number
+    config: Record<string, unknown>
+  }
+): Promise<{ id: string }> {
+  const res = await fetch(
+    `${API_BASE_URL}/api/admin/displays/playlists/${encodeURIComponent(playlistId)}/items`,
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(data),
+    }
+  )
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Playlist-Element konnte nicht erstellt werden')
+  }
+  const payload = (await res.json()) as { item: { id: string } }
+  return payload.item
 }
 
 export async function createAdminDisplayScreen(

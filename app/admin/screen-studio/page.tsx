@@ -4,7 +4,10 @@ import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import DisplayDeviceManagementPanel from '@/app/Components/admin/DisplayDeviceManagementPanel'
 import {
+  createAdminDisplayPlaylist,
+  createAdminDisplayPlaylistItem,
   createAdminDisplayScreen,
+  getAdminDisplayPlaylists,
   getAdminDisplayScreens,
   deleteDisplayDevice,
   getDisplayDeviceOverview,
@@ -173,6 +176,9 @@ export default function AdminScreenStudioPage() {
   })
   const [assistantNotice, setAssistantNotice] = useState('')
   const [creatingLayout, setCreatingLayout] = useState(false)
+  const [menuRotationSeconds, setMenuRotationSeconds] = useState(50)
+  const [promoRotationSeconds, setPromoRotationSeconds] = useState(10)
+  const [savingRotation, setSavingRotation] = useState(false)
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -420,6 +426,62 @@ export default function AdminScreenStudioPage() {
     }
   }
 
+  async function handleEnableAutoRotation() {
+    if (!session?.tenantId || !selectedDesignScreenId) {
+      setError('Bitte zuerst einen Bildschirm auswählen.')
+      return
+    }
+    try {
+      setSavingRotation(true)
+      setError('')
+      const tenantId = session.tenantId
+      const existingPlaylists = await getAdminDisplayPlaylists(token, tenantId)
+      const existingForScreen = existingPlaylists.filter(
+        (entry) => entry.screenId === selectedDesignScreenId && entry.isActive
+      )
+      const playlist =
+        existingForScreen[0] ??
+        (await createAdminDisplayPlaylist(token, {
+          tenantId,
+          screenId: selectedDesignScreenId,
+          name: `Auto Rotation ${new Date().toLocaleDateString('de-DE')}`,
+          isActive: true,
+        }))
+
+      await createAdminDisplayPlaylistItem(token, playlist.id, {
+        tenantId,
+        type: 'PRODUCT_GRID',
+        sortOrder: 1,
+        durationSeconds: Math.max(8, Math.min(120, menuRotationSeconds)),
+        config: {
+          title: 'Speisekarte',
+          mode: 'MENU',
+        },
+      })
+      await createAdminDisplayPlaylistItem(token, playlist.id, {
+        tenantId,
+        type: 'PROMOTION',
+        sortOrder: 2,
+        durationSeconds: Math.max(5, Math.min(60, promoRotationSeconds)),
+        config: {
+          title: 'Angebote',
+          text: 'Unsere Highlights & Aktionen',
+        },
+      })
+      setSuccess(
+        `Auto-Rotation aktiviert: ${menuRotationSeconds}s Speisekarte + ${promoRotationSeconds}s Promo.`
+      )
+    } catch (rotationError) {
+      setError(
+        rotationError instanceof Error
+          ? rotationError.message
+          : 'Auto-Rotation konnte nicht aktiviert werden.'
+      )
+    } finally {
+      setSavingRotation(false)
+    }
+  }
+
   async function handleSaveDesign() {
     try {
       setSavingDesign(true)
@@ -651,6 +713,40 @@ export default function AdminScreenStudioPage() {
                   </button>
                 </div>
               </Field>
+            </div>
+            <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-sm font-semibold text-emerald-900">Auto-Rotation wie Menüboard-Ketten</p>
+              <p className="mt-1 text-xs text-emerald-800">
+                Wechselt automatisch zwischen Speisekarte und Promo (z. B. alle 60 Sekunden).
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <Field label="Speisekarte (Sek.)">
+                  <input
+                    type="number"
+                    value={menuRotationSeconds}
+                    onChange={(e) => setMenuRotationSeconds(Number(e.target.value) || 50)}
+                    className="input-ui"
+                  />
+                </Field>
+                <Field label="Promo (Sek.)">
+                  <input
+                    type="number"
+                    value={promoRotationSeconds}
+                    onChange={(e) => setPromoRotationSeconds(Number(e.target.value) || 10)}
+                    className="input-ui"
+                  />
+                </Field>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    onClick={() => void handleEnableAutoRotation()}
+                    disabled={savingRotation || !selectedDesignScreenId}
+                    className="w-full rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
+                  >
+                    {savingRotation ? 'Aktiviert…' : 'Rotation aktivieren'}
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
