@@ -237,6 +237,18 @@ export default function SuperadminModuleBillingPage() {
             <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 p-3"><div className="text-xs text-slate-500">Einzelrechte</div><div className="text-xl font-bold text-[var(--brand-ink)]">{permissions.length}</div></div>
             <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/40 p-3"><div className="text-xs text-slate-500">Gerätezugänge</div><div className="text-xl font-bold text-[var(--brand-ink)]">zentral</div></div>
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <a
+              href={`/superadmin/fees${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`}
+              className="inline-flex items-center rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
+            >
+              In Gebühren &amp; Provisionen öffnen
+              {tenantId ? ' (mit Filiale)' : ''}
+            </a>
+            <span className="text-xs text-slate-500">
+              Öffnet die Abrechnung direkt mit der aktuell ausgewählten Filiale.
+            </span>
+          </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {tabs.map((entry) => (
               <button key={entry.key} type="button" className={`rounded-xl px-3 py-2 text-sm font-medium transition ${tab === entry.key ? 'bg-slate-900 text-white shadow-sm' : 'border border-[var(--brand-border)] bg-white text-slate-700 hover:bg-slate-50'}`} onClick={() => setTab(entry.key)}>
