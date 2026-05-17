@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 class DisplayContentScreen extends StatefulWidget {
@@ -139,31 +138,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                       ),
                     ),
                   ),
-                if (kDebugMode)
-                  Positioned(
-                    left: 12,
-                    right: 12,
-                    bottom: widget.connectionMessage != null ? 64 : 12,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.45),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        child: Text(
-                          'logical ${size.width.toStringAsFixed(0)}x${size.height.toStringAsFixed(0)} · '
-                          'physical ${(size.width * media.devicePixelRatio).round()}x${(size.height * media.devicePixelRatio).round()} · '
-                          'dpr ${media.devicePixelRatio.toStringAsFixed(2)} · '
-                          '${isLandscape ? 'LANDSCAPE' : 'PORTRAIT'} · '
-                          'scale ${scaleFactor.toStringAsFixed(2)} · '
-                          'pro Seite $itemsPerPage'
-                          '${widget.debugLines.isNotEmpty ? '\n${widget.debugLines.join(' | ')}' : ''}',
-                          style: const TextStyle(fontSize: 11, color: Colors.white70),
-                        ),
-                      ),
-                    ),
-                  ),
+                // Runtime debug overlay stays hidden in live display mode.
               ],
             ),
           );
