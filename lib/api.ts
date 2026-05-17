@@ -7742,6 +7742,31 @@ export async function updateAdminDisplayScreen(
   return payload.screen
 }
 
+export async function createAdminDisplayScreen(
+  token: string,
+  data: {
+    tenantId: string
+    name: string
+    orientation?: 'LANDSCAPE' | 'PORTRAIT'
+    resolutionPreset?: 'HD' | 'FULL_HD' | 'FOUR_K' | 'CUSTOM'
+    layoutType?: 'MENU_BOARD' | 'SLIDESHOW' | 'PROMO_SPLIT' | 'ORDER_STATUS'
+    backgroundColor?: string
+    accentColor?: string
+  }
+): Promise<AdminDisplayScreen> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/displays/screens`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Bildschirm konnte nicht erstellt werden')
+  }
+  const payload = (await res.json()) as { screen: AdminDisplayScreen }
+  return payload.screen
+}
+
 export async function deactivateOrderDeskDeviceBinding(
   token: string,
   bindingId: string

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import DisplayDeviceManagementPanel from '@/app/Components/admin/DisplayDeviceManagementPanel'
 import {
+  createAdminDisplayScreen,
   getAdminDisplayScreens,
   deleteDisplayDevice,
   getDisplayDeviceOverview,
@@ -171,6 +172,7 @@ export default function AdminScreenStudioPage() {
     menuFileName: undefined,
   })
   const [assistantNotice, setAssistantNotice] = useState('')
+  const [creatingLayout, setCreatingLayout] = useState(false)
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -392,6 +394,32 @@ export default function AdminScreenStudioPage() {
 
   if (!session || !token) return null
 
+  async function handleCreateLayout() {
+    if (!session?.tenantId) return
+    const name = window.prompt('Name für neues Layout / Bildschirmprofil')
+    if (!name || !name.trim()) return
+    try {
+      setCreatingLayout(true)
+      setError('')
+      const created = await createAdminDisplayScreen(token, {
+        tenantId: session.tenantId,
+        name: name.trim(),
+        orientation: 'LANDSCAPE',
+        resolutionPreset: 'FULL_HD',
+        layoutType: 'MENU_BOARD',
+        backgroundColor: '#111827',
+        accentColor: '#ff6b35',
+      })
+      setScreenSettingsById((current) => ({ ...current, [created.id]: created }))
+      setSelectedDesignScreenId(created.id)
+      setSuccess(`Layout "${created.name}" wurde angelegt.`)
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : 'Layout konnte nicht erstellt werden.')
+    } finally {
+      setCreatingLayout(false)
+    }
+  }
+
   async function handleSaveDesign() {
     try {
       setSavingDesign(true)
@@ -600,18 +628,28 @@ export default function AdminScreenStudioPage() {
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Design</h2>
             <div className="mt-3 max-w-lg">
               <Field label="Bildschirm auswählen">
-                <select
-                  value={selectedDesignScreenId}
-                  onChange={(event) => setSelectedDesignScreenId(event.target.value)}
-                  className="input-ui"
-                >
-                  <option value="">Bitte Bildschirm wählen</option>
-                  {Object.values(screenSettingsById).map((screen) => (
-                    <option key={screen.id} value={screen.id}>
-                      {screen.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex gap-2">
+                  <select
+                    value={selectedDesignScreenId}
+                    onChange={(event) => setSelectedDesignScreenId(event.target.value)}
+                    className="input-ui"
+                  >
+                    <option value="">Bitte Bildschirm wählen</option>
+                    {Object.values(screenSettingsById).map((screen) => (
+                      <option key={screen.id} value={screen.id}>
+                        {screen.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleCreateLayout()}
+                    disabled={creatingLayout}
+                    className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50 disabled:opacity-60"
+                  >
+                    {creatingLayout ? 'Erstellt…' : 'Layout anlegen'}
+                  </button>
+                </div>
               </Field>
             </div>
             <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
@@ -656,9 +694,20 @@ export default function AdminScreenStudioPage() {
                 <button
                   type="button"
                   onClick={() => {
-                    setAssistantNotice('Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.')
                     if (designAssistant.suggestedTemplate) {
                       setSelectedTemplate(designAssistant.suggestedTemplate)
+                      const preset = TEMPLATE_STYLES[designAssistant.suggestedTemplate]
+                      if (preset) {
+                        setPrimaryColor(preset.primary)
+                        setAccentColor(preset.accent)
+                        setBackgroundMode(preset.backgroundMode)
+                        setFontSizeMode(preset.font)
+                        setCardDensity(preset.density)
+                        setEnableAnimations(preset.anim)
+                      }
+                      setAssistantNotice(`Designvorschlag "${designAssistant.suggestedTemplate}" wurde übernommen.`)
+                    } else {
+                      setAssistantNotice('Bitte zuerst Logo und Speisekarte hochladen.')
                     }
                   }}
                   className="rounded-xl border border-blue-200 bg-white px-3 py-3 text-left text-xs font-medium text-blue-900 shadow-sm transition hover:bg-blue-100"
@@ -726,12 +775,34 @@ export default function AdminScreenStudioPage() {
                   }}
                 >
                   <p className="text-xs uppercase">{selectedTemplate}</p>
-                  <p className="mt-1 text-lg font-bold">Menüvorschau</p>
-                  <p className="mt-1 text-sm">Burger Classic</p>
-                  <p className="text-sm">{highlightPrice ? '9,90 €' : 'Preis dezent'}</p>
+                  <p className="mt-1 text-lg font-bold">Menüvorschau · {defaultColumnCount} Spalten</p>
+                  <div
+                    className="mt-3 grid gap-2"
+                    style={{
+                      gridTemplateColumns: `repeat(${Math.max(1, Math.min(8, defaultColumnCount))}, minmax(0, 1fr))`,
+                    }}
+                  >
+                    {Array.from({ length: Math.max(2, Math.min(12, defaultColumnCount * 2)) }).map((_, index) => (
+                      <div key={index} className="rounded-lg bg-black/25 p-2">
+                        <p style={{ fontSize: `${fontSizeMode === 'KLEIN' ? 12 : fontSizeMode === 'GROSS' ? 18 : 14}px` }}>
+                          Produkt {index + 1}
+                        </p>
+                        {showCategoryOnCard ? (
+                          <p style={{ fontSize: `${Math.max(10, Math.min(24, categoryFontSize * 0.6))}px` }} className="opacity-80">
+                            Kategorie
+                          </p>
+                        ) : null}
+                        {highlightPrice ? (
+                          <p style={{ fontSize: `${Math.max(11, Math.min(28, priceFontSize * 0.6))}px` }} className="font-semibold">
+                            {(7.9 + index).toFixed(2).replace('.', ',')} €
+                          </p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  Warnung: Wenn viele Produkte aktiv sind, kann der Inhalt je nach Auflösung nicht komplett passen.
+                  Vorschau zeigt Spalten und Dichte live. Für Bildschirmwand (1–8) werden Produkte automatisch verteilt.
                 </div>
               </div>
             </div>
