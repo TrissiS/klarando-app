@@ -144,6 +144,7 @@ export default function AdminScreenStudioPage() {
   const [categoryFontSize, setCategoryFontSize] = useState(16)
   const [priceFontSize, setPriceFontSize] = useState(28)
   const [defaultColumnCount, setDefaultColumnCount] = useState(2)
+  const [targetWallDisplays, setTargetWallDisplays] = useState(1)
   const [showCategoryOnCard, setShowCategoryOnCard] = useState(true)
   const [showLogo, setShowLogo] = useState(true)
   const [highlightPrice, setHighlightPrice] = useState(true)
@@ -229,6 +230,7 @@ export default function AdminScreenStudioPage() {
         setFontFamily(config.fontFamily || 'Poppins, sans-serif')
         setPixelPadding(config.cardPadding || 16)
         setDefaultColumnCount(Math.max(1, Math.min(8, config.defaultColumnCount || 2)))
+        setTargetWallDisplays(1)
         setIngredientFontSize(Math.max(12, Math.min(32, config.ingredientFontSize || 16)))
         setCategoryFontSize(Math.max(12, Math.min(32, config.categoryFontSize || 16)))
         setPriceFontSize(Math.max(14, Math.min(54, config.priceFontSize || 28)))
@@ -456,6 +458,7 @@ export default function AdminScreenStudioPage() {
         config: {
           title: 'Speisekarte',
           mode: 'MENU',
+          wallDisplayCount: Math.max(1, Math.min(8, targetWallDisplays)),
         },
       })
       await createAdminDisplayPlaylistItem(token, playlist.id, {
@@ -469,7 +472,7 @@ export default function AdminScreenStudioPage() {
         },
       })
       setSuccess(
-        `Auto-Rotation aktiviert: ${menuRotationSeconds}s Speisekarte + ${promoRotationSeconds}s Promo.`
+        `Auto-Rotation aktiviert: ${menuRotationSeconds}s Speisekarte + ${promoRotationSeconds}s Promo · Verteilung auf ${targetWallDisplays} Display(s).`
       )
     } catch (rotationError) {
       setError(
@@ -976,7 +979,7 @@ export default function AdminScreenStudioPage() {
                 </select>
               </Field>
               <Field label="Ziel: Produktmenge auf Displays">
-                <select value={String(defaultColumnCount)} onChange={(e) => setDefaultColumnCount(Number(e.target.value))} className="input-ui">
+                <select value={String(targetWallDisplays)} onChange={(e) => setTargetWallDisplays(Number(e.target.value))} className="input-ui">
                   <option value="1">1 Display</option>
                   <option value="2">2 Displays</option>
                   <option value="3">3 Displays</option>

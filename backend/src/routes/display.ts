@@ -322,26 +322,57 @@ router.get('/content', async (req, res) => {
       return nowMs - entry.lastSeenAt.getTime() <= activeWindowMs
     })
     const wallDevices = activeDevices.length > 0 ? activeDevices : tenantScreenDevices
-    const displayCount = Math.max(1, wallDevices.length)
+    const connectedDisplayCount = Math.max(1, wallDevices.length)
+    const configuredWallDisplayCount = Math.max(
+      1,
+      Math.min(
+        8,
+        Number(
+          items
+            .map((entry) =>
+              entry.config && typeof entry.config === 'object'
+                ? (entry.config as Record<string, unknown>).wallDisplayCount
+                : undefined
+            )
+            .find((entry) => typeof entry === 'number' && Number.isFinite(entry)) ?? connectedDisplayCount
+        )
+      )
+    )
+    const displayCount = configuredWallDisplayCount
     const displayIndex = Math.max(0, wallDevices.findIndex((entry) => entry.id === device.id))
     const perDisplay = Math.max(1, Math.ceil(normalizedProducts.length / displayCount))
     const start = Math.min(normalizedProducts.length, displayIndex * perDisplay)
     const end = Math.min(normalizedProducts.length, start + perDisplay)
     const distributedProducts = normalizedProducts.slice(start, end)
 
+    const baseConfig = await prisma.screenSetting.upsert({
+      where: { tenantId: device.tenantId },
+      update: {},
+      create: { tenantId: device.tenantId },
+    })
+    const screenDeviceOverride = await prisma.screenDevice.findFirst({
+      where: { tenantId: device.tenantId, isActive: true, name: resolvedScreen.name },
+      select: {
+        columnCountOverride: true,
+        backgroundMediaUrlOverride: true,
+      },
+    })
     const screenConfig = {
-      backgroundMode: 'COLOR',
-      backgroundValue: resolvedScreen.backgroundColor,
-      backgroundMediaUrl: null,
-      cardPadding: 16,
-      productFontSize: 28,
-      categoryFontSize: 16,
-      ingredientFontSize: 16,
-      priceFontSize: 28,
-      defaultColumnCount: Math.max(1, Math.min(8, displayCount)),
-      showPrices: true,
-      showCategoryOnCard: true,
-      fontFamily: 'Poppins, sans-serif',
+      backgroundMode: baseConfig.backgroundMode,
+      backgroundValue: baseConfig.backgroundValue || resolvedScreen.backgroundColor,
+      backgroundMediaUrl: screenDeviceOverride?.backgroundMediaUrlOverride ?? baseConfig.backgroundMediaUrl,
+      cardPadding: baseConfig.cardPadding,
+      productFontSize: baseConfig.productFontSize,
+      categoryFontSize: baseConfig.categoryFontSize,
+      ingredientFontSize: baseConfig.ingredientFontSize,
+      priceFontSize: baseConfig.priceFontSize,
+      defaultColumnCount: Math.max(
+        1,
+        Math.min(8, Number(screenDeviceOverride?.columnCountOverride ?? baseConfig.defaultColumnCount ?? 2))
+      ),
+      showPrices: baseConfig.showPrices,
+      showCategoryOnCard: baseConfig.showCategoryOnCard,
+      fontFamily: baseConfig.fontFamily,
     }
     const pageDurationSec = Math.max(
       8,
@@ -395,6 +426,7 @@ router.get('/content', async (req, res) => {
       screenConfig,
       layout: {
         displayCount,
+        connectedDisplayCount,
         displayIndex,
         productsTotal: normalizedProducts.length,
         productsOnDisplay: distributedProducts.length,
