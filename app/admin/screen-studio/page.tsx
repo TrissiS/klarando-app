@@ -62,6 +62,59 @@ const TEMPLATE_STYLES: Record<
   'Burger': { primary: '#d97706', accent: '#ef4444', backgroundMode: 'DUNKEL', font: 'GROSS', density: 'GROSS', anim: false },
 }
 
+async function fileToDataUrl(file: File): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('Datei konnte nicht gelesen werden.'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function extractBrandColorsFromImage(file: File): Promise<string[]> {
+  const src = await fileToDataUrl(file)
+  return await new Promise((resolve) => {
+    const image = new Image()
+    image.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 64
+      canvas.height = 64
+      const context = canvas.getContext('2d')
+      if (!context) {
+        resolve(['#f97316', '#ec4899'])
+        return
+      }
+      context.drawImage(image, 0, 0, 64, 64)
+      const data = context.getImageData(0, 0, 64, 64).data
+      let bestPrimary = '#f97316'
+      let bestAccent = '#ec4899'
+      let primaryScore = -1
+      let accentScore = -1
+      for (let i = 0; i < data.length; i += 16) {
+        const r = data[i]
+        const g = data[i + 1]
+        const b = data[i + 2]
+        const brightness = r + g + b
+        if (brightness < 80 || brightness > 730) continue
+        const warm = r * 2 + g - b
+        const cool = b * 2 + r - g
+        const hex = `#${[r, g, b].map((entry) => entry.toString(16).padStart(2, '0')).join('')}`
+        if (warm > primaryScore) {
+          primaryScore = warm
+          bestPrimary = hex
+        }
+        if (cool > accentScore) {
+          accentScore = cool
+          bestAccent = hex
+        }
+      }
+      resolve([bestPrimary, bestAccent])
+    }
+    image.onerror = () => resolve(['#f97316', '#ec4899'])
+    image.src = src
+  })
+}
+
 export default function AdminScreenStudioPage() {
   const [session, setSession] = useState<SessionUser | null>(null)
   const [token, setToken] = useState('')
@@ -91,6 +144,7 @@ export default function AdminScreenStudioPage() {
   const [pixelPadding, setPixelPadding] = useState(16)
   const [savingDesign, setSavingDesign] = useState(false)
   const [screenSettingsById, setScreenSettingsById] = useState<Record<string, AdminDisplayScreen>>({})
+  const [selectedDesignScreenId, setSelectedDesignScreenId] = useState('')
   const [selectedDeviceIdForSettings, setSelectedDeviceIdForSettings] = useState('')
   const [editingScreen, setEditingScreen] = useState<AdminDisplayScreen | null>(null)
   const [savingScreenSettings, setSavingScreenSettings] = useState(false)
@@ -143,6 +197,9 @@ export default function AdminScreenStudioPage() {
         await loadStudioData(token, tenantId)
         const screens = await getAdminDisplayScreens(token, tenantId)
         setScreenSettingsById(Object.fromEntries(screens.map((entry) => [entry.id, entry])))
+        if (!selectedDesignScreenId && screens[0]?.id) {
+          setSelectedDesignScreenId(screens[0].id)
+        }
         const config = await getScreenConfig()
         setConfigId(config.id)
         setPrimaryColor(config.productNameColor || config.textColor || '#f97316')
@@ -227,6 +284,15 @@ export default function AdminScreenStudioPage() {
       setEditingScreen({ ...screen })
     }
   }, [selectedDisplayForSettings, screenSettingsById])
+
+  useEffect(() => {
+    if (!selectedDesignScreenId) return
+    const screen = screenSettingsById[selectedDesignScreenId]
+    if (!screen) return
+    setPrimaryColor(screen.backgroundColor || '#f97316')
+    setAccentColor(screen.accentColor || '#ec4899')
+    setBackgroundMode(screen.backgroundColor?.toLowerCase() === '#f8fafc' ? 'HELL' : 'DUNKEL')
+  }, [selectedDesignScreenId, screenSettingsById])
 
   async function refreshAfterDeviceChange() {
     if (!token || !session?.tenantId) return
@@ -333,6 +399,22 @@ export default function AdminScreenStudioPage() {
         productFontSize: fontSizeMode === 'KLEIN' ? 20 : fontSizeMode === 'GROSS' ? 34 : 28,
       }
       await updateScreenConfig(payload)
+      if (selectedDesignScreenId && session?.tenantId) {
+        const currentScreen = screenSettingsById[selectedDesignScreenId]
+        if (currentScreen) {
+          const savedScreen = await updateAdminDisplayScreen(token, selectedDesignScreenId, {
+            tenantId: session.tenantId,
+            name: currentScreen.name,
+            orientation: currentScreen.orientation,
+            resolutionPreset: currentScreen.resolutionPreset,
+            layoutType: currentScreen.layoutType,
+            isActive: currentScreen.isActive,
+            backgroundColor: primaryColor,
+            accentColor,
+          })
+          setScreenSettingsById((current) => ({ ...current, [savedScreen.id]: savedScreen }))
+        }
+      }
       setSuccess('Design wurde gespeichert.')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Design konnte nicht gespeichert werden.')
@@ -341,17 +423,32 @@ export default function AdminScreenStudioPage() {
     }
   }
 
-  function handlePreparedLogoUpload(file: File | null) {
+  async function handlePreparedLogoUpload(file: File | null) {
     if (!file) return
-    setDesignAssistant((current) => ({
-      ...current,
-      logoFileName: file.name,
-      detectedBrandColors: current.detectedBrandColors && current.detectedBrandColors.length
-        ? current.detectedBrandColors
-        : ['#f97316', '#ec4899'],
-      designAssistantStatus: current.menuFileName ? 'READY_FOR_SUGGESTION' : 'LOGO_UPLOADED',
-    }))
-    setAssistantNotice('Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.')
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('Logo muss als PNG, JPG oder WEBP hochgeladen werden.')
+      return
+    }
+    try {
+      const brandColors = await extractBrandColorsFromImage(file)
+      setPrimaryColor(brandColors[0] || '#f97316')
+      setAccentColor(brandColors[1] || '#ec4899')
+      setShowLogo(true)
+      setDesignAssistant((current) => ({
+        ...current,
+        logoFileName: file.name,
+        detectedBrandColors: brandColors,
+        designAssistantStatus: current.menuFileName ? 'READY_FOR_SUGGESTION' : 'LOGO_UPLOADED',
+      }))
+      setAssistantNotice('Logo hochgeladen. Markenfarben wurden erkannt und übernommen.')
+    } catch {
+      setDesignAssistant((current) => ({
+        ...current,
+        logoFileName: file.name,
+        designAssistantStatus: current.menuFileName ? 'READY_FOR_SUGGESTION' : 'LOGO_UPLOADED',
+      }))
+      setAssistantNotice('Logo hochgeladen. Farben konnten noch nicht automatisch erkannt werden.')
+    }
   }
 
   function handlePreparedMenuUpload(file: File | null) {
@@ -371,7 +468,7 @@ export default function AdminScreenStudioPage() {
         designAssistantStatus: current.logoFileName ? 'READY_FOR_SUGGESTION' : 'MENU_UPLOADED',
       }
     })
-    setAssistantNotice('Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.')
+    setAssistantNotice('Speisekarte hochgeladen. Designvorschlag ist vorbereitet.')
   }
 
   return (
@@ -483,6 +580,22 @@ export default function AdminScreenStudioPage() {
         {activeTab === 'DESIGN' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Design</h2>
+            <div className="mt-3 max-w-lg">
+              <Field label="Bildschirm auswählen">
+                <select
+                  value={selectedDesignScreenId}
+                  onChange={(event) => setSelectedDesignScreenId(event.target.value)}
+                  className="input-ui"
+                >
+                  <option value="">Bitte Bildschirm wählen</option>
+                  {Object.values(screenSettingsById).map((screen) => (
+                    <option key={screen.id} value={screen.id}>
+                      {screen.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
             <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -545,7 +658,7 @@ export default function AdminScreenStudioPage() {
                 <p><span className="font-semibold">Vorschlag:</span> {designAssistant.suggestedTemplate || 'Noch offen'}</p>
               </div>
               <div className="mt-2 rounded-xl border border-dashed border-blue-200 bg-white/60 px-3 py-2 text-xs text-blue-900">
-                {assistantNotice || 'Upload-Assistent ist vorbereitet und wird im nächsten Schritt aktiviert.'}
+                {assistantNotice || 'Upload-Assistent aktiv: Logo/Speisekarte hochladen und Designvorschlag übernehmen.'}
               </div>
             </div>
             <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_1fr]">

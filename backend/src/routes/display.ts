@@ -203,11 +203,39 @@ router.get('/content', async (req, res) => {
       return res.status(403).json({ message: 'Gerät wurde getrennt.' })
     }
 
-    if (!device.screen || !device.screen.isActive) {
+    let resolvedScreen = device.screen
+    if (!resolvedScreen || !resolvedScreen.isActive) {
+      const fallbackScreen = await prisma.displayScreen.findFirst({
+        where: { tenantId: device.tenantId, isActive: true },
+        include: {
+          playlists: {
+            where: { isActive: true },
+            include: {
+              items: { orderBy: { sortOrder: 'asc' } },
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+      })
+      if (fallbackScreen) {
+        await prisma.displayDevice.update({
+          where: { id: device.id },
+          data: { screenId: fallbackScreen.id },
+        })
+        resolvedScreen = fallbackScreen
+        console.info('DISPLAY CONTENT AUTO SCREEN LINKED', {
+          deviceId: device.id,
+          fallbackScreenId: fallbackScreen.id,
+        })
+      }
+    }
+    if (!resolvedScreen || !resolvedScreen.isActive) {
       return res.status(409).json({ message: 'Display noch nicht eingerichtet.' })
     }
 
-    const playlist = device.screen.playlists[0] ?? null
+    const playlist = resolvedScreen.playlists[0] ?? null
     const now = new Date()
     const items = (playlist?.items ?? []).filter((item) => {
       if (item.activeFrom && now < item.activeFrom) return false
@@ -288,13 +316,13 @@ router.get('/content', async (req, res) => {
         appVersion: device.appVersion,
       },
       screen: {
-        id: device.screen.id,
-        name: device.screen.name,
-        orientation: device.screen.orientation,
-        resolutionPreset: device.screen.resolutionPreset,
-        backgroundColor: device.screen.backgroundColor,
-        accentColor: device.screen.accentColor,
-        layoutType: device.screen.layoutType,
+        id: resolvedScreen.id,
+        name: resolvedScreen.name,
+        orientation: resolvedScreen.orientation,
+        resolutionPreset: resolvedScreen.resolutionPreset,
+        backgroundColor: resolvedScreen.backgroundColor,
+        accentColor: resolvedScreen.accentColor,
+        layoutType: resolvedScreen.layoutType,
       },
       playlist: playlist
         ? {
