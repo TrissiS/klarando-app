@@ -101,6 +101,7 @@ type DisplayRecord = {
   id: string
   entityId: string
   sourceKind: DisplaySourceKind
+  screenId: string | null
   tenantId: string
   tenantName: string | null
   chainId: string | null
@@ -682,6 +683,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
       id: `order:${display.id}`,
       entityId: display.id,
       sourceKind: 'ORDER_DISPLAY',
+      screenId: null,
       tenantId: display.tenantId,
       tenantName: display.tenant?.name ?? null,
       chainId: display.tenant?.chainId ?? null,
@@ -704,7 +706,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
         : null,
       status: computeDisplayStatus(display.isActive, lastSeenCandidate),
       previewPath: `/order-display/${display.displayCode}`,
-      editablePath: '/admin/order-displays',
+      editablePath: '/admin/screen-studio',
       pairingSupported: true,
     })
   }
@@ -733,6 +735,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
       id: `screen:${device.id}`,
       entityId: device.id,
       sourceKind: 'SCREEN_DEVICE',
+      screenId: null,
       tenantId: device.tenantId,
       tenantName: device.tenant?.name ?? null,
       chainId: device.tenant?.chainId ?? null,
@@ -753,7 +756,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
       },
       status: computeDisplayStatus(device.isActive, device.lastSeenAt),
       previewPath: `/screen/${device.deviceCode}`,
-      editablePath: '/admin/screen',
+      editablePath: '/admin/screen-studio',
       pairingSupported: false,
     })
   }
@@ -766,6 +769,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
       id: device.id,
       entityId: device.id,
       sourceKind: 'DISPLAY_DEVICE',
+      screenId: device.screenId,
       tenantId: device.tenantId,
       tenantName: device.tenant?.name ?? null,
       chainId: device.tenant?.chainId ?? null,
@@ -786,7 +790,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
       },
       status,
       previewPath: `/display-client?deviceId=${encodeURIComponent(device.id)}`,
-      editablePath: '/admin/displays',
+      editablePath: '/admin/screen-studio',
       pairingSupported: false,
     })
   }

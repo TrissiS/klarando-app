@@ -870,6 +870,20 @@ export default function DisplayDeviceManagementPanel({
                         >
                           Dieses Display verbinden
                         </AdminButton>
+                        <AdminButton
+                          type="button"
+                          variant="secondary"
+                          onClick={() =>
+                            window.open(
+                              row.sourceKind === 'DISPLAY_DEVICE'
+                                ? `/admin/screen-studio?deviceId=${encodeURIComponent(row.entityId)}&tab=devices`
+                                : '/admin/screen-studio?tab=devices',
+                              '_self'
+                            )
+                          }
+                        >
+                          Einstellungen
+                        </AdminButton>
                         {!isAdminScope ? <AdminButton
                           type="button"
                           onClick={() => void handlePreview(row)}
@@ -940,11 +954,6 @@ export default function DisplayDeviceManagementPanel({
         <p className="text-sm text-rose-900/75">
           Vorschau-Links werden nur nach Rollen-/Tenant-Prüfung erzeugt. Device-Tokens werden in dieser Oberfläche nicht angezeigt.
         </p>
-        {roleScope === 'admin' ? (
-          <p className="mt-1 text-sm text-rose-900/75">
-            Für detaillierte Layout-Anpassungen nutze „Bearbeiten“ und öffne die jeweiligen Detailbereiche.
-          </p>
-        ) : null}
       </AdminSectionCard>
     </AdminPageShell>
   )

@@ -2,13 +2,18 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
+import DisplayDeviceManagementPanel from '@/app/Components/admin/DisplayDeviceManagementPanel'
 import {
+  getAdminDisplayScreens,
   deleteDisplayDevice,
   getDisplayDeviceOverview,
   getScreenConfig,
   getScreenProducts,
+  updateAdminDisplayScreen,
+  updateScreenProduct,
   updateScreenConfig,
   updateDisplayDeviceActiveState,
+  type AdminDisplayScreen,
   type DisplayDeviceOverviewRow,
   type ScreenConfig,
   type ScreenProduct,
@@ -69,6 +74,7 @@ export default function AdminScreenStudioPage() {
   const [deviceBusyId, setDeviceBusyId] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('ALL')
+  const [updatingProductId, setUpdatingProductId] = useState<string | null>(null)
 
   const [selectedTemplate, setSelectedTemplate] = useState('Klarando Modern')
   const [primaryColor, setPrimaryColor] = useState('#f97316')
@@ -84,6 +90,10 @@ export default function AdminScreenStudioPage() {
   const [scalePercent, setScalePercent] = useState(100)
   const [pixelPadding, setPixelPadding] = useState(16)
   const [savingDesign, setSavingDesign] = useState(false)
+  const [screenSettingsById, setScreenSettingsById] = useState<Record<string, AdminDisplayScreen>>({})
+  const [selectedDeviceIdForSettings, setSelectedDeviceIdForSettings] = useState('')
+  const [editingScreen, setEditingScreen] = useState<AdminDisplayScreen | null>(null)
+  const [savingScreenSettings, setSavingScreenSettings] = useState(false)
   const [configId, setConfigId] = useState<string>('')
   const [designAssistant, setDesignAssistant] = useState<{
     designAssistantStatus: DesignAssistantStatus
@@ -131,6 +141,8 @@ export default function AdminScreenStudioPage() {
         const tenantId = session.tenantId
         if (!tenantId) return
         await loadStudioData(token, tenantId)
+        const screens = await getAdminDisplayScreens(token, tenantId)
+        setScreenSettingsById(Object.fromEntries(screens.map((entry) => [entry.id, entry])))
         const config = await getScreenConfig()
         setConfigId(config.id)
         setPrimaryColor(config.productNameColor || config.textColor || '#f97316')
@@ -152,6 +164,19 @@ export default function AdminScreenStudioPage() {
       }
     })()
   }, [token, session?.tenantId])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const deviceId = params.get('deviceId')?.trim()
+    const tab = params.get('tab')?.trim().toLowerCase()
+    if (tab === 'devices') {
+      setActiveTab('DEVICES')
+    }
+    if (deviceId) {
+      setSelectedDeviceIdForSettings(deviceId)
+    }
+  }, [])
 
   const stats = useMemo(() => {
     const active = rows.filter((row) => row.isActive).length
@@ -186,6 +211,22 @@ export default function AdminScreenStudioPage() {
       )
     })
   }, [products, search, categoryFilter])
+
+  const selectedDisplayForSettings = useMemo(() => {
+    if (!selectedDeviceIdForSettings) return null
+    return rows.find((row) => row.entityId === selectedDeviceIdForSettings && row.sourceKind === 'DISPLAY_DEVICE') ?? null
+  }, [rows, selectedDeviceIdForSettings])
+
+  useEffect(() => {
+    if (!selectedDisplayForSettings?.screenId) {
+      setEditingScreen(null)
+      return
+    }
+    const screen = screenSettingsById[selectedDisplayForSettings.screenId]
+    if (screen) {
+      setEditingScreen({ ...screen })
+    }
+  }, [selectedDisplayForSettings, screenSettingsById])
 
   async function refreshAfterDeviceChange() {
     if (!token || !session?.tenantId) return
@@ -226,6 +267,48 @@ export default function AdminScreenStudioPage() {
       setError(deleteError instanceof Error ? deleteError.message : 'Display konnte nicht gelöscht werden.')
     } finally {
       setDeviceBusyId(null)
+    }
+  }
+
+  async function handleToggleProductVisibility(product: ScreenProduct, next: boolean) {
+    try {
+      setUpdatingProductId(product.id)
+      setError('')
+      const updated = await updateScreenProduct(product.id, {
+        showOnScreen: next,
+      })
+      setProducts((current) =>
+        current.map((entry) => (entry.id === product.id ? updated : entry))
+      )
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : 'Produkt konnte nicht aktualisiert werden.')
+    } finally {
+      setUpdatingProductId(null)
+    }
+  }
+
+  async function handleSaveScreenSettings() {
+    if (!editingScreen || !token || !session?.tenantId) return
+    try {
+      setSavingScreenSettings(true)
+      setError('')
+      const updated = await updateAdminDisplayScreen(token, editingScreen.id, {
+        tenantId: session.tenantId,
+        name: editingScreen.name,
+        orientation: editingScreen.orientation,
+        resolutionPreset: editingScreen.resolutionPreset,
+        layoutType: editingScreen.layoutType,
+        backgroundColor: editingScreen.backgroundColor,
+        accentColor: editingScreen.accentColor,
+        isActive: editingScreen.isActive,
+      })
+      setScreenSettingsById((current) => ({ ...current, [updated.id]: updated }))
+      setSuccess('Bildschirm-Einstellungen wurden gespeichert.')
+      await refreshAfterDeviceChange()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Bildschirm konnte nicht gespeichert werden.')
+    } finally {
+      setSavingScreenSettings(false)
     }
   }
 
@@ -346,9 +429,9 @@ export default function AdminScreenStudioPage() {
                   </option>
                 ))}
               </select>
-              <a href="/admin/screen" className="rounded-xl bg-slate-900 px-4 py-2 text-center text-sm font-medium text-white hover:bg-slate-800">
-                Detail-Editor öffnen
-              </a>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                Produkte werden direkt hier gepflegt.
+              </div>
             </div>
             <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
               <table className="w-full min-w-[980px] border-collapse">
@@ -368,7 +451,18 @@ export default function AdminScreenStudioPage() {
                       <Td>
                         <p className="font-medium text-[var(--brand-ink)]">{product.name}</p>
                       </Td>
-                      <Td>{product.screen.showOnScreen ? 'Ja' : 'Nein'}</Td>
+                      <Td>
+                        <button
+                          type="button"
+                          onClick={() => void handleToggleProductVisibility(product, !product.screen.showOnScreen)}
+                          disabled={updatingProductId === product.id}
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            product.screen.showOnScreen ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {product.screen.showOnScreen ? 'Sichtbar' : 'Ausgeblendet'}
+                        </button>
+                      </Td>
                       <Td>{product.screen.displayCategory || product.category?.name || 'Allgemein'}</Td>
                       <Td>{Number(product.price).toFixed(2)} €</Td>
                       <Td>{product.screen.sortOrder}</Td>
@@ -588,6 +682,12 @@ export default function AdminScreenStudioPage() {
 
         {activeTab === 'DEVICES' ? (
           <section className="space-y-4">
+            <DisplayDeviceManagementPanel
+              token={token}
+              roleScope="admin"
+              fixedTenantId={session.tenantId}
+              studioMode
+            />
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {rows.map((row) => (
                 <article key={row.id} className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
@@ -603,7 +703,13 @@ export default function AdminScreenStudioPage() {
                   <p className="mt-2 text-xs text-rose-900/75">Zuletzt gesehen: {row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString('de-DE') : '-'}</p>
                   <p className="text-xs text-rose-900/75">Erkannte Auflösung: {row.resolution || 'Wird erkannt'}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <a href="/admin/display-devices" className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800">Gerät verbinden</a>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedDeviceIdForSettings(row.entityId)}
+                      className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800"
+                    >
+                      Einstellungen
+                    </button>
                     <button type="button" onClick={() => void handleToggleDevice(row)} disabled={deviceBusyId === row.id} className="rounded-lg bg-slate-200 px-3 py-1.5 text-xs font-medium text-slate-900 hover:bg-slate-300">
                       {row.isActive ? 'Deaktivieren' : 'Aktivieren'}
                     </button>
@@ -613,9 +719,64 @@ export default function AdminScreenStudioPage() {
                       </button>
                     ) : null}
                   </div>
-                </article>
+              </article>
               ))}
             </div>
+            {selectedDisplayForSettings ? (
+              <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                <h3 className="text-base font-semibold text-[var(--brand-ink)]">
+                  Ausgewählt: {selectedDisplayForSettings.name}
+                </h3>
+                {!selectedDisplayForSettings.screenId ? (
+                  <p className="mt-2 text-sm text-amber-700">
+                    Dieser Bildschirm ist noch keinem Screen-Profil zugeordnet. Bitte Gerät neu verbinden.
+                  </p>
+                ) : editingScreen ? (
+                  <>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                      <Field label="Name">
+                        <input value={editingScreen.name} onChange={(e) => setEditingScreen((c) => (c ? { ...c, name: e.target.value } : c))} className="input-ui" />
+                      </Field>
+                      <Field label="Ausrichtung">
+                        <select value={editingScreen.orientation} onChange={(e) => setEditingScreen((c) => (c ? { ...c, orientation: e.target.value as AdminDisplayScreen['orientation'] } : c))} className="input-ui">
+                          <option value="LANDSCAPE">Querformat</option>
+                          <option value="PORTRAIT">Hochformat</option>
+                        </select>
+                      </Field>
+                      <Field label="Auflösung">
+                        <select value={editingScreen.resolutionPreset} onChange={(e) => setEditingScreen((c) => (c ? { ...c, resolutionPreset: e.target.value as AdminDisplayScreen['resolutionPreset'] } : c))} className="input-ui">
+                          <option value="HD">HD</option>
+                          <option value="FULL_HD">Full HD</option>
+                          <option value="FOUR_K">4K</option>
+                          <option value="CUSTOM">Custom</option>
+                        </select>
+                      </Field>
+                      <Field label="Layout">
+                        <select value={editingScreen.layoutType} onChange={(e) => setEditingScreen((c) => (c ? { ...c, layoutType: e.target.value as AdminDisplayScreen['layoutType'] } : c))} className="input-ui">
+                          <option value="MENU_BOARD">Menüboard</option>
+                          <option value="SLIDESHOW">Slideshow</option>
+                          <option value="PROMO_SPLIT">Promo Split</option>
+                          <option value="ORDER_STATUS">Bestellstatus</option>
+                        </select>
+                      </Field>
+                      <Field label="Hintergrundfarbe">
+                        <input type="color" value={editingScreen.backgroundColor} onChange={(e) => setEditingScreen((c) => (c ? { ...c, backgroundColor: e.target.value } : c))} className="input-ui h-10" />
+                      </Field>
+                      <Field label="Akzentfarbe">
+                        <input type="color" value={editingScreen.accentColor} onChange={(e) => setEditingScreen((c) => (c ? { ...c, accentColor: e.target.value } : c))} className="input-ui h-10" />
+                      </Field>
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button type="button" onClick={() => void handleSaveScreenSettings()} disabled={savingScreenSettings} className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60">
+                        {savingScreenSettings ? 'Speichert…' : 'Einstellungen speichern'}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="mt-2 text-sm text-slate-600">Screen-Profil wird geladen …</p>
+                )}
+              </section>
+            ) : null}
             {rows.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-white px-4 py-4 text-sm text-rose-900/75">
                 Noch keine Displays verbunden.
@@ -649,8 +810,8 @@ export default function AdminScreenStudioPage() {
               })}
             </div>
             <div className="mt-4">
-              <a href="/admin/screen" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-                Detail-Vorschau öffnen
+              <a href="/admin/screen-studio?tab=preview" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
+                Vorschau aktualisieren
               </a>
             </div>
           </section>

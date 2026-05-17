@@ -5370,6 +5370,7 @@ export type DisplayDeviceOverviewRow = {
   id: string
   entityId: string
   sourceKind: 'ORDER_DISPLAY' | 'SCREEN_DEVICE' | 'DISPLAY_DEVICE'
+  screenId?: string | null
   tenantId: string
   tenantName: string | null
   chainId: string | null
@@ -7688,6 +7689,57 @@ export async function deleteDisplayDevice(
   }
 
   return res.json()
+}
+
+export type AdminDisplayScreen = {
+  id: string
+  tenantId: string
+  name: string
+  orientation: 'LANDSCAPE' | 'PORTRAIT'
+  resolutionPreset: 'HD' | 'FULL_HD' | 'FOUR_K' | 'CUSTOM'
+  backgroundColor: string
+  accentColor: string
+  layoutType: 'MENU_BOARD' | 'SLIDESHOW' | 'PROMO_SPLIT' | 'ORDER_STATUS'
+  isActive: boolean
+}
+
+export async function getAdminDisplayScreens(
+  token: string,
+  tenantId: string
+): Promise<AdminDisplayScreen[]> {
+  const query = new URLSearchParams({ tenantId })
+  const res = await fetch(`${API_BASE_URL}/api/admin/displays/screens?${query.toString()}`, {
+    headers: authHeaders(token),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Bildschirme konnten nicht geladen werden')
+  }
+  const data = (await res.json()) as { screens: AdminDisplayScreen[] }
+  return data.screens
+}
+
+export async function updateAdminDisplayScreen(
+  token: string,
+  screenId: string,
+  data: Partial<
+    Pick<
+      AdminDisplayScreen,
+      'name' | 'orientation' | 'resolutionPreset' | 'backgroundColor' | 'accentColor' | 'layoutType' | 'isActive'
+    > & { tenantId: string }
+  >
+): Promise<AdminDisplayScreen> {
+  const res = await fetch(`${API_BASE_URL}/api/admin/displays/screens/${encodeURIComponent(screenId)}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.message || errorData?.error || 'Bildschirm konnte nicht gespeichert werden')
+  }
+  const payload = (await res.json()) as { screen: AdminDisplayScreen }
+  return payload.screen
 }
 
 export async function deactivateOrderDeskDeviceBinding(
