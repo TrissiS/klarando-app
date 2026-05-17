@@ -46,6 +46,8 @@ export default function SuperadminFeesPage() {
   const [context, setContext] = useState<AccessContext | null>(null)
   const [selectedTenantId, setSelectedTenantId] = useState('')
   const [billingForm, setBillingForm] = useState<{
+    planType: 'REVENUE_SHARE' | 'MONTHLY_FIXED' | 'ORDER_PACKAGE' | 'HYBRID' | 'CUSTOM'
+    billingPeriod: 'MONTHLY' | 'WEEKLY'
     monthlyFeeCents: number
     includedOrders: number
     commissionPercent: number
@@ -64,6 +66,14 @@ export default function SuperadminFeesPage() {
       return
     }
     setToken(parsed.accessToken || localStorage.getItem('accessToken') || '')
+  }, [])
+
+  useEffect(() => {
+    const params = new URL(window.location.href).searchParams
+    const requestedTenantId = params.get('tenantId')?.trim()
+    if (requestedTenantId) {
+      setSelectedTenantId(requestedTenantId)
+    }
   }, [])
 
   useEffect(() => {
@@ -98,6 +108,8 @@ export default function SuperadminFeesPage() {
       try {
         const config = await getTenantBillingConfig(token, selectedTenantId)
         setBillingForm({
+          planType: config.plan.planType,
+          billingPeriod: config.plan.billingPeriod,
           monthlyFeeCents: config.plan.monthlyFeeCents,
           includedOrders: config.plan.includedOrders,
           commissionPercent: config.plan.commissionPercent,
@@ -131,6 +143,8 @@ export default function SuperadminFeesPage() {
       setSavingTenant(true)
       setError('')
       const result = await updateTenantBillingConfig(token, selectedTenantId, {
+        planType: billingForm.planType,
+        billingPeriod: billingForm.billingPeriod,
         monthlyFeeCents: Math.max(0, Math.round(billingForm.monthlyFeeCents)),
         includedOrders: Math.max(0, Math.round(billingForm.includedOrders)),
         commissionPercent: Math.max(0, billingForm.commissionPercent),
@@ -138,6 +152,8 @@ export default function SuperadminFeesPage() {
       })
       setInfo(`Abrechnungsprofil für ${context?.tenants.find((t) => t.id === selectedTenantId)?.name || 'Filiale'} gespeichert.`)
       setBillingForm({
+        planType: result.plan.planType,
+        billingPeriod: result.plan.billingPeriod,
         monthlyFeeCents: result.plan.monthlyFeeCents,
         includedOrders: result.plan.includedOrders,
         commissionPercent: result.plan.commissionPercent,
@@ -195,6 +211,49 @@ export default function SuperadminFeesPage() {
               <select value={selectedTenantId} onChange={(e) => setSelectedTenantId(e.target.value)} className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm">
                 <option value="">Filiale wählen</option>
                 {(context?.tenants || []).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm text-slate-700">Abrechnungsmodell</span>
+              <select
+                value={billingForm?.planType || 'REVENUE_SHARE'}
+                onChange={(e) =>
+                  setBillingForm((c) =>
+                    c
+                      ? {
+                          ...c,
+                          planType: e.target.value as
+                            | 'REVENUE_SHARE'
+                            | 'MONTHLY_FIXED'
+                            | 'ORDER_PACKAGE'
+                            | 'HYBRID'
+                            | 'CUSTOM',
+                        }
+                      : c
+                  )
+                }
+                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm"
+              >
+                <option value="REVENUE_SHARE">Provision</option>
+                <option value="MONTHLY_FIXED">Monatspauschale</option>
+                <option value="ORDER_PACKAGE">Bestellpaket</option>
+                <option value="HYBRID">Hybrid</option>
+                <option value="CUSTOM">Individuell</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-sm text-slate-700">Abrechnungsintervall</span>
+              <select
+                value={billingForm?.billingPeriod || 'MONTHLY'}
+                onChange={(e) =>
+                  setBillingForm((c) =>
+                    c ? { ...c, billingPeriod: e.target.value as 'MONTHLY' | 'WEEKLY' } : c
+                  )
+                }
+                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm"
+              >
+                <option value="MONTHLY">Monatlich</option>
+                <option value="WEEKLY">Wöchentlich</option>
               </select>
             </label>
             <BillingField label="Monatsgebühr (€)" value={billingForm ? billingForm.monthlyFeeCents / 100 : 0} onChange={(value) => setBillingForm((c) => (c ? { ...c, monthlyFeeCents: Math.round(value * 100) } : c))} />

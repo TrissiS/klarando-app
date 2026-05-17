@@ -10,7 +10,9 @@ import {
   getAccessUsers,
   getEffectiveFeatureModules,
   getFeatureModuleCatalog,
+  getTenantBillingConfig,
   getPermissionMatrix,
+  updateTenantBillingConfig,
   updateAccessUserPermissions,
   type AccessContext,
   type AccessPermission,
@@ -44,6 +46,14 @@ export default function SuperadminModuleBillingPage() {
   const [permissions, setPermissions] = useState<AccessPermission[]>([])
   const [matrixPermissions, setMatrixPermissions] = useState<AccessPermission[]>([])
   const [selectedPackageIds, setSelectedPackageIds] = useState<string[]>([])
+  const [billingDraft, setBillingDraft] = useState<{
+    planType: 'REVENUE_SHARE' | 'MONTHLY_FIXED' | 'ORDER_PACKAGE' | 'HYBRID' | 'CUSTOM'
+    billingPeriod: 'MONTHLY' | 'WEEKLY'
+    monthlyFeeCents: number
+    includedOrders: number
+    commissionPercent: number
+    fixedFeePerOrderCents: number
+  } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -82,6 +92,24 @@ export default function SuperadminModuleBillingPage() {
     void getEffectiveFeatureModules(token, tenantId)
       .then((response) => setModules(response.modules))
       .catch((cause) => setError(cause instanceof Error ? cause.message : 'Module konnten nicht geladen werden'))
+  }, [token, tenantId])
+
+  useEffect(() => {
+    if (!token || !tenantId) return
+    void getTenantBillingConfig(token, tenantId)
+      .then((config) =>
+        setBillingDraft({
+          planType: config.plan.planType,
+          billingPeriod: config.plan.billingPeriod,
+          monthlyFeeCents: config.plan.monthlyFeeCents,
+          includedOrders: config.plan.includedOrders,
+          commissionPercent: config.plan.commissionPercent,
+          fixedFeePerOrderCents: config.plan.fixedFeePerOrderCents,
+        })
+      )
+      .catch((cause) =>
+        setError(cause instanceof Error ? cause.message : 'Abrechnungsprofil konnte nicht geladen werden')
+      )
   }, [token, tenantId])
 
   useEffect(() => {
@@ -158,6 +186,27 @@ export default function SuperadminModuleBillingPage() {
     }
   }
 
+  async function saveBillingDraft() {
+    if (!token || !tenantId || !billingDraft) return
+    try {
+      setLoading(true)
+      setError('')
+      await updateTenantBillingConfig(token, tenantId, {
+        planType: billingDraft.planType,
+        billingPeriod: billingDraft.billingPeriod,
+        monthlyFeeCents: Math.max(0, Math.round(billingDraft.monthlyFeeCents)),
+        includedOrders: Math.max(0, Math.round(billingDraft.includedOrders)),
+        commissionPercent: Math.max(0, billingDraft.commissionPercent),
+        fixedFeePerOrderCents: Math.max(0, Math.round(billingDraft.fixedFeePerOrderCents)),
+      })
+      setInfo('Modulabrechnung für die Filiale gespeichert.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Modulabrechnung konnte nicht gespeichert werden')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const activeModules = modules.filter((entry) => entry.enabled).length
 
   return (
@@ -200,6 +249,101 @@ export default function SuperadminModuleBillingPage() {
         {tab === 'PACKAGES' ? (
           <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
             <h3 className="mb-3 text-sm font-semibold text-[var(--brand-ink)]">Pakete</h3>
+            <div className="mb-4 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">Modulabrechnung für ausgewählte Filiale</p>
+              <p className="mt-1 text-xs text-slate-600">
+                Preise und Provisionen direkt hier pflegen. Für volle Monatsauswertung nutze zusätzlich „Gebühren &amp; Provisionen“.
+              </p>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={billingDraft ? billingDraft.monthlyFeeCents / 100 : 0}
+                  onChange={(event) =>
+                    setBillingDraft((current) =>
+                      current
+                        ? { ...current, monthlyFeeCents: Math.round(Number(event.target.value || 0) * 100) }
+                        : current
+                    )
+                  }
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm"
+                  placeholder="Monatsgebühr (€)"
+                />
+                <input
+                  type="number"
+                  value={billingDraft?.includedOrders || 0}
+                  onChange={(event) =>
+                    setBillingDraft((current) =>
+                      current ? { ...current, includedOrders: Math.round(Number(event.target.value || 0)) } : current
+                    )
+                  }
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm"
+                  placeholder="Inklusivbestellungen"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  value={billingDraft?.commissionPercent || 0}
+                  onChange={(event) =>
+                    setBillingDraft((current) =>
+                      current ? { ...current, commissionPercent: Number(event.target.value || 0) } : current
+                    )
+                  }
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm"
+                  placeholder="Provision (%)"
+                />
+                <input
+                  type="number"
+                  step="0.01"
+                  value={billingDraft ? billingDraft.fixedFeePerOrderCents / 100 : 0}
+                  onChange={(event) =>
+                    setBillingDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            fixedFeePerOrderCents: Math.round(Number(event.target.value || 0) * 100),
+                          }
+                        : current
+                    )
+                  }
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm"
+                  placeholder="Fixbetrag Zusatzorder (€)"
+                />
+                <select
+                  value={billingDraft?.planType || 'REVENUE_SHARE'}
+                  onChange={(event) =>
+                    setBillingDraft((current) =>
+                      current
+                        ? {
+                            ...current,
+                            planType: event.target.value as
+                              | 'REVENUE_SHARE'
+                              | 'MONTHLY_FIXED'
+                              | 'ORDER_PACKAGE'
+                              | 'HYBRID'
+                              | 'CUSTOM',
+                          }
+                        : current
+                    )
+                  }
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm"
+                >
+                  <option value="REVENUE_SHARE">Provision</option>
+                  <option value="MONTHLY_FIXED">Monatspauschale</option>
+                  <option value="ORDER_PACKAGE">Bestellpaket</option>
+                  <option value="HYBRID">Hybrid</option>
+                  <option value="CUSTOM">Individuell</option>
+                </select>
+                <button
+                  type="button"
+                  className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
+                  onClick={() => void saveBillingDraft()}
+                  disabled={loading || !tenantId || !billingDraft}
+                >
+                  Modulabrechnung speichern
+                </button>
+              </div>
+            </div>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {packages.map((entry) => (
                 <article key={entry.key} className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/30 p-4">
