@@ -21,7 +21,7 @@ class DisplayContentScreen extends StatefulWidget {
 
 class _DisplayContentScreenState extends State<DisplayContentScreen> {
   Timer? _pageTimer;
-  int _pageIndex = 0;
+  int _pageTick = 0;
   VideoPlayerController? _videoController;
   String? _videoUrl;
 
@@ -80,7 +80,18 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
               ? 1
               : ((usableHeight + gap) / (cardHeight + gap)).floor().clamp(1, 10);
           final pages = _chunk(items, itemsPerPage);
-          final safePageIndex = pages.isEmpty ? 0 : _pageIndex % pages.length;
+          final sync = (widget.content['sync'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+          final layout = (widget.content['layout'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+          final pageDurationSecRaw = (sync['pageDurationSec'] as num?)?.toInt() ?? 10;
+          final pageDurationSec = pageDurationSecRaw.clamp(8, 18);
+          final serverTimeMs = (sync['serverTimeMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch;
+          final displayIndex = (layout['displayIndex'] as num?)?.toInt() ?? 0;
+          final nowMs = DateTime.now().millisecondsSinceEpoch;
+          final elapsedSec = ((nowMs - serverTimeMs) ~/ 1000).clamp(0, 864000);
+          final calculatedPageIndex = pages.isEmpty || pageDurationSec <= 0
+              ? 0
+              : ((elapsedSec ~/ pageDurationSec) + displayIndex) % pages.length;
+          final safePageIndex = pages.isEmpty ? 0 : calculatedPageIndex;
           _syncPageTimer(pages.length);
           final scaleFactor = (constraints.maxWidth / 1920).clamp(0.72, 1.35);
 
@@ -230,10 +241,10 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
   void _syncPageTimer(int pageCount) {
     _pageTimer?.cancel();
     if (pageCount <= 1) return;
-    _pageTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    _pageTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       setState(() {
-        _pageIndex = (_pageIndex + 1) % pageCount;
+        _pageTick = (_pageTick + 1) % 1000000;
       });
     });
   }

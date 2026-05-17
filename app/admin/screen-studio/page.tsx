@@ -220,7 +220,7 @@ export default function AdminScreenStudioPage() {
         setEnableAnimations(config.overlayAnimation !== 'NONE')
         setFontFamily(config.fontFamily || 'Poppins, sans-serif')
         setPixelPadding(config.cardPadding || 16)
-        setDefaultColumnCount(Math.max(1, Math.min(5, config.defaultColumnCount || 2)))
+        setDefaultColumnCount(Math.max(1, Math.min(8, config.defaultColumnCount || 2)))
         setIngredientFontSize(Math.max(12, Math.min(32, config.ingredientFontSize || 16)))
         setCategoryFontSize(Math.max(12, Math.min(32, config.categoryFontSize || 16)))
         setPriceFontSize(Math.max(14, Math.min(54, config.priceFontSize || 28)))
@@ -414,7 +414,7 @@ export default function AdminScreenStudioPage() {
         ingredientFontSize,
         categoryFontSize,
         priceFontSize,
-        defaultColumnCount: Math.max(1, Math.min(5, defaultColumnCount)),
+        defaultColumnCount: Math.max(1, Math.min(8, defaultColumnCount)),
       }
       await updateScreenConfig(payload)
       if (selectedDesignScreenId && session?.tenantId) {
@@ -803,6 +803,9 @@ export default function AdminScreenStudioPage() {
                   <option value="3">3</option>
                   <option value="4">4</option>
                   <option value="5">5</option>
+                  <option value="6">6</option>
+                  <option value="7">7</option>
+                  <option value="8">8</option>
                 </select>
               </Field>
               <Field label="Ziel: Produktmenge auf Displays">
@@ -812,6 +815,9 @@ export default function AdminScreenStudioPage() {
                   <option value="3">3 Displays</option>
                   <option value="4">4 Displays</option>
                   <option value="5">5 Displays</option>
+                  <option value="6">6 Displays</option>
+                  <option value="7">7 Displays</option>
+                  <option value="8">8 Displays</option>
                 </select>
               </Field>
               <Field label="Expertenmodus">

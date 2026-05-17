@@ -338,11 +338,23 @@ router.get('/content', async (req, res) => {
       categoryFontSize: 16,
       ingredientFontSize: 16,
       priceFontSize: 28,
-      defaultColumnCount: Math.max(1, Math.min(5, displayCount)),
+      defaultColumnCount: Math.max(1, Math.min(8, displayCount)),
       showPrices: true,
       showCategoryOnCard: true,
       fontFamily: 'Poppins, sans-serif',
     }
+    const pageDurationSec = Math.max(
+      8,
+      Math.min(
+        18,
+        Number(
+          (playlist?.items ?? [])
+            .map((item) => item.durationSeconds)
+            .find((entry) => Number.isFinite(entry) && entry > 0) ?? 10
+        )
+      )
+    )
+    const serverTimeMs = Date.now()
     console.info('DISPLAY CONTENT PRODUCTS COUNT', distributedProducts.length)
 
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
@@ -386,6 +398,12 @@ router.get('/content', async (req, res) => {
         displayIndex,
         productsTotal: normalizedProducts.length,
         productsOnDisplay: distributedProducts.length,
+      },
+      sync: {
+        mode: 'SERVER_TIME',
+        serverTimeMs,
+        pageDurationSec,
+        wallSessionId: `${resolvedScreen.id}:${playlist?.id ?? 'default'}`,
       },
       tenantBranding: {
         tenantId: device.tenantId,
