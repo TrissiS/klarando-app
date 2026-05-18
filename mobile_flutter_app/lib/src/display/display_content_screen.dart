@@ -292,7 +292,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
 
   void _syncBackgroundVideo(String? mediaUrl, String backgroundMode) {
     final normalizedUrl = mediaUrl?.trim();
-    final canUseVideo = backgroundMode == 'IMAGE' &&
+    final canUseVideo = (backgroundMode == 'IMAGE' || backgroundMode == 'VIDEO') &&
         normalizedUrl != null &&
         normalizedUrl.isNotEmpty &&
         (normalizedUrl.toLowerCase().endsWith('.mp4') || normalizedUrl.toLowerCase().endsWith('.webm'));

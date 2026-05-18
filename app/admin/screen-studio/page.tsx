@@ -52,7 +52,7 @@ const DESIGN_TEMPLATES = [
 
 const TEMPLATE_STYLES: Record<
   string,
-  { primary: string; accent: string; backgroundMode: 'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD'; font: FontSizeMode; density: CardDensity; anim: boolean }
+  { primary: string; accent: string; backgroundMode: 'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD' | 'VIDEO'; font: FontSizeMode; density: CardDensity; anim: boolean }
 > = {
   'Klarando Modern': { primary: '#f97316', accent: '#ec4899', backgroundMode: 'VERLAUF', font: 'MITTEL', density: 'KOMFORT', anim: true },
   'Fastfood Board': { primary: '#ef4444', accent: '#f59e0b', backgroundMode: 'DUNKEL', font: 'GROSS', density: 'KOMPAKT', anim: false },
@@ -136,7 +136,7 @@ export default function AdminScreenStudioPage() {
   const [selectedTemplate, setSelectedTemplate] = useState('Klarando Modern')
   const [primaryColor, setPrimaryColor] = useState('#f97316')
   const [accentColor, setAccentColor] = useState('#ec4899')
-  const [backgroundMode, setBackgroundMode] = useState<'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD'>('VERLAUF')
+  const [backgroundMode, setBackgroundMode] = useState<'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD' | 'VIDEO'>('VERLAUF')
   const [backgroundMediaUrl, setBackgroundMediaUrl] = useState('')
   const [fontSizeMode, setFontSizeMode] = useState<FontSizeMode>('MITTEL')
   const [cardDensity, setCardDensity] = useState<CardDensity>('KOMFORT')
@@ -224,7 +224,13 @@ export default function AdminScreenStudioPage() {
         setPrimaryColor(config.productNameColor || config.textColor || '#f97316')
         setAccentColor(config.accentColor || '#ec4899')
         setBackgroundMode(
-          config.backgroundMode === 'IMAGE' ? 'BILD' : config.backgroundMode === 'COLOR' ? 'DUNKEL' : 'VERLAUF'
+          config.backgroundMode === 'VIDEO'
+            ? 'VIDEO'
+            : config.backgroundMode === 'IMAGE'
+              ? 'BILD'
+              : config.backgroundMode === 'COLOR'
+                ? 'DUNKEL'
+                : 'VERLAUF'
         )
         setBackgroundMediaUrl(config.backgroundMediaUrl || '')
         setShowLogo(Boolean(config.logoUrl))
@@ -525,9 +531,9 @@ export default function AdminScreenStudioPage() {
         accentColor,
         productNameColor: primaryColor,
         textColor: primaryColor,
-        backgroundMode: backgroundMode === 'BILD' ? 'IMAGE' : 'COLOR',
+        backgroundMode: backgroundMode === 'VIDEO' ? 'VIDEO' : backgroundMode === 'BILD' ? 'IMAGE' : 'COLOR',
         backgroundValue: backgroundMode === 'HELL' ? '#f8fafc' : backgroundMode === 'DUNKEL' ? '#0f172a' : `linear-gradient(135deg, ${primaryColor}, ${accentColor})`,
-        backgroundMediaUrl: backgroundMode === 'BILD' ? backgroundMediaUrl.trim() || null : null,
+        backgroundMediaUrl: backgroundMode === 'BILD' || backgroundMode === 'VIDEO' ? backgroundMediaUrl.trim() || null : null,
         showPrices: highlightPrice,
         showAllergens: showIngredients,
         showCategoryHeaders,
@@ -1035,6 +1041,7 @@ export default function AdminScreenStudioPage() {
                   <option value="DUNKEL">Dunkel</option>
                   <option value="VERLAUF">Verlauf</option>
                   <option value="BILD">Bild</option>
+                  <option value="VIDEO">Video</option>
                 </select>
               </Field>
               <Field label="Video-/Bild-URL (Hintergrund)">
