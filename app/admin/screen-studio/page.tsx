@@ -146,9 +146,13 @@ export default function AdminScreenStudioPage() {
   const [defaultColumnCount, setDefaultColumnCount] = useState(2)
   const [targetWallDisplays, setTargetWallDisplays] = useState(1)
   const [showCategoryOnCard, setShowCategoryOnCard] = useState(true)
+  const [showCategoryHeaders, setShowCategoryHeaders] = useState(true)
+  const [showIngredients, setShowIngredients] = useState(true)
   const [showLogo, setShowLogo] = useState(true)
   const [highlightPrice, setHighlightPrice] = useState(true)
   const [enableAnimations, setEnableAnimations] = useState(true)
+  const [cardStyle, setCardStyle] = useState<'SOFT' | 'GLASS' | 'BORDER' | 'NONE'>('SOFT')
+  const [productNameFontSize, setProductNameFontSize] = useState(28)
   const [expertMode, setExpertMode] = useState(false)
   const [fontFamily, setFontFamily] = useState('Poppins, sans-serif')
   const [scalePercent, setScalePercent] = useState(100)
@@ -226,7 +230,10 @@ export default function AdminScreenStudioPage() {
         setShowLogo(Boolean(config.logoUrl))
         setHighlightPrice(config.showPrices)
         setShowCategoryOnCard(config.showCategoryOnCard)
+        setShowCategoryHeaders(config.showCategoryHeaders)
+        setShowIngredients(config.showAllergens)
         setEnableAnimations(config.overlayAnimation !== 'NONE')
+        setCardStyle((['SOFT', 'GLASS', 'BORDER', 'NONE'] as const).includes(config.cardStyle as any) ? (config.cardStyle as any) : 'SOFT')
         setFontFamily(config.fontFamily || 'Poppins, sans-serif')
         setPixelPadding(config.cardPadding || 16)
         setDefaultColumnCount(Math.max(1, Math.min(8, config.defaultColumnCount || 2)))
@@ -234,6 +241,7 @@ export default function AdminScreenStudioPage() {
         setIngredientFontSize(Math.max(12, Math.min(32, config.ingredientFontSize || 16)))
         setCategoryFontSize(Math.max(12, Math.min(32, config.categoryFontSize || 16)))
         setPriceFontSize(Math.max(14, Math.min(54, config.priceFontSize || 28)))
+        setProductNameFontSize(Math.max(16, Math.min(54, config.productFontSize || 28)))
         setFontSizeMode(config.productFontSize >= 32 ? 'GROSS' : config.productFontSize <= 22 ? 'KLEIN' : 'MITTEL')
         setCardDensity(config.cardPadding <= 12 ? 'KOMPAKT' : config.cardPadding >= 22 ? 'GROSS' : 'KOMFORT')
       } catch (loadError) {
@@ -375,6 +383,29 @@ export default function AdminScreenStudioPage() {
     }
   }
 
+  async function handleUpdateProductSettings(
+    product: ScreenProduct,
+    patch: Partial<{
+      displayCategory: string | null
+      sortOrder: number
+      showOnScreen: boolean
+      isFeatured: boolean
+      badgeText: string | null
+      highlightColor: string | null
+    }>
+  ) {
+    try {
+      setUpdatingProductId(product.id)
+      setError('')
+      const updated = await updateScreenProduct(product.id, patch)
+      setProducts((current) => current.map((entry) => (entry.id === product.id ? updated : entry)))
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : 'Produkt konnte nicht gespeichert werden.')
+    } finally {
+      setUpdatingProductId(null)
+    }
+  }
+
   async function handleSaveScreenSettings() {
     if (!editingScreen || !token || !session?.tenantId) return
     try {
@@ -498,12 +529,15 @@ export default function AdminScreenStudioPage() {
         backgroundValue: backgroundMode === 'HELL' ? '#f8fafc' : backgroundMode === 'DUNKEL' ? '#0f172a' : `linear-gradient(135deg, ${primaryColor}, ${accentColor})`,
         backgroundMediaUrl: backgroundMode === 'BILD' ? backgroundMediaUrl.trim() || null : null,
         showPrices: highlightPrice,
+        showAllergens: showIngredients,
+        showCategoryHeaders,
         showCategoryOnCard,
         logoUrl: showLogo ? '/klarando_logo.png' : null,
         overlayAnimation: enableAnimations ? 'FLOAT' : 'NONE',
+        cardStyle,
         fontFamily,
         cardPadding: pixelPadding,
-        productFontSize: fontSizeMode === 'KLEIN' ? 20 : fontSizeMode === 'GROSS' ? 34 : 28,
+        productFontSize: Math.max(16, Math.min(54, productNameFontSize)),
         ingredientFontSize,
         categoryFontSize,
         priceFontSize,
@@ -648,6 +682,7 @@ export default function AdminScreenStudioPage() {
                     <Th>Produkt</Th>
                     <Th>Auf Bildschirm</Th>
                     <Th>Kategorie</Th>
+                    <Th>Zutaten</Th>
                     <Th>Preis</Th>
                     <Th>Sortierung</Th>
                     <Th>Highlight</Th>
@@ -671,15 +706,85 @@ export default function AdminScreenStudioPage() {
                           {product.screen.showOnScreen ? 'Sichtbar' : 'Ausgeblendet'}
                         </button>
                       </Td>
-                      <Td>{product.screen.displayCategory || product.category?.name || 'Allgemein'}</Td>
+                      <Td>
+                        <input
+                          value={product.screen.displayCategory || product.category?.name || 'Allgemein'}
+                          onChange={(event) =>
+                            setProducts((current) =>
+                              current.map((entry) =>
+                                entry.id === product.id
+                                  ? {
+                                      ...entry,
+                                      screen: {
+                                        ...entry.screen,
+                                        displayCategory: event.target.value,
+                                      },
+                                    }
+                                  : entry
+                              )
+                            )
+                          }
+                          onBlur={(event) =>
+                            void handleUpdateProductSettings(product, {
+                              displayCategory: event.target.value.trim() || null,
+                            })
+                          }
+                          className="input-ui h-9 min-w-[140px]"
+                        />
+                      </Td>
+                      <Td>
+                        <span className="text-xs text-rose-900/75">
+                          {product.ingredients.length > 0
+                            ? product.ingredients.map((entry) => entry.name).slice(0, 3).join(', ')
+                            : '-'}
+                        </span>
+                      </Td>
                       <Td>{Number(product.price).toFixed(2)} €</Td>
-                      <Td>{product.screen.sortOrder}</Td>
-                      <Td>{product.screen.isFeatured ? 'Ja' : 'Nein'}</Td>
+                      <Td>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            value={product.screen.sortOrder}
+                            onChange={(event) => {
+                              const next = Number(event.target.value) || 0
+                              setProducts((current) =>
+                                current.map((entry) =>
+                                  entry.id === product.id
+                                    ? { ...entry, screen: { ...entry.screen, sortOrder: next } }
+                                    : entry
+                                )
+                              )
+                            }}
+                            onBlur={(event) =>
+                              void handleUpdateProductSettings(product, {
+                                sortOrder: Math.max(0, Number(event.target.value) || 0),
+                              })
+                            }
+                            className="input-ui h-9 w-24"
+                          />
+                        </div>
+                      </Td>
+                      <Td>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleUpdateProductSettings(product, {
+                              isFeatured: !product.screen.isFeatured,
+                            })
+                          }
+                          disabled={updatingProductId === product.id}
+                          className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            product.screen.isFeatured ? 'bg-orange-100 text-orange-800' : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {product.screen.isFeatured ? 'Ja' : 'Nein'}
+                        </button>
+                      </Td>
                     </tr>
                   ))}
                   {filteredProducts.length === 0 ? (
                     <tr>
-                      <Td colSpan={6}>Keine Produkte gefunden.</Td>
+                      <Td colSpan={7}>Keine Produkte gefunden.</Td>
                     </tr>
                   ) : null}
                 </tbody>
@@ -720,7 +825,7 @@ export default function AdminScreenStudioPage() {
             <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
               <p className="text-sm font-semibold text-emerald-900">Auto-Rotation wie Menüboard-Ketten</p>
               <p className="mt-1 text-xs text-emerald-800">
-                Wechselt automatisch zwischen Speisekarte und Promo (z. B. alle 60 Sekunden).
+                Hier stellst du die Rotation ein: Speisekarte ↔ Promo (z. B. alle 60 Sekunden).
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
                 <Field label="Speisekarte (Sek.)">
@@ -824,7 +929,8 @@ export default function AdminScreenStudioPage() {
                 <p><span className="font-semibold">Vorschlag:</span> {designAssistant.suggestedTemplate || 'Noch offen'}</p>
               </div>
               <div className="mt-2 rounded-xl border border-dashed border-blue-200 bg-white/60 px-3 py-2 text-xs text-blue-900">
-                {assistantNotice || 'Upload-Assistent aktiv: Logo/Speisekarte hochladen und Designvorschlag übernehmen.'}
+                {assistantNotice ||
+                  'Design-Assistent aktiv: 1) Logo hochladen 2) Speisekarte hochladen 3) Vorschlag übernehmen und speichern.'}
               </div>
             </div>
             <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_1fr]">
@@ -841,7 +947,9 @@ export default function AdminScreenStudioPage() {
                         setAccentColor(preset.accent)
                         setBackgroundMode(preset.backgroundMode)
                         setFontSizeMode(preset.font)
+                        setProductNameFontSize(preset.font === 'KLEIN' ? 20 : preset.font === 'GROSS' ? 34 : 28)
                         setCardDensity(preset.density)
+                        setCardStyle(preset.density === 'KOMPAKT' ? 'NONE' : 'SOFT')
                         setEnableAnimations(preset.anim)
                       }
                     }}
@@ -882,7 +990,15 @@ export default function AdminScreenStudioPage() {
                     }}
                   >
                     {Array.from({ length: Math.max(2, Math.min(12, defaultColumnCount * 2)) }).map((_, index) => (
-                      <div key={index} className="rounded-lg bg-black/25 p-2">
+                      <div
+                        key={index}
+                        className={`${cardStyle === 'NONE' ? '' : 'rounded-lg'} p-2`}
+                        style={{
+                          background: cardStyle === 'NONE' ? 'transparent' : 'rgba(0,0,0,0.25)',
+                          border: cardStyle === 'BORDER' ? `1px solid ${accentColor}` : undefined,
+                          backdropFilter: cardStyle === 'GLASS' ? 'blur(4px)' : undefined,
+                        }}
+                      >
                         <p style={{ fontSize: `${fontSizeMode === 'KLEIN' ? 12 : fontSizeMode === 'GROSS' ? 18 : 14}px` }}>
                           Produkt {index + 1}
                         </p>
@@ -894,6 +1010,11 @@ export default function AdminScreenStudioPage() {
                         {highlightPrice ? (
                           <p style={{ fontSize: `${Math.max(11, Math.min(28, priceFontSize * 0.6))}px` }} className="font-semibold">
                             {(7.9 + index).toFixed(2).replace('.', ',')} €
+                          </p>
+                        ) : null}
+                        {showIngredients ? (
+                          <p style={{ fontSize: `${Math.max(10, Math.min(20, ingredientFontSize * 0.6))}px` }} className="opacity-75">
+                            Salat, Tomate, Sauce
                           </p>
                         ) : null}
                       </div>
@@ -925,17 +1046,41 @@ export default function AdminScreenStudioPage() {
                 />
               </Field>
               <Field label="Schriftgröße">
-                <select value={fontSizeMode} onChange={(e) => setFontSizeMode(e.target.value as FontSizeMode)} className="input-ui">
+                <select
+                  value={fontSizeMode}
+                  onChange={(e) => {
+                    const mode = e.target.value as FontSizeMode
+                    setFontSizeMode(mode)
+                    setProductNameFontSize(mode === 'KLEIN' ? 20 : mode === 'GROSS' ? 34 : 28)
+                  }}
+                  className="input-ui"
+                >
                   <option value="KLEIN">Klein</option>
                   <option value="MITTEL">Mittel</option>
                   <option value="GROSS">Groß</option>
                 </select>
+              </Field>
+              <Field label="Produktname Schriftgröße (px)">
+                <input
+                  type="number"
+                  value={productNameFontSize}
+                  onChange={(e) => setProductNameFontSize(Math.max(16, Math.min(54, Number(e.target.value) || 28)))}
+                  className="input-ui"
+                />
               </Field>
               <Field label="Produktkarten">
                 <select value={cardDensity} onChange={(e) => setCardDensity(e.target.value as CardDensity)} className="input-ui">
                   <option value="KOMPAKT">Kompakt</option>
                   <option value="KOMFORT">Komfort</option>
                   <option value="GROSS">Groß</option>
+                </select>
+              </Field>
+              <Field label="Rahmenstil Produkte">
+                <select value={cardStyle} onChange={(e) => setCardStyle(e.target.value as typeof cardStyle)} className="input-ui">
+                  <option value="SOFT">Soft (mit Rahmen)</option>
+                  <option value="GLASS">Glas</option>
+                  <option value="BORDER">Rahmen deutlich</option>
+                  <option value="NONE">Ohne Rahmen</option>
                 </select>
               </Field>
               <Field label="Logo anzeigen">
@@ -952,6 +1097,18 @@ export default function AdminScreenStudioPage() {
               </Field>
               <Field label="Kategorie auf Produktkarte">
                 <select value={showCategoryOnCard ? 'JA' : 'NEIN'} onChange={(e) => setShowCategoryOnCard(e.target.value === 'JA')} className="input-ui">
+                  <option value="JA">Ja</option>
+                  <option value="NEIN">Nein</option>
+                </select>
+              </Field>
+              <Field label="Kategorien als Überschrift">
+                <select value={showCategoryHeaders ? 'JA' : 'NEIN'} onChange={(e) => setShowCategoryHeaders(e.target.value === 'JA')} className="input-ui">
+                  <option value="JA">Ja</option>
+                  <option value="NEIN">Nein</option>
+                </select>
+              </Field>
+              <Field label="Zutaten anzeigen">
+                <select value={showIngredients ? 'JA' : 'NEIN'} onChange={(e) => setShowIngredients(e.target.value === 'JA')} className="input-ui">
                   <option value="JA">Ja</option>
                   <option value="NEIN">Nein</option>
                 </select>

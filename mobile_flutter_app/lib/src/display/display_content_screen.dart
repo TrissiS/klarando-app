@@ -48,11 +48,32 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final products =
         (widget.content['products'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
     final backgroundColor = _parseColor(screen['backgroundColor'] as String?) ?? const Color(0xFF111827);
+    final accentColor = _parseColor(screen['accentColor'] as String?) ??
+        _parseColor(screenConfig['accentColor'] as String?) ??
+        const Color(0xFFFBBF24);
     final backgroundMode = '${screenConfig['backgroundMode'] ?? ''}'.toUpperCase();
     final backgroundValue = screenConfig['backgroundValue'] as String?;
     final backgroundMediaUrl = screenConfig['backgroundMediaUrl'] as String?;
     final showPrices = (screenConfig['showPrices'] as bool?) ?? true;
     final showCategory = (screenConfig['showCategoryOnCard'] as bool?) ?? true;
+    final showCategoryHeaders = (screenConfig['showCategoryHeaders'] as bool?) ?? false;
+    final showIngredients = (screenConfig['showAllergens'] as bool?) ?? true;
+    final showLogo = ((screenConfig['logoUrl'] as String?) ?? '').trim().isNotEmpty;
+    final logoUrl = (screenConfig['logoUrl'] as String?) ?? '';
+    final logoSize = (((screenConfig['logoSize'] as num?)?.toDouble() ?? 120).clamp(60, 220)).toDouble();
+    final fontFamily = (screenConfig['fontFamily'] as String?)?.trim();
+    final cardPadding = (((screenConfig['cardPadding'] as num?)?.toDouble() ?? 16).clamp(8, 40)).toDouble();
+    final productFontSize =
+        (((screenConfig['productFontSize'] as num?)?.toDouble() ?? 24).clamp(14, 48)).toDouble();
+    final categoryFontSize =
+        (((screenConfig['categoryFontSize'] as num?)?.toDouble() ?? 14).clamp(10, 34)).toDouble();
+    final priceFontSize =
+        (((screenConfig['priceFontSize'] as num?)?.toDouble() ?? 24).clamp(12, 54)).toDouble();
+    final ingredientFontSize =
+        (((screenConfig['ingredientFontSize'] as num?)?.toDouble() ?? 14).clamp(10, 34)).toDouble();
+    final ingredientTextColor = _parseColor(screenConfig['ingredientTextColor'] as String?) ?? Colors.white70;
+    final cardStyle = '${screenConfig['cardStyle'] ?? 'SOFT'}'.toUpperCase();
+    final enableAnimations = '${screenConfig['overlayAnimation'] ?? 'NONE'}'.toUpperCase() != 'NONE';
     final configuredColumns = (screenConfig['defaultColumnCount'] as num?)?.toInt();
     _syncBackgroundVideo(backgroundMediaUrl, backgroundMode);
     final menuRows = products
@@ -60,6 +81,13 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
               'name': '${entry['name'] ?? '-'}',
               'category': '${entry['categoryName'] ?? 'Weitere'}',
               'price': showPrices ? _formatPrice(entry['price']) : '',
+              'ingredients': (entry['ingredients'] as List?)
+                      ?.cast<Map<String, dynamic>>()
+                      .map((ingredient) => '${ingredient['name'] ?? ''}'.trim())
+                      .where((name) => name.isNotEmpty)
+                      .take(4)
+                      .join(', ') ??
+                  '',
             })
         .toList(growable: false);
 
@@ -139,6 +167,19 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                     maxWidth: constraints.maxWidth - (horizontalPadding * 2),
                                     showCategory: showCategory,
                                     configuredColumns: configuredColumns,
+                                    accentColor: accentColor,
+                                    showPrices: showPrices,
+                                    fontFamily: fontFamily,
+                                    cardPadding: cardPadding,
+                                    productFontSize: productFontSize,
+                                    categoryFontSize: categoryFontSize,
+                                    priceFontSize: priceFontSize,
+                                    ingredientFontSize: ingredientFontSize,
+                                    ingredientTextColor: ingredientTextColor,
+                                    enableAnimations: enableAnimations,
+                                    showIngredients: showIngredients,
+                                    showCategoryHeaders: showCategoryHeaders,
+                                    cardStyle: cardStyle,
                                   )
                                 : Column(
                                     children: <Widget>[
@@ -158,9 +199,36 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                 maxWidth: constraints.maxWidth - (horizontalPadding * 2),
                                 showCategory: showCategory,
                                 configuredColumns: configuredColumns,
+                                accentColor: accentColor,
+                                showPrices: showPrices,
+                                fontFamily: fontFamily,
+                                cardPadding: cardPadding,
+                                productFontSize: productFontSize,
+                                categoryFontSize: categoryFontSize,
+                                priceFontSize: priceFontSize,
+                                ingredientFontSize: ingredientFontSize,
+                                ingredientTextColor: ingredientTextColor,
+                                enableAnimations: enableAnimations,
+                                showIngredients: showIngredients,
+                                showCategoryHeaders: showCategoryHeaders,
+                                cardStyle: cardStyle,
                               ),
                   ),
                 ),
+                if (showLogo)
+                  Positioned(
+                    left: 16,
+                    top: 16,
+                    child: SizedBox(
+                      width: logoSize,
+                      height: logoSize * 0.36,
+                      child: Image.network(
+                        logoUrl,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    ),
+                  ),
                 if (widget.connectionMessage != null)
                   Positioned(
                     left: 16,
@@ -287,14 +355,40 @@ class _MenuProductBoard extends StatelessWidget {
     required this.maxHeight,
     required this.maxWidth,
     required this.showCategory,
+    required this.accentColor,
+    required this.showPrices,
+    required this.cardPadding,
+    required this.productFontSize,
+    required this.categoryFontSize,
+    required this.priceFontSize,
+    required this.ingredientFontSize,
+    required this.ingredientTextColor,
+    required this.enableAnimations,
+    required this.showIngredients,
+    required this.showCategoryHeaders,
+    required this.cardStyle,
     this.configuredColumns,
+    this.fontFamily,
   });
 
   final List<Map<String, String>> rows;
   final double maxHeight;
   final double maxWidth;
   final bool showCategory;
+  final Color accentColor;
+  final bool showPrices;
+  final double cardPadding;
+  final double productFontSize;
+  final double categoryFontSize;
+  final double priceFontSize;
+  final double ingredientFontSize;
+  final Color ingredientTextColor;
+  final bool enableAnimations;
+  final bool showIngredients;
+  final bool showCategoryHeaders;
+  final String cardStyle;
   final int? configuredColumns;
+  final String? fontFamily;
 
   @override
   Widget build(BuildContext context) {
@@ -318,56 +412,109 @@ class _MenuProductBoard extends StatelessWidget {
           Expanded(
             child: Column(
               children: [
-                for (final row in chunks[column])
+                for (int rowIndex = 0; rowIndex < chunks[column].length; rowIndex++)
                   Expanded(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.24),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Text(
-                                      row['name'] ?? '-',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 24,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    if (showCategory)
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween<double>(begin: enableAnimations ? 0.96 : 1.0, end: 1.0),
+                        duration: Duration(milliseconds: enableAnimations ? 420 : 1),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, value, child) => Transform.scale(scale: value, child: child),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: cardStyle == 'NONE'
+                                ? Colors.transparent
+                                : cardStyle == 'GLASS'
+                                    ? Colors.white.withOpacity(0.08)
+                                    : Colors.black.withOpacity(0.24),
+                            border: cardStyle == 'BORDER'
+                                ? Border.all(color: accentColor.withOpacity(0.75))
+                                : null,
+                            borderRadius: cardStyle == 'NONE' ? BorderRadius.zero : BorderRadius.circular(12),
+                          ),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: (cardPadding * 0.75).clamp(8, 22),
+                              vertical: (cardPadding * 0.5).clamp(6, 16),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      if (showCategoryHeaders &&
+                                          rowIndex > 0 &&
+                                          chunks[column][rowIndex - 1]['category'] !=
+                                              chunks[column][rowIndex]['category'])
+                                        Padding(
+                                          padding: const EdgeInsets.only(bottom: 4),
+                                          child: Text(
+                                            chunks[column][rowIndex]['category'] ?? '',
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: (categoryFontSize + 1).clamp(10, 40),
+                                              color: Colors.white70,
+                                              fontWeight: FontWeight.w700,
+                                              fontFamily: fontFamily,
+                                            ),
+                                          ),
+                                        ),
                                       Text(
-                                        row['category'] ?? '',
+                                        chunks[column][rowIndex]['name'] ?? '-',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(fontSize: 14, color: Colors.white70),
+                                        style: TextStyle(
+                                          fontSize: productFontSize,
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.w700,
+                                          fontFamily: fontFamily,
+                                        ),
                                       ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              if ((row['price'] ?? '').isNotEmpty)
-                                Text(
-                                  row['price'] ?? '-',
-                                  style: const TextStyle(
-                                    fontSize: 24,
-                                    color: Color(0xFFFBBF24),
-                                    fontWeight: FontWeight.w700,
+                                      const SizedBox(height: 2),
+                                      if (showCategory)
+                                        Text(
+                                          chunks[column][rowIndex]['category'] ?? '',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: categoryFontSize,
+                                            color: Colors.white70,
+                                            fontFamily: fontFamily,
+                                          ),
+                                        ),
+                                      if (showIngredients &&
+                                          (chunks[column][rowIndex]['ingredients'] ?? '').isNotEmpty)
+                                        Text(
+                                          chunks[column][rowIndex]['ingredients'] ?? '',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontSize: ingredientFontSize,
+                                            color: ingredientTextColor,
+                                            fontFamily: fontFamily,
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ),
-                            ],
+                                const SizedBox(width: 12),
+                                if (showPrices &&
+                                    (chunks[column][rowIndex]['price'] ?? '').isNotEmpty)
+                                  Text(
+                                    chunks[column][rowIndex]['price'] ?? '-',
+                                    style: TextStyle(
+                                      fontSize: priceFontSize,
+                                      color: accentColor,
+                                      fontWeight: FontWeight.w700,
+                                      fontFamily: fontFamily,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
