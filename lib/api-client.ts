@@ -29,6 +29,14 @@ function buildApiUrl(path: string): string {
   if (/^https?:\/\//i.test(normalizedPath)) {
     return normalizedPath
   }
+  // In browser production, prefer same-origin /api to avoid CORS issues
+  // when app is served from klarando.com and API is proxied through nginx.
+  if (
+    typeof window !== 'undefined' &&
+    normalizedPath.startsWith('/api')
+  ) {
+    return normalizedPath
+  }
   return `${API_BASE_URL}${normalizedPath}`
 }
 
