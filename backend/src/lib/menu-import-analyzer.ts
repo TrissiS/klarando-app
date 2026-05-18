@@ -187,6 +187,7 @@ export async function analyzeMenuImages(
   images: MenuImportImage[],
   tenantContext: MenuImportTenantContext
 ): Promise<MenuImportAnalysisResult> {
+  const startedAt = Date.now()
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY ist nicht gesetzt.')
@@ -230,32 +231,58 @@ export async function analyzeMenuImages(
     })
   }
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: selectedModel,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Du extrahierst Speisekarten strukturiert für Klarando. Gib ausschließlich JSON gemäß Schema zurück.',
-        },
-        {
-          role: 'user',
-          content: userContent,
-        },
-      ],
-      response_format: {
-        type: 'json_schema',
-        json_schema: menuImportSchema,
+  const timeoutMs = 70_000
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  let response: Response
+  try {
+    response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
       },
-      max_tokens: 6000,
-    }),
-  })
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: selectedModel,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Du extrahierst Speisekarten strukturiert für Klarando. Gib ausschließlich JSON gemäß Schema zurück.',
+          },
+          {
+            role: 'user',
+            content: userContent,
+          },
+        ],
+        response_format: {
+          type: 'json_schema',
+          json_schema: menuImportSchema,
+        },
+        max_tokens: 3500,
+      }),
+    })
+  } catch (fetchError) {
+    const isAbort =
+      fetchError instanceof Error &&
+      (fetchError.name === 'AbortError' || /aborted|timeout/i.test(fetchError.message))
+    console.error('MENU_IMPORT_ANALYZE_FETCH_ERROR', {
+      model: selectedModel,
+      imageCount: images.length,
+      timeoutMs,
+      durationMs: Date.now() - startedAt,
+      isAbort,
+      message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+    })
+    throw new Error(
+      isAbort
+        ? 'KI-Analyse hat zu lange gedauert. Bitte mit weniger/kleineren Bildern erneut versuchen.'
+        : 'KI-Analyse konnte den OpenAI-Dienst nicht erreichen.'
+    )
+  } finally {
+    clearTimeout(timeout)
+  }
 
   if (!response.ok) {
     const failureBody = await response.text()
@@ -294,6 +321,12 @@ export async function analyzeMenuImages(
 
   try {
     const parsed = JSON.parse(rawOutput) as MenuImportAnalysisResult
+    console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
+      model: selectedModel,
+      imageCount: images.length,
+      durationMs: Date.now() - startedAt,
+      categoryCount: parsed.categories?.length ?? 0,
+    })
     return normalizeAnalysis(parsed)
   } catch (parseError) {
     console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
