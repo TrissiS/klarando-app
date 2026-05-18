@@ -231,7 +231,7 @@ export async function analyzeMenuImages(
     })
   }
 
-  const timeoutMs = 45_000
+  const timeoutMs = 90_000
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   let response: Response
