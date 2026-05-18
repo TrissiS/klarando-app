@@ -1,6 +1,7 @@
 import { API_BASE_URL } from './config'
 
 const DEFAULT_TIMEOUT_MS = 20_000
+const MENU_IMPORT_TIMEOUT_MS = 120_000
 
 type ApiJsonErrorPayload = {
   error?: string
@@ -51,9 +52,19 @@ function resolveErrorMessage(payload: ApiJsonErrorPayload | null, fallback: stri
   return payload.message || payload.error || payload.details || fallback
 }
 
-export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
+type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number
+}
+
+export async function apiFetch(path: string, options: ApiFetchOptions = {}): Promise<Response> {
+  const { timeoutMs: customTimeoutMs, ...fetchOptions } = options
+  const timeoutMs = Number.isFinite(Number(customTimeoutMs))
+    ? Math.max(5_000, Number(customTimeoutMs))
+    : path.includes('/api/superadmin/menu-import/analyze')
+      ? MENU_IMPORT_TIMEOUT_MS
+      : DEFAULT_TIMEOUT_MS
   const timeoutController = new AbortController()
-  const timeoutId = setTimeout(() => timeoutController.abort(), DEFAULT_TIMEOUT_MS)
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs)
 
   if (options.signal) {
     if (options.signal.aborted) {
@@ -71,7 +82,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 
   try {
     return await globalThis.fetch(url, {
-      ...options,
+      ...fetchOptions,
       signal: timeoutController.signal,
     })
   } catch (error) {
