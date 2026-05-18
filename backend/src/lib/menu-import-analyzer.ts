@@ -183,6 +183,24 @@ function normalizeAnalysis(result: MenuImportAnalysisResult): MenuImportAnalysis
   }
 }
 
+function normalizeJsonCandidate(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return trimmed
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  if (fencedMatch?.[1]) {
+    return fencedMatch[1].trim()
+  }
+
+  const firstBrace = trimmed.indexOf('{')
+  const lastBrace = trimmed.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return trimmed.slice(firstBrace, lastBrace + 1).trim()
+  }
+
+  return trimmed
+}
+
 export async function analyzeMenuImages(
   images: MenuImportImage[],
   tenantContext: MenuImportTenantContext
@@ -320,7 +338,8 @@ export async function analyzeMenuImages(
   }
 
   try {
-    const parsed = JSON.parse(rawOutput) as MenuImportAnalysisResult
+    const normalizedOutput = normalizeJsonCandidate(rawOutput)
+    const parsed = JSON.parse(normalizedOutput) as MenuImportAnalysisResult
     console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
       model: selectedModel,
       imageCount: images.length,
