@@ -534,7 +534,7 @@ export default function AdminScreenStudioPage() {
         showCategoryOnCard,
         logoUrl: showLogo ? '/klarando_logo.png' : null,
         overlayAnimation: enableAnimations ? 'FLOAT' : 'NONE',
-        cardStyle,
+        cardStyle: cardStyle === 'NONE' ? 'MINIMAL' : cardStyle,
         fontFamily,
         cardPadding: pixelPadding,
         productFontSize: Math.max(16, Math.min(54, productNameFontSize)),
