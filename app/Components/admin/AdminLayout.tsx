@@ -194,6 +194,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [mailboxOpen, setMailboxOpen] = useState(false)
   const [notificationItems, setNotificationItems] = useState<HeaderInboxItem[]>([])
   const [mailboxItems, setMailboxItems] = useState<HeaderInboxItem[]>([])
+  const [sessionWarningOpen, setSessionWarningOpen] = useState(false)
+  const [sessionCountdown, setSessionCountdown] = useState(60)
   const enabledFeatureKeys = useMemo(() => {
     if (!featureScope) {
       return null
@@ -415,6 +417,61 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     clearSuperadminTenantContext()
     window.location.href = '/'
   }
+
+  useEffect(() => {
+    if (!authChecked || !hasValidSession) return
+    if (typeof window === 'undefined') return
+
+    const idleMs = 30 * 60 * 1000
+    const warnMs = 60 * 1000
+    let warningTimeout: ReturnType<typeof setTimeout> | null = null
+    let logoutTimeout: ReturnType<typeof setTimeout> | null = null
+    let countdownInterval: ReturnType<typeof setInterval> | null = null
+
+    const clearTimers = () => {
+      if (warningTimeout) clearTimeout(warningTimeout)
+      if (logoutTimeout) clearTimeout(logoutTimeout)
+      if (countdownInterval) clearInterval(countdownInterval)
+      warningTimeout = null
+      logoutTimeout = null
+      countdownInterval = null
+    }
+
+    const startTimers = () => {
+      clearTimers()
+      setSessionWarningOpen(false)
+      setSessionCountdown(60)
+      warningTimeout = setTimeout(() => {
+        setSessionWarningOpen(true)
+        setSessionCountdown(60)
+        countdownInterval = setInterval(() => {
+          setSessionCountdown((current) => {
+            if (current <= 1) {
+              if (countdownInterval) clearInterval(countdownInterval)
+              return 0
+            }
+            return current - 1
+          })
+        }, 1000)
+      }, idleMs - warnMs)
+      logoutTimeout = setTimeout(() => {
+        handleLogout()
+      }, idleMs)
+    }
+
+    const onActivity = () => {
+      startTimers()
+    }
+
+    const events: Array<keyof WindowEventMap> = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart']
+    events.forEach((eventName) => window.addEventListener(eventName, onActivity, { passive: true }))
+    startTimers()
+
+    return () => {
+      clearTimers()
+      events.forEach((eventName) => window.removeEventListener(eventName, onActivity))
+    }
+  }, [authChecked, hasValidSession])
 
   function handleLeaveTenant() {
     if (typeof window === 'undefined') return
@@ -938,7 +995,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           ) : null}
 
-          <div className={`relative z-10 ${pageSpacingClass}`}>
+          <div className={`relative z-10 ${pageSpacingClass} pb-20`}>
             {!authChecked ? (
               <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
                 Sitzung wird geprüft...
@@ -970,8 +1027,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               </section>
             )}
           </div>
-          <footer className="mt-6 border-t border-[var(--brand-border)] pt-4">
-            <div className="flex flex-wrap items-center gap-3 text-xs text-rose-900/70">
+          <footer className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--brand-border)] bg-white/95 px-4 py-3 backdrop-blur">
+            <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 text-xs text-rose-900/70">
               <Link href="/impressum" className="hover:text-rose-900">Impressum</Link>
               <Link href="/datenschutz" className="hover:text-rose-900">Datenschutz</Link>
               <Link href="/agb" className="hover:text-rose-900">AGB</Link>
@@ -980,6 +1037,38 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               <Link href="/partner-agb" className="hover:text-rose-900">Partner-AGB</Link>
             </div>
           </footer>
+          {sessionWarningOpen ? (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 px-4">
+              <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
+                <h3 className="text-base font-semibold text-slate-900">Sitzung läuft bald ab</h3>
+                <p className="mt-2 text-sm text-slate-700">
+                  Du wirst in {sessionCountdown} Sekunden automatisch ausgeloggt.
+                </p>
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSessionWarningOpen(false)
+                      setSessionCountdown(60)
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new Event('mousemove'))
+                      }
+                    }}
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+                  >
+                    Sitzung verlängern
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700"
+                  >
+                    Jetzt ausloggen
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </main>
