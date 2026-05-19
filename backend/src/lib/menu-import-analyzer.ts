@@ -527,6 +527,8 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
 
   const categories: MenuImportAnalysisResult['categories'] = []
   const warnings: string[] = []
+  const recognizedProductLines: string[] = []
+  const unrecognizedPriceLines: string[] = []
 
   const ensureCategory = (name: string) => {
     const normalizedName = name.trim() || 'Ohne Kategorie'
@@ -547,16 +549,25 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   let activeCategory = ensureCategory('Ohne Kategorie')
 
   const extractVariants = (line: string) => {
-    const matches = [...line.matchAll(/(?:\(|\/)\s*([A-Za-zÄÖÜäöüß ]{3,20})\s*\)?\s*\/?\s*€?\s*(\d+[,.]\d{2})/g)]
-    return matches.map((entry) => ({
-      name: entry[1].trim(),
-      price: Number(entry[2].replace(',', '.')),
-      confidence: 0.68,
-    }))
+    const matches = [
+      ...line.matchAll(/(?:€\s*)?(\d+[,.]\d{2})(?:\s*€)?\s*\(([^)]+)\)/g),
+    ]
+    return matches
+      .map((entry) => {
+        const price = Number(entry[1].replace(',', '.'))
+        const label = entry[2].trim()
+        if (!label || !Number.isFinite(price)) return null
+        return {
+          name: label,
+          price,
+          confidence: 0.68,
+        }
+      })
+      .filter(Boolean) as Array<{ name: string; price: number; confidence: number }>
   }
 
   for (const line of lines) {
-    const heading = line.match(/^\*{0,2}\s*([^*]+?)\s*\*{0,2}$/)
+    const heading = line.match(/^\*{2}\s*([^*]+?)\s*\*{2}$/)
     const headingText = heading?.[1]?.trim() || line
     const isKnownCategory = knownCategories.some((name) =>
       headingText.toLocaleLowerCase('de-DE').includes(name.toLocaleLowerCase('de-DE'))
@@ -567,19 +578,26 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       continue
     }
 
-    const strictPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s+-?\s*€\s*(\d+[,.]\d{2}|\d+)$/i
-    const compactPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s+(\d+[,.]\d{2})$/i
-    const priceOnlyPattern = /^(.+?)\s+-?\s*€\s*(\d+[,.]\d{2}|\d+)$/i
+    const generalNumberedPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?/i
+    const fallbackPricePattern = /^(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?$/i
 
-    const strictMatch = line.match(strictPattern)
-    const compactMatch = line.match(compactPattern)
-    const priceOnlyMatch = line.match(priceOnlyPattern)
+    const strictMatch = line.match(generalNumberedPattern)
+    const priceOnlyMatch = line.match(fallbackPricePattern)
 
-    const productNumber = strictMatch?.[1] || compactMatch?.[1] || null
-    const productName = (strictMatch?.[2] || compactMatch?.[2] || priceOnlyMatch?.[1] || '').trim()
-    if (!productName) continue
+    const hasPriceToken = /(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?/.test(line)
+    const productNumber = strictMatch?.[1] || null
+    const rawProductName = (strictMatch?.[2] || priceOnlyMatch?.[1] || '').trim()
+    if (!rawProductName) {
+      if (hasPriceToken) unrecognizedPriceLines.push(line)
+      continue
+    }
 
-    const rawPrice = strictMatch?.[3] || compactMatch?.[3] || priceOnlyMatch?.[2] || null
+    const productName = rawProductName
+      .replace(/\s*-\s*(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?[\s\S]*$/i, '')
+      .replace(/\s*(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?[\s\S]*$/i, '')
+      .trim() || rawProductName
+
+    const rawPrice = strictMatch?.[3] || priceOnlyMatch?.[2] || null
     const price = rawPrice ? Number(rawPrice.replace(',', '.')) : null
     const inferred = inferDescriptionAndIngredients(activeCategory.name, null, line, [])
     const variants = extractVariants(line)
@@ -600,6 +618,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       notes: fallbackNotes.join(' · '),
       confidence: price === null ? 0.55 : 0.66,
     })
+    recognizedProductLines.push(line)
 
     if (price === null) warnings.push(`${activeCategory.name} / ${productName}: Preis fehlt`)
     warnings.push(`${activeCategory.name} / ${productName}: Bitte prüfen: automatisch per Fallback erkannt`)
@@ -614,12 +633,26 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     }
   }
 
+  if (unrecognizedPriceLines.length > 0) {
+    warnings.push(`Parser konnte ${unrecognizedPriceLines.length} Preiszeilen nicht erkennen.`)
+  }
+
   return {
     restaurantName: null,
     sourceLanguage: 'de',
     categories: categories.filter((category) => category.products.length > 0),
     promotions: [],
     warnings,
+    debugRawResponsePreview: [
+      'PARSER DEBUG',
+      `Erkannte Produktzeilen: ${recognizedProductLines.length}`,
+      ...recognizedProductLines.slice(0, 40).map((line) => `+ ${line}`),
+      '',
+      `Nicht erkannte Preiszeilen: ${unrecognizedPriceLines.length}`,
+      ...unrecognizedPriceLines.slice(0, 40).map((line) => `- ${line}`),
+    ]
+      .join('\n')
+      .slice(0, 4000),
   }
 }
 
@@ -915,6 +948,7 @@ export async function analyzeMenuImages(
         `ERGEBNIS PRODUKTE: ${chunkProducts}`,
         'MODE: deterministic_parser',
         'FEHLER: -',
+        parsedChunk.debugRawResponsePreview ? parsedChunk.debugRawResponsePreview.slice(0, 800) : 'PARSER DEBUG: -',
         ''
       )
     }
