@@ -504,11 +504,7 @@ function parseFallbackProductsFromChunk(ocrChunk: string): Partial<MenuImportAna
 }
 
 function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
-  const lines = ocrText
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-
+  const lines = ocrText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   const knownCategories = [
     'Drehspieß',
     'Pommes & Saucen',
@@ -522,13 +518,6 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     'Hamburger',
     'Wurst',
   ]
-
-  const categories: MenuImportAnalysisResult['categories'] = []
-  const warnings: string[] = []
-  const recognizedProductLines: string[] = []
-  const unrecognizedPriceLines: string[] = []
-  const uncategorizedProductLines: string[] = []
-
   const correctionMap: Array<[RegExp, string]> = [
     [/\bDahbruch\b/gi, 'Dahlbruch'],
     [/\bScucuk\b/gi, 'Sucuk'],
@@ -536,23 +525,33 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     [/\bZiegeunersauce\b/gi, 'Zigeunersauce'],
     [/\bZiegeursauce\b/gi, 'Zigeunersauce'],
   ]
+  const categories: MenuImportAnalysisResult['categories'] = []
+  const warnings: string[] = []
+  const recognizedProductLines: string[] = []
+  const unrecognizedPriceLines: string[] = []
+  const uncategorizedProductLines: string[] = []
+  const parserCategoryErrors: string[] = []
 
   const normalizeTypos = (value: string) => {
     let next = value
-    for (const [pattern, replacement] of correctionMap) {
-      next = next.replace(pattern, replacement)
-    }
+    for (const [pattern, replacement] of correctionMap) next = next.replace(pattern, replacement)
     return next
   }
-
-  const hasPrice = (line: string) => /(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?/.test(line)
-  const hasEuro = (line: string) => /€/.test(line)
-  const startsWithProductNo = (line: string) => /^\d+[A-Z]?\./i.test(line)
-
-  const normalizeCategoryName = (line: string) => line.replace(/^\*+|\*+$/g, '').trim()
+  const cleanupMarkdown = (line: string) => line.replace(/^\*+|\*+$/g, '').replace(/\*+/g, '').trim()
+  const knownCategoryMatch = (line: string) =>
+    knownCategories.find((name) => line.toLocaleLowerCase('de-DE').includes(name.toLocaleLowerCase('de-DE'))) || null
+  const isProductLine = (line: string) =>
+    /^\s*\d+[A-Z]?\.\s+/.test(line) || /€/.test(line) || /\d+[,.]\d{2}/.test(line)
+  const isCategoryLine = (line: string) => {
+    const cleaned = cleanupMarkdown(line).trim()
+    if (!cleaned) return false
+    if (isProductLine(cleaned)) return false
+    if (cleaned.length > 80) return false
+    return Boolean(knownCategoryMatch(cleaned) || /^\*\*.+\*\*/.test(line))
+  }
 
   const ensureCategory = (name: string) => {
-    const normalizedName = name.trim() || 'Ohne Kategorie'
+    const normalizedName = name.trim() || 'Unsortiert'
     const existing = categories.find(
       (entry) => entry.name.toLocaleLowerCase('de-DE') === normalizedName.toLocaleLowerCase('de-DE')
     )
@@ -560,157 +559,93 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     const created = {
       name: normalizedName,
       sortOrder: categories.length + 1,
-      confidence: 0.72,
+      confidence: normalizedName === 'Unsortiert' ? 0.55 : 0.78,
       products: [] as MenuImportAnalysisResult['categories'][number]['products'],
     }
     categories.push(created)
     return created
   }
 
-  let activeCategoryName = ''
-
-  const extractVariants = (line: string) => {
-    const matches = [
-      ...line.matchAll(/(?:€\s*)?(\d+[,.]\d{2})(?:\s*€)?\s*\(([^)]+)\)/g),
-    ]
-    return matches
+  const extractVariants = (line: string) =>
+    [...line.matchAll(/(?:€\s*)?(\d+[,.]\d{2})(?:\s*€)?\s*\(([^)]+)\)/g)]
       .map((entry) => {
         const price = Number(entry[1].replace(',', '.'))
         const label = entry[2].trim()
         if (!label || !Number.isFinite(price)) return null
-        return {
-          name: label,
-          price,
-          confidence: 0.68,
-        }
+        return { name: label, price, confidence: 0.68 }
       })
       .filter(Boolean) as Array<{ name: string; price: number; confidence: number }>
-  }
 
-  type ProductLine = {
-    productNumber: string | null
-    name: string
-    price: number | null
-    variants: Array<{ name: string; price: number; confidence: number }>
-  }
-
-  const parseProductLine = (line: string): ProductLine | null => {
-    const numberedPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?/i
-    const unnumberedPattern = /^(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?$/i
-    const withMitPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s+mit\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?$/i
-
-    const mitMatch = line.match(withMitPattern)
-    if (mitMatch) {
-      const name = normalizeTypos(`${mitMatch[2].trim()} mit ${mitMatch[3].trim()}`)
-      return {
-        productNumber: mitMatch[1],
-        name,
-        price: Number(mitMatch[4].replace(',', '.')),
-        variants: extractVariants(line),
-      }
-    }
-
-    const numberedMatch = line.match(numberedPattern)
-    if (numberedMatch) {
-      return {
-        productNumber: numberedMatch[1],
-        name: normalizeTypos(numberedMatch[2].trim()),
-        price: Number(numberedMatch[3].replace(',', '.')),
-        variants: extractVariants(line),
-      }
-    }
-
-    const unnumberedMatch = line.match(unnumberedPattern)
-    if (unnumberedMatch) {
-      return {
-        productNumber: null,
-        name: normalizeTypos(unnumberedMatch[1].trim()),
-        price: Number(unnumberedMatch[2].replace(',', '.')),
-        variants: extractVariants(line),
-      }
-    }
-    return null
-  }
-
+  let currentCategory = ''
   for (const line of lines) {
-    const headingText = normalizeCategoryName(line)
-    const isKnownCategory = knownCategories.some((name) =>
-      headingText.toLocaleLowerCase('de-DE').includes(name.toLocaleLowerCase('de-DE'))
+    if (isCategoryLine(line)) {
+      const cleaned = cleanupMarkdown(line)
+      const known = knownCategoryMatch(cleaned)
+      currentCategory = known || cleaned
+      ensureCategory(currentCategory)
+      continue
+    }
+
+    const productMatch = line.match(/^(\d+[A-Z]?)\.\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?/i)
+    if (!productMatch) {
+      if (/€|\d+[,.]\d{2}/.test(line)) unrecognizedPriceLines.push(line)
+      continue
+    }
+
+    const productNumber = productMatch[1]
+    const rawName = normalizeTypos(productMatch[2].trim())
+    const rawPrice = Number(productMatch[3].replace(',', '.'))
+    const variants = extractVariants(line)
+    const withMatch = rawName.match(/\bmit\s+(.+)$/i)
+    const cleanedName = (withMatch ? rawName.slice(0, withMatch.index) : rawName).trim()
+
+    if (!currentCategory) {
+      if (/(drehspieß|döner|dürüm|falafel)/i.test(rawName)) {
+        currentCategory = 'Drehspieß'
+      } else {
+        currentCategory = 'Unsortiert'
+        uncategorizedProductLines.push(line)
+      }
+    }
+
+    const targetCategory = ensureCategory(currentCategory)
+    const inferred = inferDescriptionAndIngredients(
+      targetCategory.name,
+      withMatch?.[1] ? `mit ${withMatch[1].trim()}` : null,
+      line,
+      []
     )
-    const looksCategoryLine =
-      !startsWithProductNo(line) &&
-      !hasPrice(line) &&
-      !hasEuro(line) &&
-      headingText.length <= 50 &&
-      /^[\p{L}\s&/+\-]+$/u.test(headingText)
-    if (isKnownCategory || looksCategoryLine) {
-      activeCategoryName = headingText
-      ensureCategory(activeCategoryName)
-      continue
-    }
 
-    const parsed = parseProductLine(line)
-    if (!parsed) {
-      if (hasPrice(line) || hasEuro(line)) unrecognizedPriceLines.push(line)
-      continue
-    }
-
-    const productName = parsed.name
-      .replace(/\s*-\s*(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?[\s\S]*$/i, '')
-      .replace(/\s*(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?[\s\S]*$/i, '')
-      .trim() || parsed.name
-
-    const resolvedCategory = activeCategoryName || 'Unsortiert'
-    const category = ensureCategory(resolvedCategory)
-    if (!activeCategoryName) {
-      uncategorizedProductLines.push(line)
-    }
-
-    let inferred = inferDescriptionAndIngredients(category.name, null, line, [])
-    const withMatch = productName.match(/\bmit\s+(.+)$/i)
-    const cleanedName = withMatch ? productName.slice(0, withMatch.index).trim() : productName
-    if (withMatch?.[1]) {
-      inferred = inferDescriptionAndIngredients(category.name, `mit ${withMatch[1].trim()}`, line, inferred.ingredients)
-    }
-
-    const fallbackNotes: string[] = ['Per Fallback aus OCR-Zeile erkannt']
-    if (!parsed.productNumber) fallbackNotes.push('Artikelnummer fehlte in OCR-Zeile')
-    if (parsed.price === null) fallbackNotes.push('Preis fehlt')
-    if (!activeCategoryName) fallbackNotes.push('Kategorie fehlte im OCR-Kontext')
-
-    category.products.push({
-      productNumber: parsed.productNumber,
-      name: cleanedName || productName,
+    targetCategory.products.push({
+      productNumber,
+      name: cleanedName || rawName,
       description: inferred.description,
-      price: Number.isFinite(parsed.price || NaN) ? parsed.price : null,
-      variants: parsed.variants.length > 0 ? parsed.variants : [],
+      price: Number.isFinite(rawPrice) ? rawPrice : null,
+      variants,
       ingredients: inferred.ingredients,
       allergens: [],
       additives: [],
-      notes: fallbackNotes.join(' · '),
-      confidence: parsed.price === null ? 0.55 : 0.66,
+      notes: 'Per Fallback aus OCR-Zeile erkannt',
+      confidence: Number.isFinite(rawPrice) ? 0.66 : 0.55,
     })
     recognizedProductLines.push(line)
 
-    if (parsed.price === null) warnings.push(`${category.name} / ${cleanedName || productName}: Preis fehlt`)
-    warnings.push(`${category.name} / ${cleanedName || productName}: Bitte prüfen: automatisch per Fallback erkannt`)
-    warnings.push(`${category.name} / ${cleanedName || productName}: Allergene unklar`)
-    warnings.push(`${category.name} / ${cleanedName || productName}: Varianten prüfen`)
-    if (parsed.productNumber) warnings.push(`${category.name} / ${cleanedName || productName}: Artikelnummer wird nicht übernommen`)
+    warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Bitte prüfen: automatisch per Fallback erkannt`)
+    warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Allergene unklar`)
+    warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Varianten prüfen`)
+    warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Artikelnummer wird nicht übernommen`)
   }
 
   for (const category of categories) {
-    if (category.products.length > 0 && category.confidence < 0.75) {
-      warnings.push(`${category.name}: Diese Kategorie wurde per OCR-Fallback erstellt.`)
+    if (/^\d+[A-Z]?\./.test(category.name) || /€/.test(category.name) || /\d+[,.]\d{2}/.test(category.name)) {
+      parserCategoryErrors.push(category.name)
     }
   }
-
-  if (unrecognizedPriceLines.length > 0) {
-    warnings.push(`Parser konnte ${unrecognizedPriceLines.length} Preiszeilen nicht erkennen.`)
+  if (parserCategoryErrors.length > 0) {
+    warnings.push('Parserfehler: Produktzeile wurde als Kategorie erkannt')
   }
-  if (uncategorizedProductLines.length > 0) {
-    warnings.push(`${uncategorizedProductLines.length} Produktzeilen ohne Kategorie wurden "Unsortiert" zugeordnet.`)
-  }
+  if (unrecognizedPriceLines.length > 0) warnings.push(`Parser konnte ${unrecognizedPriceLines.length} Preiszeilen nicht erkennen.`)
+  if (uncategorizedProductLines.length > 0) warnings.push(`${uncategorizedProductLines.length} Produktzeilen ohne Kategorie wurden "Unsortiert" zugeordnet.`)
 
   return {
     restaurantName: null,
@@ -731,6 +666,9 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       '',
       'Kategorieblöcke:',
       ...categories.map((category) => `# ${category.name}: ${category.products.length} Produkte`),
+      '',
+      `Parserfehler-Kategorien: ${parserCategoryErrors.length}`,
+      ...parserCategoryErrors.map((name) => `x ${name}`),
     ]
       .join('\n')
       .slice(0, 4000),
@@ -1005,7 +943,7 @@ export async function analyzeMenuImages(
   }
 
   const ocrLikelyCut = isOcrLikelyCutOff(ocrText)
-  const textChunks = splitOcrTextIntoChunks(ocrText)
+  const textChunks = [ocrText]
   const chunkResults: MenuImportAnalysisResult[] = []
   const debugParts: string[] = []
 
