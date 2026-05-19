@@ -215,6 +215,36 @@ function normalizeJsonCandidate(raw: string): string {
   return trimmed
 }
 
+function looksTruncatedJson(raw: string): boolean {
+  const text = raw.trim()
+  if (!text) return false
+  if (!text.endsWith('}')) return true
+  const openCurly = (text.match(/\{/g) || []).length
+  const closeCurly = (text.match(/\}/g) || []).length
+  const openSquare = (text.match(/\[/g) || []).length
+  const closeSquare = (text.match(/\]/g) || []).length
+  return openCurly !== closeCurly || openSquare !== closeSquare
+}
+
+function attemptRepairJson(raw: string): string | null {
+  let text = normalizeJsonCandidate(raw)
+  if (!text) return null
+  text = text.replace(/,\s*([}\]])/g, '$1')
+
+  const openCurly = (text.match(/\{/g) || []).length
+  const closeCurly = (text.match(/\}/g) || []).length
+  const openSquare = (text.match(/\[/g) || []).length
+  const closeSquare = (text.match(/\]/g) || []).length
+  if (openSquare > closeSquare) {
+    text += ']'.repeat(openSquare - closeSquare)
+  }
+  if (openCurly > closeCurly) {
+    text += '}'.repeat(openCurly - closeCurly)
+  }
+  text = text.replace(/,\s*([}\]])/g, '$1')
+  return text
+}
+
 export async function analyzeMenuImages(
   images: MenuImportImage[],
   tenantContext: MenuImportTenantContext
@@ -277,6 +307,8 @@ export async function analyzeMenuImages(
         'Beginne exakt mit { und ende exakt mit }.',
         'Nutze keine Markdown-Codeblöcke.',
         'Wenn du nichts erkennst, gib categories: [] und warnings zurück.',
+        'Die Antwort MUSS vollständig sein.',
+        'Beende niemals mitten in einem Objekt oder Array.',
       ].join('\n'),
     },
   ]
@@ -308,7 +340,7 @@ export async function analyzeMenuImages(
             {
               role: 'system',
               content:
-                'Du bist ein JSON-Extraktor. Antworte ausschließlich als JSON-Objekt. Beginne exakt mit { und ende exakt mit }. Kein Markdown. Keine Erklärung. Keine Code-Fences.',
+                'Du bist ein JSON-Extraktor. Antworte ausschließlich mit vollständigem validem JSON. Die Antwort MUSS vollständig sein. Beende niemals mitten in einem Objekt oder Array. Beginne exakt mit { und ende exakt mit }. Kein Markdown. Keine Erklärung. Keine Code-Fences.',
             },
             {
               role: 'user',
@@ -333,7 +365,11 @@ export async function analyzeMenuImages(
           response_format: {
             type: 'json_object',
           },
-          max_tokens: 3500,
+          max_tokens: 12000,
+          reasoning: {
+            effort: 'low',
+          },
+          temperature: 0.1,
         }),
       })
 
@@ -418,6 +454,10 @@ export async function analyzeMenuImages(
       promotions: Array.isArray(parsed.promotions) ? parsed.promotions : [],
       warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
     }
+    if (looksTruncatedJson(rawOutput)) {
+      safe.warnings = Array.isArray(safe.warnings) ? safe.warnings : []
+      safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
+    }
     console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
       model: activeModel,
       imageCount: images.length,
@@ -426,6 +466,30 @@ export async function analyzeMenuImages(
     })
     return normalizeAnalysis(safe)
   } catch (parseError) {
+    if (looksTruncatedJson(rawOutput)) {
+      const repaired = attemptRepairJson(rawOutput)
+      if (repaired) {
+        try {
+          const reparsed = JSON.parse(repaired) as Partial<MenuImportAnalysisResult>
+          const safe: MenuImportAnalysisResult = {
+            restaurantName:
+              typeof reparsed.restaurantName === 'string' || reparsed.restaurantName === null
+                ? reparsed.restaurantName
+                : null,
+            sourceLanguage: 'de',
+            categories: Array.isArray(reparsed.categories) ? reparsed.categories : [],
+            promotions: Array.isArray(reparsed.promotions) ? reparsed.promotions : [],
+            warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
+          }
+          safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
+          safe.warnings.push('JSON wurde automatisch repariert.')
+          return withDebug(normalizeAnalysis(safe), rawOutput.slice(0, 4000))
+        } catch {
+          // continue with other repair/fallback attempts
+        }
+      }
+    }
+
     const normalizedOutput = normalizeJsonCandidate(rawOutput)
     const firstBrace = normalizedOutput.indexOf('{')
     const lastBrace = normalizedOutput.lastIndexOf('}')

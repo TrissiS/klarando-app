@@ -434,9 +434,18 @@ export default function SuperadminMenuImportPage() {
           {result.warnings.length > 0 ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
               <h3 className="text-sm font-semibold text-amber-900">Warnungen</h3>
-              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm text-amber-900/90">
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-sm">
                 {result.warnings.map((warning, index) => (
-                  <li key={`${warning}-${index}`}>{warning}</li>
+                  <li
+                    key={`${warning}-${index}`}
+                    className={
+                      warning.toLocaleLowerCase('de-DE').includes('automatisch repariert')
+                        ? 'text-emerald-700'
+                        : 'text-amber-900/90'
+                    }
+                  >
+                    {warning}
+                  </li>
                 ))}
               </ul>
             </div>
