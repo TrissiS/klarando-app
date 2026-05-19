@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { useEffect, useMemo, useState } from 'react'
 import PlatformBranding from '@/app/Components/admin/PlatformBranding'
 import {
+  getBackendVersionOverview,
   getPlatformBrandingSettings,
   type PlatformBrandingSettings,
 } from '@/lib/api'
@@ -54,6 +55,7 @@ export default function BackofficeLayout({
   const [openGroupIds, setOpenGroupIds] = useState<Set<string>>(new Set())
   const [authChecked, setAuthChecked] = useState(false)
   const [hasValidSession, setHasValidSession] = useState(false)
+  const [backendCommitSha, setBackendCommitSha] = useState<string | null>(null)
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false)
   const [sessionCountdown, setSessionCountdown] = useState(60)
   const normalizedRole = sessionRole.trim().toLowerCase()
@@ -158,6 +160,24 @@ export default function BackofficeLayout({
     const inferred: AdminUiMode = window.innerWidth < 1100 ? 'touch' : 'compact'
     setUiMode(inferred)
     setUiModeReady(true)
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    getBackendVersionOverview()
+      .then((overview) => {
+        if (!cancelled) {
+          setBackendCommitSha(overview.gitCommit || null)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBackendCommitSha(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   useEffect(() => {
@@ -475,6 +495,7 @@ export default function BackofficeLayout({
                 <p>Build: {formatBuildDateForUi(buildDateIso)}</p>
                 <p>{environment.toUpperCase()}</p>
                 {commitSha ? <p>Commit: {commitSha.slice(0, 8)}</p> : null}
+                {backendCommitSha ? <p>Backend: {backendCommitSha.slice(0, 8)}</p> : null}
               </div>
             </div>
           </div>
