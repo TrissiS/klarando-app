@@ -370,32 +370,6 @@ export default function SuperadminMenuImportPage() {
     })
   }
 
-  if (sessionLoading || !session) return null
-
-  const filteredCategories = (editableResult?.categories || [])
-    .map((category, sourceIndex) => ({
-      ...category,
-      sourceIndex,
-      products: category.products
-      .map((product, sourceProductIndex) => ({
-        ...product,
-        sourceProductIndex,
-      }))
-      .filter((product) => {
-        const term = productSearch.trim().toLocaleLowerCase('de-DE')
-        if (!term) return true
-        return (
-          product.name.toLocaleLowerCase('de-DE').includes(term) ||
-          (product.description || '').toLocaleLowerCase('de-DE').includes(term)
-        )
-      }),
-    }))
-    .filter((category) => {
-      const categoryTerm = categoryFilter.trim().toLocaleLowerCase('de-DE')
-      if (!categoryTerm) return true
-      return category.name.toLocaleLowerCase('de-DE').includes(categoryTerm)
-    })
-
   const hasUnsortedProducts = useMemo(() => {
     if (!editableResult) return false
     return editableResult.categories.some(
@@ -408,6 +382,32 @@ export default function SuperadminMenuImportPage() {
     () => (editableResult?.categories || []).map((category) => category.name),
     [editableResult]
   )
+
+  const filteredCategories = (editableResult?.categories || [])
+    .map((category, sourceIndex) => ({
+      ...category,
+      sourceIndex,
+      products: category.products
+        .map((product, sourceProductIndex) => ({
+          ...product,
+          sourceProductIndex,
+        }))
+        .filter((product) => {
+          const term = productSearch.trim().toLocaleLowerCase('de-DE')
+          if (!term) return true
+          return (
+            product.name.toLocaleLowerCase('de-DE').includes(term) ||
+            (product.description || '').toLocaleLowerCase('de-DE').includes(term)
+          )
+        }),
+    }))
+    .filter((category) => {
+      const categoryTerm = categoryFilter.trim().toLocaleLowerCase('de-DE')
+      if (!categoryTerm) return true
+      return category.name.toLocaleLowerCase('de-DE').includes(categoryTerm)
+    })
+
+  if (sessionLoading || !session) return null
 
   function getProductReviewFlags(product: MenuImportAnalysisResult['categories'][number]['products'][number]) {
     const flags: Array<{ level: 'red' | 'yellow'; text: string }> = []
