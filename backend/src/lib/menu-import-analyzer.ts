@@ -214,6 +214,14 @@ export async function analyzeMenuImages(
   images: MenuImportImage[],
   tenantContext: MenuImportTenantContext
 ): Promise<MenuImportAnalysisResult> {
+  const fallbackResult: MenuImportAnalysisResult = {
+    restaurantName: null,
+    sourceLanguage: 'de',
+    categories: [],
+    promotions: [],
+    warnings: ['KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren.'],
+  }
+
   const startedAt = Date.now()
   const apiKey = process.env.OPENAI_API_KEY
   if (!apiKey) {
@@ -259,94 +267,122 @@ export async function analyzeMenuImages(
     })
   }
 
-  const timeoutMs = 90_000
-  const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
-  let response: Response
-  try {
-    response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: selectedModel,
-        messages: [
-          {
-            role: 'system',
-            content:
-              'Du extrahierst Speisekarten strukturiert für Klarando. Antworte ausschließlich mit gültigem JSON, ohne Markdown und ohne Codeblöcke.',
-          },
-          {
-            role: 'user',
-            content: userContent,
-          },
-        ],
-        response_format: {
-          type: 'json_object',
+  const callModel = async (modelName: string): Promise<string | null> => {
+    const timeoutMs = 90_000
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
         },
-        max_tokens: 3500,
-      }),
-    })
-  } catch (fetchError) {
-    const isAbort =
-      fetchError instanceof Error &&
-      (fetchError.name === 'AbortError' || /aborted|timeout/i.test(fetchError.message))
-    console.error('MENU_IMPORT_ANALYZE_FETCH_ERROR', {
-      model: selectedModel,
-      imageCount: images.length,
-      timeoutMs,
-      durationMs: Date.now() - startedAt,
-      isAbort,
-      message: fetchError instanceof Error ? fetchError.message : String(fetchError),
-    })
-    throw new Error(
-      isAbort
-        ? 'KI-Analyse hat zu lange gedauert. Bitte mit weniger/kleineren Bildern erneut versuchen.'
-        : 'KI-Analyse konnte den OpenAI-Dienst nicht erreichen.'
-    )
-  } finally {
-    clearTimeout(timeout)
-  }
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: modelName,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Du bist ein JSON-Extraktor. Antworte ausschließlich mit gültigem JSON. Kein Markdown. Keine Erklärung. Keine Code-Fences. Die Antwort muss mit { beginnen und mit } enden.',
+            },
+            {
+              role: 'user',
+              content: [
+                ...userContent,
+                {
+                  type: 'text',
+                  text: [
+                    'Gib genau ein Root-Objekt mit dieser Struktur zurück:',
+                    '{',
+                    '  "restaurantName": null,',
+                    '  "sourceLanguage": "de",',
+                    '  "categories": [],',
+                    '  "promotions": [],',
+                    '  "warnings": []',
+                    '}',
+                  ].join('\n'),
+                },
+              ],
+            },
+          ],
+          response_format: {
+            type: 'json_object',
+          },
+          max_tokens: 3500,
+        }),
+      })
 
-  if (!response.ok) {
-    const failureBody = await response.text()
-    console.error('MENU_IMPORT_ANALYZE_OPENAI_ERROR', {
-      model: selectedModel,
-      imageCount: images.length,
-      mimeTypes: images.map((entry) => entry.mimeType),
-      status: response.status,
-      message: failureBody.slice(0, 500),
-    })
-    throw new Error(`OpenAI Analyse fehlgeschlagen (${response.status}): ${failureBody.slice(0, 500)}`)
-  }
-
-  const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: {
-        content?: string | Array<{ type?: string; text?: string }>
+      if (!response.ok) {
+        const failureBody = await response.text()
+        console.error('MENU_IMPORT_ANALYZE_OPENAI_ERROR', {
+          model: modelName,
+          imageCount: images.length,
+          mimeTypes: images.map((entry) => entry.mimeType),
+          status: response.status,
+          message: failureBody.slice(0, 500),
+        })
+        return null
       }
-    }>
+
+      const payload = (await response.json()) as {
+        choices?: Array<{
+          message?: {
+            content?: string | Array<{ type?: string; text?: string }>
+          }
+        }>
+      }
+
+      const messageContent = payload.choices?.[0]?.message?.content
+      return typeof messageContent === 'string'
+        ? messageContent
+        : Array.isArray(messageContent)
+          ? messageContent
+              .map((entry) => (typeof entry.text === 'string' ? entry.text : ''))
+              .join('\n')
+              .trim()
+          : null
+    } catch (fetchError) {
+      const isAbort =
+        fetchError instanceof Error &&
+        (fetchError.name === 'AbortError' || /aborted|timeout/i.test(fetchError.message))
+      console.error('MENU_IMPORT_ANALYZE_FETCH_ERROR', {
+        model: modelName,
+        imageCount: images.length,
+        timeoutMs,
+        durationMs: Date.now() - startedAt,
+        isAbort,
+        message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+      })
+      return null
+    } finally {
+      clearTimeout(timeout)
+    }
   }
 
-  const messageContent = payload.choices?.[0]?.message?.content
-  const rawOutput =
-    typeof messageContent === 'string'
-      ? messageContent
-      : Array.isArray(messageContent)
-        ? messageContent
-            .map((entry) => (typeof entry.text === 'string' ? entry.text : ''))
-            .join('\n')
-            .trim()
-        : ''
+  const primaryRaw = await callModel(selectedModel)
+  let activeModel = selectedModel
+  let rawOutput = primaryRaw || ''
 
-  if (!rawOutput) {
-    throw new Error('OpenAI Analyse lieferte kein strukturiertes Ergebnis.')
+  if (!rawOutput && selectedModel !== 'gpt-4o-mini') {
+    const fallbackRaw = await callModel('gpt-4o-mini')
+    if (fallbackRaw) {
+      activeModel = 'gpt-4o-mini'
+      rawOutput = fallbackRaw
+    }
   }
 
   try {
+    if (!rawOutput) {
+      console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
+        model: activeModel,
+        imageCount: images.length,
+        message: 'empty response',
+        responsePreview: '',
+      })
+      return fallbackResult
+    }
     const normalizedOutput = normalizeJsonCandidate(rawOutput)
     const parsed = JSON.parse(normalizedOutput) as Partial<MenuImportAnalysisResult>
     const safe: MenuImportAnalysisResult = {
@@ -360,7 +396,7 @@ export async function analyzeMenuImages(
       warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
     }
     console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
-      model: selectedModel,
+      model: activeModel,
       imageCount: images.length,
       durationMs: Date.now() - startedAt,
       categoryCount: safe.categories?.length ?? 0,
@@ -368,11 +404,11 @@ export async function analyzeMenuImages(
     return normalizeAnalysis(safe)
   } catch (parseError) {
     console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
-      model: selectedModel,
+      model: activeModel,
       imageCount: images.length,
       message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
       responsePreview: rawOutput.slice(0, 2000),
     })
-    throw new Error('KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren oder anderes Bild verwenden.')
+    return fallbackResult
   }
 }
