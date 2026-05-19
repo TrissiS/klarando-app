@@ -418,6 +418,21 @@ export default function SuperadminMenuImportPage() {
     [editableResult]
   )
 
+  const duplicateMenuNumbers = useMemo(() => {
+    if (!editableResult) return [] as string[]
+    const counts = new Map<string, number>()
+    for (const category of editableResult.categories) {
+      for (const product of category.products) {
+        const number = (product.productNumber || '').trim()
+        if (!number) continue
+        counts.set(number, (counts.get(number) || 0) + 1)
+      }
+    }
+    return Array.from(counts.entries())
+      .filter(([, count]) => count > 1)
+      .map(([number]) => number)
+  }, [editableResult])
+
   const filteredCategories = (editableResult?.categories || [])
     .map((category, sourceIndex) => ({
       ...category,
@@ -727,6 +742,16 @@ export default function SuperadminMenuImportPage() {
             <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
               <p className="font-semibold">Unsortierte Produkte</p>
               <p>Diese Produkte bitte vor dem Import einer Kategorie zuordnen.</p>
+            </div>
+          ) : null}
+
+          {duplicateMenuNumbers.length > 0 ? (
+            <div className="mt-4 rounded-2xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">
+              <p className="font-semibold">Doppelte Produktnummern erkannt</p>
+              <p>
+                Doppelte Nummern: {duplicateMenuNumbers.join(', ')}. Beim Import werden diese
+                Artikelnummern automatisch geleert.
+              </p>
             </div>
           ) : null}
 
