@@ -39,6 +39,8 @@ export default function SuperadminMenuImportPage() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [productSearch, setProductSearch] = useState('')
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
+  const [selectedProducts, setSelectedProducts] = useState<Record<string, boolean>>({})
+  const [bulkTargetCategory, setBulkTargetCategory] = useState('')
   const [importSummary, setImportSummary] = useState<{
     importedCategories: number
     importedProducts: number
@@ -179,6 +181,8 @@ export default function SuperadminMenuImportPage() {
         nextExpanded[category.name] = true
       }
       setExpandedCategories(nextExpanded)
+      setSelectedProducts({})
+      setBulkTargetCategory('')
       setSuccess('Speisekarte wurde analysiert. Bitte Ergebnis prüfen.')
     } catch (analysisError) {
       setResult(null)
@@ -242,6 +246,15 @@ export default function SuperadminMenuImportPage() {
 
   async function runImport() {
     if (!token || !tenantId || !editableResult) return
+    const unsortedCategory = editableResult.categories.find(
+      (category) => category.name.trim().toLocaleLowerCase('de-DE') === 'unsortiert'
+    )
+    if ((unsortedCategory?.products.length || 0) > 0) {
+      const proceed = window.confirm(
+        'Es gibt noch unsortierte Produkte. Trotzdem importieren?'
+      )
+      if (!proceed) return
+    }
     try {
       setIsImporting(true)
       setError('')
@@ -266,13 +279,109 @@ export default function SuperadminMenuImportPage() {
     }
   }
 
+  function getProductSelectionKey(categoryIndex: number, productIndex: number) {
+    return `${categoryIndex}:${productIndex}`
+  }
+
+  function moveProduct(categoryIndex: number, productIndex: number, targetCategoryName: string) {
+    const normalizedTarget = targetCategoryName.trim()
+    if (!normalizedTarget) return
+    setEditableResult((current) => {
+      if (!current) return current
+      const next = structuredClone(current)
+      const sourceCategory = next.categories[categoryIndex]
+      if (!sourceCategory) return current
+      const [product] = sourceCategory.products.splice(productIndex, 1)
+      if (!product) return current
+      let targetCategory = next.categories.find((entry) => entry.name === normalizedTarget)
+      if (!targetCategory) {
+        targetCategory = {
+          name: normalizedTarget,
+          sortOrder: next.categories.length + 1,
+          confidence: 1,
+          products: [],
+        }
+        next.categories.push(targetCategory)
+      }
+      targetCategory.products.push(product)
+      return next
+    })
+    setSelectedProducts({})
+  }
+
+  function moveSelectedProducts(targetCategoryName: string) {
+    const normalizedTarget = targetCategoryName.trim()
+    if (!normalizedTarget) return
+    setEditableResult((current) => {
+      if (!current) return current
+      const next = structuredClone(current)
+      let targetCategory = next.categories.find((entry) => entry.name === normalizedTarget)
+      if (!targetCategory) {
+        targetCategory = {
+          name: normalizedTarget,
+          sortOrder: next.categories.length + 1,
+          confidence: 1,
+          products: [],
+        }
+        next.categories.push(targetCategory)
+      }
+      for (let categoryIndex = 0; categoryIndex < next.categories.length; categoryIndex += 1) {
+        const sourceCategory = next.categories[categoryIndex]
+        const remainingProducts: typeof sourceCategory.products = []
+        for (let productIndex = 0; productIndex < sourceCategory.products.length; productIndex += 1) {
+          const selectionKey = getProductSelectionKey(categoryIndex, productIndex)
+          const product = sourceCategory.products[productIndex]
+          if (selectedProducts[selectionKey] && sourceCategory.name !== normalizedTarget) {
+            targetCategory.products.push(product)
+          } else {
+            remainingProducts.push(product)
+          }
+        }
+        sourceCategory.products = remainingProducts
+      }
+      return next
+    })
+    setSelectedProducts({})
+    setBulkTargetCategory('')
+  }
+
+  function renameCategory(categoryIndex: number, nextName: string) {
+    const normalizedName = nextName.trim()
+    if (!normalizedName) return
+    setEditableResult((current) => {
+      if (!current) return current
+      const next = structuredClone(current)
+      const category = next.categories[categoryIndex]
+      if (!category) return current
+      category.name = normalizedName
+      return next
+    })
+  }
+
+  function deleteCategoryIfEmpty(categoryIndex: number) {
+    setEditableResult((current) => {
+      if (!current) return current
+      const next = structuredClone(current)
+      const category = next.categories[categoryIndex]
+      if (!category) return current
+      if (category.products.length > 0) return current
+      next.categories.splice(categoryIndex, 1)
+      return next
+    })
+  }
+
   if (sessionLoading || !session) return null
 
   const filteredCategories = (editableResult?.categories || [])
     .map((category, sourceIndex) => ({
       ...category,
       sourceIndex,
-      products: category.products.filter((product) => {
+      products: category.products
+      .map((product, sourceProductIndex) => ({
+        ...product,
+        sourceProductIndex,
+      }))
+      .filter((product) => {
         const term = productSearch.trim().toLocaleLowerCase('de-DE')
         if (!term) return true
         return (
@@ -286,6 +395,19 @@ export default function SuperadminMenuImportPage() {
       if (!categoryTerm) return true
       return category.name.toLocaleLowerCase('de-DE').includes(categoryTerm)
     })
+
+  const hasUnsortedProducts = useMemo(() => {
+    if (!editableResult) return false
+    return editableResult.categories.some(
+      (category) =>
+        category.name.trim().toLocaleLowerCase('de-DE') === 'unsortiert' && category.products.length > 0
+    )
+  }, [editableResult])
+
+  const allCategoryNames = useMemo(
+    () => (editableResult?.categories || []).map((category) => category.name),
+    [editableResult]
+  )
 
   function getProductReviewFlags(product: MenuImportAnalysisResult['categories'][number]['products'][number]) {
     const flags: Array<{ level: 'red' | 'yellow'; text: string }> = []
@@ -527,16 +649,69 @@ export default function SuperadminMenuImportPage() {
             </button>
           </div>
 
+          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bulk-Aktion</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <select
+                value={bulkTargetCategory}
+                onChange={(event) => setBulkTargetCategory(event.target.value)}
+                className="min-w-[220px] rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                <option value="">Ausgewählte verschieben nach …</option>
+                {allCategoryNames.map((name) => (
+                  <option key={`bulk-${name}`} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                disabled={!bulkTargetCategory || Object.values(selectedProducts).every((value) => !value)}
+                onClick={() => moveSelectedProducts(bulkTargetCategory)}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Verschieben
+              </button>
+            </div>
+          </div>
+
+          {hasUnsortedProducts ? (
+            <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-semibold">Unsortierte Produkte</p>
+              <p>Diese Produkte bitte vor dem Import einer Kategorie zuordnen.</p>
+            </div>
+          ) : null}
+
           <div className="mt-4 space-y-4">
             {filteredCategories.map((category) => (
               <div key={`${category.name}-${category.sortOrder}`} className="rounded-2xl border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-900">
-                    {category.name} <span className="text-xs text-slate-500">({category.products.length} Produkte)</span>
-                  </h3>
-                  <span className="text-xs text-slate-500">
-                    Confidence: {(category.confidence * 100).toFixed(0)}%
-                  </span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      value={category.name}
+                      onChange={(event) => renameCategory(category.sourceIndex, event.target.value)}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-900"
+                    />
+                    <span className="text-xs text-slate-500">({category.products.length} Produkte)</span>
+                    {category.name.trim().toLocaleLowerCase('de-DE') === 'unsortiert' ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800">
+                        Bitte zuordnen
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500">
+                      Confidence: {(category.confidence * 100).toFixed(0)}%
+                    </span>
+                    <button
+                      type="button"
+                      disabled={category.products.length > 0}
+                      onClick={() => deleteCategoryIfEmpty(category.sourceIndex)}
+                      className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      Kategorie löschen
+                    </button>
+                  </div>
                 </div>
                 {getCategoryWarnings(category.name).length > 0 ? (
                   <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">
@@ -559,6 +734,46 @@ export default function SuperadminMenuImportPage() {
                   <div className="mt-2 space-y-2">
                     {category.products.map((product, index) => (
                     <div key={`${product.name}-${index}`} className="rounded-xl bg-slate-50 p-2">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(
+                            selectedProducts[getProductSelectionKey(category.sourceIndex, product.sourceProductIndex)]
+                          )}
+                          onChange={(event) => {
+                            const key = getProductSelectionKey(category.sourceIndex, product.sourceProductIndex)
+                            setSelectedProducts((current) => ({
+                              ...current,
+                              [key]: event.target.checked,
+                            }))
+                          }}
+                          className="h-4 w-4"
+                        />
+                        <select
+                          value={category.name}
+                          onChange={(event) =>
+                            moveProduct(category.sourceIndex, product.sourceProductIndex, event.target.value)
+                          }
+                          className="min-w-[220px] rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                        >
+                          {allCategoryNames.map((name) => (
+                            <option key={`${product.name}-${name}`} value={name}>
+                              {name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextName = window.prompt('Neue Kategorie', '')
+                            if (!nextName) return
+                            moveProduct(category.sourceIndex, product.sourceProductIndex, nextName)
+                          }}
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-medium text-slate-700"
+                        >
+                          Neue Kategorie
+                        </button>
+                      </div>
                       {getProductReviewFlags(product).length > 0 ? (
                         <div className="mb-2 flex flex-wrap gap-1">
                           {getProductReviewFlags(product).map((flag, flagIndex) => (
@@ -580,7 +795,14 @@ export default function SuperadminMenuImportPage() {
                           <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Produktname</span>
                           <input
                             value={product.name}
-                            onChange={(event) => updateProductField(category.sourceIndex, index, 'name', event.target.value)}
+                            onChange={(event) =>
+                              updateProductField(
+                                category.sourceIndex,
+                                product.sourceProductIndex,
+                                'name',
+                                event.target.value
+                              )
+                            }
                             className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
                         </label>
@@ -588,7 +810,14 @@ export default function SuperadminMenuImportPage() {
                           <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Produktnummer</span>
                           <input
                             value={product.productNumber || ''}
-                            onChange={(event) => updateProductField(category.sourceIndex, index, 'productNumber', event.target.value)}
+                            onChange={(event) =>
+                              updateProductField(
+                                category.sourceIndex,
+                                product.sourceProductIndex,
+                                'productNumber',
+                                event.target.value
+                              )
+                            }
                             placeholder="z. B. 101"
                             className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
@@ -597,7 +826,14 @@ export default function SuperadminMenuImportPage() {
                           <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preis (€)</span>
                           <input
                             value={product.price === null ? '' : String(product.price).replace('.', ',')}
-                            onChange={(event) => updateProductField(category.sourceIndex, index, 'price', event.target.value)}
+                            onChange={(event) =>
+                              updateProductField(
+                                category.sourceIndex,
+                                product.sourceProductIndex,
+                                'price',
+                                event.target.value
+                              )
+                            }
                             placeholder="0,00"
                             className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
@@ -607,7 +843,14 @@ export default function SuperadminMenuImportPage() {
                         <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Beschreibung</span>
                         <input
                           value={product.description || ''}
-                          onChange={(event) => updateProductField(category.sourceIndex, index, 'description', event.target.value)}
+                          onChange={(event) =>
+                            updateProductField(
+                              category.sourceIndex,
+                              product.sourceProductIndex,
+                              'description',
+                              event.target.value
+                            )
+                          }
                           className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                         />
                       </label>
