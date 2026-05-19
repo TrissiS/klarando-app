@@ -517,6 +517,15 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     'Getränke',
     'Hamburger',
     'Wurst',
+    'Burger',
+    'Pasta',
+    'Sushi',
+    'Asia',
+    'Indisch',
+    'Griechisch',
+    'Snacks',
+    'Menüs',
+    'Menü',
   ]
   const correctionMap: Array<[RegExp, string]> = [
     [/\bDahbruch\b/gi, 'Dahlbruch'],
@@ -541,13 +550,19 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   const knownCategoryMatch = (line: string) =>
     knownCategories.find((name) => line.toLocaleLowerCase('de-DE').includes(name.toLocaleLowerCase('de-DE'))) || null
   const isProductLine = (line: string) =>
-    /^\s*\d+[A-Z]?\.\s+/.test(line) || /€/.test(line) || /\d+[,.]\d{2}/.test(line)
+    /^\s*\d+[A-Z]?\.\s+/.test(line) ||
+    /€/.test(line) ||
+    /\d+[,.]\d{2}/.test(line) ||
+    /\b\d+,-\b/.test(line) ||
+    /\bab\s+\d+[,.]\d{2}\s*€?/i.test(line)
   const isCategoryLine = (line: string) => {
     const cleaned = cleanupMarkdown(line).trim()
     if (!cleaned) return false
     if (isProductLine(cleaned)) return false
     if (cleaned.length > 80) return false
-    return Boolean(knownCategoryMatch(cleaned) || /^\*\*.+\*\*/.test(line))
+    if (knownCategoryMatch(cleaned)) return true
+    if (/^\*\*.+\*\*/.test(line)) return true
+    return /^[\p{L}\s&/+\-(),]{3,80}$/u.test(cleaned)
   }
 
   const ensureCategory = (name: string) => {
@@ -567,9 +582,10 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   }
 
   const extractVariants = (line: string) =>
-    [...line.matchAll(/(?:€\s*)?(\d+[,.]\d{2})(?:\s*€)?\s*\(([^)]+)\)/g)]
+    [...line.matchAll(/(?:€\s*)?(\d+[,.]\d{2}|\d+,-)(?:\s*€)?\s*\(([^)]+)\)/g)]
       .map((entry) => {
-        const price = Number(entry[1].replace(',', '.'))
+        const normalizedPrice = entry[1].replace(',-', '.00').replace(',', '.')
+        const price = Number(normalizedPrice)
         const label = entry[2].trim()
         if (!label || !Number.isFinite(price)) return null
         return { name: label, price, confidence: 0.68 }
@@ -586,26 +602,30 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       continue
     }
 
-    const productMatch = line.match(/^(\d+[A-Z]?)\.\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?/i)
-    if (!productMatch) {
-      if (/€|\d+[,.]\d{2}/.test(line)) unrecognizedPriceLines.push(line)
+    const productMatch = line.match(
+      /^(\d+[A-Z]?)\.\s+(.+?)\s*-?\s*(?:ab\s*)?(?:€\s*)?(\d+[,.]\d{2}|\d+\.\d{2}|\d+,-|\d+)(?:\s*€)?/i
+    )
+    const freeFormProductMatch = line.match(
+      /^(.+?)\s*-?\s*(?:ab\s*)?(?:€\s*)?(\d+[,.]\d{2}|\d+\.\d{2}|\d+,-|\d+)(?:\s*€)?$/i
+    )
+    if (!productMatch && !freeFormProductMatch) {
+      if (/€|\d+[,.]\d{2}|\d+,-/i.test(line)) {
+        unrecognizedPriceLines.push(line)
+      } 
       continue
     }
 
-    const productNumber = productMatch[1]
-    const rawName = normalizeTypos(productMatch[2].trim())
-    const rawPrice = Number(productMatch[3].replace(',', '.'))
+    const productNumber = productMatch?.[1] || null
+    const rawName = normalizeTypos((productMatch?.[2] || freeFormProductMatch?.[1] || '').trim())
+    const rawPriceToken = productMatch?.[3] || freeFormProductMatch?.[2] || ''
+    const rawPrice = Number(rawPriceToken.replace(',-', '.00').replace(',', '.'))
     const variants = extractVariants(line)
     const withMatch = rawName.match(/\bmit\s+(.+)$/i)
     const cleanedName = (withMatch ? rawName.slice(0, withMatch.index) : rawName).trim()
 
     if (!currentCategory) {
-      if (/(drehspieß|döner|dürüm|falafel)/i.test(rawName)) {
-        currentCategory = 'Drehspieß'
-      } else {
-        currentCategory = 'Unsortiert'
-        uncategorizedProductLines.push(line)
-      }
+      currentCategory = 'Unsortiert'
+      uncategorizedProductLines.push(line)
     }
 
     const targetCategory = ensureCategory(currentCategory)
@@ -633,7 +653,9 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Bitte prüfen: automatisch per Fallback erkannt`)
     warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Allergene unklar`)
     warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Varianten prüfen`)
-    warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Artikelnummer wird nicht übernommen`)
+    if (productNumber) {
+      warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Artikelnummer wird nicht übernommen`)
+    }
   }
 
   for (const category of categories) {
