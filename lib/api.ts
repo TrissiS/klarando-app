@@ -7994,7 +7994,7 @@ export async function analyzeSuperadminMenuImport(
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     body: formData,
-    timeoutMs: 120_000,
+    timeoutMs: 0,
   })
 
   if (!response.ok) {

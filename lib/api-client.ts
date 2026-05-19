@@ -1,7 +1,7 @@
 import { API_BASE_URL } from './config'
 
 const DEFAULT_TIMEOUT_MS = 20_000
-const MENU_IMPORT_TIMEOUT_MS = 120_000
+const MENU_IMPORT_TIMEOUT_MS = 240_000
 
 type ApiJsonErrorPayload = {
   error?: string
@@ -66,13 +66,15 @@ type ApiFetchOptions = RequestInit & {
 
 export async function apiFetch(path: string, options: ApiFetchOptions = {}): Promise<Response> {
   const { timeoutMs: customTimeoutMs, ...fetchOptions } = options
-  const timeoutMs = Number.isFinite(Number(customTimeoutMs))
+  const resolvedTimeoutMs = Number.isFinite(Number(customTimeoutMs))
     ? Math.max(5_000, Number(customTimeoutMs))
     : path.includes('/api/superadmin/menu-import/analyze')
       ? MENU_IMPORT_TIMEOUT_MS
       : DEFAULT_TIMEOUT_MS
+  const timeoutMs = customTimeoutMs === 0 ? 0 : resolvedTimeoutMs
   const timeoutController = new AbortController()
-  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs)
+  const timeoutId =
+    timeoutMs > 0 ? setTimeout(() => timeoutController.abort(), timeoutMs) : null
 
   if (options.signal) {
     if (options.signal.aborted) {
@@ -104,7 +106,9 @@ export async function apiFetch(path: string, options: ApiFetchOptions = {}): Pro
 
     throw new Error('Verbindung zum Server fehlgeschlagen. Bitte später erneut versuchen.')
   } finally {
-    clearTimeout(timeoutId)
+    if (timeoutId) {
+      clearTimeout(timeoutId)
+    }
   }
 }
 
