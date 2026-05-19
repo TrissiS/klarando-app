@@ -503,6 +503,126 @@ function parseFallbackProductsFromChunk(ocrChunk: string): Partial<MenuImportAna
   }
 }
 
+function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
+  const lines = ocrText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const knownCategories = [
+    'Drehspieß',
+    'Pommes & Saucen',
+    'Lahmacun',
+    'Pizza',
+    'Schnitzelgerichte',
+    'Nudelgerichte',
+    'Salate',
+    'Getränke',
+    'Hamburger',
+    'Wurst',
+    'Pizza Brötchen',
+    'Pizzabrötchen',
+    'Spezial Gericht',
+  ]
+
+  const categories: MenuImportAnalysisResult['categories'] = []
+  const warnings: string[] = []
+
+  const ensureCategory = (name: string) => {
+    const normalizedName = name.trim() || 'Ohne Kategorie'
+    const existing = categories.find(
+      (entry) => entry.name.toLocaleLowerCase('de-DE') === normalizedName.toLocaleLowerCase('de-DE')
+    )
+    if (existing) return existing
+    const created = {
+      name: normalizedName,
+      sortOrder: categories.length + 1,
+      confidence: 0.72,
+      products: [] as MenuImportAnalysisResult['categories'][number]['products'],
+    }
+    categories.push(created)
+    return created
+  }
+
+  let activeCategory = ensureCategory('Ohne Kategorie')
+
+  const extractVariants = (line: string) => {
+    const matches = [...line.matchAll(/(?:\(|\/)\s*([A-Za-zÄÖÜäöüß ]{3,20})\s*\)?\s*\/?\s*€?\s*(\d+[,.]\d{2})/g)]
+    return matches.map((entry) => ({
+      name: entry[1].trim(),
+      price: Number(entry[2].replace(',', '.')),
+      confidence: 0.68,
+    }))
+  }
+
+  for (const line of lines) {
+    const heading = line.match(/^\*{0,2}\s*([^*]+?)\s*\*{0,2}$/)
+    const headingText = heading?.[1]?.trim() || line
+    const isKnownCategory = knownCategories.some((name) =>
+      headingText.toLocaleLowerCase('de-DE').includes(name.toLocaleLowerCase('de-DE'))
+    )
+    const looksCategoryLine = !/\d+[,.]\d{2}/.test(line) && headingText.length <= 36 && /^[\p{L}\s&/+-]+$/u.test(headingText)
+    if (isKnownCategory || looksCategoryLine) {
+      activeCategory = ensureCategory(headingText)
+      continue
+    }
+
+    const strictPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s+-?\s*€\s*(\d+[,.]\d{2}|\d+)$/i
+    const compactPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s+(\d+[,.]\d{2})$/i
+    const priceOnlyPattern = /^(.+?)\s+-?\s*€\s*(\d+[,.]\d{2}|\d+)$/i
+
+    const strictMatch = line.match(strictPattern)
+    const compactMatch = line.match(compactPattern)
+    const priceOnlyMatch = line.match(priceOnlyPattern)
+
+    const productNumber = strictMatch?.[1] || compactMatch?.[1] || null
+    const productName = (strictMatch?.[2] || compactMatch?.[2] || priceOnlyMatch?.[1] || '').trim()
+    if (!productName) continue
+
+    const rawPrice = strictMatch?.[3] || compactMatch?.[3] || priceOnlyMatch?.[2] || null
+    const price = rawPrice ? Number(rawPrice.replace(',', '.')) : null
+    const inferred = inferDescriptionAndIngredients(activeCategory.name, null, line, [])
+    const variants = extractVariants(line)
+
+    const fallbackNotes: string[] = ['Per Fallback aus OCR-Zeile erkannt']
+    if (!productNumber) fallbackNotes.push('Artikelnummer fehlte in OCR-Zeile')
+    if (price === null) fallbackNotes.push('Preis fehlt')
+
+    activeCategory.products.push({
+      productNumber,
+      name: productName,
+      description: inferred.description,
+      price: Number.isFinite(price || NaN) ? price : null,
+      variants,
+      ingredients: inferred.ingredients,
+      allergens: [],
+      additives: [],
+      notes: fallbackNotes.join(' · '),
+      confidence: price === null ? 0.55 : 0.66,
+    })
+
+    if (price === null) warnings.push(`${activeCategory.name} / ${productName}: Preis fehlt`)
+    warnings.push(`${activeCategory.name} / ${productName}: Bitte prüfen: automatisch per Fallback erkannt`)
+    warnings.push(`${activeCategory.name} / ${productName}: Allergene unklar`)
+    warnings.push(`${activeCategory.name} / ${productName}: Varianten prüfen`)
+    if (productNumber) warnings.push(`${activeCategory.name} / ${productName}: Artikelnummer wird nicht übernommen`)
+  }
+
+  for (const category of categories) {
+    if (category.products.length > 0 && category.confidence < 0.75) {
+      warnings.push(`${category.name}: Diese Kategorie wurde per OCR-Fallback erstellt.`)
+    }
+  }
+
+  return {
+    restaurantName: null,
+    sourceLanguage: 'de',
+    categories: categories.filter((category) => category.products.length > 0),
+    promotions: [],
+    warnings,
+  }
+}
+
 function isOcrLikelyCutOff(ocrText: string): boolean {
   const trimmed = ocrText.trim()
   if (!trimmed) return false
@@ -776,85 +896,32 @@ export async function analyzeMenuImages(
   const debugParts: string[] = []
 
   for (let index = 0; index < textChunks.length; index += 1) {
-    const chunk = textChunks[index]
     const chunkStartedAt = Date.now()
-    const rawOutput = await callOpenAiJsonStructure(apiKey, textModel, chunk, 90_000)
-    let chunkMode: 'ki' | 'ki_repaired' | 'fallback' = 'ki'
-    let chunkProducts = 0
-    let chunkErrorReason = ''
-
-    if (debugEnabled) {
-      debugParts.push(
-        `CHUNK ${index + 1}/${textChunks.length}`,
-        `OCR CHUNK LENGTH: ${chunk.length}`,
-        `STRUCT RAW RESPONSE:`,
-        rawOutput.slice(0, 1200),
-        ''
-      )
-    }
-
-    const { parsed, repaired } = tryParseStructuredChunk(rawOutput)
-    if (!parsed) {
-      chunkMode = 'fallback'
-      chunkErrorReason = 'parse_failed'
-      console.error('MENU_IMPORT_RAW_RESPONSE_PREVIEW', rawOutput.slice(0, 4000))
-      const fallbackParsed = normalizeAnalysis(parseFallbackProductsFromChunk(chunk))
-      fallbackParsed.warnings.unshift(
-        'KI-Rohantwort konnte nicht als JSON gelesen werden.',
-        `Chunk ${index + 1} konnte nicht strukturiert werden.`
-      )
-      chunkProducts = fallbackParsed.categories.reduce((acc, category) => acc + category.products.length, 0)
-      chunkResults.push(fallbackParsed)
-      console.info('MENU_IMPORT_CHUNK_DONE', {
-        chunk: `${index + 1}/${textChunks.length}`,
-        model: textModel,
-        mode: 'fallback',
-        categories: fallbackParsed.categories.length,
-        products: fallbackParsed.categories.reduce((acc, category) => acc + category.products.length, 0),
-      })
-      if (debugEnabled) {
-        debugParts.push(
-          `CHUNK ${index + 1} MODE: ${chunkMode}`,
-          `CHUNK ${index + 1} PRODUKTE: ${chunkProducts}`,
-          `CHUNK ${index + 1} FEHLER: ${chunkErrorReason}`,
-          ''
-        )
-      }
-      continue
-    }
-
-    const normalized = normalizeAnalysis(parsed)
-    if (repaired) {
-      chunkMode = 'ki_repaired'
-      normalized.warnings.push('JSON wurde automatisch repariert.')
-    }
-    if (looksTruncatedJson(rawOutput)) normalized.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
-    chunkProducts = normalized.categories.reduce((acc, category) => acc + category.products.length, 0)
-
+    const chunk = textChunks[index]
+    const parsedChunk = normalizeAnalysis(parseMenuText(chunk))
+    chunkResults.push(parsedChunk)
+    const chunkProducts = parsedChunk.categories.reduce((acc, category) => acc + category.products.length, 0)
     console.info('MENU_IMPORT_CHUNK_DONE', {
       chunk: `${index + 1}/${textChunks.length}`,
-      model: textModel,
-      mode: chunkMode,
-      categories: normalized.categories.length,
+      mode: 'deterministic_parser',
+      categories: parsedChunk.categories.length,
       products: chunkProducts,
       durationMs: Date.now() - chunkStartedAt,
     })
     if (debugEnabled) {
       debugParts.push(
-        `CHUNK ${index + 1} MODE: ${chunkMode}`,
-        `CHUNK ${index + 1} PRODUKTE: ${chunkProducts}`,
-        `CHUNK ${index + 1} FEHLER: ${chunkErrorReason || '-'}`,
+        `CHUNK ${index + 1}/${textChunks.length}`,
+        `OCR CHUNK LENGTH: ${chunk.length}`,
+        `ERGEBNIS PRODUKTE: ${chunkProducts}`,
+        'MODE: deterministic_parser',
+        'FEHLER: -',
         ''
       )
     }
-
-    chunkResults.push(normalized)
   }
 
   const merged: MenuImportAnalysisResult = {
-    restaurantName:
-      chunkResults.find((entry) => entry.restaurantName && entry.restaurantName.trim().length > 0)?.restaurantName ||
-      null,
+    restaurantName: null,
     sourceLanguage: 'de',
     categories: [],
     promotions: [],
@@ -862,32 +929,17 @@ export async function analyzeMenuImages(
   }
 
   const categoryMap = new Map<string, MenuImportCategory>()
-
   for (const chunkResult of chunkResults) {
     for (const warning of chunkResult.warnings) {
       if (!merged.warnings.includes(warning)) merged.warnings.push(warning)
     }
-
-    for (const promotion of chunkResult.promotions) {
-      const exists = merged.promotions.some(
-        (entry) =>
-          entry.name.toLocaleLowerCase('de-DE') === promotion.name.toLocaleLowerCase('de-DE') &&
-          (entry.weekday || '') === (promotion.weekday || '')
-      )
-      if (!exists) merged.promotions.push(promotion)
-    }
-
     for (const category of chunkResult.categories) {
       const key = category.name.toLocaleLowerCase('de-DE')
       const existing = categoryMap.get(key)
       if (!existing) {
-        categoryMap.set(key, {
-          ...category,
-          products: [...category.products],
-        })
+        categoryMap.set(key, { ...category, products: [...category.products] })
         continue
       }
-
       for (const product of category.products) {
         const exists = existing.products.some(
           (entry) =>
@@ -907,27 +959,23 @@ export async function analyzeMenuImages(
   if (ocrLikelyCut) {
     merged.warnings.push('OCR-Text scheint am Bildrand abgeschnitten. Bitte vollständige Karte hochladen.')
   }
-
   if (merged.categories.length === 0 && ocrText.length > 150) {
-    merged.warnings.push('OCR erkannt, aber Strukturierung hat keine Produkte erzeugt.')
+    merged.warnings.push('OCR erkannt, aber Parser hat keine Produkte erzeugt.')
   }
 
   if (debugEnabled) {
-    const categoryDebug = merged.categories
-      .map((category) => `${category.name}: ${category.products.length} Produkte`)
-      .join('\n')
-
+    const categoryDebug = merged.categories.map((category) => `${category.name}: ${category.products.length} Produkte`).join('\n')
     merged.debugRawResponsePreview = [
       `VISION MODEL: ${visionModel}`,
-      `TEXT MODEL: ${textModel}`,
       `OCR LENGTH: ${ocrText.length}`,
+      `PARSER MODE: deterministic`,
       `TEXT CHUNKS: ${textChunks.length}`,
       '',
       'VERARBEITETE KATEGORIEN:',
       categoryDebug || '(keine)',
       '',
       'OCR TEXT:',
-      ocrText.slice(0, 2000),
+      ocrText.slice(0, 2200),
       '',
       ...debugParts,
     ]
