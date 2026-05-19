@@ -36,11 +36,53 @@ export default function SuperadminMenuImportPage() {
   const [success, setSuccess] = useState('')
   const [status, setStatus] = useState<SuperadminMenuImportStatus | null>(null)
   const [editableResult, setEditableResult] = useState<MenuImportAnalysisResult | null>(null)
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [productSearch, setProductSearch] = useState('')
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
+  const [importSummary, setImportSummary] = useState<{
+    importedCategories: number
+    importedProducts: number
+    importedVariants: number
+    createdIngredients: number
+    reusedIngredients: number
+    productsWithWarnings: number
+  } | null>(null)
 
   const selectedTenant = useMemo(
     () => context?.tenants.find((entry) => entry.id === tenantId) || null,
     [context?.tenants, tenantId]
   )
+
+  const resultCounters = useMemo(() => {
+    if (!editableResult) {
+      return {
+        categories: 0,
+        products: 0,
+        variants: 0,
+        ingredients: 0,
+        warnings: 0,
+      }
+    }
+    const ingredientSet = new Set<string>()
+    let products = 0
+    let variants = 0
+    for (const category of editableResult.categories) {
+      products += category.products.length
+      for (const product of category.products) {
+        variants += product.variants.length
+        for (const ingredient of product.ingredients) {
+          ingredientSet.add(ingredient.trim().toLocaleLowerCase('de-DE'))
+        }
+      }
+    }
+    return {
+      categories: editableResult.categories.length,
+      products,
+      variants,
+      ingredients: ingredientSet.size,
+      warnings: editableResult.warnings.length,
+    }
+  }, [editableResult])
 
   useEffect(() => {
     const raw = localStorage.getItem('sessionUser')
@@ -124,6 +166,12 @@ export default function SuperadminMenuImportPage() {
       const analyzed = await analyzeSuperadminMenuImport(token, tenantId, files)
       setResult(analyzed)
       setEditableResult(analyzed)
+      setImportSummary(null)
+      const nextExpanded: Record<string, boolean> = {}
+      for (const category of analyzed.categories) {
+        nextExpanded[category.name] = true
+      }
+      setExpandedCategories(nextExpanded)
       setSuccess('Speisekarte wurde analysiert. Bitte Ergebnis prüfen.')
     } catch (analysisError) {
       setResult(null)
@@ -177,7 +225,15 @@ export default function SuperadminMenuImportPage() {
       setSuccess('')
       const response = await importSuperadminMenuImport(token, {
         tenantId,
-        categories: editableResult.categories,
+        analysisResult: editableResult,
+      })
+      setImportSummary({
+        importedCategories: response.importedCategories,
+        importedProducts: response.importedProducts,
+        importedVariants: response.importedVariants,
+        createdIngredients: response.createdIngredients,
+        reusedIngredients: response.reusedIngredients,
+        productsWithWarnings: response.productsWithWarnings,
       })
       setSuccess(response.message)
     } catch (importError) {
@@ -188,6 +244,47 @@ export default function SuperadminMenuImportPage() {
   }
 
   if (sessionLoading || !session) return null
+
+  const filteredCategories = (editableResult?.categories || [])
+    .map((category, sourceIndex) => ({
+      ...category,
+      sourceIndex,
+      products: category.products.filter((product) => {
+        const term = productSearch.trim().toLocaleLowerCase('de-DE')
+        if (!term) return true
+        return (
+          product.name.toLocaleLowerCase('de-DE').includes(term) ||
+          (product.description || '').toLocaleLowerCase('de-DE').includes(term)
+        )
+      }),
+    }))
+    .filter((category) => {
+      const categoryTerm = categoryFilter.trim().toLocaleLowerCase('de-DE')
+      if (!categoryTerm) return true
+      return category.name.toLocaleLowerCase('de-DE').includes(categoryTerm)
+    })
+
+  function getProductReviewFlags(product: MenuImportAnalysisResult['categories'][number]['products'][number]) {
+    const flags: Array<{ level: 'red' | 'yellow'; text: string }> = []
+    if ((product.confidence || 0) < 0.85) flags.push({ level: 'red', text: 'Bitte prüfen: Erkennung unsicher' })
+    if (product.price === null) flags.push({ level: 'red', text: 'Bitte prüfen: Preis fehlt' })
+    if (typeof product.price === 'number' && (product.price < 1 || product.price > 80)) {
+      flags.push({ level: 'yellow', text: 'Bitte prüfen: Preis wirkt ungewöhnlich' })
+    }
+    if (product.ingredients.length > 0) {
+      flags.push({ level: 'yellow', text: 'Bitte prüfen: Zutaten wurden automatisch abgeleitet' })
+    }
+    if (product.allergens.length === 0) {
+      flags.push({ level: 'yellow', text: 'Bitte prüfen: Allergene unklar' })
+    }
+    if (product.variants.length === 0) {
+      flags.push({ level: 'yellow', text: 'Bitte prüfen: Varianten unklar/fehlen' })
+    }
+    if (product.productNumber) {
+      flags.push({ level: 'yellow', text: 'Artikelnummer wird beim Import nicht übernommen' })
+    }
+    return flags
+  }
 
   return (
     <BackofficeLayout
@@ -208,6 +305,13 @@ export default function SuperadminMenuImportPage() {
       ) : null}
 
       <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+        <div className="mb-4 grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 md:grid-cols-5">
+          <p><span className="font-semibold">Kategorien:</span> {resultCounters.categories}</p>
+          <p><span className="font-semibold">Produkte:</span> {resultCounters.products}</p>
+          <p><span className="font-semibold">Varianten:</span> {resultCounters.variants}</p>
+          <p><span className="font-semibold">Zutaten:</span> {resultCounters.ingredients}</p>
+          <p><span className="font-semibold">Warnungen:</span> {resultCounters.warnings}</p>
+        </div>
         <div className="mb-4 grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 md:grid-cols-3">
           <p>
             <span className="font-semibold">Aktives KI-Modell:</span>{' '}
@@ -305,24 +409,102 @@ export default function SuperadminMenuImportPage() {
             </div>
           ) : null}
 
+          {importSummary ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+              <p className="font-semibold">Import-Zusammenfassung</p>
+              <p>
+                {importSummary.importedCategories} Kategorien · {importSummary.importedProducts} Produkte ·{' '}
+                {importSummary.importedVariants} Varianten
+              </p>
+              <p>
+                {importSummary.createdIngredients} Zutaten erstellt · {importSummary.reusedIngredients} Zutaten wiederverwendet
+              </p>
+              <p>{importSummary.productsWithWarnings} Produkte mit Warnhinweisen</p>
+            </div>
+          ) : null}
+
+          <div className="mt-4 grid gap-2 md:grid-cols-4">
+            <input
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
+              placeholder="Kategorie filtern"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+            <input
+              value={productSearch}
+              onChange={(event) => setProductSearch(event.target.value)}
+              placeholder="Produkt suchen"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const next: Record<string, boolean> = {}
+                for (const category of filteredCategories) next[category.name] = true
+                setExpandedCategories(next)
+              }}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
+            >
+              Alle aufklappen
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpandedCategories({})}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700"
+            >
+              Alle zuklappen
+            </button>
+          </div>
+
           <div className="mt-4 space-y-4">
-            {editableResult.categories.map((category, categoryIndex) => (
+            {filteredCategories.map((category) => (
               <div key={`${category.name}-${category.sortOrder}`} className="rounded-2xl border border-slate-200 p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-slate-900">{category.name}</h3>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    {category.name} <span className="text-xs text-slate-500">({category.products.length} Produkte)</span>
+                  </h3>
                   <span className="text-xs text-slate-500">
                     Confidence: {(category.confidence * 100).toFixed(0)}%
                   </span>
                 </div>
-                <div className="mt-2 space-y-2">
-                  {category.products.map((product, index) => (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedCategories((current) => ({
+                      ...current,
+                      [category.name]: !current[category.name],
+                    }))
+                  }
+                  className="mt-2 text-xs font-medium text-slate-600 underline"
+                >
+                  {expandedCategories[category.name] ? 'Kategorie einklappen' : 'Kategorie ausklappen'}
+                </button>
+                {expandedCategories[category.name] ? (
+                  <div className="mt-2 space-y-2">
+                    {category.products.map((product, index) => (
                     <div key={`${product.name}-${index}`} className="rounded-xl bg-slate-50 p-2">
+                      {getProductReviewFlags(product).length > 0 ? (
+                        <div className="mb-2 flex flex-wrap gap-1">
+                          {getProductReviewFlags(product).map((flag, flagIndex) => (
+                            <span
+                              key={`${flag.text}-${flagIndex}`}
+                              className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                flag.level === 'red'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {flag.text}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="grid gap-2 md:grid-cols-4">
                         <label className="block md:col-span-2">
                           <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Produktname</span>
                           <input
                             value={product.name}
-                            onChange={(event) => updateProductField(categoryIndex, index, 'name', event.target.value)}
+                            onChange={(event) => updateProductField(category.sourceIndex, index, 'name', event.target.value)}
                             className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
                         </label>
@@ -330,7 +512,7 @@ export default function SuperadminMenuImportPage() {
                           <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Produktnummer</span>
                           <input
                             value={product.productNumber || ''}
-                            onChange={(event) => updateProductField(categoryIndex, index, 'productNumber', event.target.value)}
+                            onChange={(event) => updateProductField(category.sourceIndex, index, 'productNumber', event.target.value)}
                             placeholder="z. B. 101"
                             className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
@@ -339,7 +521,7 @@ export default function SuperadminMenuImportPage() {
                           <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Preis (€)</span>
                           <input
                             value={product.price === null ? '' : String(product.price).replace('.', ',')}
-                            onChange={(event) => updateProductField(categoryIndex, index, 'price', event.target.value)}
+                            onChange={(event) => updateProductField(category.sourceIndex, index, 'price', event.target.value)}
                             placeholder="0,00"
                             className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                           />
@@ -349,7 +531,7 @@ export default function SuperadminMenuImportPage() {
                         <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">Beschreibung</span>
                         <input
                           value={product.description || ''}
-                          onChange={(event) => updateProductField(categoryIndex, index, 'description', event.target.value)}
+                          onChange={(event) => updateProductField(category.sourceIndex, index, 'description', event.target.value)}
                           className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
                         />
                       </label>
@@ -364,12 +546,34 @@ export default function SuperadminMenuImportPage() {
                       {product.allergens.length > 0 ? (
                         <p className="mt-1 text-xs text-slate-600">Allergene: {product.allergens.join(', ')}</p>
                       ) : null}
+                      {product.additives.length > 0 ? (
+                        <p className="mt-1 text-xs text-slate-600">Zusatzstoffe: {product.additives.join(', ')}</p>
+                      ) : null}
                     </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
             ))}
           </div>
+
+          {editableResult.promotions.length > 0 ? (
+            <div className="mt-5 rounded-2xl border border-slate-200 p-3">
+              <h3 className="text-sm font-semibold text-slate-900">Promotions</h3>
+              <div className="mt-2 space-y-2">
+                {editableResult.promotions.map((promotion, index) => (
+                  <div key={`${promotion.name}-${index}`} className="rounded-xl bg-slate-50 p-2 text-sm">
+                    <p className="font-semibold">{promotion.name}</p>
+                    <p className="text-slate-700">{promotion.description}</p>
+                    <p className="text-xs text-slate-600">
+                      Preis: {formatPrice(promotion.price)} · Wochentag: {promotion.weekday || '—'} · Confidence:{' '}
+                      {(promotion.confidence * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <details className="mt-5">
             <summary className="cursor-pointer text-sm font-semibold text-slate-800">Rohes JSON anzeigen</summary>

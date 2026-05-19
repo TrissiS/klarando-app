@@ -8009,12 +8009,16 @@ export async function importSuperadminMenuImport(
   token: string,
   payload: {
     tenantId: string
-    categories: MenuImportAnalysisResult['categories']
+    analysisResult: MenuImportAnalysisResult
   }
 ): Promise<{
   ok: boolean
   importedProducts: number
   importedCategories: number
+  importedVariants: number
+  createdIngredients: number
+  reusedIngredients: number
+  productsWithWarnings: number
   message: string
 }> {
   const response = await apiFetch('/api/superadmin/menu-import/import', {
@@ -8032,6 +8036,10 @@ export async function importSuperadminMenuImport(
     ok: boolean
     importedProducts: number
     importedCategories: number
+    importedVariants: number
+    createdIngredients: number
+    reusedIngredients: number
+    productsWithWarnings: number
     message: string
   }
 }

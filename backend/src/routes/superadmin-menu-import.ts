@@ -20,6 +20,27 @@ const allowedMimeTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image
 
 type MenuImportPayload = {
   tenantId?: string
+  analysisResult?: {
+    categories?: Array<{
+      name?: string
+      products?: Array<{
+        name?: string
+        productNumber?: string | null
+        description?: string | null
+        price?: number | null
+        confidence?: number
+        variants?: Array<{
+          name?: string
+          price?: number | null
+          confidence?: number
+        }>
+        ingredients?: string[]
+        allergens?: string[]
+        additives?: string[]
+        notes?: string | null
+      }>
+    }>
+  }
   categories?: Array<{
     name?: string
     products?: Array<{
@@ -28,12 +49,42 @@ type MenuImportPayload = {
       description?: string | null
       price?: number | null
       confidence?: number
+      variants?: Array<{
+        name?: string
+        price?: number | null
+        confidence?: number
+      }>
+      ingredients?: string[]
+      allergens?: string[]
+      additives?: string[]
+      notes?: string | null
     }>
   }>
 }
 
 function parseTenantId(value: unknown) {
   return typeof value === 'string' ? value.trim() : ''
+}
+
+function normalizeIngredientName(value: string): string {
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/[.,;:]+$/g, '')
+}
+
+function toIngredientKey(value: string): string {
+  const normalized = normalizeIngredientName(value).toLocaleLowerCase('de-DE')
+  const singular = normalized
+    .replace(/(en|er|e|n|s)$/i, '')
+    .trim()
+  return singular || normalized
+}
+
+function pushUniqueWarning(list: string[], warning: string) {
+  if (!list.includes(warning)) {
+    list.push(warning)
+  }
 }
 
 router.get('/status', requireAuth, async (req, res) => {
@@ -149,7 +200,10 @@ router.post('/import', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Filiale nicht gefunden.' })
     }
 
-    const categories = Array.isArray(body.categories) ? body.categories : []
+    const categoriesSource = Array.isArray(body.analysisResult?.categories)
+      ? body.analysisResult?.categories
+      : body.categories
+    const categories = Array.isArray(categoriesSource) ? categoriesSource : []
     if (categories.length === 0) {
       return res.status(400).json({ error: 'Keine Importdaten vorhanden.' })
     }
@@ -159,7 +213,17 @@ router.post('/import', requireAuth, async (req, res) => {
       name: string
       productNumber: string | null
       description: string | null
-      price: number
+      price: number | null
+      confidence: number
+      variants: Array<{
+        name: string
+        price: number | null
+      }>
+      ingredients: string[]
+      allergens: string[]
+      additives: string[]
+      notes: string | null
+      warnings: string[]
     }> = []
 
     for (const category of categories) {
@@ -170,20 +234,62 @@ router.post('/import', requireAuth, async (req, res) => {
         const name = typeof product.name === 'string' ? product.name.trim() : ''
         const numberRaw = typeof product.productNumber === 'string' ? product.productNumber.trim() : ''
         const descriptionRaw = typeof product.description === 'string' ? product.description.trim() : ''
-        const priceRaw = Number(product.price)
-        if (!name || !Number.isFinite(priceRaw) || priceRaw <= 0) continue
+        if (!name) continue
+        const priceRaw = product.price === null || product.price === undefined ? null : Number(product.price)
+        const confidenceRaw = Number(product.confidence)
+        const variantsRaw = Array.isArray(product.variants) ? product.variants : []
+        const ingredientsRaw = Array.isArray(product.ingredients) ? product.ingredients : []
+        const allergensRaw = Array.isArray(product.allergens) ? product.allergens : []
+        const additivesRaw = Array.isArray(product.additives) ? product.additives : []
+        const notesRaw = typeof product.notes === 'string' ? product.notes.trim() : null
+        const warnings: string[] = []
+        if (!Number.isFinite(priceRaw ?? NaN) || (priceRaw ?? 0) <= 0) {
+          warnings.push('Preis fehlt – Produkt wurde als Entwurf importiert.')
+        }
+        if (Number.isFinite(confidenceRaw) && confidenceRaw < 0.85) {
+          warnings.push('Bitte prüfen: Produkt-Erkennung unsicher.')
+        }
+        if (numberRaw) {
+          warnings.push('Artikelnummer wird beim Import nicht übernommen.')
+        }
         preparedProducts.push({
           categoryName,
           name,
           productNumber: numberRaw || null,
           description: descriptionRaw || null,
-          price: Number(priceRaw.toFixed(2)),
+          price:
+            Number.isFinite(priceRaw ?? NaN) && (priceRaw ?? 0) > 0
+              ? Number((priceRaw as number).toFixed(2))
+              : null,
+          confidence: Number.isFinite(confidenceRaw) ? confidenceRaw : 0,
+          variants: variantsRaw
+            .map((variant) => {
+              const variantName = typeof variant.name === 'string' ? variant.name.trim() : ''
+              if (!variantName) return null
+              const variantPrice =
+                variant.price === null || variant.price === undefined ? null : Number(variant.price)
+              return {
+                name: variantName,
+                price:
+                  Number.isFinite(variantPrice ?? NaN) && (variantPrice ?? 0) >= 0
+                    ? Number((variantPrice as number).toFixed(2))
+                    : null,
+              }
+            })
+            .filter((entry): entry is { name: string; price: number | null } => Boolean(entry)),
+          ingredients: ingredientsRaw
+            .map((entry) => normalizeIngredientName(String(entry || '')))
+            .filter(Boolean),
+          allergens: allergensRaw.map((entry) => String(entry || '').trim()).filter(Boolean),
+          additives: additivesRaw.map((entry) => String(entry || '').trim()).filter(Boolean),
+          notes: notesRaw,
+          warnings,
         })
       }
     }
 
     if (preparedProducts.length === 0) {
-      return res.status(400).json({ error: 'Keine gültigen Produkte für den Import gefunden.' })
+      return res.status(400).json({ error: 'Produkt wurde wegen fehlendem Namen übersprungen.' })
     }
 
     const duplicateNumbers = preparedProducts
@@ -242,25 +348,132 @@ router.post('/import', requireAuth, async (req, res) => {
         categoryByName.set(categoryName, created.id)
       }
 
+      const existingIngredients = await tx.ingredient.findMany({
+        where: { tenantId },
+        select: { id: true, name: true },
+      })
+      const ingredientByKey = new Map<string, { id: string; name: string }>()
+      for (const ingredient of existingIngredients) {
+        ingredientByKey.set(toIngredientKey(ingredient.name), ingredient)
+      }
+
       let importedCount = 0
+      let createdIngredients = 0
+      let reusedIngredients = 0
+      let createdVariants = 0
+      let productsWithWarnings = 0
+
       for (const product of preparedProducts) {
         const categoryId = categoryByName.get(product.categoryName) || null
-        await tx.product.create({
+        const extraWarnings: string[] = [...product.warnings]
+        const productNotes: string[] = []
+        if (product.productNumber) {
+          productNotes.push(`Speisekarten-Nummer: ${product.productNumber}`)
+        }
+        if (product.notes) {
+          productNotes.push(product.notes)
+        }
+        const allergensHint = product.allergens.length > 0 ? `Allergene: ${product.allergens.join(', ')}` : ''
+        const additivesHint = product.additives.length > 0 ? `Zusatzstoffe: ${product.additives.join(', ')}` : ''
+        if (allergensHint) productNotes.push(allergensHint)
+        if (additivesHint) productNotes.push(additivesHint)
+        const mergedArticleInfo = [product.description || null, productNotes.join(' | ') || null]
+          .filter(Boolean)
+          .join('\n')
+          .trim()
+
+        const createdProduct = await tx.product.create({
           data: {
             tenantId,
             categoryId,
-            productNumber: product.productNumber,
+            productNumber: null,
             name: product.name,
-            articleInfo: product.description,
-            price: product.price,
+            articleInfo: mergedArticleInfo || null,
+            price: product.price ?? 0.01,
             vatRate: 19,
             available: false,
             unitEans: [],
           },
+          select: { id: true, price: true },
         })
+
+        if (product.price === null) {
+          pushUniqueWarning(extraWarnings, 'Preis fehlt – Produkt wurde als Entwurf importiert.')
+        }
+
+        for (const ingredientName of product.ingredients) {
+          const key = toIngredientKey(ingredientName)
+          let ingredientEntry = ingredientByKey.get(key)
+          if (!ingredientEntry) {
+            const created = await tx.ingredient.create({
+              data: {
+                tenantId,
+                name: ingredientName,
+                category: 'FOOD',
+                unit: 'Stk',
+                recipeUnit: 'Stk',
+                purchasePrice: 0,
+                minimumStock: 0,
+                consumptionFactorPercent: 0,
+                deposit: 0,
+                allergens: null,
+              },
+              select: { id: true, name: true },
+            })
+            ingredientEntry = created
+            ingredientByKey.set(key, created)
+            createdIngredients += 1
+          } else {
+            reusedIngredients += 1
+          }
+
+          const existingProductIngredient = await tx.productIngredient.findFirst({
+            where: {
+              productId: createdProduct.id,
+              ingredientId: ingredientEntry.id,
+            },
+            select: { id: true },
+          })
+          if (!existingProductIngredient) {
+            await tx.productIngredient.create({
+              data: {
+                productId: createdProduct.id,
+                ingredientId: ingredientEntry.id,
+                quantity: 1,
+              },
+            })
+          }
+        }
+
+        for (const variant of product.variants) {
+          const delta = variant.price === null ? 0 : Number((variant.price - Number(createdProduct.price)).toFixed(2))
+          await tx.productModifier.create({
+            data: {
+              tenantId,
+              productId: createdProduct.id,
+              name: variant.name,
+              priceDelta: delta,
+              isDefaultSelected: false,
+              isActive: true,
+              sortOrder: 0,
+            },
+          })
+          createdVariants += 1
+        }
+
+        if (extraWarnings.length > 0) {
+          productsWithWarnings += 1
+        }
         importedCount += 1
       }
-      return { importedCount, categoryCount: distinctCategories.length }
+      return {
+        importedCount,
+        categoryCount: distinctCategories.length,
+        createdIngredients,
+        reusedIngredients,
+        createdVariants,
+        productsWithWarnings,
+      }
     })
 
     await writeAuditLog({
@@ -273,6 +486,10 @@ router.post('/import', requireAuth, async (req, res) => {
       metadata: {
         importedProducts: result.importedCount,
         importedCategories: result.categoryCount,
+        createdIngredients: result.createdIngredients,
+        reusedIngredients: result.reusedIngredients,
+        createdVariants: result.createdVariants,
+        productsWithWarnings: result.productsWithWarnings,
       },
     })
 
@@ -280,6 +497,10 @@ router.post('/import', requireAuth, async (req, res) => {
       ok: true,
       importedProducts: result.importedCount,
       importedCategories: result.categoryCount,
+      importedVariants: result.createdVariants,
+      createdIngredients: result.createdIngredients,
+      reusedIngredients: result.reusedIngredients,
+      productsWithWarnings: result.productsWithWarnings,
       message: `${result.importedCount} Produkte importiert. Produkte sind zunächst nicht aktiv.`,
     })
   } catch (error) {
