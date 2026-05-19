@@ -306,7 +306,16 @@ export default function SuperadminMenuImportPage() {
     if (product.productNumber) {
       flags.push({ level: 'yellow', text: 'Artikelnummer wird beim Import nicht übernommen' })
     }
+    if ((product.notes || '').toLocaleLowerCase('de-DE').includes('fallback')) {
+      flags.push({ level: 'red', text: 'Bitte prüfen: automatisch per Fallback erkannt' })
+    }
     return flags
+  }
+
+  function getCategoryWarnings(categoryName: string) {
+    if (!editableResult) return []
+    const prefix = `${categoryName}:`
+    return editableResult.warnings.filter((warning) => warning.startsWith(prefix))
   }
 
   return (
@@ -529,6 +538,11 @@ export default function SuperadminMenuImportPage() {
                     Confidence: {(category.confidence * 100).toFixed(0)}%
                   </span>
                 </div>
+                {getCategoryWarnings(category.name).length > 0 ? (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                    {getCategoryWarnings(category.name).join(' · ')}
+                  </div>
+                ) : null}
                 <button
                   type="button"
                   onClick={() =>

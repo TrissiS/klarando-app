@@ -63,7 +63,97 @@ function normalizeTextList(values: unknown): string[] {
     .filter((entry) => entry.length > 0)
 }
 
-function mapCategoryProducts(category: any): MenuImportCategory['products'] {
+const KNOWN_INGREDIENTS = [
+  'Tomatensauce',
+  'Käse',
+  'Salami',
+  'Schinken',
+  'Pilze',
+  'Thunfisch',
+  'Zwiebeln',
+  'Peperoni',
+  'Paprika',
+  'Mais',
+  'Ananas',
+  'Oliven',
+  'Fleisch',
+  'Drehspießfleisch',
+  'Hähnchen',
+  'Saucen',
+  'Knoblauch',
+  'Joghurt',
+  'Gurke',
+  'Tomaten',
+]
+
+function dedupeIngredients(values: string[]): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of values) {
+    const normalized = value.trim()
+    if (!normalized) continue
+    const key = normalized.toLocaleLowerCase('de-DE')
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(normalized)
+  }
+  return out
+}
+
+function inferDescriptionAndIngredients(
+  categoryName: string,
+  currentDescription: string | null,
+  notes: string | null,
+  currentIngredients: string[]
+): { description: string | null; ingredients: string[] } {
+  const category = categoryName.toLocaleLowerCase('de-DE')
+  const combined = `${currentDescription || ''} ${notes || ''}`
+  const extracted: string[] = [...currentIngredients]
+
+  for (const ingredient of KNOWN_INGREDIENTS) {
+    const pattern = new RegExp(`\\b${ingredient}\\b`, 'i')
+    if (pattern.test(combined)) extracted.push(ingredient)
+  }
+
+  if (category.includes('pizza')) {
+    extracted.push('Tomatensauce', 'Käse')
+    if (!currentDescription) {
+      const withMatch = combined.match(/mit\\s+([^,.]+)/i)
+      const suffix = withMatch ? `, ${withMatch[1].trim()}` : ''
+      return {
+        description: `mit Tomatensauce und Käse${suffix}`.replace(/,+/g, ','),
+        ingredients: dedupeIngredients(extracted),
+      }
+    }
+  }
+
+  if (category.includes('drehspieß') || category.includes('döner')) {
+    const withMatch = combined.match(/mit\\s+([^,.]+)/i)
+    if (!currentDescription && withMatch?.[1]) {
+      return {
+        description: `mit ${withMatch[1].trim()}`,
+        ingredients: dedupeIngredients(extracted),
+      }
+    }
+  }
+
+  if (category.includes('schnitzel') || category.includes('nudel') || category.includes('salat')) {
+    const withMatch = combined.match(/mit\\s+([^,.]+)/i)
+    if (!currentDescription && withMatch?.[1]) {
+      return {
+        description: `mit ${withMatch[1].trim()}`,
+        ingredients: dedupeIngredients(extracted),
+      }
+    }
+  }
+
+  return {
+    description: currentDescription && currentDescription.trim().length > 0 ? currentDescription.trim() : null,
+    ingredients: dedupeIngredients(extracted),
+  }
+}
+
+function mapCategoryProducts(categoryName: string, category: any): MenuImportCategory['products'] {
   const rawProducts = Array.isArray(category?.products)
     ? category.products
     : Array.isArray(category?.items)
@@ -74,16 +164,27 @@ function mapCategoryProducts(category: any): MenuImportCategory['products'] {
     .map((product: any) => {
       const name = typeof product?.name === 'string' ? product.name.trim() : ''
       if (!name) return null
+      const normalizedDescription =
+        typeof product?.description === 'string' && product.description.trim().length > 0
+          ? product.description.trim()
+          : null
+      const normalizedNotes =
+        typeof product?.notes === 'string' && product.notes.trim().length > 0 ? product.notes.trim() : null
+
+      const inferred = inferDescriptionAndIngredients(
+        categoryName,
+        normalizedDescription,
+        normalizedNotes,
+        normalizeTextList(product?.ingredients)
+      )
+
       return {
         name,
         productNumber:
           typeof product?.productNumber === 'string' && product.productNumber.trim().length > 0
             ? product.productNumber.trim()
             : null,
-        description:
-          typeof product?.description === 'string' && product.description.trim().length > 0
-            ? product.description.trim()
-            : null,
+        description: inferred.description,
         price:
           product?.price === null || Number.isFinite(Number(product?.price)) ? Number(product.price) : null,
         variants: Array.isArray(product?.variants)
@@ -102,13 +203,10 @@ function mapCategoryProducts(category: any): MenuImportCategory['products'] {
               })
               .filter(Boolean)
           : [],
-        ingredients: normalizeTextList(product?.ingredients),
+        ingredients: inferred.ingredients,
         allergens: normalizeTextList(product?.allergens),
         additives: normalizeTextList(product?.additives),
-        notes:
-          typeof product?.notes === 'string' && product.notes.trim().length > 0
-            ? product.notes.trim()
-            : null,
+        notes: normalizedNotes,
         confidence: clampConfidence(product?.confidence),
       }
     })
@@ -122,7 +220,7 @@ function normalizeAnalysis(result: Partial<MenuImportAnalysisResult>): MenuImpor
           typeof category?.name === 'string' && category.name.trim().length > 0
             ? category.name.trim()
             : `Kategorie ${index + 1}`
-        const products = mapCategoryProducts(category)
+        const products = mapCategoryProducts(categoryName, category)
         return {
           name: categoryName,
           sortOrder: Number.isFinite(Number(category?.sortOrder)) ? Number(category.sortOrder) : index + 1,
@@ -244,13 +342,28 @@ function mapItemsToProducts(raw: any): any {
   }
   if (Array.isArray(cloned.categories)) {
     cloned.categories = cloned.categories.map((category: any) => {
+      const renamedCategory =
+        category &&
+        typeof category.categoryName === 'string' &&
+        category.categoryName.trim().length > 0 &&
+        (!category.name || String(category.name).trim().length === 0)
+          ? { ...category, name: category.categoryName.trim() }
+          : category
+
+      if (renamedCategory && Array.isArray(renamedCategory.items) && !Array.isArray(renamedCategory.products)) {
+        return {
+          ...renamedCategory,
+          products: renamedCategory.items,
+        }
+      }
+
       if (category && Array.isArray(category.items) && !Array.isArray(category.products)) {
         return {
           ...category,
           products: category.items,
         }
       }
-      return category
+      return renamedCategory
     })
   }
   return cloned
@@ -267,11 +380,30 @@ function splitOcrTextIntoChunks(ocrText: string): string[] {
   const sections: string[] = []
   let current: string[] = []
 
+  const knownCategories = [
+    'Drehspieß',
+    'Pommes & Saucen',
+    'Lahmacun',
+    'Pizza',
+    'Schnitzelgerichte',
+    'Nudelgerichte',
+    'Salate',
+    'Getränke',
+    'Hamburger',
+    'Wurst',
+    'Pizza Brötchen',
+    'Spezial Gericht',
+    'Pizzabrötchen',
+  ]
+
+  const isKnownCategory = (line: string) =>
+    knownCategories.some((name) => line.toLocaleLowerCase('de-DE').includes(name.toLocaleLowerCase('de-DE')))
+
   const isCategoryLine = (line: string) => {
     const hasPrice = /\d+[,.]\d{2}\s*€?/.test(line)
     const looksShort = line.length <= 28
     const hasOnlyLetters = /^[A-Za-zÄÖÜäöüß &+\-/]+$/.test(line)
-    return !hasPrice && looksShort && hasOnlyLetters
+    return isKnownCategory(line) || (!hasPrice && looksShort && hasOnlyLetters)
   }
 
   for (const line of lines) {
@@ -296,6 +428,79 @@ function splitOcrTextIntoChunks(ocrText: string): string[] {
   }
 
   return merged.length > 0 ? merged : [ocrText]
+}
+
+function parseFallbackProductsFromChunk(ocrChunk: string): Partial<MenuImportAnalysisResult> {
+  const lines = ocrChunk
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  const categories: MenuImportAnalysisResult['categories'] = []
+  let currentCategory = 'Ohne Kategorie'
+  const categoryWarnings: string[] = []
+  const knownCategories = ['drehspieß', 'pommes', 'lahmacun', 'pizza', 'schnitzel', 'nudel', 'salat', 'getränke', 'hamburger', 'wurst', 'pizzabrötchen', 'spezial']
+
+  const ensureCategory = (name: string) => {
+    const existing = categories.find((entry) => entry.name.toLocaleLowerCase('de-DE') === name.toLocaleLowerCase('de-DE'))
+    if (existing) return existing
+    const next = {
+      name,
+      sortOrder: categories.length + 1,
+      confidence: 0.55,
+      products: [] as MenuImportAnalysisResult['categories'][number]['products'],
+    }
+    categories.push(next)
+    return next
+  }
+
+  for (const line of lines) {
+    const lower = line.toLocaleLowerCase('de-DE')
+    const isHeading = knownCategories.some((entry) => lower.includes(entry)) && !/\d+[,.]\d{2}/.test(line)
+    if (isHeading && line.length <= 40) {
+      currentCategory = line
+      ensureCategory(currentCategory)
+      continue
+    }
+
+    const regexMatch = line.match(/^(\d+[A-Z]?)\.\s+(.+?)\s+€?\s*(\d+[,.]\d{2}|\d+)$/)
+    const looseMatch = line.match(/^(.+?)\s+€?\s*(\d+[,.]\d{2}|\d+)$/)
+    if (!regexMatch && !looseMatch) continue
+
+    const category = ensureCategory(currentCategory)
+    if (!categoryWarnings.includes(category.name)) categoryWarnings.push(category.name)
+
+    const number = regexMatch?.[1] ?? null
+    const name = (regexMatch?.[2] ?? looseMatch?.[1] ?? '').trim()
+    if (!name) continue
+    const rawPrice = (regexMatch?.[3] ?? looseMatch?.[2] ?? '').replace(',', '.')
+    const parsedPrice = Number(rawPrice)
+    const inferred = inferDescriptionAndIngredients(category.name, null, line, [])
+
+    category.products.push({
+      productNumber: number,
+      name,
+      description: inferred.description,
+      price: Number.isFinite(parsedPrice) ? parsedPrice : null,
+      variants: [],
+      ingredients: inferred.ingredients,
+      allergens: [],
+      additives: [],
+      notes: 'Per Fallback aus OCR-Zeile erkannt',
+      confidence: 0.55,
+    })
+  }
+
+  return {
+    restaurantName: null,
+    sourceLanguage: 'de',
+    categories,
+    promotions: [],
+    warnings: [
+      ...categoryWarnings.map((name) => `${name}: Diese Kategorie wurde per OCR-Fallback erstellt.`),
+      'Bitte prüfen: automatisch per Fallback erkannt',
+    ],
+  }
 }
 
 function isOcrLikelyCutOff(ocrText: string): boolean {
@@ -574,6 +779,9 @@ export async function analyzeMenuImages(
     const chunk = textChunks[index]
     const chunkStartedAt = Date.now()
     const rawOutput = await callOpenAiJsonStructure(apiKey, textModel, chunk, 90_000)
+    let chunkMode: 'ki' | 'ki_repaired' | 'fallback' = 'ki'
+    let chunkProducts = 0
+    let chunkErrorReason = ''
 
     if (debugEnabled) {
       debugParts.push(
@@ -587,28 +795,58 @@ export async function analyzeMenuImages(
 
     const { parsed, repaired } = tryParseStructuredChunk(rawOutput)
     if (!parsed) {
+      chunkMode = 'fallback'
+      chunkErrorReason = 'parse_failed'
       console.error('MENU_IMPORT_RAW_RESPONSE_PREVIEW', rawOutput.slice(0, 4000))
-      chunkResults.push({
-        ...fallbackResult,
-        warnings: [
-          'KI-Rohantwort konnte nicht als JSON gelesen werden.',
-          `Chunk ${index + 1} konnte nicht strukturiert werden.`,
-        ],
+      const fallbackParsed = normalizeAnalysis(parseFallbackProductsFromChunk(chunk))
+      fallbackParsed.warnings.unshift(
+        'KI-Rohantwort konnte nicht als JSON gelesen werden.',
+        `Chunk ${index + 1} konnte nicht strukturiert werden.`
+      )
+      chunkProducts = fallbackParsed.categories.reduce((acc, category) => acc + category.products.length, 0)
+      chunkResults.push(fallbackParsed)
+      console.info('MENU_IMPORT_CHUNK_DONE', {
+        chunk: `${index + 1}/${textChunks.length}`,
+        model: textModel,
+        mode: 'fallback',
+        categories: fallbackParsed.categories.length,
+        products: fallbackParsed.categories.reduce((acc, category) => acc + category.products.length, 0),
       })
+      if (debugEnabled) {
+        debugParts.push(
+          `CHUNK ${index + 1} MODE: ${chunkMode}`,
+          `CHUNK ${index + 1} PRODUKTE: ${chunkProducts}`,
+          `CHUNK ${index + 1} FEHLER: ${chunkErrorReason}`,
+          ''
+        )
+      }
       continue
     }
 
     const normalized = normalizeAnalysis(parsed)
-    if (repaired) normalized.warnings.push('JSON wurde automatisch repariert.')
+    if (repaired) {
+      chunkMode = 'ki_repaired'
+      normalized.warnings.push('JSON wurde automatisch repariert.')
+    }
     if (looksTruncatedJson(rawOutput)) normalized.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
+    chunkProducts = normalized.categories.reduce((acc, category) => acc + category.products.length, 0)
 
     console.info('MENU_IMPORT_CHUNK_DONE', {
       chunk: `${index + 1}/${textChunks.length}`,
       model: textModel,
+      mode: chunkMode,
       categories: normalized.categories.length,
-      products: normalized.categories.reduce((acc, category) => acc + category.products.length, 0),
+      products: chunkProducts,
       durationMs: Date.now() - chunkStartedAt,
     })
+    if (debugEnabled) {
+      debugParts.push(
+        `CHUNK ${index + 1} MODE: ${chunkMode}`,
+        `CHUNK ${index + 1} PRODUKTE: ${chunkProducts}`,
+        `CHUNK ${index + 1} FEHLER: ${chunkErrorReason || '-'}`,
+        ''
+      )
+    }
 
     chunkResults.push(normalized)
   }
