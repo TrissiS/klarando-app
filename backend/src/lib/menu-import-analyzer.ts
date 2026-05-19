@@ -187,7 +187,7 @@ function normalizeAnalysis(result: MenuImportAnalysisResult): MenuImportAnalysis
     warnings: Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [],
     debugRawResponsePreview:
       typeof result.debugRawResponsePreview === 'string' && result.debugRawResponsePreview.trim().length > 0
-        ? result.debugRawResponsePreview.slice(0, 2000)
+        ? result.debugRawResponsePreview.slice(0, 4000)
         : undefined,
   }
 }
@@ -228,7 +228,7 @@ export async function analyzeMenuImages(
     }
     return {
       ...result,
-      debugRawResponsePreview: preview.slice(0, 2000),
+      debugRawResponsePreview: preview.slice(0, 4000),
     }
   }
 
@@ -444,18 +444,19 @@ export async function analyzeMenuImages(
           warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
         }
         const normalizedSafe = normalizeAnalysis(safe)
-        return withDebug(normalizedSafe, rawOutput.slice(0, 2000))
+        return withDebug(normalizedSafe, rawOutput.slice(0, 4000))
       } catch {
         // keep fallback path below
       }
     }
 
+    console.error('MENU_IMPORT_RAW_RESPONSE_PREVIEW', rawOutput.slice(0, 4000))
     console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
       model: activeModel,
       imageCount: images.length,
       message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
-      responsePreview: rawOutput.slice(0, 2000),
+      responsePreview: rawOutput.slice(0, 4000),
     })
-    return withDebug(fallbackResult, rawOutput.slice(0, 2000))
+    return withDebug(fallbackResult, rawOutput.slice(0, 4000))
   }
 }
