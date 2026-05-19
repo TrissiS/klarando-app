@@ -529,11 +529,17 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   ]
   const correctionMap: Array<[RegExp, string]> = [
     [/\bDahbruch\b/gi, 'Dahlbruch'],
+    [/\bDahrbruch\b/gi, 'Dahlbruch'],
     [/\bScucuk\b/gi, 'Sucuk'],
     [/\bScuuk\b/gi, 'Sucuk'],
+    [/\bSuccuk\b/gi, 'Sucuk'],
+    [/\bSoßen\b/gi, 'Saucen'],
+    [/\bWeißkäs\b/gi, 'Weichkäse'],
     [/\bDürüüm\b/gi, 'Dürüm'],
     [/\bdürüm\b/gi, 'Dürüm'],
     [/\bDrehspiess\b/gi, 'Drehspieß'],
+    [/\bJägerschitzel\b/gi, 'Jägerschnitzel'],
+    [/\bPaprikasnitzel\b/gi, 'Paprikaschnitzel'],
     [/\bZiegeunersauce\b/gi, 'Zigeunersauce'],
     [/\bZiegeursauce\b/gi, 'Zigeunersauce'],
   ]
@@ -565,6 +571,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     if (cleaned.length > 80) return false
     if (knownCategoryMatch(cleaned)) return true
     if (/^\*\*.+\*\*/.test(line)) return true
+    if (/:$/.test(cleaned) && !isProductLine(cleaned)) return true
     return /^[\p{L}\s&/+\-(),]{3,80}$/u.test(cleaned)
   }
 
@@ -599,9 +606,10 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     /(drehspieß|drehspiess|döner|pommdöner|dürüm|durum|falafel)/i.test(name)
 
   let currentCategory = ''
+  const reassignDebug: string[] = []
   for (const line of lines) {
     if (isCategoryLine(line)) {
-      const cleaned = cleanupMarkdown(line)
+      const cleaned = cleanupMarkdown(line).replace(/:$/, '').trim()
       const known = knownCategoryMatch(cleaned)
       currentCategory = known || cleaned
       ensureCategory(currentCategory)
@@ -655,7 +663,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       ingredients: inferred.ingredients,
       allergens: [],
       additives: [],
-      notes: 'Per Fallback aus OCR-Zeile erkannt',
+      notes: `Per Fallback aus OCR-Zeile erkannt · Ursprung: ${targetCategory.name}`,
       confidence: Number.isFinite(rawPrice) ? 0.66 : 0.55,
     })
     recognizedProductLines.push(line)
@@ -689,6 +697,41 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     }
     unsortedCategory.products = keepProducts
   }
+
+  const expectedCategoryByNumber = (value: string | null): string | null => {
+    if (!value) return null
+    const num = Number(value.replace(/[^\d]/g, ''))
+    if (!Number.isFinite(num)) return null
+    if ((num >= 1 && num <= 14) || num === 201) return 'Drehspieß'
+    if (num >= 15 && num <= 17) return 'Pommes & Saucen'
+    if (num >= 18 && num <= 20) return 'Lahmacun aus Kalbfleisch'
+    if (num >= 22 && num <= 42) return 'Pizza'
+    if (num >= 46 && num <= 58) return 'Schnitzelgerichte'
+    if (num >= 59 && num <= 76) return 'Nudelgerichte'
+    return null
+  }
+
+  const movedProducts: Array<{ from: string; to: string; name: string }> = []
+  for (const category of [...categories]) {
+    const keep: typeof category.products = []
+    for (const product of category.products) {
+      const expected = expectedCategoryByNumber(product.productNumber)
+      if (!expected || expected.toLocaleLowerCase('de-DE') === category.name.toLocaleLowerCase('de-DE')) {
+        keep.push(product)
+        continue
+      }
+      const toCategory = ensureCategory(expected)
+      movedProducts.push({ from: category.name, to: expected, name: product.name })
+      product.notes = `${product.notes || ''} · Korrigiert: ${category.name} → ${expected} (Nummernbereich)`.trim()
+      toCategory.products.push(product)
+      reassignDebug.push(`${product.productNumber || '?'} ${product.name}: ${category.name} -> ${expected} [Nummernbereich]`)
+    }
+    category.products = keep
+  }
+
+  if (movedProducts.length > 0) {
+    warnings.push(`${movedProducts.length} Produkte wurden per Nummernbereich neu zugeordnet.`)
+  }
   if (parserCategoryErrors.length > 0) {
     warnings.push('Parserfehler: Produktzeile wurde als Kategorie erkannt')
   }
@@ -714,6 +757,9 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       '',
       'Kategorieblöcke:',
       ...categories.map((category) => `# ${category.name}: ${category.products.length} Produkte`),
+      '',
+      'Kategoriekorrekturen:',
+      ...(reassignDebug.length > 0 ? reassignDebug.slice(0, 60) : ['- keine']),
       '',
       `Parserfehler-Kategorien: ${parserCategoryErrors.length}`,
       ...parserCategoryErrors.map((name) => `x ${name}`),
