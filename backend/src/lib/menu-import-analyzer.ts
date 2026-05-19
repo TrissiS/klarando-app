@@ -530,7 +530,10 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   const correctionMap: Array<[RegExp, string]> = [
     [/\bDahbruch\b/gi, 'Dahlbruch'],
     [/\bScucuk\b/gi, 'Sucuk'],
+    [/\bScuuk\b/gi, 'Sucuk'],
     [/\bDürüüm\b/gi, 'Dürüm'],
+    [/\bdürüm\b/gi, 'Dürüm'],
+    [/\bDrehspiess\b/gi, 'Drehspieß'],
     [/\bZiegeunersauce\b/gi, 'Zigeunersauce'],
     [/\bZiegeursauce\b/gi, 'Zigeunersauce'],
   ]
@@ -592,6 +595,9 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       })
       .filter(Boolean) as Array<{ name: string; price: number; confidence: number }>
 
+  const shouldAutoAssignDonerCategory = (name: string) =>
+    /(drehspieß|drehspiess|döner|pommdöner|dürüm|durum|falafel)/i.test(name)
+
   let currentCategory = ''
   for (const line of lines) {
     if (isCategoryLine(line)) {
@@ -624,8 +630,12 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     const cleanedName = (withMatch ? rawName.slice(0, withMatch.index) : rawName).trim()
 
     if (!currentCategory) {
-      currentCategory = 'Unsortiert'
-      uncategorizedProductLines.push(line)
+      if (shouldAutoAssignDonerCategory(rawName)) {
+        currentCategory = 'Drehspieß'
+      } else {
+        currentCategory = 'Unsortiert'
+        uncategorizedProductLines.push(line)
+      }
     }
 
     const targetCategory = ensureCategory(currentCategory)
@@ -662,6 +672,22 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     if (/^\d+[A-Z]?\./.test(category.name) || /€/.test(category.name) || /\d+[,.]\d{2}/.test(category.name)) {
       parserCategoryErrors.push(category.name)
     }
+  }
+
+  const unsortedCategory = categories.find(
+    (entry) => entry.name.toLocaleLowerCase('de-DE') === 'unsortiert'
+  )
+  if (unsortedCategory && unsortedCategory.products.length > 0) {
+    const donerCategory = ensureCategory('Drehspieß')
+    const keepProducts: typeof unsortedCategory.products = []
+    for (const product of unsortedCategory.products) {
+      if (shouldAutoAssignDonerCategory(product.name)) {
+        donerCategory.products.push(product)
+      } else {
+        keepProducts.push(product)
+      }
+    }
+    unsortedCategory.products = keepProducts
   }
   if (parserCategoryErrors.length > 0) {
     warnings.push('Parserfehler: Produktzeile wurde als Kategorie erkannt')
