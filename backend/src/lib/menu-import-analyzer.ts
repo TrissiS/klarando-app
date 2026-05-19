@@ -426,13 +426,25 @@ export async function analyzeMenuImages(
     }
   }
 
-  const parsedChunks: MenuImportAnalysisResult[] = []
+  const parsedChunks: Array<MenuImportAnalysisResult | null> = Array(imageChunks.length).fill(null)
   let lastRawOutput = ''
-  for (let chunkIndex = 0; chunkIndex < imageChunks.length; chunkIndex += 1) {
+
+  const processChunk = async (chunkIndex: number) => {
     const chunk = imageChunks[chunkIndex]
+    const chunkStartedAt = Date.now()
+    console.info('MENU_IMPORT_CHUNK_START', {
+      chunk: `${chunkIndex + 1}/${imageChunks.length}`,
+      imageCount: chunk.length,
+      model: selectedModel,
+    })
     let activeModel = selectedModel
     let rawOutput = (await callModel(selectedModel, chunk, chunkIndex)) || ''
     if (!rawOutput && selectedModel !== 'gpt-4o-mini') {
+      console.warn('MENU_IMPORT_CHUNK_FALLBACK_MODEL', {
+        chunk: `${chunkIndex + 1}/${imageChunks.length}`,
+        fromModel: selectedModel,
+        toModel: 'gpt-4o-mini',
+      })
       const fallbackRaw = await callModel('gpt-4o-mini', chunk, chunkIndex)
       if (fallbackRaw) {
         activeModel = 'gpt-4o-mini'
@@ -449,8 +461,14 @@ export async function analyzeMenuImages(
           message: 'empty response',
           responsePreview: '',
         })
-        parsedChunks.push(withDebug(fallbackResult, null))
-        continue
+        parsedChunks[chunkIndex] = withDebug(fallbackResult, null)
+        console.info('MENU_IMPORT_CHUNK_DONE', {
+          chunk: `${chunkIndex + 1}/${imageChunks.length}`,
+          model: activeModel,
+          status: 'fallback_empty',
+          durationMs: Date.now() - chunkStartedAt,
+        })
+        return
       }
       const normalizedOutput = normalizeJsonCandidate(rawOutput)
       const parsed = JSON.parse(normalizedOutput) as Partial<MenuImportAnalysisResult>
@@ -474,8 +492,15 @@ export async function analyzeMenuImages(
         durationMs: Date.now() - startedAt,
         categoryCount: safe.categories?.length ?? 0,
       })
-      parsedChunks.push(normalizeAnalysis(safe))
-      continue
+      parsedChunks[chunkIndex] = normalizeAnalysis(safe)
+      console.info('MENU_IMPORT_CHUNK_DONE', {
+        chunk: `${chunkIndex + 1}/${imageChunks.length}`,
+        model: activeModel,
+        status: 'ok',
+        categoryCount: safe.categories.length,
+        durationMs: Date.now() - chunkStartedAt,
+      })
+      return
     } catch (parseError) {
     if (looksTruncatedJson(rawOutput)) {
       const repaired = attemptRepairJson(rawOutput)
@@ -492,10 +517,17 @@ export async function analyzeMenuImages(
             promotions: Array.isArray(reparsed.promotions) ? reparsed.promotions : [],
             warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
           }
-          safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
-          safe.warnings.push('JSON wurde automatisch repariert.')
-            parsedChunks.push(withDebug(normalizeAnalysis(safe), rawOutput.slice(0, 4000)))
-            continue
+            safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
+            safe.warnings.push('JSON wurde automatisch repariert.')
+            parsedChunks[chunkIndex] = withDebug(normalizeAnalysis(safe), rawOutput.slice(0, 4000))
+            console.info('MENU_IMPORT_CHUNK_DONE', {
+              chunk: `${chunkIndex + 1}/${imageChunks.length}`,
+              model: activeModel,
+              status: 'repaired',
+              categoryCount: safe.categories.length,
+              durationMs: Date.now() - chunkStartedAt,
+            })
+            return
         } catch {
           // continue with other repair/fallback attempts
         }
@@ -520,8 +552,15 @@ export async function analyzeMenuImages(
           warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
         }
         const normalizedSafe = normalizeAnalysis(safe)
-          parsedChunks.push(withDebug(normalizedSafe, rawOutput.slice(0, 4000)))
-          continue
+          parsedChunks[chunkIndex] = withDebug(normalizedSafe, rawOutput.slice(0, 4000))
+          console.info('MENU_IMPORT_CHUNK_DONE', {
+            chunk: `${chunkIndex + 1}/${imageChunks.length}`,
+            model: activeModel,
+            status: 'recovered_brace_slice',
+            categoryCount: normalizedSafe.categories.length,
+            durationMs: Date.now() - chunkStartedAt,
+          })
+          return
       } catch {
         // keep fallback path below
       }
@@ -534,26 +573,43 @@ export async function analyzeMenuImages(
       message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
       responsePreview: rawOutput.slice(0, 4000),
     })
-      parsedChunks.push(withDebug(fallbackResult, rawOutput.slice(0, 4000)))
-      continue
+      parsedChunks[chunkIndex] = withDebug(fallbackResult, rawOutput.slice(0, 4000))
+      console.info('MENU_IMPORT_CHUNK_DONE', {
+        chunk: `${chunkIndex + 1}/${imageChunks.length}`,
+        model: activeModel,
+        status: 'fallback_parse_error',
+        durationMs: Date.now() - chunkStartedAt,
+      })
+      return
     }
+  }
+
+  const concurrency = 2
+  for (let i = 0; i < imageChunks.length; i += concurrency) {
+    const batch = Array.from({ length: Math.min(concurrency, imageChunks.length - i) }, (_, offset) =>
+      processChunk(i + offset)
+    )
+    await Promise.all(batch)
   }
 
   const merged: MenuImportAnalysisResult = {
     restaurantName:
-      parsedChunks.find((entry) => entry.restaurantName && entry.restaurantName.trim().length > 0)?.restaurantName ??
+      parsedChunks.find((entry) => entry && entry.restaurantName && entry.restaurantName.trim().length > 0)
+        ?.restaurantName ??
       null,
     sourceLanguage: 'de',
     categories: [],
     promotions: [],
     warnings: [],
     debugRawResponsePreview:
-      parsedChunks.find((entry) => typeof entry.debugRawResponsePreview === 'string')?.debugRawResponsePreview ??
+      parsedChunks.find((entry) => entry && typeof entry.debugRawResponsePreview === 'string')
+        ?.debugRawResponsePreview ??
       (debugEnabled ? lastRawOutput.slice(0, 4000) : undefined),
   }
 
   const categoryMap = new Map<string, MenuImportAnalysisResult['categories'][number]>()
   for (const chunkResult of parsedChunks) {
+    if (!chunkResult) continue
     for (const warning of chunkResult.warnings) {
       if (!merged.warnings.includes(warning)) merged.warnings.push(warning)
     }
