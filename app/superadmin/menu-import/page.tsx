@@ -175,7 +175,13 @@ export default function SuperadminMenuImportPage() {
       setSuccess('Speisekarte wurde analysiert. Bitte Ergebnis prüfen.')
     } catch (analysisError) {
       setResult(null)
-      setError(analysisError instanceof Error ? analysisError.message : 'Analyse fehlgeschlagen.')
+      const message =
+        analysisError instanceof Error ? analysisError.message : 'Analyse fehlgeschlagen.'
+      if (/json/i.test(message) || /struktur/i.test(message)) {
+        setError('KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren oder anderes Bild verwenden.')
+      } else {
+        setError(message)
+      }
     } finally {
       setIsAnalyzing(false)
     }

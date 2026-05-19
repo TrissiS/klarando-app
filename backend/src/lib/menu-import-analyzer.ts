@@ -152,8 +152,12 @@ function clampConfidence(value: unknown) {
 function normalizeAnalysis(result: MenuImportAnalysisResult): MenuImportAnalysisResult {
   return {
     ...result,
+    restaurantName:
+      typeof result.restaurantName === 'string' && result.restaurantName.trim().length > 0
+        ? result.restaurantName.trim()
+        : null,
     sourceLanguage: 'de',
-    categories: (result.categories || []).map((category, categoryIndex) => ({
+    categories: (Array.isArray(result.categories) ? result.categories : []).map((category, categoryIndex) => ({
       ...category,
       sortOrder: Number.isFinite(Number(category.sortOrder))
         ? Number(category.sortOrder)
@@ -174,7 +178,7 @@ function normalizeAnalysis(result: MenuImportAnalysisResult): MenuImportAnalysis
         })),
       })),
     })),
-    promotions: (result.promotions || []).map((promotion) => ({
+    promotions: (Array.isArray(result.promotions) ? result.promotions : []).map((promotion) => ({
       ...promotion,
       price: promotion.price === null || Number.isFinite(Number(promotion.price)) ? promotion.price : null,
       confidence: clampConfidence(promotion.confidence),
@@ -187,9 +191,14 @@ function normalizeJsonCandidate(raw: string): string {
   const trimmed = raw.trim()
   if (!trimmed) return trimmed
 
-  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)
+  const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i)
   if (fencedMatch?.[1]) {
     return fencedMatch[1].trim()
+  }
+
+  const genericFenceMatch = trimmed.match(/```\s*([\s\S]*?)\s*```/i)
+  if (genericFenceMatch?.[1]) {
+    return genericFenceMatch[1].trim()
   }
 
   const firstBrace = trimmed.indexOf('{')
@@ -235,7 +244,8 @@ export async function analyzeMenuImages(
         'Wenn Preis unklar ist: price = null.',
         'Wenn Allergene/Zutaten unklar sind: leer lassen und Warnung schreiben.',
         'Confidence immer zwischen 0 und 1.',
-        'Antworte nur mit gültigem JSON.',
+        'Antworte ausschließlich mit gültigem JSON.',
+        'Kein Markdown. Kein Erklärungstext. Keine Code-Fences.',
       ].join('\n'),
     },
   ]
@@ -267,7 +277,7 @@ export async function analyzeMenuImages(
           {
             role: 'system',
             content:
-              'Du extrahierst Speisekarten strukturiert für Klarando. Gib ausschließlich JSON gemäß Schema zurück.',
+              'Du extrahierst Speisekarten strukturiert für Klarando. Antworte ausschließlich mit gültigem JSON, ohne Markdown und ohne Codeblöcke.',
           },
           {
             role: 'user',
@@ -275,8 +285,7 @@ export async function analyzeMenuImages(
           },
         ],
         response_format: {
-          type: 'json_schema',
-          json_schema: menuImportSchema,
+          type: 'json_object',
         },
         max_tokens: 3500,
       }),
@@ -339,21 +348,31 @@ export async function analyzeMenuImages(
 
   try {
     const normalizedOutput = normalizeJsonCandidate(rawOutput)
-    const parsed = JSON.parse(normalizedOutput) as MenuImportAnalysisResult
+    const parsed = JSON.parse(normalizedOutput) as Partial<MenuImportAnalysisResult>
+    const safe: MenuImportAnalysisResult = {
+      restaurantName:
+        typeof parsed.restaurantName === 'string' || parsed.restaurantName === null
+          ? parsed.restaurantName
+          : null,
+      sourceLanguage: 'de',
+      categories: Array.isArray(parsed.categories) ? parsed.categories : [],
+      promotions: Array.isArray(parsed.promotions) ? parsed.promotions : [],
+      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+    }
     console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
       model: selectedModel,
       imageCount: images.length,
       durationMs: Date.now() - startedAt,
-      categoryCount: parsed.categories?.length ?? 0,
+      categoryCount: safe.categories?.length ?? 0,
     })
-    return normalizeAnalysis(parsed)
+    return normalizeAnalysis(safe)
   } catch (parseError) {
     console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
       model: selectedModel,
       imageCount: images.length,
       message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
-      responsePreview: rawOutput.slice(0, 800),
+      responsePreview: rawOutput.slice(0, 2000),
     })
-    throw new Error('OpenAI Antwort konnte nicht als JSON gelesen werden.')
+    throw new Error('KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren oder anderes Bild verwenden.')
   }
 }
