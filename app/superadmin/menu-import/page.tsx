@@ -48,6 +48,8 @@ export default function SuperadminMenuImportPage() {
     importedVariants: number
     createdIngredients: number
     reusedIngredients: number
+    ingredientLinksCreated: number
+    productsWithoutIngredients: number
     productsWithWarnings: number
   } | null>(null)
 
@@ -245,6 +247,33 @@ export default function SuperadminMenuImportPage() {
     })
   }
 
+  function addProductIngredient(categoryIndex: number, productIndex: number, ingredientName: string) {
+    const normalized = ingredientName.trim()
+    if (!normalized) return
+    setEditableResult((current) => {
+      if (!current) return current
+      const next = structuredClone(current)
+      const target = next.categories[categoryIndex]?.products[productIndex]
+      if (!target) return current
+      const existing = new Set(target.ingredients.map((entry) => entry.trim().toLocaleLowerCase('de-DE')))
+      if (!existing.has(normalized.toLocaleLowerCase('de-DE'))) {
+        target.ingredients.push(normalized)
+      }
+      return next
+    })
+  }
+
+  function removeProductIngredient(categoryIndex: number, productIndex: number, ingredientIndex: number) {
+    setEditableResult((current) => {
+      if (!current) return current
+      const next = structuredClone(current)
+      const target = next.categories[categoryIndex]?.products[productIndex]
+      if (!target) return current
+      target.ingredients.splice(ingredientIndex, 1)
+      return next
+    })
+  }
+
   async function runImport() {
     if (!token || !tenantId || !editableResult) return
     const unsortedCategory = editableResult.categories.find(
@@ -273,6 +302,8 @@ export default function SuperadminMenuImportPage() {
         importedVariants: response.importedVariants,
         createdIngredients: response.createdIngredients,
         reusedIngredients: response.reusedIngredients,
+        ingredientLinksCreated: response.ingredientLinksCreated,
+        productsWithoutIngredients: response.productsWithoutIngredients,
         productsWithWarnings: response.productsWithWarnings,
       })
       setSuccess(response.message)
@@ -625,6 +656,10 @@ export default function SuperadminMenuImportPage() {
               <p>
                 {importSummary.createdIngredients} Zutaten erstellt · {importSummary.reusedIngredients} Zutaten wiederverwendet
               </p>
+              <p>
+                {importSummary.ingredientLinksCreated} Produkt-Zutaten-Zuordnungen erstellt ·{' '}
+                {importSummary.productsWithoutIngredients} Produkte ohne Zutaten
+              </p>
               <p>{importSummary.productsWithWarnings} Produkte mit Warnhinweisen</p>
             </div>
           ) : null}
@@ -873,8 +908,52 @@ export default function SuperadminMenuImportPage() {
                         </p>
                       ) : null}
                       {product.ingredients.length > 0 ? (
-                        <p className="mt-1 text-xs text-slate-600">Zutaten: {product.ingredients.join(', ')}</p>
+                        <div className="mt-1">
+                          <p className="text-xs text-slate-600">Zutaten:</p>
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {product.ingredients.map((ingredient, ingredientIndex) => (
+                              <span
+                                key={`${ingredient}-${ingredientIndex}`}
+                                className="inline-flex items-center gap-1 rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-700"
+                              >
+                                {ingredient}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removeProductIngredient(
+                                      category.sourceIndex,
+                                      product.sourceProductIndex,
+                                      ingredientIndex
+                                    )
+                                  }
+                                  className="font-semibold text-slate-600 hover:text-slate-900"
+                                  title="Zutat entfernen"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       ) : null}
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <input
+                          placeholder="Neue Zutat hinzufügen"
+                          className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter') return
+                            event.preventDefault()
+                            const target = event.currentTarget
+                            addProductIngredient(
+                              category.sourceIndex,
+                              product.sourceProductIndex,
+                              target.value
+                            )
+                            target.value = ''
+                          }}
+                        />
+                        <span className="text-[11px] text-slate-500">Enter zum Hinzufügen</span>
+                      </div>
                       {product.allergens.length > 0 ? (
                         <p className="mt-1 text-xs text-slate-600">Allergene: {product.allergens.join(', ')}</p>
                       ) : null}

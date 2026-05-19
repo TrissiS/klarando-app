@@ -84,6 +84,62 @@ function toIngredientKey(value: string): string {
   return singular || normalized
 }
 
+const INGREDIENT_KEYWORDS: Array<{ key: string; ingredient: string }> = [
+  { key: 'tomatensauce', ingredient: 'Tomatensauce' },
+  { key: 'käse', ingredient: 'Käse' },
+  { key: 'mozzarella', ingredient: 'Mozzarella' },
+  { key: 'salami', ingredient: 'Salami' },
+  { key: 'schinken', ingredient: 'Schinken' },
+  { key: 'thunfisch', ingredient: 'Thunfisch' },
+  { key: 'tonno', ingredient: 'Thunfisch' },
+  { key: 'zwiebel', ingredient: 'Zwiebeln' },
+  { key: 'ananas', ingredient: 'Ananas' },
+  { key: 'champignon', ingredient: 'Champignons' },
+  { key: 'pilz', ingredient: 'Champignons' },
+  { key: 'broccoli', ingredient: 'Broccoli' },
+  { key: 'spinat', ingredient: 'Spinat' },
+  { key: 'knoblauch', ingredient: 'Knoblauch' },
+  { key: 'pommes', ingredient: 'Pommes' },
+  { key: 'salat', ingredient: 'Salat' },
+  { key: 'sauce', ingredient: 'Sauce' },
+  { key: 'rahmsauce', ingredient: 'Rahmsauce' },
+  { key: 'jägersauce', ingredient: 'Jägersauce' },
+  { key: 'jäger', ingredient: 'Jägersauce' },
+  { key: 'fleisch', ingredient: 'Fleisch' },
+  { key: 'falafel', ingredient: 'Falafel' },
+]
+
+function collectIngredientsFromText(value: string): string[] {
+  const text = value.toLocaleLowerCase('de-DE')
+  const found = new Set<string>()
+  for (const entry of INGREDIENT_KEYWORDS) {
+    if (text.includes(entry.key)) found.add(entry.ingredient)
+  }
+  return Array.from(found)
+}
+
+function deriveIngredients(categoryName: string, productName: string, description: string | null): string[] {
+  const derived = new Set<string>()
+  const normalizedCategory = categoryName.toLocaleLowerCase('de-DE')
+  for (const ingredient of collectIngredientsFromText(productName)) derived.add(ingredient)
+  for (const ingredient of collectIngredientsFromText(description || '')) derived.add(ingredient)
+
+  if (normalizedCategory.includes('pizza')) {
+    derived.add('Tomatensauce')
+    derived.add('Käse')
+  }
+  const productText = `${productName} ${description || ''}`.toLocaleLowerCase('de-DE')
+  if (productText.includes('tasche')) ['Fleisch', 'Salat', 'Sauce'].forEach((v) => derived.add(v))
+  if (productText.includes('box')) ['Fleisch', 'Pommes', 'Sauce'].forEach((v) => derived.add(v))
+  if (productText.includes('teller')) ['Fleisch', 'Pommes', 'Salat', 'Sauce'].forEach((v) => derived.add(v))
+  if (productText.includes('schnitzel') && productText.includes('pommes')) derived.add('Pommes')
+  if (productText.includes('schnitzel') && productText.includes('salat')) derived.add('Salat')
+  if (productText.includes('jägerschnitzel')) derived.add('Jägersauce')
+  if (productText.includes('rahm')) derived.add('Rahmsauce')
+
+  return Array.from(derived)
+}
+
 function pushUniqueWarning(list: string[], warning: string) {
   if (!list.includes(warning)) {
     list.push(warning)
@@ -256,6 +312,15 @@ router.post('/import', requireAuth, async (req, res) => {
         if (numberRaw && !useMenuNumbersAsSku) {
           warnings.push('Artikelnummer wird beim Import nicht übernommen.')
         }
+        const mergedIngredients = new Map<string, string>()
+        for (const ingredient of ingredientsRaw) {
+          const normalized = normalizeIngredientName(String(ingredient || ''))
+          if (!normalized) continue
+          mergedIngredients.set(toIngredientKey(normalized), normalized)
+        }
+        for (const ingredient of deriveIngredients(categoryName, name, descriptionRaw || null)) {
+          mergedIngredients.set(toIngredientKey(ingredient), ingredient)
+        }
         preparedProducts.push({
           categoryName,
           name,
@@ -281,9 +346,7 @@ router.post('/import', requireAuth, async (req, res) => {
               }
             })
             .filter((entry): entry is { name: string; price: number | null } => Boolean(entry)),
-          ingredients: ingredientsRaw
-            .map((entry) => normalizeIngredientName(String(entry || '')))
-            .filter(Boolean),
+          ingredients: Array.from(mergedIngredients.values()),
           allergens: allergensRaw.map((entry) => String(entry || '').trim()).filter(Boolean),
           additives: additivesRaw.map((entry) => String(entry || '').trim()).filter(Boolean),
           notes: notesRaw,
@@ -386,6 +449,8 @@ router.post('/import', requireAuth, async (req, res) => {
       let reusedIngredients = 0
       let createdVariants = 0
       let productsWithWarnings = 0
+      let ingredientLinksCreated = 0
+      let productsWithoutIngredients = 0
 
       for (const product of preparedProducts) {
         const categoryId = categoryByName.get(product.categoryName) || null
@@ -425,6 +490,9 @@ router.post('/import', requireAuth, async (req, res) => {
           pushUniqueWarning(extraWarnings, 'Preis fehlt – Produkt wurde als Entwurf importiert.')
         }
 
+        if (product.ingredients.length === 0) {
+          productsWithoutIngredients += 1
+        }
         for (const ingredientName of product.ingredients) {
           const key = toIngredientKey(ingredientName)
           let ingredientEntry = ingredientByKey.get(key)
@@ -466,6 +534,7 @@ router.post('/import', requireAuth, async (req, res) => {
                 quantity: 1,
               },
             })
+            ingredientLinksCreated += 1
           }
         }
 
@@ -497,6 +566,8 @@ router.post('/import', requireAuth, async (req, res) => {
         reusedIngredients,
         createdVariants,
         productsWithWarnings,
+        ingredientLinksCreated,
+        productsWithoutIngredients,
       }
     })
 
@@ -514,6 +585,8 @@ router.post('/import', requireAuth, async (req, res) => {
         reusedIngredients: result.reusedIngredients,
         createdVariants: result.createdVariants,
         productsWithWarnings: result.productsWithWarnings,
+        ingredientLinksCreated: result.ingredientLinksCreated,
+        productsWithoutIngredients: result.productsWithoutIngredients,
       },
     })
 
@@ -525,6 +598,8 @@ router.post('/import', requireAuth, async (req, res) => {
       createdIngredients: result.createdIngredients,
       reusedIngredients: result.reusedIngredients,
       productsWithWarnings: result.productsWithWarnings,
+      ingredientLinksCreated: result.ingredientLinksCreated,
+      productsWithoutIngredients: result.productsWithoutIngredients,
       message: `${result.importedCount} Produkte importiert. Produkte sind zunächst nicht aktiv.`,
     })
   } catch (error) {

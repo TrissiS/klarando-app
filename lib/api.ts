@@ -8022,6 +8022,8 @@ export async function importSuperadminMenuImport(
   importedVariants: number
   createdIngredients: number
   reusedIngredients: number
+  ingredientLinksCreated: number
+  productsWithoutIngredients: number
   productsWithWarnings: number
   message: string
 }> {
@@ -8043,6 +8045,8 @@ export async function importSuperadminMenuImport(
     importedVariants: number
     createdIngredients: number
     reusedIngredients: number
+    ingredientLinksCreated: number
+    productsWithoutIngredients: number
     productsWithWarnings: number
     message: string
   }
