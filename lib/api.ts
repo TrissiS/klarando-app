@@ -8011,6 +8011,9 @@ export async function importSuperadminMenuImport(
   payload: {
     tenantId: string
     analysisResult: MenuImportAnalysisResult
+    importOptions?: {
+      useMenuNumbersAsSku?: boolean
+    }
   }
 ): Promise<{
   ok: boolean

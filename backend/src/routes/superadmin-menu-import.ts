@@ -20,6 +20,9 @@ const allowedMimeTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image
 
 type MenuImportPayload = {
   tenantId?: string
+  importOptions?: {
+    useMenuNumbersAsSku?: boolean
+  }
   analysisResult?: {
     categories?: Array<{
       name?: string
@@ -188,6 +191,7 @@ router.post('/import', requireAuth, async (req, res) => {
 
     const body = (req.body || {}) as MenuImportPayload
     const tenantId = parseTenantId(body.tenantId || req.query?.tenantId)
+    const useMenuNumbersAsSku = body.importOptions?.useMenuNumbersAsSku !== false
     if (!tenantId) {
       return res.status(400).json({ error: 'tenantId ist erforderlich.' })
     }
@@ -249,7 +253,7 @@ router.post('/import', requireAuth, async (req, res) => {
         if (Number.isFinite(confidenceRaw) && confidenceRaw < 0.85) {
           warnings.push('Bitte prüfen: Produkt-Erkennung unsicher.')
         }
-        if (numberRaw) {
+        if (numberRaw && !useMenuNumbersAsSku) {
           warnings.push('Artikelnummer wird beim Import nicht übernommen.')
         }
         preparedProducts.push({
@@ -292,34 +296,54 @@ router.post('/import', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Produkt wurde wegen fehlendem Namen übersprungen.' })
     }
 
-    const duplicateNumbers = preparedProducts
-      .map((entry) => entry.productNumber)
-      .filter((entry): entry is string => Boolean(entry))
-      .filter((entry, index, list) => list.indexOf(entry) !== index)
-    if (duplicateNumbers.length > 0) {
-      return res.status(409).json({
-        error: `Doppelte Produktnummern im Import: ${Array.from(new Set(duplicateNumbers)).join(', ')}`,
-      })
-    }
+    if (useMenuNumbersAsSku) {
+      const numberCounts = new Map<string, number>()
+      for (const entry of preparedProducts) {
+        const number = entry.productNumber
+        if (!number) continue
+        numberCounts.set(number, (numberCounts.get(number) || 0) + 1)
+      }
+      const duplicateNumbersInImport = Array.from(numberCounts.entries())
+        .filter(([, count]) => count > 1)
+        .map(([number]) => number)
+      if (duplicateNumbersInImport.length > 0) {
+        for (const entry of preparedProducts) {
+          if (entry.productNumber && duplicateNumbersInImport.includes(entry.productNumber)) {
+            entry.warnings.push(
+              `Doppelte Produktnummer im Import (${entry.productNumber}) – Artikelnummer wurde geleert.`
+            )
+            entry.productNumber = null
+          }
+        }
+      }
 
-    const existingWithNumbers = await prisma.product.findMany({
-      where: {
-        tenantId,
-        productNumber: {
-          in: preparedProducts
-            .map((entry) => entry.productNumber)
-            .filter((entry): entry is string => Boolean(entry)),
-        },
-      },
-      select: { productNumber: true },
-    })
-    if (existingWithNumbers.length > 0) {
-      return res.status(409).json({
-        error: `Diese Produktnummern sind bereits vergeben: ${existingWithNumbers
-          .map((entry) => entry.productNumber)
-          .filter(Boolean)
-          .join(', ')}`,
-      })
+      const numberCandidates = preparedProducts
+        .map((entry) => entry.productNumber)
+        .filter((entry): entry is string => Boolean(entry))
+      if (numberCandidates.length > 0) {
+        const existingWithNumbers = await prisma.product.findMany({
+          where: {
+            tenantId,
+            productNumber: {
+              in: numberCandidates,
+            },
+          },
+          select: { productNumber: true },
+        })
+        const existingNumbers = new Set(
+          existingWithNumbers.map((entry) => entry.productNumber).filter((entry): entry is string => Boolean(entry))
+        )
+        if (existingNumbers.size > 0) {
+          for (const entry of preparedProducts) {
+            if (entry.productNumber && existingNumbers.has(entry.productNumber)) {
+              entry.warnings.push(
+                `Artikelnummer ${entry.productNumber} bereits vorhanden – Nummer wurde geleert.`
+              )
+              entry.productNumber = null
+            }
+          }
+        }
+      }
     }
 
     const result = await prisma.$transaction(async (tx) => {
@@ -367,7 +391,7 @@ router.post('/import', requireAuth, async (req, res) => {
         const categoryId = categoryByName.get(product.categoryName) || null
         const extraWarnings: string[] = [...product.warnings]
         const productNotes: string[] = []
-        if (product.productNumber) {
+        if (product.productNumber && !useMenuNumbersAsSku) {
           productNotes.push(`Speisekarten-Nummer: ${product.productNumber}`)
         }
         if (product.notes) {
@@ -386,7 +410,7 @@ router.post('/import', requireAuth, async (req, res) => {
           data: {
             tenantId,
             categoryId,
-            productNumber: null,
+            productNumber: useMenuNumbersAsSku ? product.productNumber : null,
             name: product.name,
             articleInfo: mergedArticleInfo || null,
             price: product.price ?? 0.01,

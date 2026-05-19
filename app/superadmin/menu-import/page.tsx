@@ -41,6 +41,7 @@ export default function SuperadminMenuImportPage() {
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({})
   const [selectedProducts, setSelectedProducts] = useState<Record<string, boolean>>({})
   const [bulkTargetCategory, setBulkTargetCategory] = useState('')
+  const [useMenuNumbersAsSku, setUseMenuNumbersAsSku] = useState(true)
   const [importSummary, setImportSummary] = useState<{
     importedCategories: number
     importedProducts: number
@@ -262,6 +263,9 @@ export default function SuperadminMenuImportPage() {
       const response = await importSuperadminMenuImport(token, {
         tenantId,
         analysisResult: editableResult,
+        importOptions: {
+          useMenuNumbersAsSku,
+        },
       })
       setImportSummary({
         importedCategories: response.importedCategories,
@@ -540,6 +544,15 @@ export default function SuperadminMenuImportPage() {
             {isImporting ? 'Import läuft…' : 'Import starten'}
           </button>
         </div>
+        <label className="mt-3 inline-flex items-center gap-2 text-xs text-slate-700">
+          <input
+            type="checkbox"
+            checked={useMenuNumbersAsSku}
+            onChange={(event) => setUseMenuNumbersAsSku(event.target.checked)}
+            className="h-4 w-4"
+          />
+          <span>Speisekarten-Nummern als Artikelnummer übernehmen</span>
+        </label>
         <p className="mt-3 text-xs text-slate-500">
           Produkte werden mit Status „nicht aktiv“ importiert und können danach im Produktbereich freigegeben werden.
         </p>
