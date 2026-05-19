@@ -432,6 +432,10 @@ export default function SuperadminMenuImportPage() {
       .filter(([, count]) => count > 1)
       .map(([number]) => number)
   }, [editableResult])
+  const duplicateMenuNumberSet = useMemo(
+    () => new Set(duplicateMenuNumbers.map((entry) => entry.toLocaleLowerCase('de-DE'))),
+    [duplicateMenuNumbers]
+  )
 
   const filteredCategories = (editableResult?.categories || [])
     .map((category, sourceIndex) => ({
@@ -477,6 +481,15 @@ export default function SuperadminMenuImportPage() {
     }
     if (product.productNumber) {
       flags.push({ level: 'yellow', text: 'Artikelnummer wird beim Import nicht übernommen' })
+    }
+    if (
+      product.productNumber &&
+      duplicateMenuNumberSet.has(product.productNumber.trim().toLocaleLowerCase('de-DE'))
+    ) {
+      flags.push({
+        level: 'red',
+        text: `Bitte prüfen: Produktnummer ${product.productNumber} ist doppelt`,
+      })
     }
     if ((product.notes || '').toLocaleLowerCase('de-DE').includes('fallback')) {
       flags.push({ level: 'red', text: 'Bitte prüfen: automatisch per Fallback erkannt' })
