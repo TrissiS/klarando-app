@@ -1,3 +1,5 @@
+import sharp from 'sharp'
+
 type MenuImportTenantContext = {
   tenantId: string
   tenantName: string
@@ -8,32 +10,33 @@ type MenuImportImage = {
   base64Data: string
   fileName: string
 }
-import sharp from 'sharp'
+
+type MenuImportCategory = {
+  name: string
+  sortOrder: number
+  confidence: number
+  products: Array<{
+    name: string
+    productNumber: string | null
+    description: string | null
+    price: number | null
+    variants: Array<{
+      name: string
+      price: number | null
+      confidence: number
+    }>
+    ingredients: string[]
+    allergens: string[]
+    additives: string[]
+    notes: string | null
+    confidence: number
+  }>
+}
 
 export type MenuImportAnalysisResult = {
   restaurantName: string | null
   sourceLanguage: 'de'
-  categories: Array<{
-    name: string
-    sortOrder: number
-    confidence: number
-    products: Array<{
-      name: string
-      productNumber: string | null
-      description: string | null
-      price: number | null
-      variants: Array<{
-        name: string
-        price: number | null
-        confidence: number
-      }>
-      ingredients: string[]
-      allergens: string[]
-      additives: string[]
-      notes: string | null
-      confidence: number
-    }>
-  }>
+  categories: MenuImportCategory[]
   promotions: Array<{
     name: string
     description: string
@@ -45,104 +48,6 @@ export type MenuImportAnalysisResult = {
   debugRawResponsePreview?: string
 }
 
-const menuImportSchema = {
-  name: 'menu_import_analysis',
-  strict: true,
-  schema: {
-    type: 'object',
-    additionalProperties: false,
-    required: ['restaurantName', 'sourceLanguage', 'categories', 'promotions', 'warnings'],
-    properties: {
-      restaurantName: { type: ['string', 'null'] },
-      sourceLanguage: { type: 'string', enum: ['de'] },
-      categories: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['name', 'sortOrder', 'confidence', 'products'],
-          properties: {
-            name: { type: 'string' },
-            sortOrder: { type: 'number' },
-            confidence: { type: 'number' },
-            products: {
-              type: 'array',
-              items: {
-                type: 'object',
-                additionalProperties: false,
-                required: [
-                  'name',
-                  'productNumber',
-                  'description',
-                  'price',
-                  'variants',
-                  'ingredients',
-                  'allergens',
-                  'additives',
-                  'notes',
-                  'confidence',
-                ],
-                properties: {
-                  name: { type: 'string' },
-                  productNumber: { type: ['string', 'null'] },
-                  description: { type: ['string', 'null'] },
-                  price: { type: ['number', 'null'] },
-                  variants: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      additionalProperties: false,
-                      required: ['name', 'price', 'confidence'],
-                      properties: {
-                        name: { type: 'string' },
-                        price: { type: ['number', 'null'] },
-                        confidence: { type: 'number' },
-                      },
-                    },
-                  },
-                  ingredients: {
-                    type: 'array',
-                    items: { type: 'string' },
-                  },
-                  allergens: {
-                    type: 'array',
-                    items: { type: 'string' },
-                  },
-                  additives: {
-                    type: 'array',
-                    items: { type: 'string' },
-                  },
-                  notes: { type: ['string', 'null'] },
-                  confidence: { type: 'number' },
-                },
-              },
-            },
-          },
-        },
-      },
-      promotions: {
-        type: 'array',
-        items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['name', 'description', 'price', 'weekday', 'confidence'],
-          properties: {
-            name: { type: 'string' },
-            description: { type: 'string' },
-            price: { type: ['number', 'null'] },
-            weekday: { type: ['string', 'null'] },
-            confidence: { type: 'number' },
-          },
-        },
-      },
-      warnings: {
-        type: 'array',
-        items: { type: 'string' },
-      },
-    },
-  },
-} as const
-
 function clampConfidence(value: unknown) {
   const num = Number(value)
   if (!Number.isFinite(num)) return 0
@@ -151,41 +56,129 @@ function clampConfidence(value: unknown) {
   return num
 }
 
-function normalizeAnalysis(result: MenuImportAnalysisResult): MenuImportAnalysisResult {
+function normalizeTextList(values: unknown): string[] {
+  if (!Array.isArray(values)) return []
+  return values
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0)
+}
+
+function mapCategoryProducts(category: any): MenuImportCategory['products'] {
+  const rawProducts = Array.isArray(category?.products)
+    ? category.products
+    : Array.isArray(category?.items)
+      ? category.items
+      : []
+
+  return rawProducts
+    .map((product: any) => {
+      const name = typeof product?.name === 'string' ? product.name.trim() : ''
+      if (!name) return null
+      return {
+        name,
+        productNumber:
+          typeof product?.productNumber === 'string' && product.productNumber.trim().length > 0
+            ? product.productNumber.trim()
+            : null,
+        description:
+          typeof product?.description === 'string' && product.description.trim().length > 0
+            ? product.description.trim()
+            : null,
+        price:
+          product?.price === null || Number.isFinite(Number(product?.price)) ? Number(product.price) : null,
+        variants: Array.isArray(product?.variants)
+          ? product.variants
+              .map((variant: any) => {
+                const variantName = typeof variant?.name === 'string' ? variant.name.trim() : ''
+                if (!variantName) return null
+                return {
+                  name: variantName,
+                  price:
+                    variant?.price === null || Number.isFinite(Number(variant?.price))
+                      ? Number(variant.price)
+                      : null,
+                  confidence: clampConfidence(variant?.confidence),
+                }
+              })
+              .filter(Boolean)
+          : [],
+        ingredients: normalizeTextList(product?.ingredients),
+        allergens: normalizeTextList(product?.allergens),
+        additives: normalizeTextList(product?.additives),
+        notes:
+          typeof product?.notes === 'string' && product.notes.trim().length > 0
+            ? product.notes.trim()
+            : null,
+        confidence: clampConfidence(product?.confidence),
+      }
+    })
+    .filter(Boolean) as MenuImportCategory['products']
+}
+
+function normalizeAnalysis(result: Partial<MenuImportAnalysisResult>): MenuImportAnalysisResult {
+  const normalizedCategories = Array.isArray(result.categories)
+    ? result.categories.map((category: any, index) => {
+        const categoryName =
+          typeof category?.name === 'string' && category.name.trim().length > 0
+            ? category.name.trim()
+            : `Kategorie ${index + 1}`
+        const products = mapCategoryProducts(category)
+        return {
+          name: categoryName,
+          sortOrder: Number.isFinite(Number(category?.sortOrder)) ? Number(category.sortOrder) : index + 1,
+          confidence: clampConfidence(category?.confidence),
+          products,
+        }
+      })
+    : []
+
+  const normalizedPromotions = Array.isArray(result.promotions)
+    ? result.promotions
+        .map((promotion: any) => {
+          const name = typeof promotion?.name === 'string' ? promotion.name.trim() : ''
+          if (!name) return null
+          return {
+            name,
+            description: typeof promotion?.description === 'string' ? promotion.description.trim() : '',
+            price:
+              promotion?.price === null || Number.isFinite(Number(promotion?.price))
+                ? Number(promotion.price)
+                : null,
+            weekday:
+              typeof promotion?.weekday === 'string' && promotion.weekday.trim().length > 0
+                ? promotion.weekday.trim()
+                : null,
+            confidence: clampConfidence(promotion?.confidence),
+          }
+        })
+        .filter(
+          (
+            promotion
+          ): promotion is {
+            name: string
+            description: string
+            price: number | null
+            weekday: string | null
+            confidence: number
+          } => Boolean(promotion)
+        )
+    : []
+
+  const normalizedWarnings = Array.isArray(result.warnings)
+    ? result.warnings
+        .map((warning) => (typeof warning === 'string' ? warning.trim() : ''))
+        .filter((warning) => warning.length > 0)
+    : []
+
   return {
-    ...result,
     restaurantName:
       typeof result.restaurantName === 'string' && result.restaurantName.trim().length > 0
         ? result.restaurantName.trim()
         : null,
     sourceLanguage: 'de',
-    categories: (Array.isArray(result.categories) ? result.categories : []).map((category, categoryIndex) => ({
-      ...category,
-      sortOrder: Number.isFinite(Number(category.sortOrder))
-        ? Number(category.sortOrder)
-        : categoryIndex + 1,
-      confidence: clampConfidence(category.confidence),
-      products: (category.products || []).map((product) => ({
-        ...product,
-        productNumber:
-          typeof product.productNumber === 'string' && product.productNumber.trim().length > 0
-            ? product.productNumber.trim()
-            : null,
-        price: product.price === null || Number.isFinite(Number(product.price)) ? product.price : null,
-        confidence: clampConfidence(product.confidence),
-        variants: (product.variants || []).map((variant) => ({
-          ...variant,
-          price: variant.price === null || Number.isFinite(Number(variant.price)) ? variant.price : null,
-          confidence: clampConfidence(variant.confidence),
-        })),
-      })),
-    })),
-    promotions: (Array.isArray(result.promotions) ? result.promotions : []).map((promotion) => ({
-      ...promotion,
-      price: promotion.price === null || Number.isFinite(Number(promotion.price)) ? promotion.price : null,
-      confidence: clampConfidence(promotion.confidence),
-    })),
-    warnings: Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [],
+    categories: normalizedCategories,
+    promotions: normalizedPromotions,
+    warnings: normalizedWarnings,
     debugRawResponsePreview:
       typeof result.debugRawResponsePreview === 'string' && result.debugRawResponsePreview.trim().length > 0
         ? result.debugRawResponsePreview.slice(0, 4000)
@@ -198,14 +191,10 @@ function normalizeJsonCandidate(raw: string): string {
   if (!trimmed) return trimmed
 
   const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)\s*```/i)
-  if (fencedMatch?.[1]) {
-    return fencedMatch[1].trim()
-  }
+  if (fencedMatch?.[1]) return fencedMatch[1].trim()
 
   const genericFenceMatch = trimmed.match(/```\s*([\s\S]*?)\s*```/i)
-  if (genericFenceMatch?.[1]) {
-    return genericFenceMatch[1].trim()
-  }
+  if (genericFenceMatch?.[1]) return genericFenceMatch[1].trim()
 
   const firstBrace = trimmed.indexOf('{')
   const lastBrace = trimmed.lastIndexOf('}')
@@ -230,20 +219,228 @@ function looksTruncatedJson(raw: string): boolean {
 function attemptRepairJson(raw: string): string | null {
   let text = normalizeJsonCandidate(raw)
   if (!text) return null
+
   text = text.replace(/,\s*([}\]])/g, '$1')
 
   const openCurly = (text.match(/\{/g) || []).length
   const closeCurly = (text.match(/\}/g) || []).length
   const openSquare = (text.match(/\[/g) || []).length
   const closeSquare = (text.match(/\]/g) || []).length
-  if (openSquare > closeSquare) {
-    text += ']'.repeat(openSquare - closeSquare)
-  }
-  if (openCurly > closeCurly) {
-    text += '}'.repeat(openCurly - closeCurly)
-  }
+
+  if (openSquare > closeSquare) text += ']'.repeat(openSquare - closeSquare)
+  if (openCurly > closeCurly) text += '}'.repeat(openCurly - closeCurly)
+
   text = text.replace(/,\s*([}\]])/g, '$1')
   return text
+}
+
+function mapItemsToProducts(raw: any): any {
+  if (!raw || typeof raw !== 'object') return raw
+  if (Array.isArray(raw)) return raw.map(mapItemsToProducts)
+
+  const cloned: any = { ...raw }
+  if (Array.isArray(cloned.items) && !Array.isArray(cloned.products)) {
+    cloned.products = cloned.items
+  }
+  if (Array.isArray(cloned.categories)) {
+    cloned.categories = cloned.categories.map((category: any) => {
+      if (category && Array.isArray(category.items) && !Array.isArray(category.products)) {
+        return {
+          ...category,
+          products: category.items,
+        }
+      }
+      return category
+    })
+  }
+  return cloned
+}
+
+function splitOcrTextIntoChunks(ocrText: string): string[] {
+  const lines = ocrText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (lines.length < 40) return [ocrText]
+
+  const sections: string[] = []
+  let current: string[] = []
+
+  const isCategoryLine = (line: string) => {
+    const hasPrice = /\d+[,.]\d{2}\s*€?/.test(line)
+    const looksShort = line.length <= 28
+    const hasOnlyLetters = /^[A-Za-zÄÖÜäöüß &+\-/]+$/.test(line)
+    return !hasPrice && looksShort && hasOnlyLetters
+  }
+
+  for (const line of lines) {
+    const startNewSection = isCategoryLine(line) && current.length >= 12
+    if (startNewSection) {
+      sections.push(current.join('\n'))
+      current = [line]
+      continue
+    }
+    current.push(line)
+  }
+
+  if (current.length > 0) sections.push(current.join('\n'))
+
+  const merged: string[] = []
+  for (const section of sections) {
+    if (section.length < 220 && merged.length > 0) {
+      merged[merged.length - 1] = `${merged[merged.length - 1]}\n\n${section}`
+      continue
+    }
+    merged.push(section)
+  }
+
+  return merged.length > 0 ? merged : [ocrText]
+}
+
+function isOcrLikelyCutOff(ocrText: string): boolean {
+  const trimmed = ocrText.trim()
+  if (!trimmed) return false
+  const tail = trimmed.slice(-32)
+  return /[A-Za-zÄÖÜäöüß]$/.test(tail) && !/[.!?)]$/.test(tail)
+}
+
+async function callOpenAiJsonStructure(
+  apiKey: string,
+  textModel: string,
+  chunkText: string,
+  timeoutMs: number
+): Promise<string> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: textModel,
+        messages: [
+          {
+            role: 'system',
+            content: [
+              'Du bist ein JSON-Extraktor für Speisekarten.',
+              'Antworte ausschließlich mit vollständigem validem JSON.',
+              'Verwende NIEMALS "items".',
+              'Verwende IMMER "products".',
+              'Jede Kategorie MUSS "products" enthalten.',
+              'Wenn keine Produkte vorhanden sind: products: [].',
+              'Keine Markdown-Codeblöcke. Kein Fließtext.',
+            ].join(' '),
+          },
+          {
+            role: 'user',
+            content: [
+              'Wandle den folgenden Speisekartentext in dieses Schema:',
+              '{',
+              '  "restaurantName": null,',
+              '  "sourceLanguage": "de",',
+              '  "categories": [',
+              '    {',
+              '      "name": "Kategorie",',
+              '      "sortOrder": 1,',
+              '      "confidence": 0.9,',
+              '      "products": [',
+              '        {',
+              '          "productNumber": "01",',
+              '          "name": "Produktname",',
+              '          "description": null,',
+              '          "price": 7.0,',
+              '          "variants": [],',
+              '          "ingredients": [],',
+              '          "allergens": [],',
+              '          "additives": [],',
+              '          "notes": null,',
+              '          "confidence": 0.9',
+              '        }',
+              '      ]',
+              '    }',
+              '  ],',
+              '  "promotions": [],',
+              '  "warnings": []',
+              '}',
+              '',
+              'Speisekartentext:',
+              chunkText,
+            ].join('\n'),
+          },
+        ],
+        response_format: { type: 'json_object' },
+        temperature: 0.1,
+        max_tokens: 16000,
+      }),
+    })
+
+    if (!response.ok) {
+      const failureBody = await response.text()
+      console.error('MENU_IMPORT_STRUCT_OPENAI_ERROR', {
+        model: textModel,
+        status: response.status,
+        message: failureBody.slice(0, 600),
+      })
+      return ''
+    }
+
+    const payload = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>
+    }
+
+    const content = payload.choices?.[0]?.message?.content
+    return typeof content === 'string'
+      ? content.trim()
+      : Array.isArray(content)
+        ? content.map((entry) => entry.text || '').join('\n').trim()
+        : ''
+  } catch (error) {
+    console.error('MENU_IMPORT_STRUCT_FETCH_ERROR', {
+      model: textModel,
+      timeoutMs,
+      message: error instanceof Error ? error.message : String(error),
+    })
+    return ''
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+function tryParseStructuredChunk(rawOutput: string): { parsed: Partial<MenuImportAnalysisResult> | null; repaired: boolean } {
+  if (!rawOutput) return { parsed: null, repaired: false }
+
+  const tryParse = (candidate: string): Partial<MenuImportAnalysisResult> | null => {
+    try {
+      return JSON.parse(candidate) as Partial<MenuImportAnalysisResult>
+    } catch {
+      return null
+    }
+  }
+
+  const normalized = normalizeJsonCandidate(rawOutput)
+  let parsed = tryParse(normalized)
+  if (parsed) return { parsed: mapItemsToProducts(parsed), repaired: false }
+
+  const repairedCandidate = attemptRepairJson(rawOutput)
+  if (repairedCandidate) {
+    parsed = tryParse(repairedCandidate)
+    if (parsed) return { parsed: mapItemsToProducts(parsed), repaired: true }
+  }
+
+  const firstBrace = normalized.indexOf('{')
+  const lastBrace = normalized.lastIndexOf('}')
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    parsed = tryParse(normalized.slice(firstBrace, lastBrace + 1))
+    if (parsed) return { parsed: mapItemsToProducts(parsed), repaired: true }
+  }
+
+  return { parsed: null, repaired: false }
 }
 
 export async function analyzeMenuImages(
@@ -253,32 +450,16 @@ export async function analyzeMenuImages(
   const debugEnabled =
     process.env.NODE_ENV !== 'production' || String(process.env.MENU_IMPORT_DEBUG || '').toLowerCase() === 'true'
 
-  const withDebug = (result: MenuImportAnalysisResult, preview: string | null): MenuImportAnalysisResult => {
-    if (!debugEnabled || !preview) {
-      return result
-    }
-    return {
-      ...result,
-      debugRawResponsePreview: preview.slice(0, 4000),
-    }
-  }
-
   const fallbackResult: MenuImportAnalysisResult = {
     restaurantName: null,
     sourceLanguage: 'de',
     categories: [],
     promotions: [],
-    warnings: [
-      'KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren.',
-      'KI-Rohantwort konnte nicht als JSON gelesen werden.',
-    ],
+    warnings: ['KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren.'],
   }
 
-  const startedAt = Date.now()
   const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY ist nicht gesetzt.')
-  }
+  if (!apiKey) throw new Error('OPENAI_API_KEY ist nicht gesetzt.')
 
   const visionModel = (process.env.OPENAI_MENU_IMPORT_VISION_MODEL || '').trim() || 'gpt-4o-mini'
   const textModel = (process.env.OPENAI_MENU_IMPORT_TEXT_MODEL || '').trim() || 'gpt-4.1-mini'
@@ -288,23 +469,17 @@ export async function analyzeMenuImages(
     textModel,
     imageCount: images.length,
     mimeTypes: images.map((entry) => entry.mimeType),
+    tenantId: tenantContext.tenantId,
   })
-
-  const chunkSize = 3
-  const imageChunks: MenuImportImage[][] = []
-  for (let i = 0; i < images.length; i += chunkSize) {
-    imageChunks.push(images.slice(i, i + chunkSize))
-  }
 
   const compressImage = async (image: MenuImportImage): Promise<MenuImportImage> => {
     try {
       const source = Buffer.from(image.base64Data, 'base64')
-      const buffer = await sharp(source).resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer()
-      return {
-        ...image,
-        mimeType: 'image/jpeg',
-        base64Data: buffer.toString('base64'),
-      }
+      const buffer = await sharp(source)
+        .resize({ width: 1600, withoutEnlargement: true })
+        .jpeg({ quality: 75 })
+        .toBuffer()
+      return { ...image, mimeType: 'image/jpeg', base64Data: buffer.toString('base64') }
     } catch {
       return image
     }
@@ -348,107 +523,29 @@ export async function analyzeMenuImages(
       })
 
       if (!response.ok) {
-        const failureBody = await response.text()
+        const body = await response.text()
         console.error('MENU_IMPORT_OCR_OPENAI_ERROR', {
           model: visionModel,
-          mimeType: image.mimeType,
           status: response.status,
-          message: failureBody.slice(0, 500),
+          message: body.slice(0, 600),
         })
         return ''
       }
 
       const payload = (await response.json()) as {
         output_text?: string
-        output?: Array<{ content?: Array<{ type?: string; text?: string }> }>
+        output?: Array<{ content?: Array<{ text?: string }> }>
       }
-      const outputText =
+
+      const text =
         payload.output_text ||
-        payload.output?.flatMap((entry) => entry.content || []).map((c) => c.text || '').join('\n') ||
+        payload.output?.flatMap((entry) => entry.content || []).map((entry) => entry.text || '').join('\n') ||
         ''
-      return outputText.trim()
-    } catch (fetchError) {
-      const isAbort =
-        fetchError instanceof Error &&
-        (fetchError.name === 'AbortError' || /aborted|timeout/i.test(fetchError.message))
+      return text.trim()
+    } catch (error) {
       console.error('MENU_IMPORT_OCR_FETCH_ERROR', {
         model: visionModel,
         timeoutMs,
-        durationMs: Date.now() - startedAt,
-        isAbort,
-        message: fetchError instanceof Error ? fetchError.message : String(fetchError),
-      })
-      return ''
-    } finally {
-      clearTimeout(timeout)
-    }
-  }
-
-  const callTextStructuring = async (ocrText: string): Promise<string> => {
-    const timeoutMs = 90_000
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), timeoutMs)
-    try {
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        signal: controller.signal,
-        body: JSON.stringify({
-          model: textModel,
-          messages: [
-            {
-              role: 'system',
-              content:
-                'Wandle Speisekartentext in gültiges JSON um. Antworte ausschließlich mit gültigem JSON. Keine Markdown-Codeblöcke. Keine Erklärung.',
-            },
-            {
-              role: 'user',
-              content: [
-                'Wandle diesen Speisekartentext in gültiges JSON um.',
-                'Antworte ausschließlich mit JSON.',
-                'Root:',
-                '{',
-                '  "restaurantName": null,',
-                '  "sourceLanguage": "de",',
-                '  "categories": [],',
-                '  "promotions": [],',
-                '  "warnings": []',
-                '}',
-                '',
-                'Speisekartentext:',
-                ocrText,
-              ].join('\n'),
-            },
-          ],
-          response_format: { type: 'json_object' },
-          max_tokens: 12000,
-          temperature: 0.1,
-        }),
-      })
-      if (!response.ok) {
-        const failureBody = await response.text()
-        console.error('MENU_IMPORT_STRUCT_OPENAI_ERROR', {
-          model: textModel,
-          status: response.status,
-          message: failureBody.slice(0, 500),
-        })
-        return ''
-      }
-      const payload = (await response.json()) as {
-        choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>
-      }
-      const content = payload.choices?.[0]?.message?.content
-      return typeof content === 'string'
-        ? content.trim()
-        : Array.isArray(content)
-          ? content.map((c) => c.text || '').join('\n').trim()
-          : ''
-    } catch (error) {
-      console.error('MENU_IMPORT_STRUCT_FETCH_ERROR', {
-        model: textModel,
         message: error instanceof Error ? error.message : String(error),
       })
       return ''
@@ -457,256 +554,109 @@ export async function analyzeMenuImages(
     }
   }
 
-  const parsedChunks: Array<MenuImportAnalysisResult | null> = Array(imageChunks.length).fill(null)
-  let lastRawOutput = ''
+  const preparedImages = await Promise.all(images.map((image) => compressImage(image)))
+  const ocrParts = await Promise.all(preparedImages.map((image) => callVisionOcr(image)))
+  const ocrText = ocrParts.filter(Boolean).join('\n\n').trim()
 
-  const processChunk = async (chunkIndex: number) => {
-    const chunk = imageChunks[chunkIndex]
-    const chunkStartedAt = Date.now()
-    console.info('MENU_IMPORT_CHUNK_START', {
-      chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-      imageCount: chunk.length,
-      model: textModel,
-    })
-    const prepared = await Promise.all(chunk.map((image) => compressImage(image)))
-    const ocrParts = await Promise.all(prepared.map((image) => callVisionOcr(image)))
-    const ocrText = ocrParts.filter(Boolean).join('\n\n').trim()
-    const ocrDurationMs = Date.now() - chunkStartedAt
-    let rawOutput = ''
-    if (ocrText.length > 0) {
-      rawOutput = await callTextStructuring(ocrText)
-    }
-    lastRawOutput = rawOutput || lastRawOutput || ocrText
-
-    try {
-      if (!ocrText) {
-        console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
-          model: textModel,
-          imageCount: chunk.length,
-          message: 'empty OCR text',
-          responsePreview: '',
-        })
-        parsedChunks[chunkIndex] = withDebug(
-          {
-            ...fallbackResult,
-            warnings: [...fallbackResult.warnings, 'Bild konnte nicht gelesen werden. Bitte schärferes Bild verwenden.'],
-          },
-          null
-        )
-        console.info('MENU_IMPORT_CHUNK_DONE', {
-          chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-          model: visionModel,
-          status: 'fallback_empty_ocr',
-          ocrDurationMs,
-          durationMs: Date.now() - chunkStartedAt,
-        })
-        return
-      }
-      if (!rawOutput) {
-        parsedChunks[chunkIndex] = withDebug(
-          {
-            ...fallbackResult,
-            warnings: [...fallbackResult.warnings, 'Bitte OCR-Ergebnis prüfen.'],
-          },
-          debugEnabled ? `OCR TEXT:\n${ocrText.slice(0, 4000)}` : null
-        )
-        return
-      }
-      const normalizedOutput = normalizeJsonCandidate(rawOutput)
-      const parsed = JSON.parse(normalizedOutput) as Partial<MenuImportAnalysisResult>
-      const safe: MenuImportAnalysisResult = {
-        restaurantName:
-          typeof parsed.restaurantName === 'string' || parsed.restaurantName === null
-            ? parsed.restaurantName
-            : null,
-        sourceLanguage: 'de',
-        categories: Array.isArray(parsed.categories) ? parsed.categories : [],
-        promotions: Array.isArray(parsed.promotions) ? parsed.promotions : [],
-        warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
-      }
-      if (looksTruncatedJson(rawOutput)) {
-        safe.warnings = Array.isArray(safe.warnings) ? safe.warnings : []
-        safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
-      }
-      if (safe.categories.length === 0 && ocrText.length > 200) {
-        safe.warnings.push('OCR erkannt, aber Strukturierung hat keine Produkte erzeugt.')
-      }
-      if (debugEnabled) {
-        safe.debugRawResponsePreview = [
-          `VISION MODEL: ${visionModel}`,
-          `TEXT MODEL: ${textModel}`,
-          `OCR LENGTH: ${ocrText.length}`,
-          `OCR TEXT:`,
-          ocrText.slice(0, 2000),
-          '',
-          `STRUCT RAW RESPONSE:`,
-          rawOutput.slice(0, 2000),
-        ].join('\n')
-      }
-      console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
-        model: textModel,
-        imageCount: chunk.length,
-        durationMs: Date.now() - startedAt,
-        categoryCount: safe.categories?.length ?? 0,
-      })
-      parsedChunks[chunkIndex] = normalizeAnalysis(safe)
-      console.info('MENU_IMPORT_CHUNK_DONE', {
-        chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-        model: textModel,
-        status: 'ok',
-        categoryCount: safe.categories.length,
-        durationMs: Date.now() - chunkStartedAt,
-      })
-      return
-    } catch (parseError) {
-    if (looksTruncatedJson(rawOutput)) {
-      const repaired = attemptRepairJson(rawOutput)
-      if (repaired) {
-        try {
-          const reparsed = JSON.parse(repaired) as Partial<MenuImportAnalysisResult>
-          const safe: MenuImportAnalysisResult = {
-            restaurantName:
-              typeof reparsed.restaurantName === 'string' || reparsed.restaurantName === null
-                ? reparsed.restaurantName
-                : null,
-            sourceLanguage: 'de',
-            categories: Array.isArray(reparsed.categories) ? reparsed.categories : [],
-            promotions: Array.isArray(reparsed.promotions) ? reparsed.promotions : [],
-            warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
-          }
-            safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
-            safe.warnings.push('JSON wurde automatisch repariert.')
-            parsedChunks[chunkIndex] = withDebug(normalizeAnalysis(safe), rawOutput.slice(0, 4000))
-            console.info('MENU_IMPORT_CHUNK_DONE', {
-              chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-              model: textModel,
-              status: 'repaired',
-              categoryCount: safe.categories.length,
-              durationMs: Date.now() - chunkStartedAt,
-            })
-            return
-        } catch {
-          // continue with other repair/fallback attempts
-        }
-      }
-    }
-
-    const normalizedOutput = normalizeJsonCandidate(rawOutput)
-    const firstBrace = normalizedOutput.indexOf('{')
-    const lastBrace = normalizedOutput.lastIndexOf('}')
-    if (firstBrace >= 0 && lastBrace > firstBrace) {
-      const candidate = normalizedOutput.slice(firstBrace, lastBrace + 1)
-      try {
-        const reparsed = JSON.parse(candidate) as Partial<MenuImportAnalysisResult>
-        const safe: MenuImportAnalysisResult = {
-          restaurantName:
-            typeof reparsed.restaurantName === 'string' || reparsed.restaurantName === null
-              ? reparsed.restaurantName
-              : null,
-          sourceLanguage: 'de',
-          categories: Array.isArray(reparsed.categories) ? reparsed.categories : [],
-          promotions: Array.isArray(reparsed.promotions) ? reparsed.promotions : [],
-          warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
-        }
-        const normalizedSafe = normalizeAnalysis(safe)
-          parsedChunks[chunkIndex] = withDebug(normalizedSafe, rawOutput.slice(0, 4000))
-          console.info('MENU_IMPORT_CHUNK_DONE', {
-            chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-            model: textModel,
-            status: 'recovered_brace_slice',
-            categoryCount: normalizedSafe.categories.length,
-            durationMs: Date.now() - chunkStartedAt,
-          })
-          return
-      } catch {
-        // keep fallback path below
-      }
-    }
-
-    console.error('MENU_IMPORT_RAW_RESPONSE_PREVIEW', rawOutput.slice(0, 4000))
-    console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
-      model: textModel,
-      imageCount: chunk.length,
-      message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
-      responsePreview: rawOutput.slice(0, 4000),
-    })
-      parsedChunks[chunkIndex] = withDebug(
-        {
-          ...fallbackResult,
-          warnings: [...fallbackResult.warnings, 'Bitte OCR-Ergebnis prüfen.'],
-        },
-        debugEnabled
-          ? [
-              `VISION MODEL: ${visionModel}`,
-              `TEXT MODEL: ${textModel}`,
-              `OCR LENGTH: ${ocrText.length}`,
-              `OCR TEXT:`,
-              ocrText.slice(0, 2000),
-              '',
-              `STRUCT RAW RESPONSE:`,
-              rawOutput.slice(0, 2000),
-            ].join('\n')
-          : rawOutput.slice(0, 4000)
-      )
-      console.info('MENU_IMPORT_CHUNK_DONE', {
-        chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-        model: textModel,
-        status: 'fallback_parse_error',
-        durationMs: Date.now() - chunkStartedAt,
-      })
-      return
+  if (!ocrText) {
+    return {
+      ...fallbackResult,
+      warnings: [...fallbackResult.warnings, 'Bild konnte nicht gelesen werden. Bitte schärferes Bild verwenden.'],
     }
   }
 
-  const concurrency = 2
-  for (let i = 0; i < imageChunks.length; i += concurrency) {
-    const batch = Array.from({ length: Math.min(concurrency, imageChunks.length - i) }, (_, offset) =>
-      processChunk(i + offset)
-    )
-    await Promise.all(batch)
+  const ocrLikelyCut = isOcrLikelyCutOff(ocrText)
+  const textChunks = splitOcrTextIntoChunks(ocrText)
+  const chunkResults: MenuImportAnalysisResult[] = []
+  const debugParts: string[] = []
+
+  for (let index = 0; index < textChunks.length; index += 1) {
+    const chunk = textChunks[index]
+    const chunkStartedAt = Date.now()
+    const rawOutput = await callOpenAiJsonStructure(apiKey, textModel, chunk, 90_000)
+
+    if (debugEnabled) {
+      debugParts.push(
+        `CHUNK ${index + 1}/${textChunks.length}`,
+        `OCR CHUNK LENGTH: ${chunk.length}`,
+        `STRUCT RAW RESPONSE:`,
+        rawOutput.slice(0, 1200),
+        ''
+      )
+    }
+
+    const { parsed, repaired } = tryParseStructuredChunk(rawOutput)
+    if (!parsed) {
+      console.error('MENU_IMPORT_RAW_RESPONSE_PREVIEW', rawOutput.slice(0, 4000))
+      chunkResults.push({
+        ...fallbackResult,
+        warnings: [
+          'KI-Rohantwort konnte nicht als JSON gelesen werden.',
+          `Chunk ${index + 1} konnte nicht strukturiert werden.`,
+        ],
+      })
+      continue
+    }
+
+    const normalized = normalizeAnalysis(parsed)
+    if (repaired) normalized.warnings.push('JSON wurde automatisch repariert.')
+    if (looksTruncatedJson(rawOutput)) normalized.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
+
+    console.info('MENU_IMPORT_CHUNK_DONE', {
+      chunk: `${index + 1}/${textChunks.length}`,
+      model: textModel,
+      categories: normalized.categories.length,
+      products: normalized.categories.reduce((acc, category) => acc + category.products.length, 0),
+      durationMs: Date.now() - chunkStartedAt,
+    })
+
+    chunkResults.push(normalized)
   }
 
   const merged: MenuImportAnalysisResult = {
     restaurantName:
-      parsedChunks.find((entry) => entry && entry.restaurantName && entry.restaurantName.trim().length > 0)
-        ?.restaurantName ??
+      chunkResults.find((entry) => entry.restaurantName && entry.restaurantName.trim().length > 0)?.restaurantName ||
       null,
     sourceLanguage: 'de',
     categories: [],
     promotions: [],
     warnings: [],
-    debugRawResponsePreview:
-      parsedChunks.find((entry) => entry && typeof entry.debugRawResponsePreview === 'string')
-        ?.debugRawResponsePreview ??
-      (debugEnabled ? lastRawOutput.slice(0, 4000) : undefined),
   }
 
-  const categoryMap = new Map<string, MenuImportAnalysisResult['categories'][number]>()
-  for (const chunkResult of parsedChunks) {
-    if (!chunkResult) continue
+  const categoryMap = new Map<string, MenuImportCategory>()
+
+  for (const chunkResult of chunkResults) {
     for (const warning of chunkResult.warnings) {
       if (!merged.warnings.includes(warning)) merged.warnings.push(warning)
     }
-    for (const promo of chunkResult.promotions) {
+
+    for (const promotion of chunkResult.promotions) {
       const exists = merged.promotions.some(
-        (current) =>
-          current.name.toLocaleLowerCase('de-DE') === promo.name.toLocaleLowerCase('de-DE') &&
-          (current.weekday || '') === (promo.weekday || '')
+        (entry) =>
+          entry.name.toLocaleLowerCase('de-DE') === promotion.name.toLocaleLowerCase('de-DE') &&
+          (entry.weekday || '') === (promotion.weekday || '')
       )
-      if (!exists) merged.promotions.push(promo)
+      if (!exists) merged.promotions.push(promotion)
     }
+
     for (const category of chunkResult.categories) {
       const key = category.name.toLocaleLowerCase('de-DE')
-      const existingCategory = categoryMap.get(key)
-      if (!existingCategory) {
-        categoryMap.set(key, { ...category, products: [...category.products] })
+      const existing = categoryMap.get(key)
+      if (!existing) {
+        categoryMap.set(key, {
+          ...category,
+          products: [...category.products],
+        })
         continue
       }
+
       for (const product of category.products) {
-        const exists = existingCategory.products.some(
-          (p) => p.name.toLocaleLowerCase('de-DE') === product.name.toLocaleLowerCase('de-DE')
+        const exists = existing.products.some(
+          (entry) =>
+            entry.name.toLocaleLowerCase('de-DE') === product.name.toLocaleLowerCase('de-DE') &&
+            (entry.productNumber || '') === (product.productNumber || '')
         )
-        if (!exists) existingCategory.products.push(product)
+        if (!exists) existing.products.push(product)
       }
     }
   }
@@ -715,5 +665,37 @@ export async function analyzeMenuImages(
     ...category,
     sortOrder: index + 1,
   }))
+
+  if (ocrLikelyCut) {
+    merged.warnings.push('OCR-Text scheint am Bildrand abgeschnitten. Bitte vollständige Karte hochladen.')
+  }
+
+  if (merged.categories.length === 0 && ocrText.length > 150) {
+    merged.warnings.push('OCR erkannt, aber Strukturierung hat keine Produkte erzeugt.')
+  }
+
+  if (debugEnabled) {
+    const categoryDebug = merged.categories
+      .map((category) => `${category.name}: ${category.products.length} Produkte`)
+      .join('\n')
+
+    merged.debugRawResponsePreview = [
+      `VISION MODEL: ${visionModel}`,
+      `TEXT MODEL: ${textModel}`,
+      `OCR LENGTH: ${ocrText.length}`,
+      `TEXT CHUNKS: ${textChunks.length}`,
+      '',
+      'VERARBEITETE KATEGORIEN:',
+      categoryDebug || '(keine)',
+      '',
+      'OCR TEXT:',
+      ocrText.slice(0, 2000),
+      '',
+      ...debugParts,
+    ]
+      .join('\n')
+      .slice(0, 4000)
+  }
+
   return normalizeAnalysis(merged)
 }
