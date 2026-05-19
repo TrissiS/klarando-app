@@ -512,23 +512,44 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   const knownCategories = [
     'Drehspieß',
     'Pommes & Saucen',
+    'Lahmacun aus Kalbfleisch',
     'Lahmacun',
     'Pizza',
-    'Schnitzelgerichte',
     'Nudelgerichte',
+    'Schnitzelgerichte',
     'Salate',
     'Getränke',
     'Hamburger',
     'Wurst',
-    'Pizza Brötchen',
-    'Pizzabrötchen',
-    'Spezial Gericht',
   ]
 
   const categories: MenuImportAnalysisResult['categories'] = []
   const warnings: string[] = []
   const recognizedProductLines: string[] = []
   const unrecognizedPriceLines: string[] = []
+  const uncategorizedProductLines: string[] = []
+
+  const correctionMap: Array<[RegExp, string]> = [
+    [/\bDahbruch\b/gi, 'Dahlbruch'],
+    [/\bScucuk\b/gi, 'Sucuk'],
+    [/\bDürüüm\b/gi, 'Dürüm'],
+    [/\bZiegeunersauce\b/gi, 'Zigeunersauce'],
+    [/\bZiegeursauce\b/gi, 'Zigeunersauce'],
+  ]
+
+  const normalizeTypos = (value: string) => {
+    let next = value
+    for (const [pattern, replacement] of correctionMap) {
+      next = next.replace(pattern, replacement)
+    }
+    return next
+  }
+
+  const hasPrice = (line: string) => /(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?/.test(line)
+  const hasEuro = (line: string) => /€/.test(line)
+  const startsWithProductNo = (line: string) => /^\d+[A-Z]?\./i.test(line)
+
+  const normalizeCategoryName = (line: string) => line.replace(/^\*+|\*+$/g, '').trim()
 
   const ensureCategory = (name: string) => {
     const normalizedName = name.trim() || 'Ohne Kategorie'
@@ -546,7 +567,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     return created
   }
 
-  let activeCategory = ensureCategory('Ohne Kategorie')
+  let activeCategoryName = ''
 
   const extractVariants = (line: string) => {
     const matches = [
@@ -566,65 +587,116 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       .filter(Boolean) as Array<{ name: string; price: number; confidence: number }>
   }
 
+  type ProductLine = {
+    productNumber: string | null
+    name: string
+    price: number | null
+    variants: Array<{ name: string; price: number; confidence: number }>
+  }
+
+  const parseProductLine = (line: string): ProductLine | null => {
+    const numberedPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?/i
+    const unnumberedPattern = /^(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?$/i
+    const withMitPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s+mit\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?$/i
+
+    const mitMatch = line.match(withMitPattern)
+    if (mitMatch) {
+      const name = normalizeTypos(`${mitMatch[2].trim()} mit ${mitMatch[3].trim()}`)
+      return {
+        productNumber: mitMatch[1],
+        name,
+        price: Number(mitMatch[4].replace(',', '.')),
+        variants: extractVariants(line),
+      }
+    }
+
+    const numberedMatch = line.match(numberedPattern)
+    if (numberedMatch) {
+      return {
+        productNumber: numberedMatch[1],
+        name: normalizeTypos(numberedMatch[2].trim()),
+        price: Number(numberedMatch[3].replace(',', '.')),
+        variants: extractVariants(line),
+      }
+    }
+
+    const unnumberedMatch = line.match(unnumberedPattern)
+    if (unnumberedMatch) {
+      return {
+        productNumber: null,
+        name: normalizeTypos(unnumberedMatch[1].trim()),
+        price: Number(unnumberedMatch[2].replace(',', '.')),
+        variants: extractVariants(line),
+      }
+    }
+    return null
+  }
+
   for (const line of lines) {
-    const heading = line.match(/^\*{2}\s*([^*]+?)\s*\*{2}$/)
-    const headingText = heading?.[1]?.trim() || line
+    const headingText = normalizeCategoryName(line)
     const isKnownCategory = knownCategories.some((name) =>
       headingText.toLocaleLowerCase('de-DE').includes(name.toLocaleLowerCase('de-DE'))
     )
-    const looksCategoryLine = !/\d+[,.]\d{2}/.test(line) && headingText.length <= 36 && /^[\p{L}\s&/+-]+$/u.test(headingText)
+    const looksCategoryLine =
+      !startsWithProductNo(line) &&
+      !hasPrice(line) &&
+      !hasEuro(line) &&
+      headingText.length <= 50 &&
+      /^[\p{L}\s&/+\-]+$/u.test(headingText)
     if (isKnownCategory || looksCategoryLine) {
-      activeCategory = ensureCategory(headingText)
+      activeCategoryName = headingText
+      ensureCategory(activeCategoryName)
       continue
     }
 
-    const generalNumberedPattern = /^(\d+[A-Z]?)\.\s+(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?/i
-    const fallbackPricePattern = /^(.+?)\s*-?\s*(?:€\s*)?(\d+[,.]\d{2}|\d+)(?:\s*€)?$/i
-
-    const strictMatch = line.match(generalNumberedPattern)
-    const priceOnlyMatch = line.match(fallbackPricePattern)
-
-    const hasPriceToken = /(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?/.test(line)
-    const productNumber = strictMatch?.[1] || null
-    const rawProductName = (strictMatch?.[2] || priceOnlyMatch?.[1] || '').trim()
-    if (!rawProductName) {
-      if (hasPriceToken) unrecognizedPriceLines.push(line)
+    const parsed = parseProductLine(line)
+    if (!parsed) {
+      if (hasPrice(line) || hasEuro(line)) unrecognizedPriceLines.push(line)
       continue
     }
 
-    const productName = rawProductName
+    const productName = parsed.name
       .replace(/\s*-\s*(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?[\s\S]*$/i, '')
       .replace(/\s*(?:€\s*)?\d+[,.]\d{2}(?:\s*€)?[\s\S]*$/i, '')
-      .trim() || rawProductName
+      .trim() || parsed.name
 
-    const rawPrice = strictMatch?.[3] || priceOnlyMatch?.[2] || null
-    const price = rawPrice ? Number(rawPrice.replace(',', '.')) : null
-    const inferred = inferDescriptionAndIngredients(activeCategory.name, null, line, [])
-    const variants = extractVariants(line)
+    const resolvedCategory = activeCategoryName || 'Unsortiert'
+    const category = ensureCategory(resolvedCategory)
+    if (!activeCategoryName) {
+      uncategorizedProductLines.push(line)
+    }
+
+    let inferred = inferDescriptionAndIngredients(category.name, null, line, [])
+    const withMatch = productName.match(/\bmit\s+(.+)$/i)
+    const cleanedName = withMatch ? productName.slice(0, withMatch.index).trim() : productName
+    if (withMatch?.[1]) {
+      inferred = inferDescriptionAndIngredients(category.name, `mit ${withMatch[1].trim()}`, line, inferred.ingredients)
+    }
 
     const fallbackNotes: string[] = ['Per Fallback aus OCR-Zeile erkannt']
-    if (!productNumber) fallbackNotes.push('Artikelnummer fehlte in OCR-Zeile')
-    if (price === null) fallbackNotes.push('Preis fehlt')
+    if (!parsed.productNumber) fallbackNotes.push('Artikelnummer fehlte in OCR-Zeile')
+    if (parsed.price === null) fallbackNotes.push('Preis fehlt')
+    if (!activeCategoryName) fallbackNotes.push('Kategorie fehlte im OCR-Kontext')
 
-    activeCategory.products.push({
-      productNumber,
-      name: productName,
+    category.products.push({
+      productNumber: parsed.productNumber,
+      name: cleanedName || productName,
       description: inferred.description,
-      price: Number.isFinite(price || NaN) ? price : null,
-      variants,
+      price: Number.isFinite(parsed.price || NaN) ? parsed.price : null,
+      variants: parsed.variants.length > 0 ? parsed.variants : [],
       ingredients: inferred.ingredients,
       allergens: [],
       additives: [],
       notes: fallbackNotes.join(' · '),
-      confidence: price === null ? 0.55 : 0.66,
+      confidence: parsed.price === null ? 0.55 : 0.66,
     })
     recognizedProductLines.push(line)
 
-    if (price === null) warnings.push(`${activeCategory.name} / ${productName}: Preis fehlt`)
-    warnings.push(`${activeCategory.name} / ${productName}: Bitte prüfen: automatisch per Fallback erkannt`)
-    warnings.push(`${activeCategory.name} / ${productName}: Allergene unklar`)
-    warnings.push(`${activeCategory.name} / ${productName}: Varianten prüfen`)
-    if (productNumber) warnings.push(`${activeCategory.name} / ${productName}: Artikelnummer wird nicht übernommen`)
+    if (parsed.price === null) warnings.push(`${category.name} / ${cleanedName || productName}: Preis fehlt`)
+    warnings.push(`${category.name} / ${cleanedName || productName}: Bitte prüfen: automatisch per Fallback erkannt`)
+    warnings.push(`${category.name} / ${cleanedName || productName}: Allergene unklar`)
+    warnings.push(`${category.name} / ${cleanedName || productName}: Varianten prüfen`)
+    if (parsed.productNumber) warnings.push(`${category.name} / ${cleanedName || productName}: Artikelnummer wird nicht übernommen`)
   }
 
   for (const category of categories) {
@@ -635,6 +707,9 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
 
   if (unrecognizedPriceLines.length > 0) {
     warnings.push(`Parser konnte ${unrecognizedPriceLines.length} Preiszeilen nicht erkennen.`)
+  }
+  if (uncategorizedProductLines.length > 0) {
+    warnings.push(`${uncategorizedProductLines.length} Produktzeilen ohne Kategorie wurden "Unsortiert" zugeordnet.`)
   }
 
   return {
@@ -650,6 +725,12 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       '',
       `Nicht erkannte Preiszeilen: ${unrecognizedPriceLines.length}`,
       ...unrecognizedPriceLines.slice(0, 40).map((line) => `- ${line}`),
+      '',
+      `Ohne Kategorie gefunden: ${uncategorizedProductLines.length}`,
+      ...uncategorizedProductLines.slice(0, 40).map((line) => `! ${line}`),
+      '',
+      'Kategorieblöcke:',
+      ...categories.map((category) => `# ${category.name}: ${category.products.length} Produkte`),
     ]
       .join('\n')
       .slice(0, 4000),
