@@ -41,6 +41,7 @@ export type MenuImportAnalysisResult = {
     confidence: number
   }>
   warnings: string[]
+  debugRawResponsePreview?: string
 }
 
 const menuImportSchema = {
@@ -184,6 +185,10 @@ function normalizeAnalysis(result: MenuImportAnalysisResult): MenuImportAnalysis
       confidence: clampConfidence(promotion.confidence),
     })),
     warnings: Array.isArray(result.warnings) ? result.warnings.filter(Boolean) : [],
+    debugRawResponsePreview:
+      typeof result.debugRawResponsePreview === 'string' && result.debugRawResponsePreview.trim().length > 0
+        ? result.debugRawResponsePreview.slice(0, 2000)
+        : undefined,
   }
 }
 
@@ -214,12 +219,28 @@ export async function analyzeMenuImages(
   images: MenuImportImage[],
   tenantContext: MenuImportTenantContext
 ): Promise<MenuImportAnalysisResult> {
+  const debugEnabled =
+    process.env.NODE_ENV !== 'production' || String(process.env.MENU_IMPORT_DEBUG || '').toLowerCase() === 'true'
+
+  const withDebug = (result: MenuImportAnalysisResult, preview: string | null): MenuImportAnalysisResult => {
+    if (!debugEnabled || !preview) {
+      return result
+    }
+    return {
+      ...result,
+      debugRawResponsePreview: preview.slice(0, 2000),
+    }
+  }
+
   const fallbackResult: MenuImportAnalysisResult = {
     restaurantName: null,
     sourceLanguage: 'de',
     categories: [],
     promotions: [],
-    warnings: ['KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren.'],
+    warnings: [
+      'KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren.',
+      'KI-Rohantwort konnte nicht als JSON gelesen werden.',
+    ],
   }
 
   const startedAt = Date.now()
@@ -252,8 +273,10 @@ export async function analyzeMenuImages(
         'Wenn Preis unklar ist: price = null.',
         'Wenn Allergene/Zutaten unklar sind: leer lassen und Warnung schreiben.',
         'Confidence immer zwischen 0 und 1.',
-        'Antworte ausschließlich mit gültigem JSON.',
-        'Kein Markdown. Kein Erklärungstext. Keine Code-Fences.',
+        'Antworte ausschließlich als JSON-Objekt.',
+        'Beginne exakt mit { und ende exakt mit }.',
+        'Nutze keine Markdown-Codeblöcke.',
+        'Wenn du nichts erkennst, gib categories: [] und warnings zurück.',
       ].join('\n'),
     },
   ]
@@ -285,7 +308,7 @@ export async function analyzeMenuImages(
             {
               role: 'system',
               content:
-                'Du bist ein JSON-Extraktor. Antworte ausschließlich mit gültigem JSON. Kein Markdown. Keine Erklärung. Keine Code-Fences. Die Antwort muss mit { beginnen und mit } enden.',
+                'Du bist ein JSON-Extraktor. Antworte ausschließlich als JSON-Objekt. Beginne exakt mit { und ende exakt mit }. Kein Markdown. Keine Erklärung. Keine Code-Fences.',
             },
             {
               role: 'user',
@@ -381,7 +404,7 @@ export async function analyzeMenuImages(
         message: 'empty response',
         responsePreview: '',
       })
-      return fallbackResult
+      return withDebug(fallbackResult, null)
     }
     const normalizedOutput = normalizeJsonCandidate(rawOutput)
     const parsed = JSON.parse(normalizedOutput) as Partial<MenuImportAnalysisResult>
@@ -403,12 +426,36 @@ export async function analyzeMenuImages(
     })
     return normalizeAnalysis(safe)
   } catch (parseError) {
+    const normalizedOutput = normalizeJsonCandidate(rawOutput)
+    const firstBrace = normalizedOutput.indexOf('{')
+    const lastBrace = normalizedOutput.lastIndexOf('}')
+    if (firstBrace >= 0 && lastBrace > firstBrace) {
+      const candidate = normalizedOutput.slice(firstBrace, lastBrace + 1)
+      try {
+        const reparsed = JSON.parse(candidate) as Partial<MenuImportAnalysisResult>
+        const safe: MenuImportAnalysisResult = {
+          restaurantName:
+            typeof reparsed.restaurantName === 'string' || reparsed.restaurantName === null
+              ? reparsed.restaurantName
+              : null,
+          sourceLanguage: 'de',
+          categories: Array.isArray(reparsed.categories) ? reparsed.categories : [],
+          promotions: Array.isArray(reparsed.promotions) ? reparsed.promotions : [],
+          warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
+        }
+        const normalizedSafe = normalizeAnalysis(safe)
+        return withDebug(normalizedSafe, rawOutput.slice(0, 2000))
+      } catch {
+        // keep fallback path below
+      }
+    }
+
     console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
       model: activeModel,
       imageCount: images.length,
       message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
       responsePreview: rawOutput.slice(0, 2000),
     })
-    return fallbackResult
+    return withDebug(fallbackResult, rawOutput.slice(0, 2000))
   }
 }

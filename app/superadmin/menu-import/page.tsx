@@ -84,6 +84,13 @@ export default function SuperadminMenuImportPage() {
     }
   }, [editableResult])
 
+  const hasJsonFallbackWarning = useMemo(() => {
+    if (!editableResult) return false
+    return editableResult.warnings.some((warning) =>
+      warning.toLocaleLowerCase('de-DE').includes('keine gültige json-struktur')
+    )
+  }, [editableResult])
+
   useEffect(() => {
     const raw = localStorage.getItem('sessionUser')
     const parsed = raw ? (JSON.parse(raw) as SessionUser) : null
@@ -194,6 +201,16 @@ export default function SuperadminMenuImportPage() {
       setSuccess('JSON wurde in die Zwischenablage kopiert.')
     } catch {
       setError('JSON konnte nicht kopiert werden.')
+    }
+  }
+
+  async function copyDebugRawResponse() {
+    if (!editableResult?.debugRawResponsePreview) return
+    try {
+      await navigator.clipboard.writeText(editableResult.debugRawResponsePreview)
+      setSuccess('Debug-Rohantwort wurde in die Zwischenablage kopiert.')
+    } catch {
+      setError('Debug-Rohantwort konnte nicht kopiert werden.')
     }
   }
 
@@ -404,6 +421,16 @@ export default function SuperadminMenuImportPage() {
             Restaurant: {result.restaurantName || 'Nicht sicher erkannt'} · Sprache: {result.sourceLanguage}
           </p>
 
+          {hasJsonFallbackWarning ? (
+            <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-semibold">Hinweis zur KI-Antwort</p>
+              <p>
+                Die KI hat keine vollständig gültige JSON-Struktur geliefert. Bitte Analyse erneut starten oder ein
+                anderes Bild verwenden.
+              </p>
+            </div>
+          ) : null}
+
           {result.warnings.length > 0 ? (
             <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3">
               <h3 className="text-sm font-semibold text-amber-900">Warnungen</h3>
@@ -412,6 +439,26 @@ export default function SuperadminMenuImportPage() {
                   <li key={`${warning}-${index}`}>{warning}</li>
                 ))}
               </ul>
+            </div>
+          ) : null}
+
+          {editableResult.debugRawResponsePreview ? (
+            <div className="mt-4 rounded-2xl border border-slate-300 bg-slate-50 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <h3 className="text-sm font-semibold text-slate-900">KI-Rohantwort Debug</h3>
+                <button
+                  type="button"
+                  onClick={() => void copyDebugRawResponse()}
+                  className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Debug kopieren
+                </button>
+              </div>
+              <textarea
+                readOnly
+                value={editableResult.debugRawResponsePreview}
+                className="h-44 w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-800"
+              />
             </div>
           ) : null}
 

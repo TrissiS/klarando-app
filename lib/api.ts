@@ -7958,6 +7958,7 @@ export type MenuImportAnalysisResult = {
     confidence: number
   }>
   warnings: string[]
+  debugRawResponsePreview?: string
 }
 
 export type SuperadminMenuImportStatus = {
