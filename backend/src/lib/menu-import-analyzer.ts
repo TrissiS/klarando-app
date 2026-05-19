@@ -290,39 +290,48 @@ export async function analyzeMenuImages(
     mimeTypes: images.map((entry) => entry.mimeType),
   })
 
-  const userContent: Array<Record<string, unknown>> = [
-    {
-      type: 'text',
-      text: [
-        'Analysiere Speisekartenbilder für einen internen Import-Assistenten.',
-        `Tenant: ${tenantContext.tenantName} (${tenantContext.tenantId}).`,
-        'Sprache: Deutsch.',
-        'Erkenne Kategorien, Produkte, Preise, Varianten, Tagesangebote, Zutaten, Allergene und Zusatzstoffe.',
-        'Wichtig: Keine Produkte oder Preise erfinden.',
-        'Wenn eine Produktnummer/Artikelnummer erkennbar ist, trage sie als productNumber ein, sonst null.',
-        'Wenn Preis unklar ist: price = null.',
-        'Wenn Allergene/Zutaten unklar sind: leer lassen und Warnung schreiben.',
-        'Confidence immer zwischen 0 und 1.',
-        'Antworte ausschließlich als JSON-Objekt.',
-        'Beginne exakt mit { und ende exakt mit }.',
-        'Nutze keine Markdown-Codeblöcke.',
-        'Wenn du nichts erkennst, gib categories: [] und warnings zurück.',
-        'Die Antwort MUSS vollständig sein.',
-        'Beende niemals mitten in einem Objekt oder Array.',
-      ].join('\n'),
-    },
-  ]
-
-  for (const image of images) {
-    userContent.push({
-      type: 'image_url',
-      image_url: {
-        url: `data:${image.mimeType};base64,${image.base64Data}`,
-      },
-    })
+  const chunkSize = 3
+  const imageChunks: MenuImportImage[][] = []
+  for (let i = 0; i < images.length; i += chunkSize) {
+    imageChunks.push(images.slice(i, i + chunkSize))
   }
 
-  const callModel = async (modelName: string): Promise<string | null> => {
+  const callModel = async (
+    modelName: string,
+    chunk: MenuImportImage[],
+    chunkIndex: number
+  ): Promise<string | null> => {
+    const userContent: Array<Record<string, unknown>> = [
+      {
+        type: 'text',
+        text: [
+          'Analysiere Speisekartenbilder für einen internen Import-Assistenten.',
+          `Tenant: ${tenantContext.tenantName} (${tenantContext.tenantId}).`,
+          `Chunk: ${chunkIndex + 1}/${imageChunks.length}.`,
+          'Sprache: Deutsch.',
+          'Erkenne Kategorien, Produkte, Preise, Varianten, Tagesangebote, Zutaten, Allergene und Zusatzstoffe.',
+          'Wichtig: Keine Produkte oder Preise erfinden.',
+          'Wenn eine Produktnummer/Artikelnummer erkennbar ist, trage sie als productNumber ein, sonst null.',
+          'Wenn Preis unklar ist: price = null.',
+          'Wenn Allergene/Zutaten unklar sind: leer lassen und Warnung schreiben.',
+          'Confidence immer zwischen 0 und 1.',
+          'Antworte ausschließlich als JSON-Objekt.',
+          'Beginne exakt mit { und ende exakt mit }.',
+          'Nutze keine Markdown-Codeblöcke.',
+          'Wenn du nichts erkennst, gib categories: [] und warnings zurück.',
+          'Die Antwort MUSS vollständig sein.',
+          'Beende niemals mitten in einem Objekt oder Array.',
+        ].join('\n'),
+      },
+    ]
+    for (const image of chunk) {
+      userContent.push({
+        type: 'image_url',
+        image_url: {
+          url: `data:${image.mimeType};base64,${image.base64Data}`,
+        },
+      })
+    }
     const timeoutMs = 90_000
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -366,9 +375,6 @@ export async function analyzeMenuImages(
             type: 'json_object',
           },
           max_tokens: 12000,
-          reasoning: {
-            effort: 'low',
-          },
           temperature: 0.1,
         }),
       })
@@ -377,8 +383,8 @@ export async function analyzeMenuImages(
         const failureBody = await response.text()
         console.error('MENU_IMPORT_ANALYZE_OPENAI_ERROR', {
           model: modelName,
-          imageCount: images.length,
-          mimeTypes: images.map((entry) => entry.mimeType),
+          imageCount: chunk.length,
+          mimeTypes: chunk.map((entry) => entry.mimeType),
           status: response.status,
           message: failureBody.slice(0, 500),
         })
@@ -408,7 +414,7 @@ export async function analyzeMenuImages(
         (fetchError.name === 'AbortError' || /aborted|timeout/i.test(fetchError.message))
       console.error('MENU_IMPORT_ANALYZE_FETCH_ERROR', {
         model: modelName,
-        imageCount: images.length,
+        imageCount: chunk.length,
         timeoutMs,
         durationMs: Date.now() - startedAt,
         isAbort,
@@ -420,52 +426,57 @@ export async function analyzeMenuImages(
     }
   }
 
-  const primaryRaw = await callModel(selectedModel)
-  let activeModel = selectedModel
-  let rawOutput = primaryRaw || ''
-
-  if (!rawOutput && selectedModel !== 'gpt-4o-mini') {
-    const fallbackRaw = await callModel('gpt-4o-mini')
-    if (fallbackRaw) {
-      activeModel = 'gpt-4o-mini'
-      rawOutput = fallbackRaw
+  const parsedChunks: MenuImportAnalysisResult[] = []
+  let lastRawOutput = ''
+  for (let chunkIndex = 0; chunkIndex < imageChunks.length; chunkIndex += 1) {
+    const chunk = imageChunks[chunkIndex]
+    let activeModel = selectedModel
+    let rawOutput = (await callModel(selectedModel, chunk, chunkIndex)) || ''
+    if (!rawOutput && selectedModel !== 'gpt-4o-mini') {
+      const fallbackRaw = await callModel('gpt-4o-mini', chunk, chunkIndex)
+      if (fallbackRaw) {
+        activeModel = 'gpt-4o-mini'
+        rawOutput = fallbackRaw
+      }
     }
-  }
+    lastRawOutput = rawOutput || lastRawOutput
 
-  try {
-    if (!rawOutput) {
-      console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
+    try {
+      if (!rawOutput) {
+        console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
+          model: activeModel,
+          imageCount: chunk.length,
+          message: 'empty response',
+          responsePreview: '',
+        })
+        parsedChunks.push(withDebug(fallbackResult, null))
+        continue
+      }
+      const normalizedOutput = normalizeJsonCandidate(rawOutput)
+      const parsed = JSON.parse(normalizedOutput) as Partial<MenuImportAnalysisResult>
+      const safe: MenuImportAnalysisResult = {
+        restaurantName:
+          typeof parsed.restaurantName === 'string' || parsed.restaurantName === null
+            ? parsed.restaurantName
+            : null,
+        sourceLanguage: 'de',
+        categories: Array.isArray(parsed.categories) ? parsed.categories : [],
+        promotions: Array.isArray(parsed.promotions) ? parsed.promotions : [],
+        warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
+      }
+      if (looksTruncatedJson(rawOutput)) {
+        safe.warnings = Array.isArray(safe.warnings) ? safe.warnings : []
+        safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
+      }
+      console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
         model: activeModel,
-        imageCount: images.length,
-        message: 'empty response',
-        responsePreview: '',
+        imageCount: chunk.length,
+        durationMs: Date.now() - startedAt,
+        categoryCount: safe.categories?.length ?? 0,
       })
-      return withDebug(fallbackResult, null)
-    }
-    const normalizedOutput = normalizeJsonCandidate(rawOutput)
-    const parsed = JSON.parse(normalizedOutput) as Partial<MenuImportAnalysisResult>
-    const safe: MenuImportAnalysisResult = {
-      restaurantName:
-        typeof parsed.restaurantName === 'string' || parsed.restaurantName === null
-          ? parsed.restaurantName
-          : null,
-      sourceLanguage: 'de',
-      categories: Array.isArray(parsed.categories) ? parsed.categories : [],
-      promotions: Array.isArray(parsed.promotions) ? parsed.promotions : [],
-      warnings: Array.isArray(parsed.warnings) ? parsed.warnings : [],
-    }
-    if (looksTruncatedJson(rawOutput)) {
-      safe.warnings = Array.isArray(safe.warnings) ? safe.warnings : []
-      safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
-    }
-    console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
-      model: activeModel,
-      imageCount: images.length,
-      durationMs: Date.now() - startedAt,
-      categoryCount: safe.categories?.length ?? 0,
-    })
-    return normalizeAnalysis(safe)
-  } catch (parseError) {
+      parsedChunks.push(normalizeAnalysis(safe))
+      continue
+    } catch (parseError) {
     if (looksTruncatedJson(rawOutput)) {
       const repaired = attemptRepairJson(rawOutput)
       if (repaired) {
@@ -483,7 +494,8 @@ export async function analyzeMenuImages(
           }
           safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
           safe.warnings.push('JSON wurde automatisch repariert.')
-          return withDebug(normalizeAnalysis(safe), rawOutput.slice(0, 4000))
+            parsedChunks.push(withDebug(normalizeAnalysis(safe), rawOutput.slice(0, 4000)))
+            continue
         } catch {
           // continue with other repair/fallback attempts
         }
@@ -508,7 +520,8 @@ export async function analyzeMenuImages(
           warnings: Array.isArray(reparsed.warnings) ? reparsed.warnings : [],
         }
         const normalizedSafe = normalizeAnalysis(safe)
-        return withDebug(normalizedSafe, rawOutput.slice(0, 4000))
+          parsedChunks.push(withDebug(normalizedSafe, rawOutput.slice(0, 4000)))
+          continue
       } catch {
         // keep fallback path below
       }
@@ -517,10 +530,60 @@ export async function analyzeMenuImages(
     console.error('MENU_IMPORT_RAW_RESPONSE_PREVIEW', rawOutput.slice(0, 4000))
     console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
       model: activeModel,
-      imageCount: images.length,
+      imageCount: chunk.length,
       message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
       responsePreview: rawOutput.slice(0, 4000),
     })
-    return withDebug(fallbackResult, rawOutput.slice(0, 4000))
+      parsedChunks.push(withDebug(fallbackResult, rawOutput.slice(0, 4000)))
+      continue
+    }
   }
+
+  const merged: MenuImportAnalysisResult = {
+    restaurantName:
+      parsedChunks.find((entry) => entry.restaurantName && entry.restaurantName.trim().length > 0)?.restaurantName ??
+      null,
+    sourceLanguage: 'de',
+    categories: [],
+    promotions: [],
+    warnings: [],
+    debugRawResponsePreview:
+      parsedChunks.find((entry) => typeof entry.debugRawResponsePreview === 'string')?.debugRawResponsePreview ??
+      (debugEnabled ? lastRawOutput.slice(0, 4000) : undefined),
+  }
+
+  const categoryMap = new Map<string, MenuImportAnalysisResult['categories'][number]>()
+  for (const chunkResult of parsedChunks) {
+    for (const warning of chunkResult.warnings) {
+      if (!merged.warnings.includes(warning)) merged.warnings.push(warning)
+    }
+    for (const promo of chunkResult.promotions) {
+      const exists = merged.promotions.some(
+        (current) =>
+          current.name.toLocaleLowerCase('de-DE') === promo.name.toLocaleLowerCase('de-DE') &&
+          (current.weekday || '') === (promo.weekday || '')
+      )
+      if (!exists) merged.promotions.push(promo)
+    }
+    for (const category of chunkResult.categories) {
+      const key = category.name.toLocaleLowerCase('de-DE')
+      const existingCategory = categoryMap.get(key)
+      if (!existingCategory) {
+        categoryMap.set(key, { ...category, products: [...category.products] })
+        continue
+      }
+      for (const product of category.products) {
+        const exists = existingCategory.products.some(
+          (p) => p.name.toLocaleLowerCase('de-DE') === product.name.toLocaleLowerCase('de-DE')
+        )
+        if (!exists) existingCategory.products.push(product)
+      }
+    }
+  }
+
+  merged.categories = Array.from(categoryMap.values()).map((category, index) => ({
+    ...category,
+    sortOrder: index + 1,
+  }))
+  return normalizeAnalysis(merged)
 }
