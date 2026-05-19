@@ -8,6 +8,7 @@ type MenuImportImage = {
   base64Data: string
   fileName: string
 }
+import sharp from 'sharp'
 
 export type MenuImportAnalysisResult = {
   restaurantName: string | null
@@ -279,13 +280,12 @@ export async function analyzeMenuImages(
     throw new Error('OPENAI_API_KEY ist nicht gesetzt.')
   }
 
-  const selectedModel = (process.env.OPENAI_MENU_IMPORT_MODEL || '').trim() || 'gpt-4.1-mini'
-  if (/gpt-5-nano/i.test(selectedModel)) {
-    throw new Error('Das gewählte Modell unterstützt keine Bildanalyse. Bitte gpt-4.1-mini nutzen.')
-  }
+  const visionModel = (process.env.OPENAI_MENU_IMPORT_VISION_MODEL || '').trim() || 'gpt-4o-mini'
+  const textModel = (process.env.OPENAI_MENU_IMPORT_TEXT_MODEL || '').trim() || 'gpt-4.1-mini'
 
   console.info('MENU_IMPORT_ANALYZE_START', {
-    model: selectedModel,
+    visionModel,
+    textModel,
     imageCount: images.length,
     mimeTypes: images.map((entry) => entry.mimeType),
   })
@@ -296,42 +296,95 @@ export async function analyzeMenuImages(
     imageChunks.push(images.slice(i, i + chunkSize))
   }
 
-  const callModel = async (
-    modelName: string,
-    chunk: MenuImportImage[],
-    chunkIndex: number
-  ): Promise<string | null> => {
-    const userContent: Array<Record<string, unknown>> = [
-      {
-        type: 'text',
-        text: [
-          'Analysiere Speisekartenbilder für einen internen Import-Assistenten.',
-          `Tenant: ${tenantContext.tenantName} (${tenantContext.tenantId}).`,
-          `Chunk: ${chunkIndex + 1}/${imageChunks.length}.`,
-          'Sprache: Deutsch.',
-          'Erkenne Kategorien, Produkte, Preise, Varianten, Tagesangebote, Zutaten, Allergene und Zusatzstoffe.',
-          'Wichtig: Keine Produkte oder Preise erfinden.',
-          'Wenn eine Produktnummer/Artikelnummer erkennbar ist, trage sie als productNumber ein, sonst null.',
-          'Wenn Preis unklar ist: price = null.',
-          'Wenn Allergene/Zutaten unklar sind: leer lassen und Warnung schreiben.',
-          'Confidence immer zwischen 0 und 1.',
-          'Antworte ausschließlich als JSON-Objekt.',
-          'Beginne exakt mit { und ende exakt mit }.',
-          'Nutze keine Markdown-Codeblöcke.',
-          'Wenn du nichts erkennst, gib categories: [] und warnings zurück.',
-          'Die Antwort MUSS vollständig sein.',
-          'Beende niemals mitten in einem Objekt oder Array.',
-        ].join('\n'),
-      },
-    ]
-    for (const image of chunk) {
-      userContent.push({
-        type: 'image_url',
-        image_url: {
-          url: `data:${image.mimeType};base64,${image.base64Data}`,
-        },
-      })
+  const compressImage = async (image: MenuImportImage): Promise<MenuImportImage> => {
+    try {
+      const source = Buffer.from(image.base64Data, 'base64')
+      const buffer = await sharp(source).resize({ width: 1600, withoutEnlargement: true }).jpeg({ quality: 75 }).toBuffer()
+      return {
+        ...image,
+        mimeType: 'image/jpeg',
+        base64Data: buffer.toString('base64'),
+      }
+    } catch {
+      return image
     }
+  }
+
+  const callVisionOcr = async (image: MenuImportImage): Promise<string> => {
+    const timeoutMs = 120_000
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: visionModel,
+          input: [
+            {
+              role: 'user',
+              content: [
+                {
+                  type: 'input_text',
+                  text: [
+                    'Lies den gesamten sichtbaren Text dieser deutschen Speisekarte aus.',
+                    'Gib alle Produktnamen, Nummern, Beschreibungen, Preise, Kategorien und Tagesangebote wieder.',
+                    'Antworte als reiner Text. Keine Zusammenfassung. Nichts weglassen.',
+                  ].join('\n'),
+                },
+                {
+                  type: 'input_image',
+                  image_url: `data:${image.mimeType};base64,${image.base64Data}`,
+                },
+              ],
+            },
+          ],
+          max_output_tokens: 12000,
+        }),
+      })
+
+      if (!response.ok) {
+        const failureBody = await response.text()
+        console.error('MENU_IMPORT_OCR_OPENAI_ERROR', {
+          model: visionModel,
+          mimeType: image.mimeType,
+          status: response.status,
+          message: failureBody.slice(0, 500),
+        })
+        return ''
+      }
+
+      const payload = (await response.json()) as {
+        output_text?: string
+        output?: Array<{ content?: Array<{ type?: string; text?: string }> }>
+      }
+      const outputText =
+        payload.output_text ||
+        payload.output?.flatMap((entry) => entry.content || []).map((c) => c.text || '').join('\n') ||
+        ''
+      return outputText.trim()
+    } catch (fetchError) {
+      const isAbort =
+        fetchError instanceof Error &&
+        (fetchError.name === 'AbortError' || /aborted|timeout/i.test(fetchError.message))
+      console.error('MENU_IMPORT_OCR_FETCH_ERROR', {
+        model: visionModel,
+        timeoutMs,
+        durationMs: Date.now() - startedAt,
+        isAbort,
+        message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+      })
+      return ''
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+
+  const callTextStructuring = async (ocrText: string): Promise<string> => {
     const timeoutMs = 90_000
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), timeoutMs)
@@ -344,83 +397,61 @@ export async function analyzeMenuImages(
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: modelName,
+          model: textModel,
           messages: [
             {
               role: 'system',
               content:
-                'Du bist ein JSON-Extraktor. Antworte ausschließlich mit vollständigem validem JSON. Die Antwort MUSS vollständig sein. Beende niemals mitten in einem Objekt oder Array. Beginne exakt mit { und ende exakt mit }. Kein Markdown. Keine Erklärung. Keine Code-Fences.',
+                'Wandle Speisekartentext in gültiges JSON um. Antworte ausschließlich mit gültigem JSON. Keine Markdown-Codeblöcke. Keine Erklärung.',
             },
             {
               role: 'user',
               content: [
-                ...userContent,
-                {
-                  type: 'text',
-                  text: [
-                    'Gib genau ein Root-Objekt mit dieser Struktur zurück:',
-                    '{',
-                    '  "restaurantName": null,',
-                    '  "sourceLanguage": "de",',
-                    '  "categories": [],',
-                    '  "promotions": [],',
-                    '  "warnings": []',
-                    '}',
-                  ].join('\n'),
-                },
-              ],
+                'Wandle diesen Speisekartentext in gültiges JSON um.',
+                'Antworte ausschließlich mit JSON.',
+                'Root:',
+                '{',
+                '  "restaurantName": null,',
+                '  "sourceLanguage": "de",',
+                '  "categories": [],',
+                '  "promotions": [],',
+                '  "warnings": []',
+                '}',
+                '',
+                'Speisekartentext:',
+                ocrText,
+              ].join('\n'),
             },
           ],
-          response_format: {
-            type: 'json_object',
-          },
+          response_format: { type: 'json_object' },
           max_tokens: 12000,
           temperature: 0.1,
         }),
       })
-
       if (!response.ok) {
         const failureBody = await response.text()
-        console.error('MENU_IMPORT_ANALYZE_OPENAI_ERROR', {
-          model: modelName,
-          imageCount: chunk.length,
-          mimeTypes: chunk.map((entry) => entry.mimeType),
+        console.error('MENU_IMPORT_STRUCT_OPENAI_ERROR', {
+          model: textModel,
           status: response.status,
           message: failureBody.slice(0, 500),
         })
-        return null
+        return ''
       }
-
       const payload = (await response.json()) as {
-        choices?: Array<{
-          message?: {
-            content?: string | Array<{ type?: string; text?: string }>
-          }
-        }>
+        choices?: Array<{ message?: { content?: string | Array<{ text?: string }> } }>
       }
-
-      const messageContent = payload.choices?.[0]?.message?.content
-      return typeof messageContent === 'string'
-        ? messageContent
-        : Array.isArray(messageContent)
-          ? messageContent
-              .map((entry) => (typeof entry.text === 'string' ? entry.text : ''))
-              .join('\n')
-              .trim()
-          : null
-    } catch (fetchError) {
-      const isAbort =
-        fetchError instanceof Error &&
-        (fetchError.name === 'AbortError' || /aborted|timeout/i.test(fetchError.message))
-      console.error('MENU_IMPORT_ANALYZE_FETCH_ERROR', {
-        model: modelName,
-        imageCount: chunk.length,
-        timeoutMs,
-        durationMs: Date.now() - startedAt,
-        isAbort,
-        message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+      const content = payload.choices?.[0]?.message?.content
+      return typeof content === 'string'
+        ? content.trim()
+        : Array.isArray(content)
+          ? content.map((c) => c.text || '').join('\n').trim()
+          : ''
+    } catch (error) {
+      console.error('MENU_IMPORT_STRUCT_FETCH_ERROR', {
+        model: textModel,
+        message: error instanceof Error ? error.message : String(error),
       })
-      return null
+      return ''
     } finally {
       clearTimeout(timeout)
     }
@@ -435,39 +466,50 @@ export async function analyzeMenuImages(
     console.info('MENU_IMPORT_CHUNK_START', {
       chunk: `${chunkIndex + 1}/${imageChunks.length}`,
       imageCount: chunk.length,
-      model: selectedModel,
+      model: textModel,
     })
-    let activeModel = selectedModel
-    let rawOutput = (await callModel(selectedModel, chunk, chunkIndex)) || ''
-    if (!rawOutput && selectedModel !== 'gpt-4o-mini') {
-      console.warn('MENU_IMPORT_CHUNK_FALLBACK_MODEL', {
-        chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-        fromModel: selectedModel,
-        toModel: 'gpt-4o-mini',
-      })
-      const fallbackRaw = await callModel('gpt-4o-mini', chunk, chunkIndex)
-      if (fallbackRaw) {
-        activeModel = 'gpt-4o-mini'
-        rawOutput = fallbackRaw
-      }
+    const prepared = await Promise.all(chunk.map((image) => compressImage(image)))
+    const ocrParts = await Promise.all(prepared.map((image) => callVisionOcr(image)))
+    const ocrText = ocrParts.filter(Boolean).join('\n\n').trim()
+    const ocrDurationMs = Date.now() - chunkStartedAt
+    let rawOutput = ''
+    if (ocrText.length > 0) {
+      rawOutput = await callTextStructuring(ocrText)
     }
-    lastRawOutput = rawOutput || lastRawOutput
+    lastRawOutput = rawOutput || lastRawOutput || ocrText
 
     try {
-      if (!rawOutput) {
+      if (!ocrText) {
         console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
-          model: activeModel,
+          model: textModel,
           imageCount: chunk.length,
-          message: 'empty response',
+          message: 'empty OCR text',
           responsePreview: '',
         })
-        parsedChunks[chunkIndex] = withDebug(fallbackResult, null)
+        parsedChunks[chunkIndex] = withDebug(
+          {
+            ...fallbackResult,
+            warnings: [...fallbackResult.warnings, 'Bild konnte nicht gelesen werden. Bitte schärferes Bild verwenden.'],
+          },
+          null
+        )
         console.info('MENU_IMPORT_CHUNK_DONE', {
           chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-          model: activeModel,
-          status: 'fallback_empty',
+          model: visionModel,
+          status: 'fallback_empty_ocr',
+          ocrDurationMs,
           durationMs: Date.now() - chunkStartedAt,
         })
+        return
+      }
+      if (!rawOutput) {
+        parsedChunks[chunkIndex] = withDebug(
+          {
+            ...fallbackResult,
+            warnings: [...fallbackResult.warnings, 'Bitte OCR-Ergebnis prüfen.'],
+          },
+          debugEnabled ? `OCR TEXT:\n${ocrText.slice(0, 4000)}` : null
+        )
         return
       }
       const normalizedOutput = normalizeJsonCandidate(rawOutput)
@@ -486,8 +528,23 @@ export async function analyzeMenuImages(
         safe.warnings = Array.isArray(safe.warnings) ? safe.warnings : []
         safe.warnings.push('OpenAI Antwort wurde vermutlich abgeschnitten.')
       }
+      if (safe.categories.length === 0 && ocrText.length > 200) {
+        safe.warnings.push('OCR erkannt, aber Strukturierung hat keine Produkte erzeugt.')
+      }
+      if (debugEnabled) {
+        safe.debugRawResponsePreview = [
+          `VISION MODEL: ${visionModel}`,
+          `TEXT MODEL: ${textModel}`,
+          `OCR LENGTH: ${ocrText.length}`,
+          `OCR TEXT:`,
+          ocrText.slice(0, 2000),
+          '',
+          `STRUCT RAW RESPONSE:`,
+          rawOutput.slice(0, 2000),
+        ].join('\n')
+      }
       console.info('MENU_IMPORT_ANALYZE_SUCCESS', {
-        model: activeModel,
+        model: textModel,
         imageCount: chunk.length,
         durationMs: Date.now() - startedAt,
         categoryCount: safe.categories?.length ?? 0,
@@ -495,7 +552,7 @@ export async function analyzeMenuImages(
       parsedChunks[chunkIndex] = normalizeAnalysis(safe)
       console.info('MENU_IMPORT_CHUNK_DONE', {
         chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-        model: activeModel,
+        model: textModel,
         status: 'ok',
         categoryCount: safe.categories.length,
         durationMs: Date.now() - chunkStartedAt,
@@ -522,7 +579,7 @@ export async function analyzeMenuImages(
             parsedChunks[chunkIndex] = withDebug(normalizeAnalysis(safe), rawOutput.slice(0, 4000))
             console.info('MENU_IMPORT_CHUNK_DONE', {
               chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-              model: activeModel,
+              model: textModel,
               status: 'repaired',
               categoryCount: safe.categories.length,
               durationMs: Date.now() - chunkStartedAt,
@@ -555,7 +612,7 @@ export async function analyzeMenuImages(
           parsedChunks[chunkIndex] = withDebug(normalizedSafe, rawOutput.slice(0, 4000))
           console.info('MENU_IMPORT_CHUNK_DONE', {
             chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-            model: activeModel,
+            model: textModel,
             status: 'recovered_brace_slice',
             categoryCount: normalizedSafe.categories.length,
             durationMs: Date.now() - chunkStartedAt,
@@ -568,15 +625,32 @@ export async function analyzeMenuImages(
 
     console.error('MENU_IMPORT_RAW_RESPONSE_PREVIEW', rawOutput.slice(0, 4000))
     console.error('MENU_IMPORT_ANALYZE_JSON_PARSE_ERROR', {
-      model: activeModel,
+      model: textModel,
       imageCount: chunk.length,
       message: parseError instanceof Error ? parseError.message : 'JSON parse failed',
       responsePreview: rawOutput.slice(0, 4000),
     })
-      parsedChunks[chunkIndex] = withDebug(fallbackResult, rawOutput.slice(0, 4000))
+      parsedChunks[chunkIndex] = withDebug(
+        {
+          ...fallbackResult,
+          warnings: [...fallbackResult.warnings, 'Bitte OCR-Ergebnis prüfen.'],
+        },
+        debugEnabled
+          ? [
+              `VISION MODEL: ${visionModel}`,
+              `TEXT MODEL: ${textModel}`,
+              `OCR LENGTH: ${ocrText.length}`,
+              `OCR TEXT:`,
+              ocrText.slice(0, 2000),
+              '',
+              `STRUCT RAW RESPONSE:`,
+              rawOutput.slice(0, 2000),
+            ].join('\n')
+          : rawOutput.slice(0, 4000)
+      )
       console.info('MENU_IMPORT_CHUNK_DONE', {
         chunk: `${chunkIndex + 1}/${imageChunks.length}`,
-        model: activeModel,
+        model: textModel,
         status: 'fallback_parse_error',
         durationMs: Date.now() - chunkStartedAt,
       })
