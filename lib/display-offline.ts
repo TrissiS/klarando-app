@@ -6,8 +6,19 @@ export type OfflineDisplaySnapshot = {
   savedAt: string
   publishedVersion: string | null
   cachedVersion: string | null
+  lastSyncedAt?: string | null
   feed: PublicScreenFeed
   runtimeConfig: DisplayRuntimeConfig | null
+  device?: DisplayRuntimeConfig['device'] | null
+  mode?: DisplayRuntimeConfig['mode'] | null
+  template?: string | null
+  layoutSettings?: Record<string, unknown> | null
+  brandingSettings?: Record<string, unknown> | null
+  offlineSettings?: Record<string, unknown> | null
+  easyOrderSettings?: Record<string, unknown> | null
+  contentSettings?: Record<string, unknown> | null
+  categories?: DisplayRuntimeConfig['categories']
+  products?: DisplayRuntimeConfig['products']
 }
 
 export type OfflineQueuedOrder = {

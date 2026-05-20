@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { PermissionKey } from '@prisma/client'
 import { prisma } from '../lib/prisma'
-import { parseSettings } from '../lib/business-settings'
+import { buildDisplayRuntimeForDevice } from '../lib/display-runtime-builder'
 import {
   applyPerformanceModeToNotes,
   parseDisplayMetaFromNotes,
@@ -10,18 +10,6 @@ import {
 import { requirePermission } from '../middleware/auth'
 
 const router = Router()
-
-type RuntimeDisplayType = 'MENU' | 'ORDER' | 'KITCHEN' | 'CUSTOMER' | 'TERMINAL'
-
-function toDisplayTypeFromOrderRole(role: string): RuntimeDisplayType {
-  if (role === 'KITCHEN') {
-    return 'KITCHEN'
-  }
-  if (role === 'PICKUP') {
-    return 'CUSTOMER'
-  }
-  return 'ORDER'
-}
 
 function normalizeCodeParam(value: string | string[] | undefined) {
   if (Array.isArray(value)) {
@@ -48,134 +36,11 @@ router.get('/:deviceCode/config', async (req, res) => {
       return res.status(400).json({ error: 'deviceCode fehlt' })
     }
 
-    const nowIso = new Date().toISOString()
-
-    const screenDevice = await prisma.screenDevice.findUnique({
-      where: { deviceCode: code },
-    })
-
-    if (screenDevice) {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: screenDevice.tenantId },
-        select: {
-          id: true,
-          chainId: true,
-          name: true,
-          businessSettings: true,
-        },
-      })
-      const tenantName = tenant?.name ?? 'Tenant'
-      const businessSettings = parseSettings(tenant?.businessSettings, {
-        name: tenantName,
-        email: null,
-      })
-      const meta = parseDisplayMetaFromNotes(screenDevice.notes)
-      return res.json({
-        deviceCode: screenDevice.deviceCode,
-        displayType: 'MENU' as RuntimeDisplayType,
-        tenantId: screenDevice.tenantId,
-        chainId: tenant?.chainId ?? null,
-        displayId: screenDevice.id,
-        isActive: screenDevice.isActive,
-        branding: {
-          tenantName,
-          logoUrl: businessSettings.logoUrl,
-          primaryColor: screenDevice.accentColorOverride ?? null,
-          secondaryColor: null,
-          textColor: screenDevice.textColorOverride,
-        },
-        layoutSettings: {
-          orientation: screenDevice.orientation,
-          resolutionWidth: screenDevice.resolutionWidth,
-          resolutionHeight: screenDevice.resolutionHeight,
-        },
-        refreshIntervalMs: Math.max(5000, screenDevice.refreshIntervalSec * 1000),
-        performanceMode: meta.performanceMode ?? 'AUTO',
-        assetSettings: {
-          baseUrl: null,
-          preferredFormats: ['mp4', 'webm', 'jpg', 'png'],
-        },
-        videoBackgroundEnabled: Boolean(screenDevice.backgroundMediaUrlOverride),
-        videoBackgroundUrl: screenDevice.backgroundMediaUrlOverride,
-        fallbackBackgroundUrl: null,
-        cacheVersion: screenDevice.updatedAt.toISOString(),
-        lastSeenAt: screenDevice.lastSeenAt?.toISOString() ?? null,
-        lastSyncAt: screenDevice.updatedAt.toISOString(),
-        updatedAt: screenDevice.updatedAt.toISOString(),
-        serverTime: nowIso,
-      })
-    }
-
-    const orderDisplay = await prisma.orderDisplay.findUnique({
-      where: { displayCode: code },
-    })
-
-    if (!orderDisplay) {
+    const runtime = await buildDisplayRuntimeForDevice(code)
+    if (!runtime) {
       return res.status(404).json({ error: 'Display nicht gefunden' })
     }
-
-    const tenant = await prisma.tenant.findUnique({
-      where: { id: orderDisplay.tenantId },
-      select: {
-        id: true,
-        chainId: true,
-        name: true,
-        businessSettings: true,
-      },
-    })
-    const tenantName = tenant?.name ?? 'Tenant'
-    const businessSettings = parseSettings(tenant?.businessSettings, {
-      name: tenantName,
-      email: null,
-    })
-    const meta = parseDisplayMetaFromNotes(orderDisplay.notes)
-
-    const latestBinding = await prisma.orderDeskDeviceBinding.findFirst({
-      where: {
-        displayId: orderDisplay.id,
-      },
-      orderBy: {
-        lastSeenAt: 'desc',
-      },
-      select: {
-        lastSeenAt: true,
-      },
-    })
-
-    return res.json({
-      deviceCode: orderDisplay.displayCode,
-      displayType: toDisplayTypeFromOrderRole(orderDisplay.displayRole),
-      tenantId: orderDisplay.tenantId,
-      chainId: tenant?.chainId ?? null,
-      displayId: orderDisplay.id,
-      isActive: orderDisplay.isActive,
-      branding: {
-        tenantName,
-        logoUrl: businessSettings.logoUrl,
-        primaryColor: orderDisplay.statusColorOpen ?? null,
-        secondaryColor: null,
-        textColor: null,
-      },
-      layoutSettings: {
-        autoScaleLayout: orderDisplay.autoScaleLayout,
-      },
-      refreshIntervalMs: Math.max(3000, orderDisplay.refreshIntervalSec * 1000),
-      performanceMode: meta.performanceMode ?? 'AUTO',
-      assetSettings: {
-        baseUrl: null,
-        preferredFormats: ['mp4', 'webm', 'jpg', 'png'],
-      },
-      videoBackgroundEnabled:
-        orderDisplay.backgroundMediaMode !== 'NONE' &&
-        Boolean(orderDisplay.backgroundMediaUrl),
-      videoBackgroundUrl: orderDisplay.backgroundMediaUrl,
-      fallbackBackgroundUrl: null,
-      cacheVersion: orderDisplay.updatedAt.toISOString(),
-      lastSeenAt: latestBinding?.lastSeenAt?.toISOString() ?? null,
-      lastSyncAt: orderDisplay.updatedAt.toISOString(),
-      updatedAt: orderDisplay.updatedAt.toISOString(),
-      serverTime: nowIso,
-    })
+    return res.json(runtime)
   } catch (error) {
     console.error('GET DISPLAY RUNTIME CONFIG ERROR:', error)
     return res.status(500).json({ error: 'Display-Konfiguration konnte nicht geladen werden' })
@@ -183,12 +48,20 @@ router.get('/:deviceCode/config', async (req, res) => {
 })
 
 router.get('/:deviceCode', async (req, res) => {
-  const code = normalizeCodeParam(req.params.deviceCode)
-  if (!code) {
-    return res.status(400).json({ error: 'deviceCode fehlt' })
+  try {
+    const code = normalizeCodeParam(req.params.deviceCode)
+    if (!code) {
+      return res.status(400).json({ error: 'deviceCode fehlt' })
+    }
+    const runtime = await buildDisplayRuntimeForDevice(code)
+    if (!runtime) {
+      return res.status(404).json({ error: 'Display nicht gefunden' })
+    }
+    return res.json(runtime)
+  } catch (error) {
+    console.error('GET DISPLAY RUNTIME ERROR:', error)
+    return res.status(500).json({ error: 'Display-Konfiguration konnte nicht geladen werden' })
   }
-  const suffix = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''
-  return res.redirect(307, `/api/display-runtime/${encodeURIComponent(code)}/config${suffix}`)
 })
 
 router.patch(
@@ -295,14 +168,14 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
       },
     })
 
-    return res.json({
-      status: orderDisplay.isActive ? 'online' : 'inactive',
-      serverTime: now.toISOString(),
-      displayId: orderDisplay.id,
-      displayType: toDisplayTypeFromOrderRole(orderDisplay.displayRole),
-      recoveryHints: [
-        'Bei kurzen Ausfaellen automatische Reconnect-Logik aktiv lassen.',
-        'Beim Start zuerst Runtime-Config neu laden, dann Feed pollen.',
+      return res.json({
+        status: orderDisplay.isActive ? 'online' : 'inactive',
+        serverTime: now.toISOString(),
+        displayId: orderDisplay.id,
+        displayType: orderDisplay.displayRole === 'KITCHEN' ? 'KITCHEN' : orderDisplay.displayRole === 'PICKUP' ? 'CUSTOMER' : 'ORDER',
+        recoveryHints: [
+          'Bei kurzen Ausfaellen automatische Reconnect-Logik aktiv lassen.',
+          'Beim Start zuerst Runtime-Config neu laden, dann Feed pollen.',
       ],
     })
   } catch (error) {

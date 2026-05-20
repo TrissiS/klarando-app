@@ -1,8 +1,53 @@
 import { API_BASE_URL } from './config'
 
 export type DisplayRuntimeType = 'MENU' | 'ORDER' | 'KITCHEN' | 'CUSTOMER' | 'TERMINAL'
+export type DisplayRuntimeMode =
+  | 'MENU_DISPLAY'
+  | 'EASY_ORDER'
+  | 'PICKUP_MONITOR'
+  | 'PROMOTION_SCREEN'
+  | 'KITCHEN_DISPLAY'
+  | 'ORDER_DESK'
 
 export type DisplayRuntimeConfig = {
+  device: {
+    id: string
+    deviceCode: string
+    name: string
+    type: DisplayRuntimeType
+    mode: DisplayRuntimeMode
+    branchId: string | null
+    tenantId: string
+    status: 'ONLINE' | 'OFFLINE' | 'INACTIVE'
+    appVersion: string | null
+    resolution: {
+      width: number | null
+      height: number | null
+      orientation: string | null
+    }
+    lastSeenAt: string | null
+  }
+  tenant: {
+    id: string
+    name: string
+    chainId: string | null
+  }
+  branch: {
+    id: string
+    name: string
+  } | null
+  mode: DisplayRuntimeMode
+  template: string
+  layoutSettings: Record<string, unknown>
+  brandingSettings: Record<string, unknown>
+  offlineSettings: Record<string, unknown>
+  easyOrderSettings: Record<string, unknown>
+  contentSettings: Record<string, unknown>
+  categories: Array<{ id: string; name: string }>
+  products: Array<{ id: string; name: string; categoryId: string | null; categoryName: string | null }>
+  publishedVersion: string
+  cachedVersion: string
+  runtimeConfig: Record<string, unknown>
   deviceCode: string
   displayType: DisplayRuntimeType
   tenantId: string
@@ -16,7 +61,6 @@ export type DisplayRuntimeConfig = {
     secondaryColor: string | null
     textColor: string | null
   }
-  layoutSettings: Record<string, unknown>
   refreshIntervalMs: number
   performanceMode: 'AUTO' | 'NORMAL' | 'LOW'
   assetSettings: {
@@ -79,7 +123,7 @@ export function writeCachedDisplayRuntimeConfig(config: DisplayRuntimeConfig) {
 }
 
 export async function fetchDisplayRuntimeConfig(deviceCode: string) {
-  const response = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}/config`, {
+  const response = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}`, {
     cache: 'no-store',
   })
 

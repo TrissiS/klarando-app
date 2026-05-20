@@ -519,8 +519,19 @@ export default function ScreenDevicePage({ params }: Props) {
           savedAt: new Date().toISOString(),
           publishedVersion,
           cachedVersion: runtimeConfig?.cacheVersion || null,
+          lastSyncedAt: runtimeConfig?.lastSyncAt || null,
           feed: data,
           runtimeConfig,
+          device: runtimeConfig?.device ?? null,
+          mode: runtimeConfig?.mode ?? null,
+          template: runtimeConfig?.template ?? null,
+          layoutSettings: runtimeConfig?.layoutSettings ?? null,
+          brandingSettings: runtimeConfig?.brandingSettings ?? null,
+          offlineSettings: runtimeConfig?.offlineSettings ?? null,
+          easyOrderSettings: runtimeConfig?.easyOrderSettings ?? null,
+          contentSettings: runtimeConfig?.contentSettings ?? null,
+          categories: runtimeConfig?.categories ?? [],
+          products: runtimeConfig?.products ?? [],
         })
 
         const configuredMinInterval = isLowPerformanceMode ? 15 : 8
@@ -584,8 +595,19 @@ export default function ScreenDevicePage({ params }: Props) {
             savedAt: new Date().toISOString(),
             publishedVersion: feed.config?.updatedAt || null,
             cachedVersion: config.cacheVersion || null,
+            lastSyncedAt: config.lastSyncAt || null,
             feed,
             runtimeConfig: config,
+            device: config.device ?? null,
+            mode: config.mode ?? null,
+            template: config.template ?? null,
+            layoutSettings: config.layoutSettings ?? null,
+            brandingSettings: config.brandingSettings ?? null,
+            offlineSettings: config.offlineSettings ?? null,
+            easyOrderSettings: config.easyOrderSettings ?? null,
+            contentSettings: config.contentSettings ?? null,
+            categories: config.categories ?? [],
+            products: config.products ?? [],
           })
         }
         setConnectionState('online')
@@ -645,8 +667,10 @@ export default function ScreenDevicePage({ params }: Props) {
   }, [feed])
 
   useEffect(() => {
-    const offlineOrderingEnabled =
-      Boolean((runtimeConfig?.layoutSettings as Record<string, unknown> | undefined)?.offlineOrderingEnabled)
+    const offlineOrderingEnabled = Boolean(
+      (runtimeConfig?.easyOrderSettings as Record<string, unknown> | undefined)?.offlineOrderingEnabled ??
+        (runtimeConfig?.layoutSettings as Record<string, unknown> | undefined)?.offlineOrderingEnabled
+    )
     if (!offlineOrderingEnabled || !feed) {
       return
     }
