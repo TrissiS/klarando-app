@@ -90,7 +90,7 @@ const sectionNavSections: NavSection[] = [
     id: 'menu',
     label: 'Speisekarte',
     items: [
-      { href: '/admin/speisekarte', label: 'Übersicht', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/menu', label: 'Workspace', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       {
@@ -123,7 +123,7 @@ const sectionNavSections: NavSection[] = [
     id: 'devices',
     label: 'Geräte',
     items: [
-      { href: '/admin/geraete', label: 'Übersicht', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/devices', label: 'Workspace', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/display-devices', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/screen-studio', label: 'Bildschirmstudio', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/terminals', label: 'OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
@@ -134,7 +134,7 @@ const sectionNavSections: NavSection[] = [
     id: 'delivery',
     label: 'Lieferbetrieb',
     items: [
-      { href: '/admin/lieferung', label: 'Übersicht', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/delivery', label: 'Workspace', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/app-settings?section=delivery-area', label: 'Lieferzonen', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/drivers', label: 'Fahrer', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/app-settings?section=delivery-priority', label: 'Touren', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
@@ -154,7 +154,7 @@ const sectionNavSections: NavSection[] = [
     id: 'finance',
     label: 'Finanzen',
     items: [
-      { href: '/admin/finanzen-uebersicht', label: 'Übersicht', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/billing', label: 'Workspace', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/finanzen', label: 'Gebühren & Provisionen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/payments', label: 'Abrechnung', moduleKey: 'payment', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/closings/daily', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
@@ -176,11 +176,11 @@ const sectionNavSections: NavSection[] = [
 const mainSidebarSections: MainNavSection[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/admin', moduleKey: 'dashboard' },
   { id: 'daily', label: 'Bestellungen', href: '/admin/bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
-  { id: 'menu', label: 'Speisekarte', href: '/admin/speisekarte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-  { id: 'devices', label: 'Geräte', href: '/admin/geraete', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-  { id: 'delivery', label: 'Lieferung', href: '/admin/lieferung', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+  { id: 'menu', label: 'Speisekarte', href: '/admin/menu', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+  { id: 'devices', label: 'Geräte', href: '/admin/devices', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+  { id: 'delivery', label: 'Lieferung', href: '/admin/delivery', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
   { id: 'marketing', label: 'Marketing', href: '/admin/marketing', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-  { id: 'finance', label: 'Finanzen', href: '/admin/finanzen-uebersicht', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+  { id: 'finance', label: 'Finanzen', href: '/admin/billing', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
   { id: 'admin', label: 'Verwaltung', href: '/admin/verwaltung', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
 ]
 
@@ -603,6 +603,16 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     if (!section.requiredPermission || permissions === null) return true
     return permissions.has(section.requiredPermission)
   })
+  const visibleMainAreas = [
+    ...visibleMainSections,
+    ...(normalizedRole === 'superadmin' || normalizedRole === 'chainadmin'
+      ? [{
+          id: 'superadmin',
+          label: 'Superadmin',
+          href: normalizedRole === 'superadmin' ? '/superadmin' : '/chainadmin',
+        }]
+      : []),
+  ]
 
   const activeSection =
     visibleNavSections.find((section) => section.items.some((item) => isItemActive(item))) ??
@@ -623,6 +633,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       { href: '/admin/products', label: 'Produkte', keywords: ['produkt', 'produkte', 'speisekarte'] },
       { href: '/admin/screen-studio', label: 'Geräte / Screen-Studio', keywords: ['geraete', 'display', 'orderdesk'] },
       { href: '/admin/settings', label: 'Einstellungen', keywords: ['einstellungen', 'config', 'verwaltung'] },
+      { href: '/admin/staff', label: 'Benutzer', keywords: ['benutzer', 'rechte', 'users'] },
+      { href: '/admin/billing', label: 'Abrechnung', keywords: ['abrechnung', 'billing', 'finanzen'] },
     ]
     return [...fromNav, ...staticEntries]
   }, [visibleNavSections])
@@ -708,10 +720,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
           <nav className={`pointer-events-auto flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
-              {visibleMainSections.map((section) => {
+              {visibleMainAreas.map((section) => {
                 const isActive =
-                  activeSection?.id === section.id ||
-                  (section.id === 'dashboard' && pathname === '/admin')
+                    activeSection?.id === section.id ||
+                    (section.id === 'dashboard' && pathname === '/admin')
                 return (
                   <a
                     key={section.id}
@@ -997,7 +1009,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
                   <div className="space-y-4">
-                    {visibleMainSections.map((section) => {
+                    {visibleMainAreas.map((section) => {
                       const isActive =
                         activeSection?.id === section.id ||
                         (section.id === 'dashboard' && pathname === '/admin')

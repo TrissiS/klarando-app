@@ -33,6 +33,26 @@ const nextConfig: NextConfig = {
         destination: '/admin/screen-studio',
         permanent: true,
       },
+      {
+        source: '/admin/speisekarte',
+        destination: '/admin/menu',
+        permanent: true,
+      },
+      {
+        source: '/admin/geraete',
+        destination: '/admin/devices',
+        permanent: true,
+      },
+      {
+        source: '/admin/lieferung',
+        destination: '/admin/delivery',
+        permanent: true,
+      },
+      {
+        source: '/admin/finanzen-uebersicht',
+        destination: '/admin/billing',
+        permanent: true,
+      },
     ]
   },
 };

@@ -75,7 +75,7 @@ export default function BackofficeLayout({
               id: 'overview',
               label: 'Übersicht',
               defaultOpen: true,
-              items: pickItemsByHref(['/superadmin']),
+              items: pickItemsByHref(['/superadmin', '/superadmin/readiness']),
             },
             {
               id: 'companies',

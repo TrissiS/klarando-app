@@ -2,22 +2,24 @@
 
 Stand: 2026-05-20
 
-| Modul | Status | Offene Punkte | Risiko | Nächster Schritt |
-|---|---|---|---|---|
-| Admin Navigation & UX | READY | Feintuning je Rolle | Niedrig | Periodische UX-Review |
-| Menü-Import | LIMITED | OCR/Parser-Edgecases, manuelle QA bei Sonderkarten | Mittel | Goldensatz-Testkarten + Regression-Tests |
-| Display Runtime | LIMITED | Legacy/Primary-Payload sauber angleichen | Mittel | Runtime-Builder als Single-Source finalisieren |
-| Display Offline-First | LIMITED | Queue-/Sync-Monitoring sichtbar machen | Mittel | Sync-Metriken + Retry-Transparenz ergänzen |
-| Screen-Studio | LIMITED | Alle Controls E2E gegen echte Displays verifizieren | Mittel | Snapshots mit Referenzlayouts automatisieren |
-| Modul-Billing UI | LIMITED | Geräteaktionen je Gerätetyp weiter absichern | Mittel | Einheitliche API-Fähigkeitsmatrix pro Gerätetyp |
-| Billing & Rechnungen | IN_PREPARATION | Rechts-/Steuer-Review, E-Rechnung-Exportpfad | Hoch | Auditierbare Invoice-Pipeline stufenweise härten |
-| Rollen & Rechte (Backend) | LIMITED | Prüfpfade bei Spezialrollen vollständig katalogisieren | Mittel | Rechte-Matrix + API-Autorisierungstests |
-| Audit Logs | LIMITED | Kritische Flows vollständig abdecken | Mittel | Pflicht-Events je Kernmodul definieren |
-| Notifications intern | IN_PREPARATION | Einheitliches Event-Schema fehlt | Mittel | Basis-Event-Bus und Prioritätenmodell definieren |
-| Delivery Area Polygon | READY | Zusätzliche E2E-Szenarien für PLZ/Polygon-Fallback | Niedrig | Smoke-Test in Release-Checkliste |
-| Monitoring/Operations | IN_PREPARATION | Readiness/Alerting noch ausbaufähig | Mittel | `/ready` + DB/Redis/Queue Health erweitern |
+| Bereich | Status | Aktueller Stand | Offene Punkte | Risiko | Nächster sinnvoller Schritt |
+|---|---|---|---|---|---|
+| Admin Navigation & Workspaces | READY | Hauptbereiche vereinfacht, Workspace-Einstiege angelegt | Feinschliff je Rolle und Tenant-Kontext | Niedrig | UX-Review mit 3 Pilotkunden |
+| Menü-Import | LIMITED | OCR + Parser stabil, Vorschau und Warnungen aktiv | Sonderkarten/Edgecases weiter absichern | Mittel | Referenz-Testset + Regressionen |
+| Display Runtime | LIMITED | Runtime-Zentralisierung begonnen, Legacy kompatibel | Rest-Endpunkte auf zentralen Builder vereinheitlichen | Mittel | Primary/Legacy schrittweise konsolidieren |
+| Display Offline-First | LIMITED | Snapshot/Fallback vorhanden | Sync-Telemetrie und Queue-Transparenz ausbauen | Mittel | Sync-Metriken + Retry-Anzeige |
+| Screen-Studio | LIMITED | Zentrale Steuerseite aktiv | E2E-Validierung aller Controls gegen Live-Geräte | Mittel | Snapshot-Tests für Templates |
+| Geräteverwaltung | LIMITED | Typisierte Geräteaktionen weitgehend geschützt | Nicht angebundene Typaktionen final angleichen | Mittel | Capability-Matrix je Gerätetyp |
+| Billing & Rechnungen | IN_PREPARATION | Struktur und Statusmodell vorbereitet | Rechts-/Steuerdetails, E-Rechnungsexporte | Hoch | Steuer-/Legal-Review + Pilotabrechnung |
+| Payment/Einzüge | IN_PREPARATION | Vorbereitung vorhanden, kein Live-Einzug | Provider- und Mandatsfluss finalisieren | Hoch | Sandbox-Integration mit Auditpfad |
+| Rollen & Rechte | LIMITED | Modul-/Rechtegating aktiv | Vollständige API-Autorisierungstests | Mittel | Rechte-Regressionstests automatisieren |
+| Audit Logs | LIMITED | Grundstruktur vorhanden | Kritische Flows vollständig abdecken | Mittel | Pflicht-Events je Kernmodul erzwingen |
+| Notifications intern | IN_PREPARATION | Teilweise vorhanden | Einheitliches Event-Schema fehlt | Mittel | Event-Typkatalog + Routing |
+| Delivery Polygon | READY | Persistenz und Validierung produktiv nutzbar | Erweiterte E2E-Szenarien | Niedrig | Smoke-Test in Release-Gates |
+| Monitoring/Operations | IN_PREPARATION | Health-Bausteine vorhanden | Readiness/Alerting ausbauen | Mittel | `/ready` plus externe Checks |
 
-## Status-Definition
+## Statusdefinition
 - **READY**: Für den aktuellen Betrieb robust nutzbar.
 - **LIMITED**: Nutzbar, aber mit bekannten Grenzen/Restarbeiten.
 - **IN_PREPARATION**: Architektur/Grundlagen vorhanden, noch nicht produktionsvollständig.
+- **BROKEN**: Aktuell nicht stabil einsetzbar; priorisierte Fehlerbehebung nötig.
