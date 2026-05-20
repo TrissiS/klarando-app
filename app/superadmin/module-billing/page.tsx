@@ -134,6 +134,42 @@ function formatMoneyInput(cents: number) {
   return (cents / 100).toFixed(2).replace('.', ',')
 }
 
+type ModuleDeviceSourceType = 'display' | 'orderdesk' | 'driver' | 'pos'
+
+type ModuleDeviceRow = {
+  id: string
+  sourceType: ModuleDeviceSourceType
+  sourceId: string | null
+  displaySourceKind: DisplayDeviceOverviewRow['sourceKind'] | null
+  displayRef: string | null
+  displayId: string | null
+  orderDeskId: string | null
+  driverId: string | null
+  deviceName: string
+  deviceType: string
+  branchName: string
+  branchId: string | null
+  tenantId: string | null
+  status: 'online' | 'offline' | 'inactive'
+  lastSeenAt: string | null
+  pairedAt: string | null
+  pairingSupported: boolean
+}
+
+function formatDateTime(date: string | null) {
+  if (!date) return '—'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })
+}
+
+function formatDateOnly(date: string | null) {
+  if (!date) return '—'
+  const parsed = new Date(date)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' })
+}
+
 function buildPermissionGroupLabel(permission: AccessPermission) {
   const prefix = permission.split('_')[0]
   const map: Record<string, string> = {
@@ -374,48 +410,63 @@ export default function SuperadminModuleBillingPage() {
     const vatCents = Math.round(monthlyNetCents * 0.19)
     return { monthlyNetCents, vatCents, monthlyGrossCents: monthlyNetCents + vatCents }
   }, [modulePriceDraft, modules])
-  const deviceRows = useMemo(() => {
-    const displayDevices = displayRows.map((entry) => ({
+  const deviceRows = useMemo<ModuleDeviceRow[]>(() => {
+    const displayDevices = displayRows.map<ModuleDeviceRow>((entry) => ({
       id: `display-${entry.id}`,
-      sourceKind: 'DISPLAY' as const,
-      name: entry.name,
-      type: `Display (${entry.displayType})`,
-      branch: entry.tenantName || '—',
+      sourceType: 'display',
+      sourceId: entry.entityId || null,
+      displaySourceKind: entry.sourceKind,
+      displayRef: entry.id || null,
+      displayId: entry.sourceKind === 'ORDER_DISPLAY' ? entry.entityId : null,
+      orderDeskId: null,
+      driverId: null,
+      deviceName: entry.name,
+      deviceType: `Display (${entry.displayType})`,
+      branchName: entry.tenantName || '—',
+      branchId: null,
+      tenantId: entry.tenantId,
       status: entry.status,
       lastSeenAt: entry.lastSeenAt,
       pairedAt: entry.lastSyncAt,
-      displayRef: entry.entityId || entry.code,
-      tenantId: entry.tenantId,
-      bindingId: null as string | null,
-      driverId: null as string | null,
+      pairingSupported: Boolean(entry.pairingSupported),
     }))
-    const orderDeskDevices = orderDeskRows.map((entry) => ({
+    const orderDeskDevices = orderDeskRows.map<ModuleDeviceRow>((entry) => ({
       id: `orderdesk-${entry.id}`,
-      sourceKind: 'ORDERDESK' as const,
-      name: entry.deviceAlias || entry.deviceSerial,
-      type: 'OrderDesk',
-      branch: tenantNameById.get(entry.tenantId) || '—',
+      sourceType: 'orderdesk',
+      sourceId: entry.id,
+      displaySourceKind: null,
+      displayRef: null,
+      displayId: null,
+      orderDeskId: entry.id,
+      driverId: null,
+      deviceName: entry.deviceAlias || entry.deviceSerial,
+      deviceType: 'OrderDesk',
+      branchName: tenantNameById.get(entry.tenantId) || '—',
+      branchId: null,
+      tenantId: entry.tenantId,
       status: entry.isActive ? (entry.lastSeenAt ? 'online' : 'offline') : 'inactive',
       lastSeenAt: entry.lastSeenAt,
       pairedAt: entry.boundAt || entry.createdAt,
-      bindingId: entry.id,
-      displayRef: null as string | null,
-      tenantId: entry.tenantId,
-      driverId: null as string | null,
+      pairingSupported: true,
     }))
-    const driverDevices = driverRows.map((entry) => ({
+    const driverDevices = driverRows.map<ModuleDeviceRow>((entry) => ({
       id: `driver-${entry.id}`,
-      sourceKind: 'DRIVER' as const,
-      name: entry.name,
-      type: 'Fahrergerät',
-      branch: entry.tenant?.name || '—',
+      sourceType: 'driver',
+      sourceId: entry.id,
+      displaySourceKind: null,
+      displayRef: null,
+      displayId: null,
+      orderDeskId: null,
+      driverId: entry.id,
+      deviceName: entry.name,
+      deviceType: 'Fahrergerät',
+      branchName: entry.tenant?.name || '—',
+      branchId: null,
+      tenantId: entry.tenantId || null,
       status: entry.isActive ? (entry.stats.activeDeliveries > 0 ? 'online' : 'offline') : 'inactive',
       lastSeenAt: entry.stats.lastAssignmentAt,
       pairedAt: entry.createdAt,
-      driverId: entry.id,
-      displayRef: null as string | null,
-      tenantId: entry.tenantId || null,
-      bindingId: null as string | null,
+      pairingSupported: false,
     }))
     return [...displayDevices, ...orderDeskDevices, ...driverDevices]
   }, [displayRows, orderDeskRows, driverRows, tenantNameById])
@@ -455,7 +506,7 @@ export default function SuperadminModuleBillingPage() {
     setDriverRows(drivers.rows)
   }
 
-  function setDeviceActionLoading(row: (typeof deviceRows)[number], active: boolean) {
+  function setDeviceActionLoading(row: ModuleDeviceRow, active: boolean) {
     setDeviceActionLoadingByKey((current) => ({ ...current, [row.id]: active }))
   }
 
@@ -514,20 +565,31 @@ export default function SuperadminModuleBillingPage() {
     setInfo(`Rollen-Vorlage ${role} angewendet.`)
   }
 
-  async function handleDeviceLock(row: (typeof deviceRows)[number]) {
+  async function handleDeviceLock(row: ModuleDeviceRow) {
     try {
       setDeviceActionLoading(row, true)
       setError('')
-      if (row.sourceKind === 'DISPLAY' && row.displayRef) {
+      if (row.sourceType === 'display') {
+        if (!row.displayRef) {
+          setError('Für dieses Gerät fehlt die gültige Backend-ID.')
+          return
+        }
         await updateDisplayDeviceActiveState(token, row.displayRef, false)
         await refreshDevices()
         setInfo('Display wurde gesperrt (inactive).')
-      } else if (row.sourceKind === 'ORDERDESK' && row.bindingId) {
-        await deactivateOrderDeskDeviceBinding(token, row.bindingId)
+      } else if (row.sourceType === 'orderdesk') {
+        if (!row.orderDeskId) {
+          setError('Für dieses Gerät fehlt die gültige Backend-ID.')
+          return
+        }
+        await deactivateOrderDeskDeviceBinding(token, row.orderDeskId)
         await refreshDevices()
         setInfo('OrderDesk-Gerät wurde gesperrt.')
       } else {
-        setError('API fehlt aktuell: Fahrergeräte können hier noch nicht gesperrt werden.')
+        setPairingModal({
+          title: `${row.deviceType}: ${row.deviceName}`,
+          payload: `Funktion noch nicht angebunden.\nGerätetyp: ${row.deviceType}\nGeräte-ID: ${row.sourceId || row.id}\nFiliale: ${row.branchName}`,
+        })
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Gerät konnte nicht gesperrt werden')
@@ -536,19 +598,29 @@ export default function SuperadminModuleBillingPage() {
     }
   }
 
-  async function handleDeviceDelete(row: (typeof deviceRows)[number]) {
+  async function handleDeviceDelete(row: ModuleDeviceRow) {
     if (!window.confirm('Gerät wirklich löschen/entkoppeln?')) return
     try {
       setDeviceActionLoading(row, true)
       setError('')
-      if (row.sourceKind === 'ORDERDESK' && row.bindingId) {
-        await deleteOrderDeskDeviceBinding(token, row.bindingId)
+      if (row.sourceType === 'orderdesk') {
+        if (!row.orderDeskId) {
+          setError('Für dieses Gerät fehlt die gültige Backend-ID.')
+          return
+        }
+        await deleteOrderDeskDeviceBinding(token, row.orderDeskId)
         await refreshDevices()
         setInfo('OrderDesk-Gerät wurde gelöscht.')
-      } else if (row.sourceKind === 'DISPLAY') {
-        setError('API fehlt aktuell: Display-Löschen ist in dieser Ansicht noch nicht angebunden.')
+      } else if (row.sourceType === 'display') {
+        setPairingModal({
+          title: `Display löschen: ${row.deviceName}`,
+          payload: `Display-Löschen ist hier noch nicht angebunden.\nDisplay-ID: ${row.displayId || row.sourceId || '-'}\nDisplay-Ref: ${row.displayRef || '-'}\nBitte aktuell in der Display-Geräteverwaltung ausführen.`,
+        })
       } else {
-        setError('API fehlt aktuell: Fahrergeräte können hier noch nicht gelöscht werden.')
+        setPairingModal({
+          title: `${row.deviceType}: ${row.deviceName}`,
+          payload: `Funktion noch nicht angebunden.\nGerätetyp: ${row.deviceType}\nGeräte-ID: ${row.sourceId || row.id}\nFiliale: ${row.branchName}`,
+        })
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Gerät konnte nicht gelöscht werden')
@@ -557,23 +629,38 @@ export default function SuperadminModuleBillingPage() {
     }
   }
 
-  async function handleDeviceRePair(row: (typeof deviceRows)[number]) {
+  async function handleDeviceRePair(row: ModuleDeviceRow) {
     try {
       setDeviceActionLoading(row, true)
       setError('')
-      if (row.sourceKind === 'ORDERDESK' && row.bindingId) {
-        const next = await resetOrderDeskDevicePairing(token, row.bindingId)
+      if (row.sourceType === 'orderdesk') {
+        if (!row.orderDeskId) {
+          setError('Für dieses Gerät fehlt die gültige Backend-ID.')
+          return
+        }
+        const next = await resetOrderDeskDevicePairing(token, row.orderDeskId)
         setPairingModal({
-          title: `OrderDesk neu koppeln: ${row.name}`,
+          title: `OrderDesk neu koppeln: ${row.deviceName}`,
           payload: next.pairingPayload,
           qrImageUrl: next.qrImageUrl,
         })
         await refreshDevices()
         setInfo('OrderDesk Pairing-Code wurde neu erzeugt.')
-      } else if (row.sourceKind === 'DISPLAY' && row.displayRef) {
+      } else if (row.sourceType === 'display') {
+        if (!row.displayRef) {
+          setError('Für dieses Gerät fehlt die gültige Backend-ID.')
+          return
+        }
+        if (!row.pairingSupported || row.displaySourceKind !== 'ORDER_DISPLAY') {
+          setPairingModal({
+            title: `Display neu koppeln: ${row.deviceName}`,
+            payload: `Für diesen Display-Typ ist die Pairing-Code-API hier noch nicht angebunden.\nQuelle: ${row.displaySourceKind || 'unbekannt'}\nDisplay-Ref: ${row.displayRef}`,
+          })
+          return
+        }
         const next = await regenerateDisplayPairingCode(token, row.displayRef)
         setPairingModal({
-          title: `Display neu koppeln: ${row.name}`,
+          title: `Display neu koppeln: ${row.deviceName}`,
           payload: next.pairingPayload,
           qrImageUrl: next.qrImageUrl,
         })
@@ -581,8 +668,8 @@ export default function SuperadminModuleBillingPage() {
         setInfo('Display Pairing-Code wurde neu erzeugt.')
       } else {
         setPairingModal({
-          title: `Fahrergerät: ${row.name}`,
-          payload: `Pairing-API fehlt noch.\nGeräte-ID: ${row.driverId || row.id}\nGerätetyp: ${row.type}\nFiliale: ${row.branch}`,
+          title: `${row.deviceType}: ${row.deviceName}`,
+          payload: `Pairing-API fehlt noch.\nGeräte-ID: ${row.sourceId || row.id}\nGerätetyp: ${row.deviceType}\nFiliale: ${row.branchName}`,
         })
       }
     } catch (cause) {
@@ -592,15 +679,37 @@ export default function SuperadminModuleBillingPage() {
     }
   }
 
-  function handleDeviceQr(row: (typeof deviceRows)[number]) {
+  async function handleDeviceQr(row: ModuleDeviceRow) {
+    if (row.sourceType === 'display' && row.pairingSupported && row.displaySourceKind === 'ORDER_DISPLAY') {
+      if (!row.displayRef) {
+        setError('Für dieses Gerät fehlt die gültige Backend-ID.')
+        return
+      }
+      try {
+        setDeviceActionLoading(row, true)
+        const next = await regenerateDisplayPairingCode(token, row.displayRef)
+        setPairingModal({
+          title: `QR-Code: ${row.deviceName}`,
+          payload: next.pairingPayload,
+          qrImageUrl: next.qrImageUrl,
+        })
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'QR-Code konnte nicht geladen werden')
+      } finally {
+        setDeviceActionLoading(row, false)
+      }
+      return
+    }
+    if (row.sourceType === 'orderdesk') {
+      setPairingModal({
+        title: `OrderDesk QR: ${row.deviceName}`,
+        payload: `OrderDesk-Binding: ${row.orderDeskId || row.id}\nStatus: ${row.status}\nFiliale: ${row.branchName}\nHinweis: QR-API ist für diesen Typ noch in Vorbereitung.`,
+      })
+      return
+    }
     setPairingModal({
-      title: `QR / Geräteinfo: ${row.name}`,
-      payload:
-        row.sourceKind === 'DISPLAY'
-          ? `DisplayRef: ${row.displayRef || row.id}\nStatus: ${row.status}\nFiliale: ${row.branch}`
-          : row.sourceKind === 'ORDERDESK'
-            ? `OrderDesk Binding: ${row.bindingId || row.id}\nStatus: ${row.status}\nFiliale: ${row.branch}`
-            : `Fahrergeräte-ID: ${row.driverId || row.id}\nStatus: ${row.status}\nFiliale: ${row.branch}\nTODO: QR-Route für Fahrergeräte`,
+      title: `${row.deviceType}: ${row.deviceName}`,
+      payload: `QR-/Pairing-Funktion noch nicht angebunden.\nGeräte-ID: ${row.sourceId || row.id}\nGerätetyp: ${row.deviceType}\nFiliale: ${row.branchName}`,
     })
   }
 
@@ -973,25 +1082,25 @@ export default function SuperadminModuleBillingPage() {
                 <tbody>
                   {deviceRows.map((row) => {
                     const rowLoading = Boolean(deviceActionLoadingByKey[row.id])
-                    const driverUnsupported = row.sourceKind === 'DRIVER'
+                    const actionNotConnected = row.sourceType === 'driver' || row.sourceType === 'pos'
                     return (
                     <tr key={row.id} className="border-t border-slate-100">
-                      <td className="px-3 py-2 font-medium text-slate-900">{row.name}</td>
-                      <td className="px-3 py-2 text-slate-700">{row.type}</td>
-                      <td className="px-3 py-2 text-slate-700">{row.branch}</td>
+                      <td className="px-3 py-2 font-medium text-slate-900">{row.deviceName}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.deviceType}</td>
+                      <td className="px-3 py-2 text-slate-700">{row.branchName}</td>
                       <td className="px-3 py-2">
                         <span className={`rounded-full px-2 py-0.5 text-xs ${row.status === 'online' ? 'bg-emerald-100 text-emerald-700' : row.status === 'offline' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-700'}`}>
                           {row.status}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-slate-700">{row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString('de-DE') : '—'}</td>
-                      <td className="px-3 py-2 text-slate-700">{row.pairedAt ? new Date(row.pairedAt).toLocaleDateString('de-DE') : '—'}</td>
+                      <td className="px-3 py-2 text-slate-700">{formatDateTime(row.lastSeenAt)}</td>
+                      <td className="px-3 py-2 text-slate-700">{formatDateOnly(row.pairedAt)}</td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
-                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 disabled:opacity-60" onClick={() => void handleDeviceLock(row)} disabled={loading || rowLoading || driverUnsupported} title={driverUnsupported ? 'Funktion noch nicht angebunden' : undefined}>
+                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 disabled:opacity-60" onClick={() => void handleDeviceLock(row)} disabled={loading || rowLoading || actionNotConnected} title={actionNotConnected ? 'Funktion noch nicht angebunden' : undefined}>
                             {rowLoading ? 'Lädt...' : 'Gerät sperren'}
                           </button>
-                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 disabled:opacity-60" onClick={() => void handleDeviceDelete(row)} disabled={loading || rowLoading || driverUnsupported} title={driverUnsupported ? 'Funktion noch nicht angebunden' : undefined}>
+                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 disabled:opacity-60" onClick={() => void handleDeviceDelete(row)} disabled={loading || rowLoading || actionNotConnected} title={actionNotConnected ? 'Funktion noch nicht angebunden' : undefined}>
                             {rowLoading ? 'Lädt...' : 'Gerät löschen'}
                           </button>
                           <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 disabled:opacity-60" onClick={() => void handleDeviceRePair(row)} disabled={loading || rowLoading}>
