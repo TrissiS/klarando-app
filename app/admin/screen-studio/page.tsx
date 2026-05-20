@@ -39,6 +39,7 @@ type CardDensity = 'KOMPAKT' | 'KOMFORT' | 'GROSS'
 type DesignAssistantStatus = 'IDLE' | 'MENU_UPLOADED' | 'LOGO_UPLOADED' | 'READY_FOR_SUGGESTION'
 type DisplayMode = 'MENU_DISPLAY' | 'EASY_ORDER' | 'PICKUP_MONITOR' | 'PROMOTION_SCREEN'
 type DisplayTemplate = 'MODERN_GRID' | 'CLASSIC_MENU' | 'PROMOTION_HIGHLIGHT' | 'TOUCH_KIOSK_PREVIEW'
+type BackgroundModeUi = 'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD' | 'VIDEO'
 
 const STUDIO_TABS: Array<{ key: StudioTab; label: string }> = [
   { key: 'OVERVIEW', label: 'Übersicht' },
@@ -94,6 +95,68 @@ const DISPLAY_TEMPLATES: Array<{ id: DisplayTemplate; label: string; help: strin
   { id: 'PROMOTION_HIGHLIGHT', label: 'PROMOTION_HIGHLIGHT', help: 'Große Headlines für Promos und Angebote.' },
   { id: 'TOUCH_KIOSK_PREVIEW', label: 'TOUCH_KIOSK_PREVIEW', help: 'Vorschau für zukünftigen Kiosk-/Touch-Flow.' },
 ]
+
+function inferTemplateFromConfig(config: ScreenConfig): DisplayTemplate {
+  if (config.overlayAnimation !== 'NONE' && config.showCategoryOnCard && config.cardStyle === 'SOFT') {
+    return 'MODERN_GRID'
+  }
+  if (config.cardStyle === 'OUTLINE' || config.cardStyle === 'BOLD') {
+    return 'CLASSIC_MENU'
+  }
+  if (config.overlayAnimation !== 'NONE' && config.showPrices && config.cardStyle === 'GLASS') {
+    return 'PROMOTION_HIGHLIGHT'
+  }
+  return 'TOUCH_KIOSK_PREVIEW'
+}
+
+function mapConfigCardStyleToUi(cardStyle: ScreenConfig['cardStyle']): 'SOFT' | 'GLASS' | 'BORDER' | 'NONE' {
+  if (cardStyle === 'GLASS') return 'GLASS'
+  if (cardStyle === 'OUTLINE' || cardStyle === 'BOLD' || cardStyle === 'SHARP') return 'BORDER'
+  if (cardStyle === 'MINIMAL' || cardStyle === 'LIST') return 'NONE'
+  return 'SOFT'
+}
+
+function inferBackgroundMode(config: ScreenConfig): 'HELL' | 'DUNKEL' | 'VERLAUF' | 'BILD' | 'VIDEO' {
+  if (config.backgroundMode === 'VIDEO') return 'VIDEO'
+  if (config.backgroundMode === 'IMAGE') return 'BILD'
+  const value = (config.backgroundValue || '').toLowerCase()
+  if (value.includes('linear-gradient')) return 'VERLAUF'
+  if (value.includes('#f8fafc') || value.includes('#ffffff')) return 'HELL'
+  return 'DUNKEL'
+}
+
+function derivePaddingFromDensity(density: CardDensity): number {
+  if (density === 'KOMPAKT') return 12
+  if (density === 'GROSS') return 22
+  return 16
+}
+
+function deriveCardPadding(cardPadding: number): string {
+  if (cardPadding <= 12) return '0.5rem'
+  if (cardPadding >= 22) return '1rem'
+  return '0.75rem'
+}
+
+function buildPreviewBackground(
+  mode: BackgroundModeUi,
+  primaryColor: string,
+  accentColor: string,
+  mediaUrl: string
+): React.CSSProperties {
+  const cleanUrl = mediaUrl.trim()
+  if (mode === 'HELL') return { background: '#f8fafc', color: '#0f172a' }
+  if (mode === 'DUNKEL') return { background: '#0f172a', color: '#ffffff' }
+  if (mode === 'VERLAUF') return { background: `linear-gradient(135deg, ${primaryColor}, ${accentColor})`, color: '#ffffff' }
+  if ((mode === 'BILD' || mode === 'VIDEO') && cleanUrl) {
+    return {
+      backgroundImage: `linear-gradient(rgba(15,23,42,0.45), rgba(15,23,42,0.45)), url(${cleanUrl})`,
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      color: '#ffffff',
+    }
+  }
+  return { background: '#111827', color: '#ffffff' }
+}
 
 function mapScreenLayoutToMode(layoutType: AdminDisplayScreen['layoutType']): DisplayMode {
   if (layoutType === 'PROMO_SPLIT') return 'PROMOTION_SCREEN'
@@ -270,15 +333,7 @@ export default function AdminScreenStudioPage() {
         setConfigId(config.id)
         setPrimaryColor(config.productNameColor || config.textColor || '#f97316')
         setAccentColor(config.accentColor || '#ec4899')
-        setBackgroundMode(
-          config.backgroundMode === 'VIDEO'
-            ? 'VIDEO'
-            : config.backgroundMode === 'IMAGE'
-              ? 'BILD'
-              : config.backgroundMode === 'COLOR'
-                ? 'DUNKEL'
-                : 'VERLAUF'
-        )
+        setBackgroundMode(inferBackgroundMode(config))
         setBackgroundMediaUrl(config.backgroundMediaUrl || '')
         setShowLogo(Boolean(config.logoUrl))
         setHighlightPrice(config.showPrices)
@@ -286,7 +341,7 @@ export default function AdminScreenStudioPage() {
         setShowCategoryHeaders(config.showCategoryHeaders)
         setShowIngredients(config.showAllergens)
         setEnableAnimations(config.overlayAnimation !== 'NONE')
-        setCardStyle((['SOFT', 'GLASS', 'BORDER', 'NONE'] as const).includes(config.cardStyle as any) ? (config.cardStyle as any) : 'SOFT')
+        setCardStyle(mapConfigCardStyleToUi(config.cardStyle))
         setFontFamily(config.fontFamily || 'Poppins, sans-serif')
         setPixelPadding(config.cardPadding || 16)
         setDefaultColumnCount(Math.max(1, Math.min(8, config.defaultColumnCount || 2)))
@@ -297,6 +352,7 @@ export default function AdminScreenStudioPage() {
         setProductNameFontSize(Math.max(16, Math.min(54, config.productFontSize || 28)))
         setFontSizeMode(config.productFontSize >= 32 ? 'GROSS' : config.productFontSize <= 22 ? 'KLEIN' : 'MITTEL')
         setCardDensity(config.cardPadding <= 12 ? 'KOMPAKT' : config.cardPadding >= 22 ? 'GROSS' : 'KOMFORT')
+        setSelectedDisplayTemplate(inferTemplateFromConfig(config))
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : 'Screen Studio konnte nicht geladen werden.')
       } finally {
@@ -362,6 +418,13 @@ export default function AdminScreenStudioPage() {
     })
   }, [visibleDesignProducts, designCategoryFocus, designProductSearch])
 
+  const previewProducts = useMemo(() => {
+    const pool = filteredDesignProducts.length > 0 ? filteredDesignProducts : visibleDesignProducts
+    const maxPerDisplay = Math.max(2, defaultColumnCount * 2)
+    const maxVisible = Math.max(2, Math.floor(maxPerDisplay / Math.max(1, targetWallDisplays)))
+    return pool.slice(0, maxVisible)
+  }, [filteredDesignProducts, visibleDesignProducts, defaultColumnCount, targetWallDisplays])
+
   const categories = useMemo(
     () =>
       Array.from(
@@ -390,6 +453,39 @@ export default function AdminScreenStudioPage() {
   }, [rows, selectedDeviceIdForSettings])
 
   useEffect(() => {
+    if (!session?.tenantId) return
+    const key = `screen-studio-ui:${session.tenantId}`
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return
+    try {
+      const saved = JSON.parse(raw) as {
+        targetWallDisplays?: number
+        expertMode?: boolean
+      }
+      if (typeof saved.targetWallDisplays === 'number') {
+        setTargetWallDisplays(Math.max(1, Math.min(8, saved.targetWallDisplays)))
+      }
+      if (typeof saved.expertMode === 'boolean') {
+        setExpertMode(saved.expertMode)
+      }
+    } catch {
+      // ignore broken local UI cache
+    }
+  }, [session?.tenantId])
+
+  useEffect(() => {
+    if (!session?.tenantId) return
+    const key = `screen-studio-ui:${session.tenantId}`
+    window.localStorage.setItem(
+      key,
+      JSON.stringify({
+        targetWallDisplays,
+        expertMode,
+      })
+    )
+  }, [session?.tenantId, targetWallDisplays, expertMode])
+
+  useEffect(() => {
     if (!selectedDisplayForSettings?.screenId) {
       setEditingScreen(null)
       return
@@ -405,10 +501,19 @@ export default function AdminScreenStudioPage() {
     const screen = screenSettingsById[selectedDesignScreenId]
     if (!screen) return
     setSelectedDisplayMode(mapScreenLayoutToMode(screen.layoutType))
-    setPrimaryColor(screen.backgroundColor || '#f97316')
-    setAccentColor(screen.accentColor || '#ec4899')
-    setBackgroundMode(screen.backgroundColor?.toLowerCase() === '#f8fafc' ? 'HELL' : 'DUNKEL')
   }, [selectedDesignScreenId, screenSettingsById])
+
+  useEffect(() => {
+    if (cardDensity === 'KOMPAKT') {
+      setPixelPadding(10)
+      return
+    }
+    if (cardDensity === 'GROSS') {
+      setPixelPadding(24)
+      return
+    }
+    setPixelPadding(16)
+  }, [cardDensity])
 
   async function refreshAfterDeviceChange() {
     if (!token || !session?.tenantId) return
@@ -606,6 +711,8 @@ export default function AdminScreenStudioPage() {
     setSelectedDisplayTemplate(template)
     if (template === 'MODERN_GRID') {
       setCardStyle('SOFT')
+      setCardDensity('KOMFORT')
+      setPixelPadding(derivePaddingFromDensity('KOMFORT'))
       setBackgroundMode('VERLAUF')
       setFontSizeMode('MITTEL')
       setProductNameFontSize(28)
@@ -614,6 +721,8 @@ export default function AdminScreenStudioPage() {
     }
     if (template === 'CLASSIC_MENU') {
       setCardStyle('NONE')
+      setCardDensity('KOMPAKT')
+      setPixelPadding(derivePaddingFromDensity('KOMPAKT'))
       setBackgroundMode('DUNKEL')
       setFontSizeMode('KLEIN')
       setProductNameFontSize(22)
@@ -623,6 +732,8 @@ export default function AdminScreenStudioPage() {
     }
     if (template === 'PROMOTION_HIGHLIGHT') {
       setCardStyle('GLASS')
+      setCardDensity('GROSS')
+      setPixelPadding(derivePaddingFromDensity('GROSS'))
       setBackgroundMode('VIDEO')
       setFontSizeMode('GROSS')
       setProductNameFontSize(36)
@@ -631,6 +742,8 @@ export default function AdminScreenStudioPage() {
       return
     }
     setCardStyle('SOFT')
+    setCardDensity('KOMFORT')
+    setPixelPadding(derivePaddingFromDensity('KOMFORT'))
     setBackgroundMode('HELL')
     setFontSizeMode('MITTEL')
     setProductNameFontSize(30)
@@ -944,14 +1057,12 @@ export default function AdminScreenStudioPage() {
           </section>
         ) : null}
 
-        {activeTab === 'LAYOUT' || activeTab === 'BRANDING' || activeTab === 'EASY_ORDER' || activeTab === 'PUBLISH' ? (
+        {activeTab === 'LAYOUT' || activeTab === 'BRANDING' || activeTab === 'PUBLISH' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">
               {activeTab === 'BRANDING'
                 ? 'Branding'
-                : activeTab === 'EASY_ORDER'
-                  ? 'Easy Order Vorbereitung'
-                  : activeTab === 'PUBLISH'
+                : activeTab === 'PUBLISH'
                     ? 'Veröffentlichung'
                     : 'Layout'}
             </h2>
@@ -990,7 +1101,7 @@ export default function AdminScreenStudioPage() {
                 >
                   {DISPLAY_MODES.map((mode) => (
                     <option key={mode.id} value={mode.id}>
-                      {mode.id}
+                      {mode.label}
                     </option>
                   ))}
                 </select>
@@ -1006,7 +1117,7 @@ export default function AdminScreenStudioPage() {
                 >
                   {DISPLAY_TEMPLATES.map((template) => (
                     <option key={template.id} value={template.id}>
-                      {template.id}
+                      {template.label}
                     </option>
                   ))}
                 </select>
@@ -1015,12 +1126,50 @@ export default function AdminScreenStudioPage() {
                 </p>
               </Field>
               <div className="lg:col-span-2 grid gap-2 sm:grid-cols-3">
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-                  Orientierung: <span className="font-semibold">{selectedScreen?.orientation || 'LANDSCAPE'}</span>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-                  Auflösung: <span className="font-semibold">{selectedScreen?.resolutionPreset || 'FULL_HD'}</span>
-                </div>
+                <Field label="Orientation / Ausrichtung">
+                  <select
+                    value={selectedScreen?.orientation || 'LANDSCAPE'}
+                    onChange={(event) => {
+                      if (!selectedDesignScreenId) return
+                      setScreenSettingsById((current) => {
+                        const screen = current[selectedDesignScreenId]
+                        if (!screen) return current
+                        return {
+                          ...current,
+                          [selectedDesignScreenId]: { ...screen, orientation: event.target.value as AdminDisplayScreen['orientation'] },
+                        }
+                      })
+                    }}
+                    disabled={!selectedDesignScreenId || !selectedScreen}
+                    className="input-ui"
+                  >
+                    <option value="LANDSCAPE">Querformat</option>
+                    <option value="PORTRAIT">Hochformat</option>
+                  </select>
+                </Field>
+                <Field label="Auflösung">
+                  <select
+                    value={selectedScreen?.resolutionPreset || 'FULL_HD'}
+                    onChange={(event) => {
+                      if (!selectedDesignScreenId) return
+                      setScreenSettingsById((current) => {
+                        const screen = current[selectedDesignScreenId]
+                        if (!screen) return current
+                        return {
+                          ...current,
+                          [selectedDesignScreenId]: { ...screen, resolutionPreset: event.target.value as AdminDisplayScreen['resolutionPreset'] },
+                        }
+                      })
+                    }}
+                    disabled={!selectedDesignScreenId || !selectedScreen}
+                    className="input-ui"
+                  >
+                    <option value="HD">HD</option>
+                    <option value="FULL_HD">Full HD</option>
+                    <option value="FOUR_K">4K</option>
+                    <option value="CUSTOM">Custom</option>
+                  </select>
+                </Field>
                 <button
                   type="button"
                   onClick={handleAutoLayoutRecommendation}
@@ -1210,8 +1359,13 @@ export default function AdminScreenStudioPage() {
                         setFontSizeMode(preset.font)
                         setProductNameFontSize(preset.font === 'KLEIN' ? 20 : preset.font === 'GROSS' ? 34 : 28)
                         setCardDensity(preset.density)
+                        setPixelPadding(derivePaddingFromDensity(preset.density))
                         setCardStyle(preset.density === 'KOMPAKT' ? 'NONE' : 'SOFT')
                         setEnableAnimations(preset.anim)
+                        if (template === 'Klarando Modern') setSelectedDisplayTemplate('MODERN_GRID')
+                        if (template === 'Klassische Preistafel') setSelectedDisplayTemplate('CLASSIC_MENU')
+                        if (template === 'Tagesangebot') setSelectedDisplayTemplate('PROMOTION_HIGHLIGHT')
+                        if (template === 'Burger') setSelectedDisplayTemplate('TOUCH_KIOSK_PREVIEW')
                       }
                     }}
                     className={`rounded-2xl border px-4 py-4 text-left text-sm font-medium ${
@@ -1227,15 +1381,7 @@ export default function AdminScreenStudioPage() {
                 <div
                   className="mt-3 rounded-xl p-4"
                   style={{
-                    background:
-                      backgroundMode === 'HELL'
-                        ? '#f8fafc'
-                        : backgroundMode === 'DUNKEL'
-                          ? '#0f172a'
-                          : backgroundMode === 'VERLAUF'
-                            ? `linear-gradient(135deg, ${primaryColor}, ${accentColor})`
-                            : '#111827',
-                    color: backgroundMode === 'HELL' ? '#0f172a' : '#ffffff',
+                    ...buildPreviewBackground(backgroundMode, primaryColor, accentColor, backgroundMediaUrl),
                     padding: `${pixelPadding}px`,
                     fontFamily,
                     transform: `scale(${scalePercent / 100})`,
@@ -1244,50 +1390,72 @@ export default function AdminScreenStudioPage() {
                 >
                   <p className="text-xs uppercase">{selectedTemplate}</p>
                   <p className="mt-1 text-lg font-bold">Menüvorschau · {defaultColumnCount} Spalten</p>
+                  {showLogo ? (
+                    <div className="mt-2 inline-flex items-center rounded-md bg-white/20 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide">
+                      KLARANDO LOGO
+                    </div>
+                  ) : null}
+                  {showCategoryHeaders ? (
+                    <p
+                      className="mt-3 font-semibold uppercase tracking-wide opacity-85"
+                      style={{ fontSize: `${Math.max(10, Math.min(28, categoryFontSize * 0.72))}px` }}
+                    >
+                      Empfohlene Kategorie
+                    </p>
+                  ) : null}
                   <div
                     className="mt-3 grid gap-2"
                     style={{
                       gridTemplateColumns: `repeat(${Math.max(1, Math.min(8, defaultColumnCount))}, minmax(0, 1fr))`,
                     }}
                   >
-                    {Array.from({ length: Math.max(2, Math.min(12, defaultColumnCount * 2)) }).map((_, index) => (
+                    {previewProducts.map((product, index) => (
                       <div
-                        key={index}
+                        key={product.id}
                         className={`${cardStyle === 'NONE' ? '' : 'rounded-lg'} p-2`}
                         style={{
                           background: cardStyle === 'NONE' ? 'transparent' : 'rgba(0,0,0,0.25)',
                           border: cardStyle === 'BORDER' ? `1px solid ${accentColor}` : undefined,
                           backdropFilter: cardStyle === 'GLASS' ? 'blur(4px)' : undefined,
+                          padding: deriveCardPadding(pixelPadding),
                         }}
                       >
-                        <p style={{ fontSize: `${fontSizeMode === 'KLEIN' ? 12 : fontSizeMode === 'GROSS' ? 18 : 14}px` }}>
-                          Produkt {index + 1}
+                        <p style={{ fontSize: `${Math.max(12, Math.min(34, productNameFontSize * 0.55))}px` }}>
+                          {product.name}
                         </p>
                         {showCategoryOnCard ? (
                           <p style={{ fontSize: `${Math.max(10, Math.min(24, categoryFontSize * 0.6))}px` }} className="opacity-80">
-                            Kategorie
+                            {product.screen.displayCategory || product.category?.name || 'Kategorie'}
                           </p>
                         ) : null}
                         {highlightPrice ? (
                           <p style={{ fontSize: `${Math.max(11, Math.min(28, priceFontSize * 0.6))}px` }} className="font-semibold">
-                            {(7.9 + index).toFixed(2).replace('.', ',')} €
+                            {`${product.price} €`}
                           </p>
                         ) : null}
                         {showIngredients ? (
                           <p style={{ fontSize: `${Math.max(10, Math.min(20, ingredientFontSize * 0.6))}px` }} className="opacity-75">
-                            Salat, Tomate, Sauce
+                            {product.ingredients.slice(0, 4).map((entry) => entry.name).join(', ') || 'Zutaten'}
                           </p>
                         ) : null}
                       </div>
                     ))}
                   </div>
+                  {(backgroundMode === 'BILD' || backgroundMode === 'VIDEO') && !backgroundMediaUrl.trim() ? (
+                    <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-900">
+                      Hintergrund ist auf {backgroundMode === 'VIDEO' ? 'Video' : 'Bild'} gestellt, aber es fehlt eine URL.
+                    </p>
+                  ) : null}
                 </div>
                 <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  Vorschau zeigt Spalten und Dichte live. Für Bildschirmwand (1–8) werden Produkte automatisch verteilt.
+                  Vorschau zeigt Farben, Kartenstil, Spalten, Zutaten/Kategorien und Produktzahl pro Display live.
                 </div>
               </div>
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="md:col-span-2 xl:col-span-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Farben & Branding</p>
+              </div>
               <Field label="Hauptfarbe"><input type="color" value={primaryColor} onChange={(e) => setPrimaryColor(e.target.value)} className="input-ui h-10" /></Field>
               <Field label="Akzentfarbe"><input type="color" value={accentColor} onChange={(e) => setAccentColor(e.target.value)} className="input-ui h-10" /></Field>
               <Field label="Hintergrund">
@@ -1307,6 +1475,9 @@ export default function AdminScreenStudioPage() {
                   className="input-ui"
                 />
               </Field>
+              <div className="md:col-span-2 xl:col-span-4 mt-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Produktdarstellung</p>
+              </div>
               <Field label="Schriftgröße">
                 <select
                   value={fontSizeMode}
@@ -1331,7 +1502,15 @@ export default function AdminScreenStudioPage() {
                 />
               </Field>
               <Field label="Produktkarten">
-                <select value={cardDensity} onChange={(e) => setCardDensity(e.target.value as CardDensity)} className="input-ui">
+                <select
+                  value={cardDensity}
+                  onChange={(e) => {
+                    const density = e.target.value as CardDensity
+                    setCardDensity(density)
+                    setPixelPadding(derivePaddingFromDensity(density))
+                  }}
+                  className="input-ui"
+                >
                   <option value="KOMPAKT">Kompakt</option>
                   <option value="KOMFORT">Komfort</option>
                   <option value="GROSS">Groß</option>
@@ -1381,6 +1560,9 @@ export default function AdminScreenStudioPage() {
                   <option value="NEIN">Nein</option>
                 </select>
               </Field>
+              <div className="md:col-span-2 xl:col-span-4 mt-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Layout & Timing</p>
+              </div>
               <Field label="Spalten pro Bildschirm">
                 <select
                   value={String(defaultColumnCount)}
@@ -1408,12 +1590,14 @@ export default function AdminScreenStudioPage() {
                   <option value="7">7 Displays</option>
                   <option value="8">8 Displays</option>
                 </select>
+                <p className="mt-1 text-xs text-slate-500">Wird in der Auto-Rotation für Wand-Setups genutzt.</p>
               </Field>
               <Field label="Expertenmodus">
                 <select value={expertMode ? 'AKTIV' : 'INAKTIV'} onChange={(e) => setExpertMode(e.target.value === 'AKTIV')} className="input-ui">
                   <option value="INAKTIV">Inaktiv</option>
                   <option value="AKTIV">Aktiv</option>
                 </select>
+                <p className="mt-1 text-xs text-slate-500">Schaltet erweiterte Felder frei. Kein eigener Runtime-Schalter.</p>
               </Field>
             </div>
             {expertMode ? (
@@ -1578,8 +1762,66 @@ export default function AdminScreenStudioPage() {
               <StatCard label="Letzter Sync" value={stats.latestSync ? new Date(stats.latestSync).toLocaleString('de-DE') : '-'} />
               <StatCard label="Offline Queue" value="Vorbereitet" />
             </div>
+            <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+              <Field label="Sync-Intervall (Sekunden)">
+                <input
+                  value="Automatisch pro Gerät"
+                  disabled
+                  className="input-ui bg-slate-100 text-slate-500"
+                />
+              </Field>
+              <Field label="Offline Ordering Enabled">
+                <select disabled className="input-ui bg-slate-100 text-slate-500" value="IN_VORBEREITUNG" onChange={() => undefined}>
+                  <option value="IN_VORBEREITUNG">In Vorbereitung</option>
+                </select>
+              </Field>
+              <Field label="Queue-Sync bei Wiederverbindung">
+                <select disabled className="input-ui bg-slate-100 text-slate-500" value="IN_VORBEREITUNG" onChange={() => undefined}>
+                  <option value="IN_VORBEREITUNG">In Vorbereitung</option>
+                </select>
+              </Field>
+              <Field label="Fallback-Screen bei leerem Cache">
+                <select disabled className="input-ui bg-slate-100 text-slate-500" value="IN_VORBEREITUNG" onChange={() => undefined}>
+                  <option value="IN_VORBEREITUNG">In Vorbereitung</option>
+                </select>
+              </Field>
+            </div>
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
               Easy-Order Offline Queue, Bestell-Sync und Konfliktauflösung sind vorbereitet und werden im nächsten Schritt erweitert.
+            </div>
+          </section>
+        ) : null}
+
+        {activeTab === 'EASY_ORDER' ? (
+          <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Easy Order Vorbereitung</h2>
+            <p className="mt-2 text-sm text-slate-700">
+              Dieser Bereich ist für den späteren Touch-Checkout vorbereitet. Aktuell bleiben die Optionen bewusst deaktiviert.
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <Field label="Touch-Modus">
+                <select disabled className="input-ui bg-slate-100 text-slate-500" value="IN_VORBEREITUNG" onChange={() => undefined}>
+                  <option value="IN_VORBEREITUNG">In Vorbereitung</option>
+                </select>
+              </Field>
+              <Field label="Warenkorb-Modus">
+                <select disabled className="input-ui bg-slate-100 text-slate-500" value="IN_VORBEREITUNG" onChange={() => undefined}>
+                  <option value="IN_VORBEREITUNG">In Vorbereitung</option>
+                </select>
+              </Field>
+              <Field label="Offline-Bestellungen erlauben">
+                <select disabled className="input-ui bg-slate-100 text-slate-500" value="IN_VORBEREITUNG" onChange={() => undefined}>
+                  <option value="IN_VORBEREITUNG">In Vorbereitung</option>
+                </select>
+              </Field>
+              <Field label="Tischmodus / Bestellnummernmodus">
+                <select disabled className="input-ui bg-slate-100 text-slate-500" value="IN_VORBEREITUNG" onChange={() => undefined}>
+                  <option value="IN_VORBEREITUNG">In Vorbereitung</option>
+                </select>
+              </Field>
+            </div>
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              In Vorbereitung: Runtime-Anbindung für Checkout, lokale Queue-Synchronisierung und Kassen-Übergabe.
             </div>
           </section>
         ) : null}
@@ -1587,6 +1829,10 @@ export default function AdminScreenStudioPage() {
         {activeTab === 'PREVIEW' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Vorschau</h2>
+            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+              Aktive Vorschau: {selectedDisplayTemplate} · {defaultColumnCount} Spalten · {previewProducts.length} Produkte je Display ·
+              {showIngredients ? ' Zutaten an' : ' Zutaten aus'} · {showCategoryHeaders ? ' Kategorien als Überschrift' : ' Keine Kategorieüberschrift'}
+            </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 { label: '1920×1080', cap: 24 },
@@ -1608,11 +1854,7 @@ export default function AdminScreenStudioPage() {
                 )
               })}
             </div>
-            <div className="mt-4">
-              <a href="/admin/screen-studio?tab=preview" className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">
-                Vorschau aktualisieren
-              </a>
-            </div>
+            <p className="mt-4 text-xs text-slate-500">Die Live-Vorschau im Layout-Tab verwendet dieselbe State-Konfiguration wie diese Kapazitätsvorschau.</p>
           </section>
         ) : null}
 
