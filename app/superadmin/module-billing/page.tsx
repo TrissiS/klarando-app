@@ -5,6 +5,8 @@ import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   applyTenantFeaturePackage,
+  deactivateOrderDeskDeviceBinding,
+  deleteOrderDeskDeviceBinding,
   getDisplayDeviceOverview,
   getAccessContext,
   getAccessUserPermissions,
@@ -12,9 +14,12 @@ import {
   getEffectiveFeatureModules,
   getFeatureModuleCatalog,
   getOrderDeskDeviceBindingsForScope,
+  regenerateDisplayPairingCode,
+  resetOrderDeskDevicePairing,
   getTenantBillingConfig,
   getSuperadminDriverOverview,
   getPermissionMatrix,
+  updateDisplayDeviceActiveState,
   updateTenantFeatureModules,
   updateTenantBillingConfig,
   updateAccessUserPermissions,
@@ -51,13 +56,64 @@ const MODULE_GROUPS: Array<{ label: string; keys: FeatureModuleKey[] }> = [
   { label: 'Plattform & Branding', keys: ['PLATFORM_BRANDING', 'STAFF'] },
 ]
 
-const ROLE_PRESETS: Record<string, FeatureModuleKey[]> = {
-  ADMIN: ['ORDERS', 'PRODUCTS', 'CATEGORIES', 'INGREDIENTS', 'ALLERGENS', 'ANALYTICS', 'PAYMENT', 'STAFF'],
-  FILIALLEITER: ['ORDERS', 'PRODUCTS', 'CATEGORIES', 'INGREDIENTS', 'PAYMENT', 'ANALYTICS'],
-  MITARBEITER: ['ORDERS', 'PRODUCTS', 'CATEGORIES'],
-  FAHRER: ['DRIVERS', 'DELIVERY_ZONES'],
-  KUECHE: ['ORDERS', 'DISPLAYS'],
+const ROLE_PRESETS: Record<string, AccessPermission[]> = {
+  ADMIN: ['TENANTS_READ', 'TENANTS_WRITE', 'USERS_READ', 'USERS_WRITE', 'PRODUCTS_READ', 'PRODUCTS_WRITE', 'INVENTORY_READ', 'INVENTORY_WRITE', 'ORDERS_READ', 'ORDERS_WRITE', 'SETTINGS_READ', 'SETTINGS_WRITE', 'AUDIT_READ'],
+  FILIALLEITER: ['USERS_READ', 'PRODUCTS_READ', 'PRODUCTS_WRITE', 'INVENTORY_READ', 'INVENTORY_WRITE', 'ORDERS_READ', 'ORDERS_WRITE', 'SETTINGS_READ'],
+  MITARBEITER: ['PRODUCTS_READ', 'PRODUCTS_WRITE', 'ORDERS_READ', 'ORDERS_WRITE', 'INVENTORY_READ'],
+  FAHRER: ['ORDERS_READ'],
+  KUECHE: ['ORDERS_READ', 'ORDERS_WRITE', 'PRODUCTS_READ'],
 }
+
+type UiRightDefinition = {
+  id: string
+  group: string
+  label: string
+  permission: AccessPermission
+  moduleKeys: FeatureModuleKey[]
+}
+
+const UI_RIGHTS: UiRightDefinition[] = [
+  { id: 'products-read', group: 'Produkte & Menü', label: 'Produkte lesen', permission: 'PRODUCTS_READ', moduleKeys: ['PRODUCTS'] },
+  { id: 'products-create', group: 'Produkte & Menü', label: 'Produkte erstellen', permission: 'PRODUCTS_WRITE', moduleKeys: ['PRODUCTS'] },
+  { id: 'products-edit', group: 'Produkte & Menü', label: 'Produkte bearbeiten', permission: 'PRODUCTS_WRITE', moduleKeys: ['PRODUCTS'] },
+  { id: 'products-delete', group: 'Produkte & Menü', label: 'Produkte löschen', permission: 'PRODUCTS_WRITE', moduleKeys: ['PRODUCTS'] },
+  { id: 'prices-edit', group: 'Produkte & Menü', label: 'Preise bearbeiten', permission: 'PRODUCTS_WRITE', moduleKeys: ['PRODUCTS'] },
+  { id: 'categories-manage', group: 'Produkte & Menü', label: 'Kategorien verwalten', permission: 'PRODUCTS_WRITE', moduleKeys: ['CATEGORIES'] },
+  { id: 'ingredients-manage', group: 'Produkte & Menü', label: 'Zutaten verwalten', permission: 'PRODUCTS_WRITE', moduleKeys: ['INGREDIENTS'] },
+  { id: 'allergens-manage', group: 'Produkte & Menü', label: 'Allergene verwalten', permission: 'PRODUCTS_WRITE', moduleKeys: ['ALLERGENS'] },
+  { id: 'menu-import-use', group: 'Produkte & Menü', label: 'Menü-Import nutzen', permission: 'PRODUCTS_WRITE', moduleKeys: ['PRODUCTS'] },
+  { id: 'orders-read', group: 'Bestellungen & Kasse', label: 'Bestellungen lesen', permission: 'ORDERS_READ', moduleKeys: ['ORDERS'] },
+  { id: 'orders-edit', group: 'Bestellungen & Kasse', label: 'Bestellungen bearbeiten', permission: 'ORDERS_WRITE', moduleKeys: ['ORDERS'] },
+  { id: 'orders-cancel', group: 'Bestellungen & Kasse', label: 'Bestellungen stornieren', permission: 'ORDERS_WRITE', moduleKeys: ['ORDERS'] },
+  { id: 'pos-use', group: 'Bestellungen & Kasse', label: 'Kasse/POS nutzen', permission: 'ORDERS_WRITE', moduleKeys: ['POS'] },
+  { id: 'cashread', group: 'Bestellungen & Kasse', label: 'Tagesabschluss sehen', permission: 'SETTINGS_READ', moduleKeys: ['CASH_CLOSING'] },
+  { id: 'cashcreate', group: 'Bestellungen & Kasse', label: 'Tagesabschluss erstellen', permission: 'SETTINGS_WRITE', moduleKeys: ['CASH_CLOSING'] },
+  { id: 'display-control', group: 'Bestellungen & Kasse', label: 'Displays steuern', permission: 'SETTINGS_WRITE', moduleKeys: ['DISPLAYS'] },
+  { id: 'orderdesk-use', group: 'Bestellungen & Kasse', label: 'OrderDesk nutzen', permission: 'ORDERS_WRITE', moduleKeys: ['ORDERDESK'] },
+  { id: 'inventory-read', group: 'Lager & Einkauf', label: 'Lager lesen', permission: 'INVENTORY_READ', moduleKeys: ['STOCK'] },
+  { id: 'inventory-write', group: 'Lager & Einkauf', label: 'Bestand ändern', permission: 'INVENTORY_WRITE', moduleKeys: ['STOCK'] },
+  { id: 'goods-receipt', group: 'Lager & Einkauf', label: 'Wareneingang buchen', permission: 'INVENTORY_WRITE', moduleKeys: ['STOCK'] },
+  { id: 'suppliers-manage', group: 'Lager & Einkauf', label: 'Lieferanten verwalten', permission: 'INVENTORY_WRITE', moduleKeys: ['SUPPLIERS'] },
+  { id: 'inventory-count', group: 'Lager & Einkauf', label: 'Inventur durchführen', permission: 'INVENTORY_WRITE', moduleKeys: ['STOCK'] },
+  { id: 'users-read', group: 'Benutzer & Team', label: 'Benutzer lesen', permission: 'USERS_READ', moduleKeys: ['STAFF'] },
+  { id: 'users-invite', group: 'Benutzer & Team', label: 'Benutzer einladen', permission: 'USERS_WRITE', moduleKeys: ['STAFF'] },
+  { id: 'users-edit', group: 'Benutzer & Team', label: 'Benutzer bearbeiten', permission: 'USERS_WRITE', moduleKeys: ['STAFF'] },
+  { id: 'users-delete', group: 'Benutzer & Team', label: 'Benutzer löschen', permission: 'USERS_WRITE', moduleKeys: ['STAFF'] },
+  { id: 'roles-assign', group: 'Benutzer & Team', label: 'Rollen/Rechte vergeben', permission: 'USERS_WRITE', moduleKeys: ['STAFF'] },
+  { id: 'drivers-read', group: 'Lieferung & Fahrer', label: 'Fahrer lesen', permission: 'ORDERS_READ', moduleKeys: ['DRIVERS'] },
+  { id: 'drivers-manage', group: 'Lieferung & Fahrer', label: 'Fahrer verwalten', permission: 'ORDERS_WRITE', moduleKeys: ['DRIVERS'] },
+  { id: 'zones-edit', group: 'Lieferung & Fahrer', label: 'Lieferzonen bearbeiten', permission: 'SETTINGS_WRITE', moduleKeys: ['DELIVERY_ZONES'] },
+  { id: 'tours-view', group: 'Lieferung & Fahrer', label: 'Touren sehen', permission: 'ORDERS_READ', moduleKeys: ['DRIVERS'] },
+  { id: 'driver-app-use', group: 'Lieferung & Fahrer', label: 'Fahrer-App nutzen', permission: 'ORDERS_READ', moduleKeys: ['DRIVERS'] },
+  { id: 'settings-read', group: 'System', label: 'Einstellungen lesen', permission: 'SETTINGS_READ', moduleKeys: ['PLATFORM_BRANDING'] },
+  { id: 'settings-write', group: 'System', label: 'Einstellungen bearbeiten', permission: 'SETTINGS_WRITE', moduleKeys: ['PLATFORM_BRANDING'] },
+  { id: 'branch-edit', group: 'System', label: 'Filialdaten bearbeiten', permission: 'TENANTS_WRITE', moduleKeys: ['PLATFORM_BRANDING'] },
+  { id: 'device-pair', group: 'System', label: 'Geräte koppeln', permission: 'SETTINGS_WRITE', moduleKeys: ['DISPLAYS', 'ORDERDESK'] },
+  { id: 'device-remove', group: 'System', label: 'Geräte entfernen', permission: 'SETTINGS_WRITE', moduleKeys: ['DISPLAYS', 'ORDERDESK'] },
+  { id: 'audit-read', group: 'Audit', label: 'Protokolle lesen', permission: 'AUDIT_READ', moduleKeys: ['ANALYTICS'] },
+  { id: 'billing-read', group: 'Audit', label: 'Abrechnungen einsehen', permission: 'SETTINGS_READ', moduleKeys: ['ANALYTICS'] },
+  { id: 'changes-track', group: 'Audit', label: 'Änderungen nachvollziehen', permission: 'AUDIT_READ', moduleKeys: ['ANALYTICS'] },
+]
 
 const MODULE_PRICE_STORAGE_KEY = 'superadmin.module-prices.v1'
 
@@ -66,10 +122,16 @@ function formatEuroFromCents(cents: number) {
 }
 
 function normalizeMoneyInputToCents(input: string): number {
-  const normalized = input.replace(/\./g, '').replace(',', '.').replace(/[^0-9.\-]/g, '')
+  const cleaned = input.trim().replace(/\s+/g, '').replace(/[^0-9,.-]/g, '')
+  if (!cleaned) return 0
+  const normalized = cleaned.replace(',', '.')
   const parsed = Number(normalized)
   if (!Number.isFinite(parsed)) return 0
   return Math.max(0, Math.round(parsed * 100))
+}
+
+function formatMoneyInput(cents: number) {
+  return (cents / 100).toFixed(2).replace('.', ',')
 }
 
 function buildPermissionGroupLabel(permission: AccessPermission) {
@@ -105,6 +167,7 @@ export default function SuperadminModuleBillingPage() {
   const [matrixPermissions, setMatrixPermissions] = useState<AccessPermission[]>([])
   const [selectedPackageIds, setSelectedPackageIds] = useState<string[]>([])
   const [modulePricesByTenant, setModulePricesByTenant] = useState<Record<string, Record<string, number>>>({})
+  const [modulePriceInputByTenant, setModulePriceInputByTenant] = useState<Record<string, Record<string, string>>>({})
   const [billingDraft, setBillingDraft] = useState<{
     planType: 'REVENUE_SHARE' | 'MONTHLY_FIXED' | 'ORDER_PACKAGE' | 'HYBRID' | 'CUSTOM'
     billingPeriod: 'MONTHLY' | 'WEEKLY'
@@ -116,6 +179,7 @@ export default function SuperadminModuleBillingPage() {
   const [displayRows, setDisplayRows] = useState<DisplayDeviceOverviewRow[]>([])
   const [orderDeskRows, setOrderDeskRows] = useState<OrderDeskDeviceBinding[]>([])
   const [driverRows, setDriverRows] = useState<SuperadminDriverOverviewRow[]>([])
+  const [pairingModal, setPairingModal] = useState<{ title: string; payload: string; qrImageUrl?: string | null } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -139,6 +203,23 @@ export default function SuperadminModuleBillingPage() {
   useEffect(() => {
     localStorage.setItem(MODULE_PRICE_STORAGE_KEY, JSON.stringify(modulePricesByTenant))
   }, [modulePricesByTenant])
+
+  useEffect(() => {
+    if (!tenantId) return
+    setModulePriceInputByTenant((current) => {
+      const tenantDraft = { ...(current[tenantId] || {}) }
+      const tenantPrices = modulePricesByTenant[tenantId] || {}
+      for (const module of modules) {
+        if (tenantDraft[module.key] === undefined) {
+          tenantDraft[module.key] = formatMoneyInput(tenantPrices[module.key] || 0)
+        }
+      }
+      return {
+        ...current,
+        [tenantId]: tenantDraft,
+      }
+    })
+  }, [tenantId, modules, modulePricesByTenant])
 
   useEffect(() => {
     if (!token) return
@@ -242,27 +323,32 @@ export default function SuperadminModuleBillingPage() {
     for (const entry of moduleCatalog) map.set(entry.key, entry)
     return map
   }, [moduleCatalog])
-  const visiblePermissionMatrix = useMemo(() => {
-    const allowed = new Set<AccessPermission>()
-    for (const module of modules.filter((entry) => entry.enabled)) {
-      for (const permission of module.requiredPermissions) allowed.add(permission)
-    }
-    const q = query.trim().toLowerCase()
-    return matrixPermissions.filter((permission) => {
-      if (!allowed.has(permission)) return false
-      return !q || formatAccessPermission(permission).toLowerCase().includes(q)
-    })
-  }, [matrixPermissions, modules, query])
   const groupedPermissions = useMemo(() => {
-    const groups = new Map<string, AccessPermission[]>()
-    for (const permission of visiblePermissionMatrix) {
-      const group = buildPermissionGroupLabel(permission)
-      const current = groups.get(group) || []
-      current.push(permission)
-      groups.set(group, current)
+    const activeModuleKeys = new Set(
+      modules.filter((entry) => entry.enabled).map((entry) => entry.key)
+    )
+    const availablePermissions = new Set(matrixPermissions)
+    const q = query.trim().toLowerCase()
+    const groups = new Map<string, UiRightDefinition[]>()
+    for (const right of UI_RIGHTS) {
+      if (!availablePermissions.has(right.permission)) continue
+      if (!right.moduleKeys.some((key) => activeModuleKeys.has(key))) continue
+      if (
+        q &&
+        !`${right.label} ${right.group} ${formatAccessPermission(right.permission)}`
+          .toLowerCase()
+          .includes(q)
+      ) {
+        continue
+      }
+      const current = groups.get(right.group) || []
+      current.push(right)
+      groups.set(right.group, current)
     }
-    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'de'))
-  }, [visiblePermissionMatrix])
+    return Array.from(groups.entries())
+      .map(([group, rights]) => [group, rights.sort((left, right) => left.label.localeCompare(right.label, 'de'))] as const)
+      .sort(([left], [right]) => left.localeCompare(right, 'de'))
+  }, [matrixPermissions, modules, query])
   const groupedModuleRows = useMemo(() => {
     const q = query.trim().toLowerCase()
     return MODULE_GROUPS.map((group) => {
@@ -274,6 +360,10 @@ export default function SuperadminModuleBillingPage() {
     }).filter((group) => group.rows.length > 0)
   }, [modulesByKey, query])
   const modulePriceDraft = useMemo(() => modulePricesByTenant[tenantId] || {}, [modulePricesByTenant, tenantId])
+  const modulePriceInputDraft = useMemo(
+    () => modulePriceInputByTenant[tenantId] || {},
+    [modulePriceInputByTenant, tenantId]
+  )
   const modulePriceTotals = useMemo(() => {
     let monthlyNetCents = 0
     for (const module of modules) {
@@ -286,30 +376,45 @@ export default function SuperadminModuleBillingPage() {
   const deviceRows = useMemo(() => {
     const displayDevices = displayRows.map((entry) => ({
       id: `display-${entry.id}`,
+      sourceKind: 'DISPLAY' as const,
       name: entry.name,
       type: `Display (${entry.displayType})`,
       branch: entry.tenantName || '—',
       status: entry.status,
       lastSeenAt: entry.lastSeenAt,
       pairedAt: entry.lastSyncAt,
+      displayRef: entry.entityId || entry.code,
+      tenantId: entry.tenantId,
+      bindingId: null as string | null,
+      driverId: null as string | null,
     }))
     const orderDeskDevices = orderDeskRows.map((entry) => ({
       id: `orderdesk-${entry.id}`,
+      sourceKind: 'ORDERDESK' as const,
       name: entry.deviceAlias || entry.deviceSerial,
       type: 'OrderDesk',
       branch: tenantNameById.get(entry.tenantId) || '—',
       status: entry.isActive ? (entry.lastSeenAt ? 'online' : 'offline') : 'inactive',
       lastSeenAt: entry.lastSeenAt,
       pairedAt: entry.boundAt || entry.createdAt,
+      bindingId: entry.id,
+      displayRef: null as string | null,
+      tenantId: entry.tenantId,
+      driverId: null as string | null,
     }))
     const driverDevices = driverRows.map((entry) => ({
       id: `driver-${entry.id}`,
+      sourceKind: 'DRIVER' as const,
       name: entry.name,
       type: 'Fahrergerät',
       branch: entry.tenant?.name || '—',
       status: entry.isActive ? (entry.stats.activeDeliveries > 0 ? 'online' : 'offline') : 'inactive',
       lastSeenAt: entry.stats.lastAssignmentAt,
       pairedAt: entry.createdAt,
+      driverId: entry.id,
+      displayRef: null as string | null,
+      tenantId: entry.tenantId || null,
+      bindingId: null as string | null,
     }))
     return [...displayDevices, ...orderDeskDevices, ...driverDevices]
   }, [displayRows, orderDeskRows, driverRows, tenantNameById])
@@ -352,10 +457,21 @@ export default function SuperadminModuleBillingPage() {
   }
 
   function setModulePrice(moduleKey: FeatureModuleKey, value: string) {
-    const cents = normalizeMoneyInputToCents(value)
+    setModulePriceInputByTenant((current) => ({
+      ...current,
+      [tenantId]: { ...(current[tenantId] || {}), [moduleKey]: value },
+    }))
+  }
+
+  function commitModulePrice(moduleKey: FeatureModuleKey) {
+    const cents = normalizeMoneyInputToCents(modulePriceInputDraft[moduleKey] ?? '')
     setModulePricesByTenant((current) => ({
       ...current,
       [tenantId]: { ...(current[tenantId] || {}), [moduleKey]: cents },
+    }))
+    setModulePriceInputByTenant((current) => ({
+      ...current,
+      [tenantId]: { ...(current[tenantId] || {}), [moduleKey]: formatMoneyInput(cents) },
     }))
   }
 
@@ -374,13 +490,96 @@ export default function SuperadminModuleBillingPage() {
   }
 
   function applyRolePreset(role: keyof typeof ROLE_PRESETS) {
-    const allowedKeys = new Set(ROLE_PRESETS[role])
-    const allowedPermissions = modules
-      .filter((entry) => allowedKeys.has(entry.key))
-      .flatMap((entry) => entry.requiredPermissions)
-    setPermissions(Array.from(new Set(allowedPermissions)) as AccessPermission[])
+    const availablePermissions = new Set(matrixPermissions)
+    const nextPermissions = ROLE_PRESETS[role].filter((permission) => availablePermissions.has(permission))
+    setPermissions(Array.from(new Set(nextPermissions)) as AccessPermission[])
     setRolePreset(role)
-    setInfo(`Rollen-Vorlage ${role} angewendet (innerhalb aktiver Module).`)
+    setInfo(`Rollen-Vorlage ${role} angewendet.`)
+  }
+
+  async function handleDeviceLock(row: (typeof deviceRows)[number]) {
+    try {
+      setLoading(true)
+      setError('')
+      if (row.sourceKind === 'DISPLAY' && row.displayRef) {
+        await updateDisplayDeviceActiveState(token, row.displayRef, false)
+        setInfo('Display wurde gesperrt (inactive).')
+      } else if (row.sourceKind === 'ORDERDESK' && row.bindingId) {
+        await deactivateOrderDeskDeviceBinding(token, row.bindingId)
+        setInfo('OrderDesk-Gerät wurde gesperrt.')
+      } else {
+        setError('API fehlt aktuell: Fahrergeräte können hier noch nicht gesperrt werden.')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Gerät konnte nicht gesperrt werden')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleDeviceDelete(row: (typeof deviceRows)[number]) {
+    if (!window.confirm('Gerät wirklich löschen/entkoppeln?')) return
+    try {
+      setLoading(true)
+      setError('')
+      if (row.sourceKind === 'ORDERDESK' && row.bindingId) {
+        await deleteOrderDeskDeviceBinding(token, row.bindingId)
+        setInfo('OrderDesk-Gerät wurde gelöscht.')
+      } else if (row.sourceKind === 'DISPLAY') {
+        setError('API fehlt aktuell: Display-Löschen ist in dieser Ansicht noch nicht angebunden.')
+      } else {
+        setError('API fehlt aktuell: Fahrergeräte können hier noch nicht gelöscht werden.')
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Gerät konnte nicht gelöscht werden')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleDeviceRePair(row: (typeof deviceRows)[number]) {
+    try {
+      setLoading(true)
+      setError('')
+      if (row.sourceKind === 'ORDERDESK' && row.bindingId) {
+        const next = await resetOrderDeskDevicePairing(token, row.bindingId)
+        setPairingModal({
+          title: `OrderDesk neu koppeln: ${row.name}`,
+          payload: next.pairingPayload,
+          qrImageUrl: next.qrImageUrl,
+        })
+        setInfo('OrderDesk Pairing-Code wurde neu erzeugt.')
+      } else if (row.sourceKind === 'DISPLAY' && row.displayRef) {
+        const next = await regenerateDisplayPairingCode(token, row.displayRef)
+        setPairingModal({
+          title: `Display neu koppeln: ${row.name}`,
+          payload: next.pairingPayload,
+          qrImageUrl: next.qrImageUrl,
+        })
+        setInfo('Display Pairing-Code wurde neu erzeugt.')
+      } else {
+        setPairingModal({
+          title: `Fahrergerät: ${row.name}`,
+          payload: `TODO: Pairing-API fehlt. Geräte-ID: ${row.driverId || row.id}`,
+        })
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Neu koppeln fehlgeschlagen')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function handleDeviceQr(row: (typeof deviceRows)[number]) {
+    setPairingModal({
+      title: `QR / Geräteinfo: ${row.name}`,
+      payload:
+        row.sourceKind === 'DISPLAY'
+          ? `DisplayRef: ${row.displayRef || row.id}\nStatus: ${row.status}`
+          : row.sourceKind === 'ORDERDESK'
+            ? `OrderDesk Binding: ${row.bindingId || row.id}\nStatus: ${row.status}`
+            : `Fahrergeräte-ID: ${row.driverId || row.id}\nTODO: QR-Route für Fahrergeräte`,
+    })
   }
 
   async function saveBillingDraft() {
@@ -436,7 +635,7 @@ export default function SuperadminModuleBillingPage() {
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <a
-              href={`/superadmin/fees${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}` : ''}`}
+              href={`/superadmin/fees${tenantId ? `?tenantId=${encodeURIComponent(tenantId)}&branchId=${encodeURIComponent(tenantId)}` : ''}`}
               className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-800 transition hover:bg-slate-50"
             >
               In Gebühren &amp; Provisionen öffnen
@@ -462,88 +661,106 @@ export default function SuperadminModuleBillingPage() {
             <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm font-semibold text-slate-900">Modulabrechnung für ausgewählte Filiale</p>
               <p className="mt-1 text-xs text-slate-600">
-                Preise und Provisionen direkt hier pflegen. Für volle Monatsauswertung nutze zusätzlich „Gebühren &amp; Provisionen“.
+                Monatswerte für die Filiale pflegen. Diese Daten bleiben netto und werden später für Abrechnungspositionen genutzt.
               </p>
-              <div className="mt-3 grid gap-2 md:grid-cols-3">
-                <input
-                  type="number"
-                  step="0.01"
-                  value={billingDraft ? billingDraft.monthlyFeeCents / 100 : 0}
-                  onChange={(event) =>
-                    setBillingDraft((current) =>
-                      current
-                        ? { ...current, monthlyFeeCents: Math.round(Number(event.target.value || 0) * 100) }
-                        : current
-                    )
-                  }
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Monatsgebühr (€)"
-                />
-                <input
-                  type="number"
-                  value={billingDraft?.includedOrders || 0}
-                  onChange={(event) =>
-                    setBillingDraft((current) =>
-                      current ? { ...current, includedOrders: Math.round(Number(event.target.value || 0)) } : current
-                    )
-                  }
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Inklusivbestellungen"
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  value={billingDraft?.commissionPercent || 0}
-                  onChange={(event) =>
-                    setBillingDraft((current) =>
-                      current ? { ...current, commissionPercent: Number(event.target.value || 0) } : current
-                    )
-                  }
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Provision (%)"
-                />
-                <input
-                  type="number"
-                  step="0.01"
-                  value={billingDraft ? billingDraft.fixedFeePerOrderCents / 100 : 0}
-                  onChange={(event) =>
-                    setBillingDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            fixedFeePerOrderCents: Math.round(Number(event.target.value || 0) * 100),
-                          }
-                        : current
-                    )
-                  }
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                  placeholder="Fixbetrag Zusatzorder (€)"
-                />
-                <select
-                  value={billingDraft?.planType || 'REVENUE_SHARE'}
-                  onChange={(event) =>
-                    setBillingDraft((current) =>
-                      current
-                        ? {
-                            ...current,
-                            planType: event.target.value as
-                              | 'REVENUE_SHARE'
-                              | 'MONTHLY_FIXED'
-                              | 'ORDER_PACKAGE'
-                              | 'HYBRID'
-                              | 'CUSTOM',
-                          }
-                        : current
-                    )
-                  }
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-                >
-                  <option value="REVENUE_SHARE">Provision</option>
-                  <option value="MONTHLY_FIXED">Monatspauschale</option>
-                  <option value="ORDER_PACKAGE">Bestellpaket</option>
-                  <option value="HYBRID">Hybrid</option>
-                  <option value="CUSTOM">Individuell</option>
-                </select>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <label className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  Monatliche Grundgebühr netto
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={billingDraft ? billingDraft.monthlyFeeCents / 100 : 0}
+                    onChange={(event) =>
+                      setBillingDraft((current) =>
+                        current ? { ...current, monthlyFeeCents: Math.round(Number(event.target.value || 0) * 100) } : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  Inklusive Bestellungen pro Monat
+                  <input
+                    type="number"
+                    value={billingDraft?.includedOrders || 0}
+                    onChange={(event) =>
+                      setBillingDraft((current) =>
+                        current ? { ...current, includedOrders: Math.round(Number(event.target.value || 0)) } : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  Preis je zusätzlicher Bestellung netto
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={billingDraft ? billingDraft.fixedFeePerOrderCents / 100 : 0}
+                    onChange={(event) =>
+                      setBillingDraft((current) =>
+                        current ? { ...current, fixedFeePerOrderCents: Math.round(Number(event.target.value || 0) * 100) } : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  Mindestvertragslaufzeit / Abrechnungsmodell
+                  <select
+                    value={billingDraft?.planType || 'REVENUE_SHARE'}
+                    onChange={(event) =>
+                      setBillingDraft((current) =>
+                        current
+                          ? {
+                              ...current,
+                              planType: event.target.value as 'REVENUE_SHARE' | 'MONTHLY_FIXED' | 'ORDER_PACKAGE' | 'HYBRID' | 'CUSTOM',
+                            }
+                          : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="REVENUE_SHARE">Provision</option>
+                    <option value="MONTHLY_FIXED">Monatspauschale</option>
+                    <option value="ORDER_PACKAGE">Bestellpaket</option>
+                    <option value="HYBRID">Hybrid</option>
+                    <option value="CUSTOM">Individuell</option>
+                  </select>
+                </label>
+                <label className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  Abrechnungsart
+                  <select
+                    value={billingDraft?.billingPeriod || 'MONTHLY'}
+                    onChange={(event) =>
+                      setBillingDraft((current) =>
+                        current
+                          ? { ...current, billingPeriod: event.target.value as 'MONTHLY' | 'WEEKLY' }
+                          : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  >
+                    <option value="MONTHLY">Monatlich</option>
+                    <option value="WEEKLY">Wöchentlich</option>
+                  </select>
+                </label>
+                <label className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                  Provision in %
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={billingDraft?.commissionPercent || 0}
+                    onChange={(event) =>
+                      setBillingDraft((current) =>
+                        current ? { ...current, commissionPercent: Number(event.target.value || 0) } : current
+                      )
+                    }
+                    className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+              <div className="mt-3">
                 <button
                   type="button"
                   className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
@@ -554,6 +771,9 @@ export default function SuperadminModuleBillingPage() {
                 </button>
               </div>
             </div>
+            <p className="mb-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+              Paketvorlagen setzen Module und Beispielpreise, danach können alle Werte einzeln angepasst werden.
+            </p>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {packages.map((entry) => (
                 <article key={entry.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -600,7 +820,15 @@ export default function SuperadminModuleBillingPage() {
                         <p className="mt-1 text-xs text-slate-600">{entry.description}</p>
                         <div className="mt-2 grid gap-2 sm:grid-cols-2">
                           <label className="text-xs text-slate-600">Monatlicher Preis netto
-                            <input type="text" inputMode="decimal" value={((modulePriceDraft[entry.key] || 0) / 100).toFixed(2).replace('.', ',')} onChange={(event) => setModulePrice(entry.key, event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm" />
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={modulePriceInputDraft[entry.key] ?? formatMoneyInput(modulePriceDraft[entry.key] || 0)}
+                              onChange={(event) => setModulePrice(entry.key, event.target.value)}
+                              onBlur={() => commitModulePrice(entry.key)}
+                              className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+                              placeholder="0,00"
+                            />
                           </label>
                           <div className="text-xs text-slate-600">Statuspreis
                             <div className="mt-1 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-800">{entry.enabled ? formatEuroFromCents(modulePriceDraft[entry.key] || 0) : '0,00 €'}</div>
@@ -634,7 +862,7 @@ export default function SuperadminModuleBillingPage() {
         {tab === 'PERMISSIONS' ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="mb-2 text-sm font-semibold text-slate-900">Einzelrechte innerhalb aktiver Module</h3>
-            <p className="text-xs text-slate-600">Module und Abrechnung sind getrennt. Hier verwaltest du nur Benutzerrechte.</p>
+            <p className="text-xs text-slate-600">Module und Abrechnung sind getrennt. Hier verwaltest du nur Benutzerrechte. Mehrere Detailrechte können auf dasselbe technische Basisrecht zeigen.</p>
             <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs text-slate-500">Rollen-Vorlage:</span>
@@ -671,22 +899,22 @@ export default function SuperadminModuleBillingPage() {
                 <div key={group} className="rounded-2xl border border-slate-200 p-3">
                   <p className="mb-2 text-sm font-semibold">{group}</p>
                   <div className="grid gap-1 sm:grid-cols-2">
-                    {entries.map((permission) => {
-                      const checked = permissions.includes(permission)
+                    {entries.map((right) => {
+                      const checked = permissions.includes(right.permission)
                       return (
-                        <label key={permission} className="flex items-center gap-2 text-xs">
+                        <label key={right.id} className="flex items-center gap-2 text-xs">
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={(event) => {
                               setPermissions((current) =>
                                 event.target.checked
-                                  ? [...current, permission]
-                                  : current.filter((entry) => entry !== permission)
+                                  ? [...current, right.permission]
+                                  : current.filter((entry) => entry !== right.permission)
                               )
                             }}
                           />
-                          {formatAccessPermission(permission)}
+                          {right.label}
                         </label>
                       )
                     })}
@@ -735,16 +963,39 @@ export default function SuperadminModuleBillingPage() {
                       <td className="px-3 py-2 text-slate-700">{row.pairedAt ? new Date(row.pairedAt).toLocaleDateString('de-DE') : '—'}</td>
                       <td className="px-3 py-2">
                         <div className="flex flex-wrap gap-1">
-                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700">Gerät sperren</button>
-                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700">Gerät löschen</button>
-                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700">Neu koppeln</button>
-                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700">QR-Code</button>
+                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 disabled:opacity-60" onClick={() => void handleDeviceLock(row)} disabled={loading || (row.sourceKind === 'DRIVER')}>
+                            Gerät sperren
+                          </button>
+                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700 disabled:opacity-60" onClick={() => void handleDeviceDelete(row)} disabled={loading || row.sourceKind === 'DRIVER'}>
+                            Gerät löschen
+                          </button>
+                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700" onClick={() => void handleDeviceRePair(row)}>
+                            Neu koppeln
+                          </button>
+                          <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700" onClick={() => handleDeviceQr(row)}>
+                            QR-Code
+                          </button>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        ) : null}
+
+        {pairingModal ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+            <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-4 shadow-xl">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold text-slate-900">{pairingModal.title}</h4>
+                <button type="button" className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700" onClick={() => setPairingModal(null)}>Schließen</button>
+              </div>
+              {pairingModal.qrImageUrl ? (
+                <img src={pairingModal.qrImageUrl} alt="Pairing QR-Code" className="mx-auto mt-3 h-52 w-52 rounded-lg border border-slate-200 object-contain" />
+              ) : null}
+              <textarea readOnly value={pairingModal.payload} className="mt-3 h-32 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700" />
             </div>
           </div>
         ) : null}
