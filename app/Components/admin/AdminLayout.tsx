@@ -38,8 +38,15 @@ type NavItem = {
 type NavSection = {
   id: string
   label: string
-  defaultOpen?: boolean
   items: NavItem[]
+}
+
+type MainNavSection = {
+  id: string
+  label: string
+  href: string
+  moduleKey: AdminModuleKey
+  requiredPermission?: AccessPermission
 }
 
 type AdminUiMode = 'compact' | 'touch'
@@ -50,11 +57,10 @@ type HeaderInboxItem = {
   unread: boolean
 }
 
-const navSections: NavSection[] = [
+const sectionNavSections: NavSection[] = [
   {
     id: 'dashboard',
     label: 'Dashboard',
-    defaultOpen: true,
     items: [
       { href: '/admin', label: 'Dashboard', moduleKey: 'dashboard' },
     ],
@@ -62,7 +68,6 @@ const navSections: NavSection[] = [
   {
     id: 'daily',
     label: 'Tagesgeschäft',
-    defaultOpen: true,
     items: [
       { href: '/admin/orders', label: 'Bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
       {
@@ -83,7 +88,6 @@ const navSections: NavSection[] = [
   {
     id: 'menu',
     label: 'Speisekarte',
-    defaultOpen: true,
     items: [
       { href: '/admin/products?tab=overview', label: 'Übersicht', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
@@ -163,6 +167,17 @@ const navSections: NavSection[] = [
   },
 ]
 
+const mainSidebarSections: MainNavSection[] = [
+  { id: 'dashboard', label: 'Dashboard', href: '/admin', moduleKey: 'dashboard' },
+  { id: 'daily', label: 'Bestellungen', href: '/admin/orders', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
+  { id: 'menu', label: 'Speisekarte', href: '/admin/products?tab=overview', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+  { id: 'devices', label: 'Geräte', href: '/admin/screen-studio', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+  { id: 'delivery', label: 'Lieferung', href: '/admin/app-settings?section=delivery-area', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+  { id: 'marketing', label: 'Marketing', href: '/admin/actions', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
+  { id: 'finance', label: 'Finanzen', href: '/admin/finanzen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+  { id: 'admin', label: 'Verwaltung', href: '/admin/staff', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+]
+
 function AdminLayoutContent({ title, subtitle, children }: Props) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -174,10 +189,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [featureScope, setFeatureScope] = useState<EffectiveFeatureSetResponse | null>(null)
   const [platformBranding, setPlatformBranding] = useState<PlatformBrandingSettings | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
-  const [menuQuery, setMenuQuery] = useState('')
-  const [openSectionIds, setOpenSectionIds] = useState<Set<string>>(
-    () => new Set(navSections.filter((section) => section.defaultOpen).map((section) => section.id))
-  )
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
   const [hasValidSession, setHasValidSession] = useState(false)
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
@@ -564,50 +577,59 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
     return [...itemQuery.entries()].every(([key, value]) => searchParams.get(key) === value)
   }
-  function toggleSection(sectionId: string) {
-    setOpenSectionIds((current) => {
-      const next = new Set(current)
-      if (next.has(sectionId)) {
-        next.delete(sectionId)
-      } else {
-        next.add(sectionId)
-      }
-      return next
-    })
-  }
-  const visibleNavSections = navSections
+  const visibleNavSections = sectionNavSections
     .map((section) => ({
       ...section,
-      items: section.items.filter((item) => {
-        if (!isItemEnabled(item)) {
-          return false
-        }
-        const normalizedQuery = menuQuery.trim().toLowerCase()
-        if (!normalizedQuery) {
-          return true
-        }
-        return item.label.toLowerCase().includes(normalizedQuery)
-      }),
+      items: section.items.filter((item) => isItemEnabled(item)),
     }))
     .filter((section) => section.items.length > 0)
 
-  useEffect(() => {
-    const activeSections = visibleNavSections
-      .filter((section) => section.items.some((item) => isItemActive(item)))
-      .map((section) => section.id)
-    if (activeSections.length === 0) return
-    setOpenSectionIds((current) => {
-      const next = new Set(current)
-      let changed = false
-      for (const sectionId of activeSections) {
-        if (!next.has(sectionId)) {
-          next.add(sectionId)
-          changed = true
-        }
-      }
-      return changed ? next : current
-    })
-  }, [pathname, searchKey, visibleNavSections])
+  const visibleMainSections = mainSidebarSections.filter((section) => {
+    if (
+      !isModuleEnabled(section.moduleKey, {
+        permissions,
+        businessSettings,
+        enabledFeatureKeys,
+      })
+    ) {
+      return false
+    }
+    if (!section.requiredPermission || permissions === null) return true
+    return permissions.has(section.requiredPermission)
+  })
+
+  const activeSection =
+    visibleNavSections.find((section) => section.items.some((item) => isItemActive(item))) ??
+    visibleNavSections.find((section) => section.id === 'dashboard') ??
+    visibleNavSections[0]
+
+  const contextualTabs = activeSection?.items ?? []
+
+  const globalSearchIndex = useMemo(() => {
+    const fromNav = visibleNavSections.flatMap((section) =>
+      section.items.map((item) => ({
+        href: item.href,
+        label: item.label,
+        keywords: [section.label, item.label, item.href],
+      }))
+    )
+    const staticEntries = [
+      { href: '/admin/products', label: 'Produkte', keywords: ['produkt', 'produkte', 'speisekarte'] },
+      { href: '/admin/screen-studio', label: 'Geräte / Screen-Studio', keywords: ['geraete', 'display', 'orderdesk'] },
+      { href: '/admin/settings', label: 'Einstellungen', keywords: ['einstellungen', 'config', 'verwaltung'] },
+    ]
+    return [...fromNav, ...staticEntries]
+  }, [visibleNavSections])
+
+  const globalSearchResults = useMemo(() => {
+    const query = globalSearchQuery.trim().toLowerCase()
+    if (!query) return []
+    return globalSearchIndex
+      .filter((entry) =>
+        entry.keywords.some((keyword) => keyword.toLowerCase().includes(query))
+      )
+      .slice(0, 8)
+  }, [globalSearchIndex, globalSearchQuery])
 
   function inferPathModuleKey(path: string): AdminModuleKey | null {
     if (path === '/admin') return 'dashboard'
@@ -679,53 +701,27 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
           </div>
 
           <nav className={`pointer-events-auto flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
-            <div className="mb-4 rounded-2xl border border-white/20 bg-white/10 p-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-orange-100/75">Menüsuche</p>
-              <input
-                value={menuQuery}
-                onChange={(event) => setMenuQuery(event.target.value)}
-                placeholder="Menüpunkt suchen..."
-                className={`mt-2 w-full rounded-xl border border-white/20 bg-white/90 text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
-              />
-            </div>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
-              {visibleNavSections.map((section) => (
-                <div key={section.id}>
-                  <button
-                    type="button"
-                    onClick={() => toggleSection(section.id)}
-                    className="flex w-full items-center justify-between rounded-xl px-2 py-1 text-left"
+              {visibleMainSections.map((section) => {
+                const isActive =
+                  activeSection?.id === section.id ||
+                  (section.id === 'dashboard' && pathname === '/admin')
+                return (
+                  <a
+                    key={section.id}
+                    href={section.href}
+                    aria-current={isActive ? 'page' : undefined}
+                    title={section.label}
+                    className={`${navLinkClassBase} brand-nav-link ${
+                      isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
+                    }`}
+                    data-nav-anchor="admin-sidebar-link"
+                    onClick={() => setMobileNavOpen(false)}
                   >
-                    <p className="pointer-events-none text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
-                      {section.label}
-                    </p>
-                    <span className="text-xs text-orange-200">{openSectionIds.has(section.id) ? '−' : '+'}</span>
-                  </button>
-                  {openSectionIds.has(section.id) ? (
-                    <div className={isTouchMode ? 'mt-2 space-y-2' : 'mt-1.5 space-y-1.5'}>
-                      {section.items.map((item) => {
-                        const isActive = isItemActive(item)
-
-                        return (
-                          <a
-                            key={item.href}
-                            href={item.href}
-                            aria-current={isActive ? 'page' : undefined}
-                            title={item.tooltip || item.label}
-                            className={`${navLinkClassBase} brand-nav-link ${
-                              isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
-                            }`}
-                            data-nav-anchor="admin-sidebar-link"
-                            onClick={() => setMobileNavOpen(false)}
-                          >
-                            {item.label}
-                          </a>
-                        )
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              ))}
+                    {section.label}
+                  </a>
+                )
+              })}
             </div>
             <div className="mt-4 border-t border-white/15 pt-4">
               <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
@@ -775,6 +771,32 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
 
                 <div className="flex items-center gap-2">
+                  <div className="relative hidden sm:block">
+                    <input
+                      value={globalSearchQuery}
+                      onChange={(event) => {
+                        setGlobalSearchQuery(event.target.value)
+                        setGlobalSearchOpen(true)
+                      }}
+                      onFocus={() => setGlobalSearchOpen(true)}
+                      onBlur={() => setTimeout(() => setGlobalSearchOpen(false), 120)}
+                      placeholder="Suche: Menü, Produkte, Geräte, Einstellungen..."
+                      className="w-[300px] rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs text-rose-900 outline-none"
+                    />
+                    {globalSearchOpen && globalSearchResults.length > 0 ? (
+                      <div className="absolute right-0 z-[160] mt-2 w-[340px] rounded-2xl border border-[var(--brand-border)] bg-white p-2 shadow-xl">
+                        {globalSearchResults.map((entry) => (
+                          <a
+                            key={`${entry.href}-${entry.label}`}
+                            href={entry.href}
+                            className="block rounded-xl px-3 py-2 text-sm text-rose-900 transition hover:bg-rose-50"
+                          >
+                            {entry.label}
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                   <span className="rounded-xl border border-[var(--brand-border)] bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
                     Modus: {isTouchMode ? 'Touch' : 'Kompakt'}
                   </span>
@@ -917,6 +939,33 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   </button>
                 </div>
               ) : null}
+
+              {contextualTabs.length > 0 ? (
+                <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/90 px-3 py-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-900/70">
+                    {activeSection?.label || 'Bereich'}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {contextualTabs.map((tab) => {
+                      const active = isItemActive(tab)
+                      return (
+                        <a
+                          key={tab.href}
+                          href={tab.href}
+                          title={tab.tooltip || tab.label}
+                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                            active
+                              ? 'brand-button-primary text-white'
+                              : 'border border-[var(--brand-border)] bg-rose-50 text-rose-900 hover:bg-rose-100'
+                          }`}
+                        >
+                          {tab.label}
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </header>
 
@@ -942,51 +991,48 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
                 <div className="flex-1 overflow-y-auto px-4 py-4">
                   <div className="space-y-4">
-                    <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
-                      <p className="text-[11px] uppercase tracking-[0.16em] text-rose-900/70">Menüsuche</p>
-                      <input
-                        value={menuQuery}
-                        onChange={(event) => setMenuQuery(event.target.value)}
-                        placeholder="Menüpunkt suchen..."
-                        className="mt-2 w-full rounded-xl border border-rose-200 bg-white px-3 py-2 text-sm text-rose-900 outline-none"
-                      />
-                    </div>
-                    {visibleNavSections.map((section) => (
-                      <div key={section.id}>
-                        <button
-                          type="button"
-                          onClick={() => toggleSection(section.id)}
-                          className="flex w-full items-center justify-between px-1"
+                    {visibleMainSections.map((section) => {
+                      const isActive =
+                        activeSection?.id === section.id ||
+                        (section.id === 'dashboard' && pathname === '/admin')
+                      return (
+                        <a
+                          key={section.id}
+                          href={section.href}
+                          className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
+                            isActive ? 'brand-button-primary text-white' : 'bg-rose-50 text-rose-900 hover:bg-rose-100'
+                          }`}
                         >
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-rose-900/60">
-                            {section.label}
-                          </p>
-                          <span className="text-xs text-rose-900/70">{openSectionIds.has(section.id) ? '−' : '+'}</span>
-                        </button>
-                        {openSectionIds.has(section.id) ? (
-                          <div className="mt-2 space-y-2">
-                            {section.items.map((item) => {
-                              const isActive = isItemActive(item)
-
-                              return (
-                                <a
-                                  key={item.href}
-                                  href={item.href}
-                                  className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
-                                    isActive
-                                      ? 'brand-button-primary'
-                                      : 'bg-rose-50 text-rose-900 hover:bg-rose-100'
-                                  }`}
-                                  title={item.tooltip || item.label}
-                                >
-                                  {item.label}
-                                </a>
-                              )
-                            })}
-                          </div>
-                        ) : null}
+                          {section.label}
+                        </a>
+                      )
+                    })}
+                    {contextualTabs.length > 0 ? (
+                      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-rose-900/70">
+                          {activeSection?.label || 'Bereich'}
+                        </p>
+                        <div className="mt-2 space-y-2">
+                          {contextualTabs.map((tab) => {
+                            const active = isItemActive(tab)
+                            return (
+                              <a
+                                key={tab.href}
+                                href={tab.href}
+                                title={tab.tooltip || tab.label}
+                                className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
+                                  active
+                                    ? 'brand-button-primary text-white'
+                                    : 'bg-white text-rose-900 hover:bg-rose-100'
+                                }`}
+                              >
+                                {tab.label}
+                              </a>
+                            )
+                          })}
+                        </div>
                       </div>
-                    ))}
+                    ) : null}
                     {switchTarget ? (
                       <a
                         href={switchTarget.href}
