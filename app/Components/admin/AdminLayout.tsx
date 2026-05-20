@@ -52,11 +52,18 @@ type HeaderInboxItem = {
 
 const navSections: NavSection[] = [
   {
+    id: 'dashboard',
+    label: 'Dashboard',
+    defaultOpen: true,
+    items: [
+      { href: '/admin', label: 'Dashboard', moduleKey: 'dashboard' },
+    ],
+  },
+  {
     id: 'daily',
     label: 'Tagesgeschäft',
     defaultOpen: true,
     items: [
-      { href: '/admin', label: 'Dashboard', moduleKey: 'dashboard' },
       { href: '/admin/orders', label: 'Bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
       {
         href: '/admin/terminals',
@@ -78,19 +85,18 @@ const navSections: NavSection[] = [
     label: 'Speisekarte',
     defaultOpen: true,
     items: [
-      { href: '/admin/products', label: 'Übersicht', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/products?tab=overview', label: 'Übersicht', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/ingredients', label: 'Zutaten', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       {
-        href: '/admin/products?tab=modifiers',
-        label: 'Extras / Optionen',
+        href: '/admin/ingredients',
+        label: 'Zutaten & Allergene',
         moduleKey: 'products',
         requiredPermission: 'PRODUCTS_READ',
       },
       {
-        href: '/admin/ingredients?tab=allergens',
-        label: 'Allergene',
+        href: '/admin/products?tab=modifiers',
+        label: 'Extras / Optionen',
         moduleKey: 'products',
         requiredPermission: 'PRODUCTS_READ',
       },
@@ -106,64 +112,53 @@ const navSections: NavSection[] = [
         moduleKey: 'products',
         requiredPermission: 'PRODUCTS_READ',
       },
-      {
-        href: '/admin/actions',
-        label: 'Aktionen',
-        moduleKey: 'actions',
-        requiredPermission: 'SETTINGS_READ',
-      },
-    ],
-  },
-  {
-    id: 'delivery',
-    label: 'Lieferbetrieb',
-    items: [
-      { href: '/admin/app-settings?section=hours', label: 'Öffnungszeiten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings?section=delivery-area', label: 'Liefergebiet', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings?section=delivery-fees', label: 'Lieferkosten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings?section=delivery-priority', label: 'Express / Priorität', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/drivers', label: 'Fahrer', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
     ],
   },
   {
     id: 'devices',
     label: 'Geräte',
     items: [
-      { href: '/admin/screen-studio?tab=devices', label: 'Display-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/display-devices', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/screen-studio', label: 'Bildschirmstudio', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/screen-studio?tab=devices', label: 'Abholmonitore', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/terminals', label: 'Kassen-/OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/terminals', label: 'OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/drivers', label: 'Fahrergeräte', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
+    ],
+  },
+  {
+    id: 'delivery',
+    label: 'Lieferbetrieb',
+    items: [
+      { href: '/admin/app-settings?section=delivery-area', label: 'Lieferzonen', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/drivers', label: 'Fahrer', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings?section=delivery-priority', label: 'Touren', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
     ],
   },
   {
     id: 'marketing',
     label: 'Marketing',
     items: [
-      { href: '/admin/actions', label: 'Gutscheine & Aktionen', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/screen-studio?tab=devices', label: 'QR-Code / Direktlink', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/actions?tab=vouchers', label: 'Gutscheine', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/orders?tab=ratings', label: 'Bewertungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {
     id: 'finance',
     label: 'Finanzen',
     items: [
-      { href: '/admin/finanzen', label: 'Zahlungen & Transaktionen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/payments', label: 'Stripe Connect', moduleKey: 'payment', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/finanzen', label: 'Gebühren & Provisionen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/payments', label: 'Abrechnung', moduleKey: 'payment', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/closings/daily', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/closings', label: 'Auswertungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {
-    id: 'management',
+    id: 'admin',
     label: 'Verwaltung',
     items: [
-      { href: '/admin/staff', label: 'Mitarbeiter', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
-      { href: '/admin/staff?tab=permissions', label: 'Rollen & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
-      { href: '/admin/app-settings?section=branding', label: 'Branding', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/settings?section=payments', label: 'Zahlungsarten', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/settings?section=legal', label: 'Rechtliches', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/staff', label: 'Benutzer & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+      { href: '/admin/app-settings?section=business', label: 'Filialdaten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/stock', label: 'Import / Export', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
-      { href: '/admin/closings', label: 'Systemstatus', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
     ],
   },
 ]
@@ -596,6 +591,24 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     }))
     .filter((section) => section.items.length > 0)
 
+  useEffect(() => {
+    const activeSections = visibleNavSections
+      .filter((section) => section.items.some((item) => isItemActive(item)))
+      .map((section) => section.id)
+    if (activeSections.length === 0) return
+    setOpenSectionIds((current) => {
+      const next = new Set(current)
+      let changed = false
+      for (const sectionId of activeSections) {
+        if (!next.has(sectionId)) {
+          next.add(sectionId)
+          changed = true
+        }
+      }
+      return changed ? next : current
+    })
+  }, [pathname, searchKey, visibleNavSections])
+
   function inferPathModuleKey(path: string): AdminModuleKey | null {
     if (path === '/admin') return 'dashboard'
     if (path.startsWith('/admin/products') || path.startsWith('/admin/business-templates') || path.startsWith('/admin/categories') || path.startsWith('/admin/ingredients') || path.startsWith('/admin/suppliers') || path.startsWith('/admin/calculation')) {
@@ -637,6 +650,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const sidebarWidthClass = isTouchMode ? 'w-[248px]' : 'w-[276px]'
   const contentOffsetClass = isTouchMode ? 'md:ml-[248px]' : 'md:ml-[276px]'
   const navLinkPaddingClass = isTouchMode ? 'px-4 py-3.5 text-sm' : 'px-3.5 py-2.5 text-[13px]'
+  const navLinkClassBase = `block w-full rounded-xl font-medium transition-colors ${navLinkPaddingClass}`
   const pageSpacingClass = isTouchMode
     ? 'mx-auto w-full max-w-[1400px] min-w-0 px-3 py-6 sm:px-4 md:px-6 md:py-8'
     : 'mx-auto w-full max-w-[1500px] min-w-0 px-2 py-4 sm:px-3 md:px-5 md:py-6'
@@ -652,26 +666,26 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       data-admin-ui-mode={uiMode}
     >
       <div className="relative isolate min-h-screen min-w-0">
-        <aside className={`brand-sidebar pointer-events-auto fixed inset-y-0 left-0 z-[120] hidden border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
-          <div className={`border-b border-white/15 ${isTouchMode ? 'px-6 py-6' : 'px-5 py-5'}`}>
+        <aside className={`brand-sidebar pointer-events-auto fixed inset-y-0 left-0 z-[120] hidden border-r border-slate-200 bg-white md:flex md:flex-col ${sidebarWidthClass}`}>
+          <div className={`sticky top-0 z-10 border-b border-slate-200 bg-white ${isTouchMode ? 'px-6 py-6' : 'px-5 py-5'}`}>
             <PlatformBranding settings={platformBranding} area="sidebar" />
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
               Klarando Plattform
             </p>
-            <h1 className={`mt-2 font-bold ${isTouchMode ? 'text-2xl' : 'text-[1.35rem]'}`}>Admin Panel</h1>
-            <p className={`mt-2 text-orange-100/80 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>
+            <h1 className={`mt-2 font-bold text-slate-900 ${isTouchMode ? 'text-2xl' : 'text-[1.35rem]'}`}>Admin Panel</h1>
+            <p className={`mt-2 text-slate-500 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>
               Zentrale Verwaltung für Produkte, Mitarbeiter und Prozesse.
             </p>
           </div>
 
           <nav className={`pointer-events-auto flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
-            <div className="mb-4 rounded-2xl border border-white/20 bg-white/10 p-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-orange-100/75">Menüsuche</p>
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Menüsuche</p>
               <input
                 value={menuQuery}
                 onChange={(event) => setMenuQuery(event.target.value)}
                 placeholder="Menüpunkt suchen..."
-                className={`mt-2 w-full rounded-xl border border-white/20 bg-white/90 text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
+                className={`mt-2 w-full rounded-xl border border-slate-200 bg-white text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
               />
             </div>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
@@ -682,10 +696,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                     onClick={() => toggleSection(section.id)}
                     className="flex w-full items-center justify-between rounded-xl px-2 py-1 text-left"
                   >
-                    <p className="pointer-events-none text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+                    <p className="pointer-events-none text-[11px] uppercase tracking-[0.18em] text-slate-500">
                       {section.label}
                     </p>
-                    <span className="text-xs text-orange-200">{openSectionIds.has(section.id) ? '−' : '+'}</span>
+                    <span className="text-xs text-slate-500">{openSectionIds.has(section.id) ? '−' : '+'}</span>
                   </button>
                   {openSectionIds.has(section.id) ? (
                     <div className={isTouchMode ? 'mt-2 space-y-2' : 'mt-1.5 space-y-1.5'}>
@@ -698,8 +712,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                             href={item.href}
                             aria-current={isActive ? 'page' : undefined}
                             title={item.tooltip || item.label}
-                            className={`brand-nav-link block w-full rounded-2xl font-medium ${navLinkPaddingClass} ${
-                              isActive ? 'brand-nav-link-active ring-2 ring-white/70' : 'brand-nav-link-inactive'
+                            className={`${navLinkClassBase} ${
+                              isActive
+                                ? 'bg-slate-900 text-white ring-1 ring-slate-900'
+                                : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
                             }`}
                             data-nav-anchor="admin-sidebar-link"
                             onClick={() => setMobileNavOpen(false)}
@@ -713,8 +729,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
               ))}
             </div>
-            <div className="mt-4 border-t border-white/15 pt-4">
-              <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
                 Schnellzugriff
               </p>
               <div className="mt-2 space-y-2">
@@ -722,7 +738,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   <a
                     href={switchTarget.href}
                     title={switchTarget.label}
-                    className={`brand-nav-link brand-nav-link-inactive block w-full rounded-2xl font-medium ${navLinkPaddingClass}`}
+                    className={`${navLinkClassBase} bg-slate-50 text-slate-700 hover:bg-slate-100`}
                     data-nav-anchor="admin-sidebar-quicklink"
                   >
                     {switchTarget.label}
@@ -732,7 +748,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   type="button"
                   onClick={handleLogout}
                   title="Logout"
-                  className={`block w-full rounded-2xl border border-red-300 bg-red-500/15 text-left font-medium text-red-100 transition hover:bg-red-500/25 ${isTouchMode ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'}`}
+                  className={`block w-full rounded-xl border border-red-200 bg-red-50 text-left font-medium text-red-700 transition hover:bg-red-100 ${isTouchMode ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'}`}
                 >
                   Logout
                 </button>
@@ -740,10 +756,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           </nav>
 
-          <div className={`border-t border-white/15 ${isTouchMode ? 'px-6 py-5' : 'px-5 py-4'}`}>
-            <div className="rounded-2xl bg-white/10 px-4 py-4 ring-1 ring-white/20">
-              <p className="text-xs uppercase tracking-wide text-orange-100/80">Bereich</p>
-              <p className="mt-2 text-sm text-white">{title}</p>
+          <div className={`sticky bottom-0 border-t border-slate-200 bg-white ${isTouchMode ? 'px-6 py-5' : 'px-5 py-4'}`}>
+            <div className="rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Bereich</p>
+              <p className="mt-2 text-sm text-slate-900">{title}</p>
             </div>
           </div>
         </aside>
