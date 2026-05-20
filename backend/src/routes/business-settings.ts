@@ -256,6 +256,28 @@ function mirrorPickupAreaFromDelivery(settings: BusinessSettings) {
   }
 }
 
+function validatePolygonSettings(area: BusinessSettings['deliveryArea']) {
+  if (!area.enabled || area.strategy !== 'POLYGON') {
+    return null
+  }
+  if (!Array.isArray(area.polygonPath) || area.polygonPath.length < 3) {
+    return 'Polygon ist ungültig: mindestens 3 Punkte erforderlich.'
+  }
+  const hasInvalidPoint = area.polygonPath.some(
+    (point) =>
+      !Number.isFinite(point.lat) ||
+      !Number.isFinite(point.lng) ||
+      point.lat < -90 ||
+      point.lat > 90 ||
+      point.lng < -180 ||
+      point.lng > 180
+  )
+  if (hasInvalidPoint) {
+    return 'Polygon ist ungültig: Koordinaten außerhalb des gültigen Bereichs.'
+  }
+  return null
+}
+
 router.post(
   '/upload-image',
   requirePermission(PermissionKey.SETTINGS_WRITE),
@@ -507,6 +529,12 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
           : requestedSettings
 
     const normalizedSettings = mirrorPickupAreaFromDelivery(settings)
+    const polygonValidationError = validatePolygonSettings(normalizedSettings.deliveryArea)
+    if (polygonValidationError) {
+      return res.status(400).json({
+        error: polygonValidationError,
+      })
+    }
 
     const requiresAppActivationValidation = isPublicAppActivation(
       normalizedSettings,

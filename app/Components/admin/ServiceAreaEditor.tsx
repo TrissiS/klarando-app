@@ -90,6 +90,23 @@ function getMapCenter(value: BusinessServiceArea, polygonPath: BusinessServiceAr
   return DEFAULT_MAP_CENTER
 }
 
+function isPointInsidePolygon(
+  point: BusinessServiceAreaPolygonPoint,
+  polygonPath: BusinessServiceAreaPolygonPoint[]
+) {
+  if (polygonPath.length < 3) return false
+  let inside = false
+  for (let i = 0, j = polygonPath.length - 1; i < polygonPath.length; j = i++) {
+    const pointA = polygonPath[i]
+    const pointB = polygonPath[j]
+    const intersects =
+      pointA.lng > point.lng !== pointB.lng > point.lng &&
+      point.lat < ((pointB.lat - pointA.lat) * (point.lng - pointA.lng)) / (pointB.lng - pointA.lng) + pointA.lat
+    if (intersects) inside = !inside
+  }
+  return inside
+}
+
 
 export default function ServiceAreaEditor({
   title,
@@ -109,6 +126,11 @@ export default function ServiceAreaEditor({
   const [excludedZipCodesFocused, setExcludedZipCodesFocused] = useState(false)
   const [excludedStreetsFocused, setExcludedStreetsFocused] = useState(false)
   const [mapsConsentGranted, setMapsConsentGranted] = useState(false)
+  const [mapMode, setMapMode] = useState<'polygon' | 'test'>('polygon')
+  const [testLatitudeInput, setTestLatitudeInput] = useState('')
+  const [testLongitudeInput, setTestLongitudeInput] = useState('')
+  const [testPoint, setTestPoint] = useState<BusinessServiceAreaPolygonPoint | null>(null)
+  const [testResult, setTestResult] = useState<null | { inside: boolean; message: string }>(null)
 
   const polygonPath = useMemo(() => normalizePolygonPath(value.polygonPath || []), [value.polygonPath])
   const canEditMap = !disabled && value.enabled
@@ -154,6 +176,42 @@ export default function ServiceAreaEditor({
   function removePolygonPoint(index: number) {
     const next = polygonPath.filter((_, pointIndex) => pointIndex !== index)
     patch({ polygonPath: normalizePolygonPath(next) })
+  }
+
+  function parseCoordinateInput(value: string, min: number, max: number) {
+    const normalized = value.replace(',', '.').trim()
+    if (!normalized) return null
+    const parsed = Number(normalized)
+    if (!Number.isFinite(parsed) || parsed < min || parsed > max) return null
+    return Number(parsed.toFixed(6))
+  }
+
+  function runPolygonTest() {
+    if (polygonPath.length < 3) {
+      setTestResult({
+        inside: false,
+        message: 'Polygon ist noch ungültig (mindestens 3 Punkte erforderlich).',
+      })
+      return
+    }
+    const lat = parseCoordinateInput(testLatitudeInput, -90, 90)
+    const lng = parseCoordinateInput(testLongitudeInput, -180, 180)
+    if (lat === null || lng === null) {
+      setTestResult({
+        inside: false,
+        message: 'Bitte gültige Testkoordinaten eingeben.',
+      })
+      return
+    }
+    const point = { lat, lng }
+    setTestPoint(point)
+    const inside = isPointInsidePolygon(point, polygonPath)
+    setTestResult({
+      inside,
+      message: inside
+        ? 'Testpunkt liegt im Liefergebiet (innerhalb Polygon).'
+        : 'Testpunkt liegt außerhalb des Liefergebiets.',
+    })
   }
 
   return (
@@ -340,13 +398,51 @@ export default function ServiceAreaEditor({
                   canEditMap={canEditMap}
                   disabled={disabled}
                   enabled={value.enabled}
+                  mapMode={mapMode}
                   onAddPoint={addPolygonPoint}
                   onMovePoint={movePolygonPoint}
                   onRemovePoint={removePolygonPoint}
+                  onSetTestPoint={(nextPoint) => {
+                    setTestPoint(nextPoint)
+                    setTestLatitudeInput(String(nextPoint.lat))
+                    setTestLongitudeInput(String(nextPoint.lng))
+                    const inside = isPointInsidePolygon(nextPoint, polygonPath)
+                    setTestResult({
+                      inside,
+                      message: inside
+                        ? 'Testpunkt liegt im Liefergebiet (innerhalb Polygon).'
+                        : 'Testpunkt liegt außerhalb des Liefergebiets.',
+                    })
+                  }}
+                  testPoint={testPoint}
                 />
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-rose-900/75">
                 <span>Polygonpunkte: {polygonPath.length}</span>
+                <button
+                  type="button"
+                  disabled={!canEditMap}
+                  onClick={() => setMapMode('polygon')}
+                  className={`rounded-lg border px-2 py-1 font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    mapMode === 'polygon'
+                      ? 'border-slate-800 bg-slate-800 text-white'
+                      : 'border-[var(--brand-border)] bg-white text-slate-800 hover:bg-rose-50'
+                  }`}
+                >
+                  Polygon zeichnen
+                </button>
+                <button
+                  type="button"
+                  disabled={!canEditMap}
+                  onClick={() => setMapMode('test')}
+                  className={`rounded-lg border px-2 py-1 font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    mapMode === 'test'
+                      ? 'border-teal-700 bg-teal-700 text-white'
+                      : 'border-[var(--brand-border)] bg-white text-slate-800 hover:bg-rose-50'
+                  }`}
+                >
+                  Testpunkt setzen
+                </button>
                 <button
                   type="button"
                   disabled={!canEditMap}
@@ -363,6 +459,42 @@ export default function ServiceAreaEditor({
                 >
                   Polygon löschen
                 </button>
+              </div>
+              <div className="mt-3 rounded-lg border border-[var(--brand-border)] bg-white p-3">
+                <p className="text-xs font-semibold text-rose-900/80">Liefergebiet testen (Debug)</p>
+                <div className="mt-2 grid gap-2 sm:grid-cols-3">
+                  <input
+                    value={testLatitudeInput}
+                    onChange={(event) => setTestLatitudeInput(event.target.value)}
+                    placeholder="Latitude z.B. 51.995"
+                    className="rounded-lg border border-[var(--brand-border)] px-2 py-1.5 text-xs outline-none"
+                  />
+                  <input
+                    value={testLongitudeInput}
+                    onChange={(event) => setTestLongitudeInput(event.target.value)}
+                    placeholder="Longitude z.B. 7.625"
+                    className="rounded-lg border border-[var(--brand-border)] px-2 py-1.5 text-xs outline-none"
+                  />
+                  <button
+                    type="button"
+                    disabled={!value.enabled}
+                    onClick={runPolygonTest}
+                    className="rounded-lg border border-slate-800 bg-slate-800 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Polygon speichern/testen
+                  </button>
+                </div>
+                {testResult ? (
+                  <p
+                    className={`mt-2 rounded-md px-2 py-1 text-xs ${
+                      testResult.inside
+                        ? 'border border-green-300 bg-green-50 text-green-800'
+                        : 'border border-amber-300 bg-amber-50 text-amber-900'
+                    }`}
+                  >
+                    {testResult.message}
+                  </p>
+                ) : null}
               </div>
               <p className="mt-1 text-xs text-rose-900/70">
                 Tipp: Doppelklick auf einen Punkt entfernt ihn.

@@ -11,9 +11,12 @@ type Props = {
   canEditMap: boolean
   disabled: boolean
   enabled: boolean
+  mapMode?: 'polygon' | 'test'
   onAddPoint: (point: BusinessServiceAreaPolygonPoint) => void
   onMovePoint: (index: number, point: BusinessServiceAreaPolygonPoint) => void
   onRemovePoint: (index: number) => void
+  onSetTestPoint?: (point: BusinessServiceAreaPolygonPoint) => void
+  testPoint?: BusinessServiceAreaPolygonPoint | null
 }
 
 function fitMap(map: ReturnType<typeof useMap>, points: BusinessServiceAreaPolygonPoint[]) {
@@ -37,19 +40,28 @@ function MapAutoFit({ points }: { points: BusinessServiceAreaPolygonPoint[] }) {
 function MapClickCapture({
   disabled,
   enabled,
+  mapMode = 'polygon',
   onAddPoint,
+  onSetTestPoint,
 }: {
   disabled: boolean
   enabled: boolean
+  mapMode?: 'polygon' | 'test'
   onAddPoint: (point: BusinessServiceAreaPolygonPoint) => void
+  onSetTestPoint?: (point: BusinessServiceAreaPolygonPoint) => void
 }) {
   useMapEvents({
     click(event) {
       if (disabled || !enabled) return
-      onAddPoint({
+      const point = {
         lat: Number(event.latlng.lat.toFixed(6)),
         lng: Number(event.latlng.lng.toFixed(6)),
-      })
+      }
+      if (mapMode === 'test') {
+        onSetTestPoint?.(point)
+        return
+      }
+      onAddPoint(point)
     },
   })
   return null
@@ -70,9 +82,12 @@ export default function ServiceAreaPolygonMap({
   canEditMap,
   disabled,
   enabled,
+  mapMode = 'polygon',
   onAddPoint,
   onMovePoint,
   onRemovePoint,
+  onSetTestPoint,
+  testPoint = null,
 }: Props) {
   return (
     <MapContainer center={[center.lat, center.lng]} zoom={12} className="h-full w-full" scrollWheelZoom>
@@ -81,11 +96,28 @@ export default function ServiceAreaPolygonMap({
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
       />
       <MapAutoFit points={polygonPath} />
-      <MapClickCapture disabled={disabled} enabled={enabled} onAddPoint={onAddPoint} />
+      <MapClickCapture
+        disabled={disabled}
+        enabled={enabled}
+        mapMode={mapMode}
+        onAddPoint={onAddPoint}
+        onSetTestPoint={onSetTestPoint}
+      />
       {polygonPath.length >= 3 ? (
         <Polygon
           positions={polygonPath.map((point) => [point.lat, point.lng] as [number, number])}
           pathOptions={{ color: '#ea580c', fillColor: '#fb923c', fillOpacity: 0.2, weight: 2 }}
+        />
+      ) : null}
+      {testPoint ? (
+        <Marker
+          position={[testPoint.lat, testPoint.lng]}
+          icon={divIcon({
+            className: '',
+            html: '<div style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:#0f766e;color:#fff;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:11px;font-weight:700;">T</div>',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          })}
         />
       ) : null}
       {polygonPath.map((point, index) => (
@@ -108,4 +140,3 @@ export default function ServiceAreaPolygonMap({
     </MapContainer>
   )
 }
-
