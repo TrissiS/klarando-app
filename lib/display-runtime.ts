@@ -42,7 +42,21 @@ export type DisplayRuntimeConfig = {
   brandingSettings: Record<string, unknown>
   offlineSettings: Record<string, unknown>
   easyOrderSettings: Record<string, unknown>
+  signageSettings: Record<string, unknown>
   contentSettings: Record<string, unknown>
+  slides: Array<{
+    id: string
+    type: string
+    title: string | null
+    durationSeconds: number
+    background: string | null
+    mediaUrl: string | null
+    productIds: string[]
+    textBlocks: string[]
+    animation: string | null
+    sortOrder: number
+    active: boolean
+  }>
   categories: Array<{ id: string; name: string }>
   products: Array<{ id: string; name: string; categoryId: string | null; categoryName: string | null }>
   publishedVersion: string
@@ -66,6 +80,20 @@ export type DisplayRuntimeConfig = {
   assetSettings: {
     baseUrl: string | null
     preferredFormats: string[]
+  }
+  diagnostics: {
+    effectiveResolution: string | null
+    devicePixelRatio: number | null
+    viewport: string | null
+    orientation: string | null
+    fullscreenSupported: boolean | null
+    touchSupported: boolean | null
+    userAgent: string | null
+    appVersion: string | null
+    estimatedPerformanceClass: string | null
+    supportedVideoFormats: string[]
+    recommendedResolution: string | null
+    lastDiagnosticsAt: string | null
   }
   videoBackgroundEnabled: boolean
   videoBackgroundUrl: string | null

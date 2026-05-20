@@ -23,6 +23,7 @@ import {
   moduleKeyFromString,
   resolveEffectiveFeatureSetForTenant,
 } from '../lib/feature-modules'
+import { parseDisplayMetaFromNotes } from '../lib/display-performance-mode'
 
 const router = Router()
 const ALL_PERMISSIONS = Object.values(PermissionKey)
@@ -119,6 +120,17 @@ type DisplayRecord = {
     platform: string | null
     appVersion: string | null
     source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE' | 'DISPLAY_DEVICE'
+    diagnostics?: {
+      effectiveResolution: string | null
+      devicePixelRatio: number | null
+      orientation: string | null
+      fullscreenSupported: boolean | null
+      touchSupported: boolean | null
+      estimatedPerformanceClass: string | null
+      supportedVideoFormats: string[]
+      recommendedResolution: string | null
+      lastDiagnosticsAt: string | null
+    } | null
   } | null
   status: DisplayManagementStatus
   previewPath: string
@@ -539,6 +551,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
         isActive: true,
         resolutionWidth: true,
         resolutionHeight: true,
+        orientation: true,
         notes: true,
         lastSeenAt: true,
         updatedAt: true,
@@ -731,6 +744,28 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
       })()
 
     const resolution = `${device.resolutionWidth}x${device.resolutionHeight}`
+    const diagnostics = parseDisplayMetaFromNotes(device.notes).diagnostics ?? null
+    const diagnosticsOverview = diagnostics
+      ? {
+          effectiveResolution:
+            diagnostics.viewportWidth && diagnostics.viewportHeight
+              ? `${diagnostics.viewportWidth}x${diagnostics.viewportHeight}`
+              : resolution,
+          devicePixelRatio:
+            typeof diagnostics.devicePixelRatio === 'number' ? diagnostics.devicePixelRatio : null,
+          orientation: diagnostics.orientation ?? device.orientation ?? null,
+          fullscreenSupported:
+            typeof diagnostics.fullscreenSupported === 'boolean'
+              ? diagnostics.fullscreenSupported
+              : null,
+          touchSupported:
+            typeof diagnostics.touchSupported === 'boolean' ? diagnostics.touchSupported : null,
+          estimatedPerformanceClass: diagnostics.estimatedPerformanceClass ?? null,
+          supportedVideoFormats: diagnostics.supportedVideoFormats ?? [],
+          recommendedResolution: diagnostics.recommendedResolution ?? null,
+          lastDiagnosticsAt: diagnostics.measuredAt ?? null,
+        }
+      : null
     rows.push({
       id: `screen:${device.id}`,
       entityId: device.id,
@@ -753,6 +788,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
         platform: null,
         appVersion: null,
         source: 'SCREEN_DEVICE',
+        diagnostics: diagnosticsOverview,
       },
       status: computeDisplayStatus(device.isActive, device.lastSeenAt),
       previewPath: `/screen/${device.deviceCode}`,
@@ -787,6 +823,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
         platform: device.platform,
         appVersion: device.appVersion,
         source: 'DISPLAY_DEVICE',
+        diagnostics: null,
       },
       status,
       previewPath: `/display-client?deviceId=${encodeURIComponent(device.id)}`,

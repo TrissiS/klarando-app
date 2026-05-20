@@ -5388,6 +5388,17 @@ export type DisplayDeviceOverviewRow = {
     platform: string | null
     appVersion: string | null
     source: 'ORDERDESK_BINDING' | 'SCREEN_DEVICE' | 'DISPLAY_DEVICE'
+    diagnostics?: {
+      effectiveResolution: string | null
+      devicePixelRatio: number | null
+      orientation: string | null
+      fullscreenSupported: boolean | null
+      touchSupported: boolean | null
+      estimatedPerformanceClass: string | null
+      supportedVideoFormats: string[]
+      recommendedResolution: string | null
+      lastDiagnosticsAt: string | null
+    } | null
   } | null
   status: DisplayDeviceStatus
   previewPath: string
@@ -5436,6 +5447,7 @@ export type FeatureModuleKey =
   | 'DRIVERS'
   | 'DISPLAYS'
   | 'DISPLAY_DESIGN'
+  | 'SIGNAGE_STUDIO'
   | 'ORDERDESK'
   | 'TERMINALS'
   | 'POS'

@@ -529,7 +529,9 @@ export default function ScreenDevicePage({ params }: Props) {
           brandingSettings: runtimeConfig?.brandingSettings ?? null,
           offlineSettings: runtimeConfig?.offlineSettings ?? null,
           easyOrderSettings: runtimeConfig?.easyOrderSettings ?? null,
+          signageSettings: runtimeConfig?.signageSettings ?? null,
           contentSettings: runtimeConfig?.contentSettings ?? null,
+          slides: runtimeConfig?.slides ?? [],
           categories: runtimeConfig?.categories ?? [],
           products: runtimeConfig?.products ?? [],
         })
@@ -605,7 +607,9 @@ export default function ScreenDevicePage({ params }: Props) {
             brandingSettings: config.brandingSettings ?? null,
             offlineSettings: config.offlineSettings ?? null,
             easyOrderSettings: config.easyOrderSettings ?? null,
+            signageSettings: config.signageSettings ?? null,
             contentSettings: config.contentSettings ?? null,
+            slides: config.slides ?? [],
             categories: config.categories ?? [],
             products: config.products ?? [],
           })

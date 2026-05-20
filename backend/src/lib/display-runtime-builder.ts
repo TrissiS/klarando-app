@@ -46,7 +46,21 @@ type RuntimeShape = {
   brandingSettings: RuntimeSettingsMap
   offlineSettings: RuntimeSettingsMap
   easyOrderSettings: RuntimeSettingsMap
+  signageSettings: RuntimeSettingsMap
   contentSettings: RuntimeSettingsMap
+  slides: Array<{
+    id: string
+    type: string
+    title: string | null
+    durationSeconds: number
+    background: string | null
+    mediaUrl: string | null
+    productIds: string[]
+    textBlocks: string[]
+    animation: string | null
+    sortOrder: number
+    active: boolean
+  }>
   categories: Array<{ id: string; name: string }>
   products: Array<{ id: string; name: string; categoryId: string | null; categoryName: string | null }>
   publishedVersion: string
@@ -75,6 +89,20 @@ type RuntimeShape = {
     baseUrl: string | null
     preferredFormats: string[]
   }
+  diagnostics: {
+    effectiveResolution: string | null
+    devicePixelRatio: number | null
+    viewport: string | null
+    orientation: string | null
+    fullscreenSupported: boolean | null
+    touchSupported: boolean | null
+    userAgent: string | null
+    appVersion: string | null
+    estimatedPerformanceClass: string | null
+    supportedVideoFormats: string[]
+    recommendedResolution: string | null
+    lastDiagnosticsAt: string | null
+  }
   videoBackgroundEnabled: boolean
   videoBackgroundUrl: string | null
   fallbackBackgroundUrl: string | null
@@ -83,6 +111,18 @@ type RuntimeShape = {
   lastSyncAt: string | null
   updatedAt: string
   serverTime: string
+}
+
+function deriveRecommendedResolution(width: number | null | undefined, height: number | null | undefined) {
+  if (!width || !height) return null
+  const landscape = width >= height
+  if (width >= 3500 || height >= 2000) {
+    return landscape ? '3840x2160 (16:9, 4K)' : '2160x3840 (9:16, 4K)'
+  }
+  if (width >= 1800 || height >= 1000) {
+    return landscape ? '1920x1080 (16:9)' : '1080x1920 (9:16)'
+  }
+  return landscape ? '1280x720 (16:9)' : '720x1280 (9:16)'
 }
 
 function toDisplayTypeFromOrderRole(role: string): RuntimeDisplayType {
@@ -137,7 +177,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     const performanceMode = meta.performanceMode ?? 'AUTO'
     const selectedCategoryIds = parseCsvIds(screenDevice.selectedCategoryIds)
     const selectedProductIds = parseCsvIds(screenDevice.selectedProductIds)
-    const [categories, products] = await Promise.all([
+    const [categories, products, activePlaylist] = await Promise.all([
       selectedCategoryIds.length > 0
         ? prisma.category.findMany({
             where: { id: { in: selectedCategoryIds }, tenantId: screenDevice.tenantId },
@@ -157,12 +197,56 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
             orderBy: { name: 'asc' },
           })
         : Promise.resolve([]),
+      prisma.displayPlaylist.findFirst({
+        where: {
+          tenantId: screenDevice.tenantId,
+          isActive: true,
+        },
+        include: {
+          items: {
+            orderBy: { sortOrder: 'asc' },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
     ])
     const displayType: RuntimeDisplayType = 'MENU'
     const mode = toModeFromDisplayType(displayType)
     const template = (screenDevice.cardStyleOverride || 'MODERN_GRID').toUpperCase()
     const cacheVersion = screenDevice.updatedAt.toISOString()
     const refreshIntervalMs = Math.max(5000, screenDevice.refreshIntervalSec * 1000)
+
+    const signageSettingsInput: Record<string, unknown> = {}
+    const signageEnabled = Boolean(signageSettingsInput.enabled ?? activePlaylist?.id)
+    const signageSettings = {
+      enabled: signageEnabled,
+      playlistId: (signageSettingsInput.playlistId as string | undefined) || activePlaylist?.id || null,
+      rotationMode: (signageSettingsInput.rotationMode as string | undefined) || 'SEQUENTIAL',
+      defaultSlideDurationSeconds: Number(signageSettingsInput.defaultSlideDurationSeconds) || 12,
+      transitionType: (signageSettingsInput.transitionType as string | undefined) || 'FADE',
+      loopEnabled: signageSettingsInput.loopEnabled !== false,
+      preloadMedia: signageSettingsInput.preloadMedia !== false,
+      offlineCacheEnabled: signageSettingsInput.offlineCacheEnabled !== false,
+    }
+    const slides = (activePlaylist?.items || []).map((item) => {
+      const config = item.config && typeof item.config === 'object' ? (item.config as Record<string, unknown>) : {}
+      return {
+        id: item.id,
+        type: item.type,
+        title: typeof config.title === 'string' ? config.title : null,
+        durationSeconds: item.durationSeconds,
+        background: typeof config.background === 'string' ? config.background : null,
+        mediaUrl: typeof config.mediaUrl === 'string' ? config.mediaUrl : null,
+        productIds: Array.isArray(config.productIds) ? config.productIds.filter((entry): entry is string => typeof entry === 'string') : [],
+        textBlocks: Array.isArray(config.textBlocks) ? config.textBlocks.filter((entry): entry is string => typeof entry === 'string') : [],
+        animation: typeof config.animation === 'string' ? config.animation : null,
+        sortOrder: item.sortOrder,
+        active: true,
+      }
+    })
+    const diagnosticsMeta = meta.diagnostics || null
+    const effectiveWidth = diagnosticsMeta?.viewportWidth ?? screenDevice.resolutionWidth
+    const effectiveHeight = diagnosticsMeta?.viewportHeight ?? screenDevice.resolutionHeight
 
     return {
       device: {
@@ -219,6 +303,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         offlineOrderingEnabled: false,
         touchModeEnabled: false,
       },
+      signageSettings,
       contentSettings: {
         selectedCategoryIds,
         selectedProductIds,
@@ -228,6 +313,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         offerMediaUrls: screenDevice.offerMediaUrlsOverride ?? [],
         offerMediaRotateSec: screenDevice.offerMediaRotateSecOverride ?? null,
       },
+      slides,
       categories,
       products: products.map((product) => ({
         id: product.id,
@@ -265,6 +351,35 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       assetSettings: {
         baseUrl: null,
         preferredFormats: ['mp4', 'webm', 'jpg', 'png'],
+      },
+      diagnostics: {
+        effectiveResolution:
+          effectiveWidth && effectiveHeight ? `${effectiveWidth}x${effectiveHeight}` : null,
+        devicePixelRatio:
+          typeof diagnosticsMeta?.devicePixelRatio === 'number'
+            ? diagnosticsMeta.devicePixelRatio
+            : null,
+        viewport:
+          diagnosticsMeta?.viewportWidth && diagnosticsMeta?.viewportHeight
+            ? `${diagnosticsMeta.viewportWidth}x${diagnosticsMeta.viewportHeight}`
+            : null,
+        orientation: diagnosticsMeta?.orientation || screenDevice.orientation || null,
+        fullscreenSupported:
+          typeof diagnosticsMeta?.fullscreenSupported === 'boolean'
+            ? diagnosticsMeta.fullscreenSupported
+            : null,
+        touchSupported:
+          typeof diagnosticsMeta?.touchSupported === 'boolean'
+            ? diagnosticsMeta.touchSupported
+            : null,
+        userAgent: diagnosticsMeta?.userAgent || null,
+        appVersion: diagnosticsMeta?.appVersion || null,
+        estimatedPerformanceClass: diagnosticsMeta?.estimatedPerformanceClass || null,
+        supportedVideoFormats: diagnosticsMeta?.supportedVideoFormats || [],
+        recommendedResolution:
+          diagnosticsMeta?.recommendedResolution ||
+          deriveRecommendedResolution(effectiveWidth, effectiveHeight),
+        lastDiagnosticsAt: diagnosticsMeta?.measuredAt || null,
       },
       videoBackgroundEnabled: Boolean(screenDevice.backgroundMediaUrlOverride),
       videoBackgroundUrl: screenDevice.backgroundMediaUrlOverride,
@@ -363,7 +478,18 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       offlineOrderingEnabled: false,
       touchModeEnabled: mode === 'EASY_ORDER',
     },
+    signageSettings: {
+      enabled: false,
+      playlistId: null,
+      rotationMode: 'SEQUENTIAL',
+      defaultSlideDurationSeconds: 12,
+      transitionType: 'FADE',
+      loopEnabled: true,
+      preloadMedia: true,
+      offlineCacheEnabled: true,
+    },
     contentSettings: {},
+    slides: [],
     categories: [],
     products: [],
     publishedVersion: cacheVersion,
@@ -396,6 +522,20 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     assetSettings: {
       baseUrl: null,
       preferredFormats: ['mp4', 'webm', 'jpg', 'png'],
+    },
+    diagnostics: {
+      effectiveResolution: null,
+      devicePixelRatio: null,
+      viewport: null,
+      orientation: null,
+      fullscreenSupported: null,
+      touchSupported: null,
+      userAgent: null,
+      appVersion: latestBinding?.appVersion ?? null,
+      estimatedPerformanceClass: null,
+      supportedVideoFormats: [],
+      recommendedResolution: null,
+      lastDiagnosticsAt: null,
     },
     videoBackgroundEnabled:
       orderDisplay.backgroundMediaMode !== 'NONE' && Boolean(orderDisplay.backgroundMediaUrl),

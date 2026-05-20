@@ -3,8 +3,10 @@ import { PermissionKey } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { buildDisplayRuntimeForDevice } from '../lib/display-runtime-builder'
 import {
+  applyDiagnosticsToNotes,
   applyPerformanceModeToNotes,
   parseDisplayMetaFromNotes,
+  type DisplayDeviceDiagnostics,
   type DisplayPerformanceMode,
 } from '../lib/display-performance-mode'
 import { requirePermission } from '../middleware/auth'
@@ -27,6 +29,64 @@ function parsePerformanceMode(value: unknown): DisplayPerformanceMode | null {
     return normalized
   }
   return null
+}
+
+function toPositiveInt(value: unknown) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null
+  const normalized = Math.max(0, Math.trunc(value))
+  return normalized > 0 ? normalized : null
+}
+
+function toSafeBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : null
+}
+
+function toSafeString(value: unknown, maxLength = 220) {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  if (!normalized) return null
+  return normalized.slice(0, maxLength)
+}
+
+function parseDiagnostics(value: unknown): DisplayDeviceDiagnostics | null {
+  if (!value || typeof value !== 'object') return null
+  const payload = value as Record<string, unknown>
+  const orientationRaw = toSafeString(payload.orientation, 20)?.toUpperCase()
+  const orientation =
+    orientationRaw === 'PORTRAIT' || orientationRaw === 'LANDSCAPE' ? orientationRaw : null
+  const estimatedPerformanceClassRaw = toSafeString(payload.estimatedPerformanceClass, 20)?.toUpperCase()
+  const estimatedPerformanceClass =
+    estimatedPerformanceClassRaw === 'LOW' ||
+    estimatedPerformanceClassRaw === 'MEDIUM' ||
+    estimatedPerformanceClassRaw === 'HIGH'
+      ? estimatedPerformanceClassRaw
+      : null
+  const supportedVideoFormats = Array.isArray(payload.supportedVideoFormats)
+    ? payload.supportedVideoFormats
+        .map((entry) => toSafeString(entry, 30))
+        .filter((entry): entry is string => Boolean(entry))
+        .slice(0, 12)
+    : null
+
+  return {
+    viewportWidth: toPositiveInt(payload.viewportWidth),
+    viewportHeight: toPositiveInt(payload.viewportHeight),
+    screenWidth: toPositiveInt(payload.screenWidth),
+    screenHeight: toPositiveInt(payload.screenHeight),
+    devicePixelRatio:
+      typeof payload.devicePixelRatio === 'number' && Number.isFinite(payload.devicePixelRatio)
+        ? Number(payload.devicePixelRatio)
+        : null,
+    orientation,
+    fullscreenSupported: toSafeBoolean(payload.fullscreenSupported),
+    touchSupported: toSafeBoolean(payload.touchSupported),
+    userAgent: toSafeString(payload.userAgent, 512),
+    appVersion: toSafeString(payload.appVersion, 80),
+    estimatedPerformanceClass,
+    supportedVideoFormats,
+    recommendedResolution: toSafeString(payload.recommendedResolution, 32),
+    measuredAt: new Date().toISOString(),
+  }
 }
 
 router.get('/:deviceCode/config', async (req, res) => {
@@ -117,11 +177,13 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
     }
 
     const now = new Date()
+    const diagnostics = parseDiagnostics((req.body as { diagnostics?: unknown } | undefined)?.diagnostics)
     const screenDevice = await prisma.screenDevice.findUnique({
       where: { deviceCode: code },
       select: {
         id: true,
         isActive: true,
+        notes: true,
       },
     })
 
@@ -130,6 +192,7 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
         where: { id: screenDevice.id },
         data: {
           lastSeenAt: now,
+          notes: diagnostics ? applyDiagnosticsToNotes(screenDevice.notes, diagnostics) : undefined,
         },
       })
 
@@ -151,6 +214,7 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
         id: true,
         isActive: true,
         displayRole: true,
+        notes: true,
       },
     })
 
@@ -168,14 +232,28 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
       },
     })
 
-      return res.json({
-        status: orderDisplay.isActive ? 'online' : 'inactive',
-        serverTime: now.toISOString(),
-        displayId: orderDisplay.id,
-        displayType: orderDisplay.displayRole === 'KITCHEN' ? 'KITCHEN' : orderDisplay.displayRole === 'PICKUP' ? 'CUSTOMER' : 'ORDER',
-        recoveryHints: [
-          'Bei kurzen Ausfaellen automatische Reconnect-Logik aktiv lassen.',
-          'Beim Start zuerst Runtime-Config neu laden, dann Feed pollen.',
+    if (diagnostics) {
+      await prisma.orderDisplay.update({
+        where: { id: orderDisplay.id },
+        data: {
+          notes: applyDiagnosticsToNotes(orderDisplay.notes, diagnostics),
+        },
+      })
+    }
+
+    return res.json({
+      status: orderDisplay.isActive ? 'online' : 'inactive',
+      serverTime: now.toISOString(),
+      displayId: orderDisplay.id,
+      displayType:
+        orderDisplay.displayRole === 'KITCHEN'
+          ? 'KITCHEN'
+          : orderDisplay.displayRole === 'PICKUP'
+            ? 'CUSTOMER'
+            : 'ORDER',
+      recoveryHints: [
+        'Bei kurzen Ausfaellen automatische Reconnect-Logik aktiv lassen.',
+        'Beim Start zuerst Runtime-Config neu laden, dann Feed pollen.',
       ],
     })
   } catch (error) {

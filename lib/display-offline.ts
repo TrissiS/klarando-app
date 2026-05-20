@@ -16,7 +16,9 @@ export type OfflineDisplaySnapshot = {
   brandingSettings?: Record<string, unknown> | null
   offlineSettings?: Record<string, unknown> | null
   easyOrderSettings?: Record<string, unknown> | null
+  signageSettings?: Record<string, unknown> | null
   contentSettings?: Record<string, unknown> | null
+  slides?: DisplayRuntimeConfig['slides']
   categories?: DisplayRuntimeConfig['categories']
   products?: DisplayRuntimeConfig['products']
 }

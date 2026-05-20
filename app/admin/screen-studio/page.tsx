@@ -11,6 +11,7 @@ import {
   getAdminDisplayScreens,
   deleteDisplayDevice,
   getDisplayDeviceOverview,
+  getMyEffectiveFeatureModules,
   getScreenConfig,
   getScreenProducts,
   updateAdminDisplayScreen,
@@ -21,6 +22,7 @@ import {
   type DisplayDeviceOverviewRow,
   type ScreenConfig,
   type ScreenProduct,
+  type FeatureModuleKey,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
@@ -31,6 +33,7 @@ type StudioTab =
   | 'LAYOUT'
   | 'BRANDING'
   | 'OFFLINE_SYNC'
+  | 'SIGNAGE'
   | 'EASY_ORDER'
   | 'PREVIEW'
   | 'PUBLISH'
@@ -48,6 +51,7 @@ const STUDIO_TABS: Array<{ key: StudioTab; label: string }> = [
   { key: 'LAYOUT', label: 'Layout' },
   { key: 'BRANDING', label: 'Branding' },
   { key: 'OFFLINE_SYNC', label: 'Offline & Sync' },
+  { key: 'SIGNAGE', label: 'Slides & Werbung' },
   { key: 'EASY_ORDER', label: 'Easy Order' },
   { key: 'PREVIEW', label: 'Vorschau' },
   { key: 'PUBLISH', label: 'Veröffentlichung' },
@@ -294,6 +298,7 @@ export default function AdminScreenStudioPage() {
   const [selectedDisplayTemplate, setSelectedDisplayTemplate] = useState<DisplayTemplate>('MODERN_GRID')
   const [designCategoryFocus, setDesignCategoryFocus] = useState('ALL')
   const [designProductSearch, setDesignProductSearch] = useState('')
+  const [enabledFeatureKeys, setEnabledFeatureKeys] = useState<Set<FeatureModuleKey>>(new Set())
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -324,6 +329,11 @@ export default function AdminScreenStudioPage() {
         const tenantId = session.tenantId
         if (!tenantId) return
         await loadStudioData(token, tenantId)
+        const effectiveModules = await getMyEffectiveFeatureModules(tenantId, token)
+        const enabledSet = new Set<FeatureModuleKey>(
+          effectiveModules.modules.filter((entry) => entry.enabled).map((entry) => entry.key)
+        )
+        setEnabledFeatureKeys(enabledSet)
         const screens = await getAdminDisplayScreens(token, tenantId)
         setScreenSettingsById(Object.fromEntries(screens.map((entry) => [entry.id, entry])))
         if (!selectedDesignScreenId && screens[0]?.id) {
@@ -376,6 +386,8 @@ export default function AdminScreenStudioPage() {
       setActiveTab('BRANDING')
     } else if (tab === 'offline' || tab === 'offline-sync') {
       setActiveTab('OFFLINE_SYNC')
+    } else if (tab === 'signage' || tab === 'slides' || tab === 'werbung') {
+      setActiveTab('SIGNAGE')
     } else if (tab === 'easy-order') {
       setActiveTab('EASY_ORDER')
     } else if (tab === 'vorschau' || tab === 'preview') {
@@ -399,6 +411,7 @@ export default function AdminScreenStudioPage() {
       .at(-1)
     return { active, online, visibleProducts, latestSync }
   }, [rows, products])
+  const signageStudioEnabled = enabledFeatureKeys.has('SIGNAGE_STUDIO')
 
   const selectedScreen = selectedDesignScreenId ? screenSettingsById[selectedDesignScreenId] : null
   const visibleDesignProducts = useMemo(
@@ -888,7 +901,9 @@ export default function AdminScreenStudioPage() {
       <div className="space-y-4">
         <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-2">
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-            {STUDIO_TABS.map((tab) => (
+            {STUDIO_TABS.map((tab) => {
+              const isSignageLocked = tab.key === 'SIGNAGE' && !signageStudioEnabled
+              return (
               <button
                 key={tab.key}
                 type="button"
@@ -898,8 +913,9 @@ export default function AdminScreenStudioPage() {
                 }`}
               >
                 {tab.label}
+                {isSignageLocked ? ' (gesperrt)' : ''}
               </button>
-            ))}
+            )})}
           </div>
         </div>
 
@@ -1667,6 +1683,16 @@ export default function AdminScreenStudioPage() {
                   <p className="text-xs text-rose-900/75">Gecachte Version: {row.lastSyncAt ? new Date(row.lastSyncAt).toISOString() : '-'}</p>
                   <p className="text-xs text-rose-900/75">Erkannte Auflösung: {row.resolution || 'Wird erkannt'}</p>
                   <p className="text-xs text-rose-900/75">App-Version: {row.deviceInfo?.appVersion || '-'}</p>
+                  <p className="text-xs text-rose-900/75">
+                    Empfohlene Datei: {row.deviceInfo?.diagnostics?.recommendedResolution || '1920x1080 (16:9)'}
+                  </p>
+                  <p className="text-xs text-rose-900/75">
+                    Geschätzte Wiedergabeleistung: {row.deviceInfo?.diagnostics?.estimatedPerformanceClass || 'MEDIUM'}
+                  </p>
+                  <p className="text-xs text-rose-900/75">
+                    Touch: {row.deviceInfo?.diagnostics?.touchSupported === null || row.deviceInfo?.diagnostics?.touchSupported === undefined ? '-' : row.deviceInfo?.diagnostics?.touchSupported ? 'Ja' : 'Nein'} ·
+                    Fullscreen: {row.deviceInfo?.diagnostics?.fullscreenSupported === null || row.deviceInfo?.diagnostics?.fullscreenSupported === undefined ? '-' : row.deviceInfo?.diagnostics?.fullscreenSupported ? 'Ja' : 'Nein'}
+                  </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1789,6 +1815,49 @@ export default function AdminScreenStudioPage() {
             <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
               Easy-Order Offline Queue, Bestell-Sync und Konfliktauflösung sind vorbereitet und werden im nächsten Schritt erweitert.
             </div>
+          </section>
+        ) : null}
+
+        {activeTab === 'SIGNAGE' ? (
+          <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Slides & Werbung</h2>
+            {!signageStudioEnabled ? (
+              <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+                Dieses Modul ist nicht freigeschaltet. Bitte im Superadmin unter Modulfreigabe/Billing
+                das Modul <strong>Klarando Signage Studio</strong> aktivieren.
+              </div>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-slate-700">
+                  Signage Studio ist vorbereitet: Playlists, Slide-Typen und Runtime-Anbindung laufen über das bestehende Display-System.
+                </p>
+                <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <StatCard label="Playlists" value="Vorbereitet" />
+                  <StatCard label="Slide-Typen" value="Bild, Video, Produkt, Promo, QR, Text" />
+                  <StatCard label="Offline Cache" value="Aktivierbar" />
+                </div>
+                <div className="mt-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                  <Field label="Rotation">
+                    <select className="input-ui" disabled value="SEQUENTIAL" onChange={() => undefined}>
+                      <option value="SEQUENTIAL">Sequenziell (in Vorbereitung)</option>
+                    </select>
+                  </Field>
+                  <Field label="Übergang">
+                    <select className="input-ui" disabled value="FADE" onChange={() => undefined}>
+                      <option value="FADE">Fade (in Vorbereitung)</option>
+                    </select>
+                  </Field>
+                  <Field label="Standarddauer je Slide">
+                    <input className="input-ui bg-slate-100 text-slate-500" value="12 Sekunden (in Vorbereitung)" disabled />
+                  </Field>
+                  <Field label="Offline-Mediencache">
+                    <select className="input-ui bg-slate-100 text-slate-500" value="AKTIVIERBAR" disabled onChange={() => undefined}>
+                      <option value="AKTIVIERBAR">Aktivierbar</option>
+                    </select>
+                  </Field>
+                </div>
+              </>
+            )}
           </section>
         ) : null}
 
