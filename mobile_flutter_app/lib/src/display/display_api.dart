@@ -48,13 +48,35 @@ class DisplayApi {
     return _decode(response, endpoint);
   }
 
-  Future<Map<String, dynamic>> getContent(String deviceToken) async {
+  Future<DisplayContentResponse> getContent(
+    String deviceToken, {
+    String? etag,
+  }) async {
     final endpoint = '/api/display/content';
+    final headers = <String, String>{'Authorization': 'Bearer $deviceToken'};
+    final normalizedEtag = etag?.trim();
+    if (normalizedEtag != null && normalizedEtag.isNotEmpty) {
+      headers['If-None-Match'] = normalizedEtag;
+    }
     final response = await http.get(
       Uri.parse('$_baseUrl$endpoint'),
-      headers: {'Authorization': 'Bearer $deviceToken'},
+      headers: headers,
     );
-    return _decode(response, endpoint);
+    if (response.statusCode == 304) {
+      return DisplayContentResponse(
+        endpoint: endpoint,
+        statusCode: 304,
+        content: null,
+        etag: response.headers['etag'] ?? normalizedEtag,
+      );
+    }
+    final decoded = _decode(response, endpoint);
+    return DisplayContentResponse(
+      endpoint: endpoint,
+      statusCode: response.statusCode,
+      content: decoded,
+      etag: response.headers['etag'],
+    );
   }
 
   Future<void> heartbeat(String deviceToken) async {
@@ -83,4 +105,20 @@ class DisplayApi {
     }
     return body;
   }
+}
+
+class DisplayContentResponse {
+  DisplayContentResponse({
+    required this.endpoint,
+    required this.statusCode,
+    required this.content,
+    required this.etag,
+  });
+
+  final String endpoint;
+  final int statusCode;
+  final Map<String, dynamic>? content;
+  final String? etag;
+
+  bool get notModified => statusCode == 304;
 }

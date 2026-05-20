@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -67,6 +68,8 @@ class _DisplayRootState extends State<_DisplayRoot> {
   int? _lastContentHttpStatus;
   String _lastContentError = '-';
   int _lastContentProductCount = 0;
+  String? _contentEtag;
+  String _lastContentVersion = '-';
   String _savedDisplayId = '-';
   String _savedTenantId = '-';
   static const String _pairingEndpoint = '/api/display/pairing/session';
@@ -278,13 +281,23 @@ class _DisplayRootState extends State<_DisplayRoot> {
       _savedTenantId = prefs.getString(_prefsTenantId) ?? '-';
       debugPrint('DISPLAY CONTENT DISPLAY ID: $_savedDisplayId');
       debugPrint('DISPLAY CONTENT TENANT ID: $_savedTenantId');
-      final response = await _api.getContent(token);
-      final products = (response['products'] as List?) ?? const [];
+      final response = await _api.getContent(token, etag: _contentEtag);
+      _lastContentHttpStatus = response.statusCode;
+      _lastContentEndpoint = response.endpoint;
+      if (response.notModified) {
+        _lastContentError = '-';
+        _message = null;
+        setState(() {});
+        return true;
+      }
+      final payload = response.content ?? const <String, dynamic>{};
+      _contentEtag = response.etag ?? _contentEtag;
+      _lastContentVersion = _contentEtag ?? '-';
+      final products = (payload['products'] as List?) ?? const [];
       _lastContentProductCount = products.length;
-      _lastContentHttpStatus = 200;
       _lastContentError = '-';
       debugPrint('DISPLAY CONTENT PRODUCTS COUNT: $_lastContentProductCount');
-      _content = response;
+      _content = payload;
       if (_lastContentProductCount == 0) {
         _message = 'Keine Produkte für diesen Bildschirm freigegeben.';
       } else {
@@ -336,8 +349,19 @@ class _DisplayRootState extends State<_DisplayRoot> {
       unawaited(_api.heartbeat(token));
     });
 
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      unawaited(_loadContent());
+    _scheduleNextRefreshWithJitter();
+  }
+
+  void _scheduleNextRefreshWithJitter() {
+    _refreshTimer?.cancel();
+    const int baseSeconds = 30;
+    const int jitterMaxSeconds = 9;
+    final int jitter = Random().nextInt(jitterMaxSeconds + 1);
+    final int nextInSeconds = baseSeconds + jitter;
+    _refreshTimer = Timer(Duration(seconds: nextInSeconds), () async {
+      await _loadContent();
+      if (!mounted) return;
+      _scheduleNextRefreshWithJitter();
     });
   }
 
@@ -363,6 +387,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
                 'displayId: $_savedDisplayId',
                 'endpoint: $_lastContentEndpoint',
                 'HTTP: ${_lastContentHttpStatus?.toString() ?? '-'}',
+                'Version: $_lastContentVersion',
                 'Produkte: $_lastContentProductCount',
                 'Fehler: $_lastContentError',
               ]

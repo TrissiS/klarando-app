@@ -1,5 +1,6 @@
 import { DisplayDeviceStatus, DisplayPairingStatus } from '@prisma/client'
 import { Router } from 'express'
+import { createHash } from 'crypto'
 import { prisma } from '../lib/prisma'
 import { createPairingCode, createToken, hashToken, verifyToken } from '../lib/display-security'
 
@@ -19,6 +20,10 @@ function parseBearerToken(authHeader: string | undefined) {
   const [scheme, token] = authHeader.trim().split(/\s+/, 2)
   if (!scheme || !token || scheme.toLowerCase() !== 'bearer') return null
   return token.trim()
+}
+
+function createContentVersion(payload: unknown) {
+  return createHash('sha1').update(JSON.stringify(payload)).digest('hex')
 }
 
 async function expireOutdatedSessions() {
@@ -388,11 +393,7 @@ router.get('/content', async (req, res) => {
     const serverTimeMs = Date.now()
     console.info('DISPLAY CONTENT PRODUCTS COUNT', distributedProducts.length)
 
-    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-    res.setHeader('Pragma', 'no-cache')
-    res.setHeader('Expires', '0')
-
-    return res.json({
+    const responsePayload = {
       device: {
         id: device.id,
         name: device.name,
@@ -441,7 +442,33 @@ router.get('/content', async (req, res) => {
         tenantId: device.tenantId,
       },
       updatedAt: device.updatedAt.toISOString(),
+    }
+    const contentVersion = createContentVersion({
+      deviceId: device.id,
+      screenId: resolvedScreen.id,
+      playlistId: playlist?.id ?? null,
+      updatedAt: responsePayload.updatedAt,
+      productsTotal: normalizedProducts.length,
+      productsOnDisplay: distributedProducts.length,
+      displayIndex,
+      displayCount,
+      itemIds: items.map((item) => item.id),
+      productIds: distributedProducts.map((product) => product.id),
+      screenConfig,
+      sync: responsePayload.sync,
     })
+    const etagValue = `"${contentVersion}"`
+    const requestEtag = req.header('if-none-match')?.trim()
+
+    res.setHeader('Cache-Control', 'private, no-cache, must-revalidate')
+    res.setHeader('ETag', etagValue)
+    res.setHeader('X-Display-Content-Version', contentVersion)
+
+    if (requestEtag && requestEtag === etagValue) {
+      return res.status(304).end()
+    }
+
+    return res.json(responsePayload)
   } catch (error) {
     console.error('DISPLAY CONTENT ERROR', error)
     return res.status(500).json({ message: 'Display-Inhalte konnten nicht geladen werden.' })
