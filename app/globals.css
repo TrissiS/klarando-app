@@ -36,7 +36,9 @@ body {
 }
 
 .brand-sidebar {
-  background: linear-gradient(180deg, #2a0f1f 0%, #3a1428 55%, #4a1a2d 100%);
+  background:
+    radial-gradient(120% 60% at 100% 0%, rgba(255, 153, 51, 0.16) 0%, rgba(255, 153, 51, 0) 60%),
+    linear-gradient(180deg, #2a0c1d 0%, #4a1429 42%, #3a1330 74%, #22122f 100%);
   color: #fff6f1;
 }
 
@@ -76,14 +78,20 @@ body {
   background: var(--brand-gradient);
   color: #ffffff;
   box-shadow: 0 8px 18px rgba(234, 25, 116, 0.35);
+  transform: translateX(1px);
 }
 
 .brand-nav-link-inactive {
-  color: #ffe8dc;
+  color: #fff0e6;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
 .brand-nav-link-inactive:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 198, 153, 0.45);
+  color: #ffffff;
+  transform: translateX(1px);
 }
 
 .brand-nav-link-disabled {

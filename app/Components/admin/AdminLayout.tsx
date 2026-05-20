@@ -666,26 +666,26 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       data-admin-ui-mode={uiMode}
     >
       <div className="relative isolate min-h-screen min-w-0">
-        <aside className={`brand-sidebar pointer-events-auto fixed inset-y-0 left-0 z-[120] hidden border-r border-slate-200 bg-white md:flex md:flex-col ${sidebarWidthClass}`}>
-          <div className={`sticky top-0 z-10 border-b border-slate-200 bg-white ${isTouchMode ? 'px-6 py-6' : 'px-5 py-5'}`}>
+        <aside className={`brand-sidebar pointer-events-auto fixed inset-y-0 left-0 z-[120] hidden border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
+          <div className={`sticky top-0 z-10 border-b border-white/15 ${isTouchMode ? 'px-6 py-6' : 'px-5 py-5'}`}>
             <PlatformBranding settings={platformBranding} area="sidebar" />
-            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.22em] text-orange-200">
               Klarando Plattform
             </p>
-            <h1 className={`mt-2 font-bold text-slate-900 ${isTouchMode ? 'text-2xl' : 'text-[1.35rem]'}`}>Admin Panel</h1>
-            <p className={`mt-2 text-slate-500 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>
+            <h1 className={`mt-2 font-bold text-white ${isTouchMode ? 'text-2xl' : 'text-[1.35rem]'}`}>Admin Panel</h1>
+            <p className={`mt-2 text-orange-100/80 ${isTouchMode ? 'text-sm' : 'text-xs leading-relaxed'}`}>
               Zentrale Verwaltung für Produkte, Mitarbeiter und Prozesse.
             </p>
           </div>
 
           <nav className={`pointer-events-auto flex-1 overflow-y-auto ${isTouchMode ? 'px-4 py-6' : 'px-3 py-4'}`}>
-            <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Menüsuche</p>
+            <div className="mb-4 rounded-2xl border border-white/20 bg-white/10 p-3">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-orange-100/75">Menüsuche</p>
               <input
                 value={menuQuery}
                 onChange={(event) => setMenuQuery(event.target.value)}
                 placeholder="Menüpunkt suchen..."
-                className={`mt-2 w-full rounded-xl border border-slate-200 bg-white text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
+                className={`mt-2 w-full rounded-xl border border-white/20 bg-white/90 text-slate-800 outline-none ${isTouchMode ? 'px-3 py-2 text-xs' : 'px-2.5 py-1.5 text-[11px]'}`}
               />
             </div>
             <div className={isTouchMode ? 'space-y-4' : 'space-y-3'}>
@@ -696,10 +696,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                     onClick={() => toggleSection(section.id)}
                     className="flex w-full items-center justify-between rounded-xl px-2 py-1 text-left"
                   >
-                    <p className="pointer-events-none text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    <p className="pointer-events-none text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
                       {section.label}
                     </p>
-                    <span className="text-xs text-slate-500">{openSectionIds.has(section.id) ? '−' : '+'}</span>
+                    <span className="text-xs text-orange-200">{openSectionIds.has(section.id) ? '−' : '+'}</span>
                   </button>
                   {openSectionIds.has(section.id) ? (
                     <div className={isTouchMode ? 'mt-2 space-y-2' : 'mt-1.5 space-y-1.5'}>
@@ -712,10 +712,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                             href={item.href}
                             aria-current={isActive ? 'page' : undefined}
                             title={item.tooltip || item.label}
-                            className={`${navLinkClassBase} ${
-                              isActive
-                                ? 'bg-slate-900 text-white ring-1 ring-slate-900'
-                                : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                            className={`${navLinkClassBase} brand-nav-link ${
+                              isActive ? 'brand-nav-link-active' : 'brand-nav-link-inactive'
                             }`}
                             data-nav-anchor="admin-sidebar-link"
                             onClick={() => setMobileNavOpen(false)}
@@ -729,8 +727,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
               ))}
             </div>
-            <div className="mt-4 border-t border-slate-200 pt-4">
-              <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            <div className="mt-4 border-t border-white/15 pt-4">
+              <p className="pointer-events-none px-2 text-[11px] uppercase tracking-[0.18em] text-orange-100/70">
                 Schnellzugriff
               </p>
               <div className="mt-2 space-y-2">
@@ -738,7 +736,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   <a
                     href={switchTarget.href}
                     title={switchTarget.label}
-                    className={`${navLinkClassBase} bg-slate-50 text-slate-700 hover:bg-slate-100`}
+                    className={`${navLinkClassBase} brand-nav-link brand-nav-link-inactive`}
                     data-nav-anchor="admin-sidebar-quicklink"
                   >
                     {switchTarget.label}
@@ -748,7 +746,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                   type="button"
                   onClick={handleLogout}
                   title="Logout"
-                  className={`block w-full rounded-xl border border-red-200 bg-red-50 text-left font-medium text-red-700 transition hover:bg-red-100 ${isTouchMode ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'}`}
+                  className={`block w-full rounded-xl border border-red-300 bg-red-500/15 text-left font-medium text-red-100 transition hover:bg-red-500/25 ${isTouchMode ? 'px-4 py-3 text-sm' : 'px-3 py-2 text-xs'}`}
                 >
                   Logout
                 </button>
@@ -756,10 +754,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           </nav>
 
-          <div className={`sticky bottom-0 border-t border-slate-200 bg-white ${isTouchMode ? 'px-6 py-5' : 'px-5 py-4'}`}>
-            <div className="rounded-2xl bg-slate-50 px-4 py-4 ring-1 ring-slate-200">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Bereich</p>
-              <p className="mt-2 text-sm text-slate-900">{title}</p>
+          <div className={`sticky bottom-0 border-t border-white/15 ${isTouchMode ? 'px-6 py-5' : 'px-5 py-4'}`}>
+            <div className="rounded-2xl bg-white/10 px-4 py-4 ring-1 ring-white/20">
+              <p className="text-xs uppercase tracking-wide text-orange-100/80">Bereich</p>
+              <p className="mt-2 text-sm text-white">{title}</p>
             </div>
           </div>
         </aside>
