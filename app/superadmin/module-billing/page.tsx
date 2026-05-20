@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
+import ImplementationNotice from '@/app/Components/admin/ImplementationNotice'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   applyTenantFeaturePackage,
@@ -401,6 +402,30 @@ export default function SuperadminModuleBillingPage() {
     () => modulePriceInputByTenant[tenantId] || {},
     [modulePriceInputByTenant, tenantId]
   )
+  const moduleTrafficRows = useMemo(() => {
+    return modules.map((entry) => {
+      const configuredPrice = modulePriceDraft[entry.key] || 0
+      const status: 'READY' | 'LIMITED' | 'IN_PREPARATION' = !entry.enabled
+        ? 'IN_PREPARATION'
+        : configuredPrice > 0
+          ? 'READY'
+          : 'LIMITED'
+      return {
+        key: entry.key,
+        name: entry.name,
+        status,
+      }
+    })
+  }, [modulePriceDraft, modules])
+  const moduleTrafficTotals = useMemo(() => {
+    return moduleTrafficRows.reduce(
+      (acc, row) => {
+        acc[row.status] += 1
+        return acc
+      },
+      { READY: 0, LIMITED: 0, IN_PREPARATION: 0 } as Record<'READY' | 'LIMITED' | 'IN_PREPARATION', number>
+    )
+  }, [moduleTrafficRows])
   const modulePriceTotals = useMemo(() => {
     let monthlyNetCents = 0
     for (const module of modules) {
@@ -934,6 +959,16 @@ export default function SuperadminModuleBillingPage() {
         {tab === 'MODULES' ? (
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="mb-3 text-sm font-semibold text-slate-900">Module einzeln steuern</h3>
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-700">Gruen: {moduleTrafficTotals.READY}</span>
+                <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-700">Gelb: {moduleTrafficTotals.LIMITED}</span>
+                <span className="rounded-full bg-slate-200 px-2 py-1 font-semibold text-slate-700">Grau: {moduleTrafficTotals.IN_PREPARATION}</span>
+              </div>
+              <p className="mt-2 text-xs text-slate-600">
+                Ampelstatus je Modul: Gruen = aktiv mit Preis, Gelb = aktiv ohne Preis, Grau = nicht freigeschaltet.
+              </p>
+            </div>
             <div className="space-y-4">
               {groupedModuleRows.map((group) => (
                 <div key={group.label} className="rounded-2xl border border-slate-200 p-4">
@@ -946,7 +981,15 @@ export default function SuperadminModuleBillingPage() {
                             <input type="checkbox" checked={entry.enabled} onChange={(event) => void toggleModule(entry.key, event.target.checked)} disabled={loading || !tenantId} />
                             <span className="font-semibold text-slate-900">{entry.name}</span>
                           </label>
-                          <span className={`rounded-full px-2 py-0.5 text-xs ${entry.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{entry.enabled ? 'aktiv' : 'inaktiv'}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs ${
+                            !entry.enabled
+                              ? 'bg-slate-200 text-slate-600'
+                              : (modulePriceDraft[entry.key] || 0) > 0
+                                ? 'bg-emerald-100 text-emerald-700'
+                                : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {!entry.enabled ? 'inaktiv' : (modulePriceDraft[entry.key] || 0) > 0 ? 'ready' : 'limited'}
+                          </span>
                         </div>
                         <p className="mt-1 text-xs text-slate-600">{entry.description}</p>
                         <div className="mt-2 grid gap-2 sm:grid-cols-2">
@@ -1066,6 +1109,13 @@ export default function SuperadminModuleBillingPage() {
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
             <h3 className="mb-2 text-sm font-semibold text-slate-900">Geräte & Zugänge</h3>
             <p className="mb-3 text-xs text-slate-600">Kombinierte Übersicht aus Displays, OrderDesk und Fahrergeräten. TODO: POS/Kassen als eigene API-Quelle anbinden.</p>
+            <div className="mb-3">
+              <ImplementationNotice
+                title="Einheitlicher Hinweis"
+                message="Nicht angebundene Aktionen werden klar markiert und lösen keinen stillen API-Fehler mehr aus."
+                tone="preparation"
+              />
+            </div>
             <div className="overflow-x-auto rounded-2xl border border-slate-200">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">

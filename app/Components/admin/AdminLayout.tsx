@@ -69,6 +69,7 @@ const sectionNavSections: NavSection[] = [
     id: 'daily',
     label: 'Tagesgeschäft',
     items: [
+      { href: '/admin/bestellungen', label: 'Übersicht', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/orders', label: 'Bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
       {
         href: '/admin/terminals',
@@ -89,7 +90,7 @@ const sectionNavSections: NavSection[] = [
     id: 'menu',
     label: 'Speisekarte',
     items: [
-      { href: '/admin/products?tab=overview', label: 'Übersicht', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/speisekarte', label: 'Übersicht', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       {
@@ -122,6 +123,7 @@ const sectionNavSections: NavSection[] = [
     id: 'devices',
     label: 'Geräte',
     items: [
+      { href: '/admin/geraete', label: 'Übersicht', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/display-devices', label: 'Displays', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/screen-studio', label: 'Bildschirmstudio', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/terminals', label: 'OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
@@ -132,6 +134,7 @@ const sectionNavSections: NavSection[] = [
     id: 'delivery',
     label: 'Lieferbetrieb',
     items: [
+      { href: '/admin/lieferung', label: 'Übersicht', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/app-settings?section=delivery-area', label: 'Lieferzonen', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/drivers', label: 'Fahrer', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/app-settings?section=delivery-priority', label: 'Touren', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
@@ -141,6 +144,7 @@ const sectionNavSections: NavSection[] = [
     id: 'marketing',
     label: 'Marketing',
     items: [
+      { href: '/admin/marketing', label: 'Übersicht', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/actions?tab=vouchers', label: 'Gutscheine', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/orders?tab=ratings', label: 'Bewertungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
@@ -150,6 +154,7 @@ const sectionNavSections: NavSection[] = [
     id: 'finance',
     label: 'Finanzen',
     items: [
+      { href: '/admin/finanzen-uebersicht', label: 'Übersicht', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/finanzen', label: 'Gebühren & Provisionen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/payments', label: 'Abrechnung', moduleKey: 'payment', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/closings/daily', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
@@ -160,6 +165,7 @@ const sectionNavSections: NavSection[] = [
     id: 'admin',
     label: 'Verwaltung',
     items: [
+      { href: '/admin/verwaltung', label: 'Übersicht', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
       { href: '/admin/staff', label: 'Benutzer & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
       { href: '/admin/app-settings?section=business', label: 'Filialdaten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
@@ -169,13 +175,13 @@ const sectionNavSections: NavSection[] = [
 
 const mainSidebarSections: MainNavSection[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/admin', moduleKey: 'dashboard' },
-  { id: 'daily', label: 'Bestellungen', href: '/admin/orders', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
-  { id: 'menu', label: 'Speisekarte', href: '/admin/products?tab=overview', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-  { id: 'devices', label: 'Geräte', href: '/admin/screen-studio', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-  { id: 'delivery', label: 'Lieferung', href: '/admin/app-settings?section=delivery-area', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-  { id: 'marketing', label: 'Marketing', href: '/admin/actions', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-  { id: 'finance', label: 'Finanzen', href: '/admin/finanzen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
-  { id: 'admin', label: 'Verwaltung', href: '/admin/staff', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
+  { id: 'daily', label: 'Bestellungen', href: '/admin/bestellungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
+  { id: 'menu', label: 'Speisekarte', href: '/admin/speisekarte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+  { id: 'devices', label: 'Geräte', href: '/admin/geraete', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+  { id: 'delivery', label: 'Lieferung', href: '/admin/lieferung', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+  { id: 'marketing', label: 'Marketing', href: '/admin/marketing', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
+  { id: 'finance', label: 'Finanzen', href: '/admin/finanzen-uebersicht', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+  { id: 'admin', label: 'Verwaltung', href: '/admin/verwaltung', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
 ]
 
 function AdminLayoutContent({ title, subtitle, children }: Props) {
