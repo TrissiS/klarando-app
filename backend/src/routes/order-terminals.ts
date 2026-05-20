@@ -32,6 +32,11 @@ function normalizeText(input?: string | null) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function isPrismaUniqueConstraintError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  return (error as { code?: string }).code === 'P2002'
+}
+
 function normalizeColorHex(input?: string | null) {
   if (input === undefined) {
     return undefined
@@ -242,6 +247,40 @@ async function loadTerminalOrderForCreateResponse(orderId: string) {
       },
     },
   })
+}
+
+async function findExistingTerminalOrderForIdempotency(params: {
+  tenantId: string
+  clientOrderId: string | null
+  idempotencyKey: string | null
+}) {
+  const whereClauses: Array<{ tenantId: string; clientOrderId?: string; idempotencyKey?: string }> = []
+  if (params.clientOrderId) {
+    whereClauses.push({
+      tenantId: params.tenantId,
+      clientOrderId: params.clientOrderId,
+    })
+  }
+  if (params.idempotencyKey) {
+    whereClauses.push({
+      tenantId: params.tenantId,
+      idempotencyKey: params.idempotencyKey,
+    })
+  }
+  if (whereClauses.length === 0) {
+    return null
+  }
+  const existing = await prisma.order.findFirst({
+    where: {
+      OR: whereClauses,
+    },
+    select: { id: true },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!existing) {
+    return null
+  }
+  return loadTerminalOrderForCreateResponse(existing.id)
 }
 
 router.get('/', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
@@ -824,12 +863,20 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
       paymentMethod,
       markPaid,
       forwardToKitchen,
+      branchId,
+      clientOrderId,
+      deviceCode,
+      terminalDeviceId,
       idempotencyKey,
     } = req.body as {
       items?: Array<{ productId: string; quantity: number; modifierIds?: string[] | string | null }>
       paymentMethod?: string | null
       markPaid?: boolean
       forwardToKitchen?: boolean
+      branchId?: string | null
+      clientOrderId?: string | null
+      deviceCode?: string | null
+      terminalDeviceId?: string | null
       idempotencyKey?: string | null
     }
 
@@ -870,6 +917,49 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
       req.header('x-idempotency-key'),
       idempotencyKey
     )
+    const normalizedClientOrderId = normalizeText(clientOrderId) ?? null
+    const normalizedTerminalDeviceId =
+      normalizeText(terminalDeviceId) ?? normalizeText(deviceCode) ?? null
+    const normalizedBranchId = normalizeText(branchId)
+
+    if (normalizedBranchId && normalizedBranchId !== terminal.tenantId) {
+      return res.status(400).json({ error: 'branchId passt nicht zur Terminal-Filiale' })
+    }
+
+    if (!requestIdempotencyKey) {
+      return res.status(400).json({
+        error: 'idempotencyKey ist für Terminal-Sync erforderlich',
+      })
+    }
+
+    console.info('TERMINAL ORDER IDEMPOTENCY CHECK START', {
+      tenantId: terminal.tenantId,
+      branchId: normalizedBranchId,
+      terminalId: terminal.id,
+      recognizedClientOrderId: normalizedClientOrderId,
+      recognizedIdempotencyKey: requestIdempotencyKey,
+      terminalDeviceId: normalizedTerminalDeviceId,
+    })
+
+    const existingOrder = await findExistingTerminalOrderForIdempotency({
+      tenantId: terminal.tenantId,
+      clientOrderId: normalizedClientOrderId,
+      idempotencyKey: requestIdempotencyKey,
+    })
+    if (existingOrder) {
+      console.info('TERMINAL ORDER IDEMPOTENCY DUPLICATE PREVENTED', {
+        tenantId: terminal.tenantId,
+        terminalId: terminal.id,
+        existingOrderId: existingOrder.id,
+        clientOrderId: normalizedClientOrderId,
+        idempotencyKey: requestIdempotencyKey,
+      })
+      return res.status(200).json({
+        ...existingOrder,
+        duplicatePrevented: true,
+      })
+    }
+
     const idempotencyResult = beginOrderCreateIdempotency({
       tenantId: terminal.tenantId,
       routeKey: 'order-terminals',
@@ -917,6 +1007,7 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
         return res.status(200).json({
           ...replayOrder,
           idempotencyReplay: true,
+          duplicatePrevented: true,
         })
       }
       return res.status(409).json({
@@ -1049,62 +1140,100 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
     const routedPickupDisplayId = terminal.pickupDisplayId ?? fallbackRouting.pickupDisplayId ?? null
     const localPickupNumber = await generateNextPickupNumberForTenant(terminal.tenantId)
 
-    const order = await prisma.order.create({
-      data: {
+    let duplicatePrevented = false
+    let order = null as Awaited<ReturnType<typeof loadTerminalOrderForCreateResponse>> | null
+    try {
+      order = await prisma.order.create({
+        data: {
+          tenantId: terminal.tenantId,
+          terminalId: terminal.id,
+          terminalDeviceId: normalizedTerminalDeviceId,
+          clientOrderId: normalizedClientOrderId,
+          idempotencyKey: requestIdempotencyKey,
+          cashDisplayId: routedCashDisplayId,
+          kitchenDisplayId: routedKitchenDisplayId,
+          pickupDisplayId: routedPickupDisplayId,
+          pickupNumber: localPickupNumber,
+          total,
+          status,
+          sourceChannel: 'TERMINAL',
+          paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
+          paymentMethod: normalizedPaymentMethod,
+          paidAt: shouldMarkPaid ? new Date() : null,
+          forwardedToKitchenAt: shouldForward ? new Date() : null,
+          items: {
+            create: orderItemsData.map((item) => ({
+              quantity: item.quantity,
+              price: item.price,
+              unitBasePrice: item.unitBasePrice,
+              unitModifierDelta: item.unitModifierDelta,
+              modifierSnapshot: item.modifierSnapshot ?? undefined,
+              product: {
+                connect: {
+                  id: item.productId,
+                },
+              },
+            })),
+          },
+        },
+        include: {
+          terminal: {
+            select: {
+              id: true,
+              name: true,
+              terminalCode: true,
+              location: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                include: {
+                  category: true,
+                },
+              },
+            },
+          },
+        },
+      })
+    } catch (createError) {
+      if (!isPrismaUniqueConstraintError(createError)) {
+        throw createError
+      }
+      const existingAfterRace = await findExistingTerminalOrderForIdempotency({
         tenantId: terminal.tenantId,
-        terminalId: terminal.id,
-        cashDisplayId: routedCashDisplayId,
-        kitchenDisplayId: routedKitchenDisplayId,
-        pickupDisplayId: routedPickupDisplayId,
-        pickupNumber: localPickupNumber,
-        total,
-        status,
-        sourceChannel: 'TERMINAL',
-        paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
-        paymentMethod: normalizedPaymentMethod,
-        paidAt: shouldMarkPaid ? new Date() : null,
-        forwardedToKitchenAt: shouldForward ? new Date() : null,
-        items: {
-          create: orderItemsData.map((item) => ({
-            quantity: item.quantity,
-            price: item.price,
-            unitBasePrice: item.unitBasePrice,
-            unitModifierDelta: item.unitModifierDelta,
-            modifierSnapshot: item.modifierSnapshot ?? undefined,
-            product: {
-              connect: {
-                id: item.productId,
-              },
-            },
-          })),
-        },
-      },
-      include: {
-        terminal: {
-          select: {
-            id: true,
-            name: true,
-            terminalCode: true,
-            location: true,
-          },
-        },
-        items: {
-          include: {
-            product: {
-              include: {
-                category: true,
-              },
-            },
-          },
-        },
-      },
+        clientOrderId: normalizedClientOrderId,
+        idempotencyKey: requestIdempotencyKey,
+      })
+      if (!existingAfterRace) {
+        throw createError
+      }
+      duplicatePrevented = true
+      order = existingAfterRace
+    }
+
+    if (!order) {
+      throw new Error('Terminal-Bestellung konnte nicht geladen werden')
+    }
+
+    console.info('TERMINAL ORDER IDEMPOTENCY FINAL', {
+      tenantId: terminal.tenantId,
+      terminalId: terminal.id,
+      orderId: order.id,
+      finalClientOrderId: normalizedClientOrderId,
+      finalIdempotencyKey: requestIdempotencyKey,
+      finalTerminalDeviceId: normalizedTerminalDeviceId,
+      duplicatePrevented,
     })
 
     if (idempotencyReservation) {
       completeOrderCreateIdempotency(idempotencyReservation, order.id)
     }
 
-    return res.status(201).json(order)
+    return res.status(duplicatePrevented ? 200 : 201).json({
+      ...order,
+      duplicatePrevented,
+    })
   } catch (error) {
     if (idempotencyReservation) {
       releaseOrderCreateIdempotency(idempotencyReservation)

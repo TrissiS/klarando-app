@@ -3,7 +3,6 @@
 import { useEffect, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
-import DisplayDeviceManagementPanel from '@/app/Components/admin/DisplayDeviceManagementPanel'
 import type { SessionUser } from '@/lib/app-data'
 
 export default function SuperadminDisplayDevicesPage() {
@@ -31,10 +30,23 @@ export default function SuperadminDisplayDevicesPage() {
     <BackofficeLayout
       brand="Superadmin"
       title="Display-Geräteverwaltung"
-      subtitle="Globale Übersicht über alle Display-Geräte, Status und Vorschauen"
+      subtitle="Dieser Bereich wurde in die zentrale Geräteübersicht verschoben."
       navItems={SUPERADMIN_NAV_ITEMS}
     >
-      <DisplayDeviceManagementPanel token={token} roleScope="superadmin" />
+      <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+        <p className="text-sm text-slate-700">
+          Bitte nutze ab sofort die zentrale Seite „Geräte“ für Display-, OrderDesk- und Fahrergeräte.
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            window.location.href = '/superadmin/devices'
+          }}
+          className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+        >
+          Zur Geräteübersicht
+        </button>
+      </div>
     </BackofficeLayout>
   )
 }

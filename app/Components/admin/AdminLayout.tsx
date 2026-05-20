@@ -129,9 +129,9 @@ const navSections: NavSection[] = [
     id: 'devices',
     label: 'Geräte',
     items: [
-      { href: '/admin/display-devices', label: 'Display-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/screen-studio?tab=devices', label: 'Display-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/screen-studio', label: 'Bildschirmstudio', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/order-displays', label: 'Abholmonitore', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/screen-studio?tab=devices', label: 'Abholmonitore', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/terminals', label: 'Kassen-/OrderDesk-Geräte', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
     ],
   },
@@ -140,7 +140,7 @@ const navSections: NavSection[] = [
     label: 'Marketing',
     items: [
       { href: '/admin/actions', label: 'Gutscheine & Aktionen', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/display-devices', label: 'QR-Code / Direktlink', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/screen-studio?tab=devices', label: 'QR-Code / Direktlink', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {

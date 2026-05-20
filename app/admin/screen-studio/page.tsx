@@ -24,17 +24,32 @@ import {
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
-type StudioTab = 'OVERVIEW' | 'CONTENT' | 'DESIGN' | 'DEVICES' | 'PREVIEW'
+type StudioTab =
+  | 'OVERVIEW'
+  | 'DEVICES'
+  | 'CONTENT'
+  | 'LAYOUT'
+  | 'BRANDING'
+  | 'OFFLINE_SYNC'
+  | 'EASY_ORDER'
+  | 'PREVIEW'
+  | 'PUBLISH'
 type FontSizeMode = 'KLEIN' | 'MITTEL' | 'GROSS'
 type CardDensity = 'KOMPAKT' | 'KOMFORT' | 'GROSS'
 type DesignAssistantStatus = 'IDLE' | 'MENU_UPLOADED' | 'LOGO_UPLOADED' | 'READY_FOR_SUGGESTION'
+type DisplayMode = 'MENU_DISPLAY' | 'EASY_ORDER' | 'PICKUP_MONITOR' | 'PROMOTION_SCREEN'
+type DisplayTemplate = 'MODERN_GRID' | 'CLASSIC_MENU' | 'PROMOTION_HIGHLIGHT' | 'TOUCH_KIOSK_PREVIEW'
 
 const STUDIO_TABS: Array<{ key: StudioTab; label: string }> = [
   { key: 'OVERVIEW', label: 'Übersicht' },
-  { key: 'CONTENT', label: 'Inhalte' },
-  { key: 'DESIGN', label: 'Design' },
   { key: 'DEVICES', label: 'Geräte' },
+  { key: 'CONTENT', label: 'Inhalte' },
+  { key: 'LAYOUT', label: 'Layout' },
+  { key: 'BRANDING', label: 'Branding' },
+  { key: 'OFFLINE_SYNC', label: 'Offline & Sync' },
+  { key: 'EASY_ORDER', label: 'Easy Order' },
   { key: 'PREVIEW', label: 'Vorschau' },
+  { key: 'PUBLISH', label: 'Veröffentlichung' },
 ]
 
 const DESIGN_TEMPLATES = [
@@ -64,6 +79,34 @@ const TEMPLATE_STYLES: Record<
   'Döner/Imbiss': { primary: '#ea580c', accent: '#b91c1c', backgroundMode: 'DUNKEL', font: 'GROSS', density: 'KOMFORT', anim: true },
   'Pizza': { primary: '#dc2626', accent: '#16a34a', backgroundMode: 'VERLAUF', font: 'MITTEL', density: 'KOMFORT', anim: true },
   'Burger': { primary: '#d97706', accent: '#ef4444', backgroundMode: 'DUNKEL', font: 'GROSS', density: 'GROSS', anim: false },
+}
+
+const DISPLAY_MODES: Array<{ id: DisplayMode; label: string; help: string }> = [
+  { id: 'MENU_DISPLAY', label: 'MENU_DISPLAY', help: 'Klassische Speisekarte für Gastraum-Bildschirme.' },
+  { id: 'EASY_ORDER', label: 'EASY_ORDER', help: 'Vorbereiteter Touch-Modus (Preview), noch ohne Checkout.' },
+  { id: 'PICKUP_MONITOR', label: 'PICKUP_MONITOR', help: 'Abholstatus und Nummern für Theke/Abholung.' },
+  { id: 'PROMOTION_SCREEN', label: 'PROMOTION_SCREEN', help: 'Promo-/Highlight-Screen mit Fokus auf Aktionen.' },
+]
+
+const DISPLAY_TEMPLATES: Array<{ id: DisplayTemplate; label: string; help: string }> = [
+  { id: 'MODERN_GRID', label: 'MODERN_GRID', help: 'Moderne Rasteransicht mit klarer Kartenstruktur.' },
+  { id: 'CLASSIC_MENU', label: 'CLASSIC_MENU', help: 'Klassische Speisekartenoptik mit hoher Dichte.' },
+  { id: 'PROMOTION_HIGHLIGHT', label: 'PROMOTION_HIGHLIGHT', help: 'Große Headlines für Promos und Angebote.' },
+  { id: 'TOUCH_KIOSK_PREVIEW', label: 'TOUCH_KIOSK_PREVIEW', help: 'Vorschau für zukünftigen Kiosk-/Touch-Flow.' },
+]
+
+function mapScreenLayoutToMode(layoutType: AdminDisplayScreen['layoutType']): DisplayMode {
+  if (layoutType === 'PROMO_SPLIT') return 'PROMOTION_SCREEN'
+  if (layoutType === 'ORDER_STATUS') return 'PICKUP_MONITOR'
+  if (layoutType === 'SLIDESHOW') return 'EASY_ORDER'
+  return 'MENU_DISPLAY'
+}
+
+function mapModeToScreenLayout(mode: DisplayMode): AdminDisplayScreen['layoutType'] {
+  if (mode === 'PROMOTION_SCREEN') return 'PROMO_SPLIT'
+  if (mode === 'PICKUP_MONITOR') return 'ORDER_STATUS'
+  if (mode === 'EASY_ORDER') return 'SLIDESHOW'
+  return 'MENU_BOARD'
 }
 
 async function fileToDataUrl(file: File): Promise<string> {
@@ -184,6 +227,10 @@ export default function AdminScreenStudioPage() {
   const [menuRotationSeconds, setMenuRotationSeconds] = useState(50)
   const [promoRotationSeconds, setPromoRotationSeconds] = useState(10)
   const [savingRotation, setSavingRotation] = useState(false)
+  const [selectedDisplayMode, setSelectedDisplayMode] = useState<DisplayMode>('MENU_DISPLAY')
+  const [selectedDisplayTemplate, setSelectedDisplayTemplate] = useState<DisplayTemplate>('MODERN_GRID')
+  const [designCategoryFocus, setDesignCategoryFocus] = useState('ALL')
+  const [designProductSearch, setDesignProductSearch] = useState('')
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -263,8 +310,22 @@ export default function AdminScreenStudioPage() {
     const params = new URLSearchParams(window.location.search)
     const deviceId = params.get('deviceId')?.trim()
     const tab = params.get('tab')?.trim().toLowerCase()
-    if (tab === 'devices') {
+    if (tab === 'devices' || tab === 'geraete') {
       setActiveTab('DEVICES')
+    } else if (tab === 'inhalte' || tab === 'content') {
+      setActiveTab('CONTENT')
+    } else if (tab === 'layout' || tab === 'design') {
+      setActiveTab('LAYOUT')
+    } else if (tab === 'branding') {
+      setActiveTab('BRANDING')
+    } else if (tab === 'offline' || tab === 'offline-sync') {
+      setActiveTab('OFFLINE_SYNC')
+    } else if (tab === 'easy-order') {
+      setActiveTab('EASY_ORDER')
+    } else if (tab === 'vorschau' || tab === 'preview') {
+      setActiveTab('PREVIEW')
+    } else if (tab === 'publish' || tab === 'veroeffentlichung') {
+      setActiveTab('PUBLISH')
     }
     if (deviceId) {
       setSelectedDeviceIdForSettings(deviceId)
@@ -282,6 +343,24 @@ export default function AdminScreenStudioPage() {
       .at(-1)
     return { active, online, visibleProducts, latestSync }
   }, [rows, products])
+
+  const selectedScreen = selectedDesignScreenId ? screenSettingsById[selectedDesignScreenId] : null
+  const visibleDesignProducts = useMemo(
+    () => products.filter((product) => product.screen.showOnScreen),
+    [products]
+  )
+  const filteredDesignProducts = useMemo(() => {
+    const searchTerm = designProductSearch.trim().toLowerCase()
+    return visibleDesignProducts.filter((product) => {
+      const categoryName = product.screen.displayCategory || product.category?.name || 'Allgemein'
+      if (designCategoryFocus !== 'ALL' && categoryName !== designCategoryFocus) return false
+      if (!searchTerm) return true
+      return (
+        product.name.toLowerCase().includes(searchTerm) ||
+        categoryName.toLowerCase().includes(searchTerm)
+      )
+    })
+  }, [visibleDesignProducts, designCategoryFocus, designProductSearch])
 
   const categories = useMemo(
     () =>
@@ -325,6 +404,7 @@ export default function AdminScreenStudioPage() {
     if (!selectedDesignScreenId) return
     const screen = screenSettingsById[selectedDesignScreenId]
     if (!screen) return
+    setSelectedDisplayMode(mapScreenLayoutToMode(screen.layoutType))
     setPrimaryColor(screen.backgroundColor || '#f97316')
     setAccentColor(screen.accentColor || '#ec4899')
     setBackgroundMode(screen.backgroundColor?.toLowerCase() === '#f8fafc' ? 'HELL' : 'DUNKEL')
@@ -522,6 +602,71 @@ export default function AdminScreenStudioPage() {
     }
   }
 
+  function applyDisplayTemplate(template: DisplayTemplate) {
+    setSelectedDisplayTemplate(template)
+    if (template === 'MODERN_GRID') {
+      setCardStyle('SOFT')
+      setBackgroundMode('VERLAUF')
+      setFontSizeMode('MITTEL')
+      setProductNameFontSize(28)
+      setEnableAnimations(true)
+      return
+    }
+    if (template === 'CLASSIC_MENU') {
+      setCardStyle('NONE')
+      setBackgroundMode('DUNKEL')
+      setFontSizeMode('KLEIN')
+      setProductNameFontSize(22)
+      setDefaultColumnCount((current) => Math.max(3, current))
+      setEnableAnimations(false)
+      return
+    }
+    if (template === 'PROMOTION_HIGHLIGHT') {
+      setCardStyle('GLASS')
+      setBackgroundMode('VIDEO')
+      setFontSizeMode('GROSS')
+      setProductNameFontSize(36)
+      setHighlightPrice(true)
+      setEnableAnimations(true)
+      return
+    }
+    setCardStyle('SOFT')
+    setBackgroundMode('HELL')
+    setFontSizeMode('MITTEL')
+    setProductNameFontSize(30)
+    setShowCategoryOnCard(true)
+    setEnableAnimations(true)
+  }
+
+  function handleAutoLayoutRecommendation() {
+    const screen = selectedScreen
+    const orientation = screen?.orientation || 'LANDSCAPE'
+    const productCount = Math.max(1, visibleDesignProducts.length)
+    const hasManyIngredients = visibleDesignProducts.filter((entry) => entry.ingredients.length > 0).length > productCount * 0.55
+    const baseColumns = orientation === 'PORTRAIT' ? 2 : 3
+    const densityBoost = productCount > 42 ? 2 : productCount > 24 ? 1 : 0
+    const detailPenalty = hasManyIngredients ? -1 : 0
+    const recommendedColumns = Math.max(1, Math.min(8, baseColumns + densityBoost + detailPenalty))
+    const recommendedNameSize = Math.max(
+      18,
+      Math.min(40, Math.round((orientation === 'PORTRAIT' ? 28 : 32) - recommendedColumns * 2))
+    )
+    const recommendedPriceSize = Math.max(16, Math.min(42, recommendedNameSize + 4))
+    const recommendedIngredient = Math.max(12, Math.min(26, Math.round(recommendedNameSize * 0.56)))
+    const recommendedCategory = Math.max(12, Math.min(24, Math.round(recommendedNameSize * 0.62)))
+
+    setDefaultColumnCount(recommendedColumns)
+    setProductNameFontSize(recommendedNameSize)
+    setPriceFontSize(recommendedPriceSize)
+    setIngredientFontSize(recommendedIngredient)
+    setCategoryFontSize(recommendedCategory)
+    setCardDensity(recommendedColumns >= 5 ? 'KOMPAKT' : recommendedColumns <= 2 ? 'GROSS' : 'KOMFORT')
+    setPixelPadding(recommendedColumns >= 5 ? 12 : recommendedColumns <= 2 ? 20 : 16)
+    setSuccess(
+      `Auto-Layout gesetzt: ${recommendedColumns} Spalten, Produktgröße ${recommendedNameSize}px, passend für ${productCount} Produkte (${orientation}).`
+    )
+  }
+
   async function handleSaveDesign() {
     try {
       setSavingDesign(true)
@@ -558,7 +703,7 @@ export default function AdminScreenStudioPage() {
             name: currentScreen.name,
             orientation: currentScreen.orientation,
             resolutionPreset: currentScreen.resolutionPreset,
-            layoutType: currentScreen.layoutType,
+            layoutType: mapModeToScreenLayout(selectedDisplayMode),
             isActive: currentScreen.isActive,
             backgroundColor: primaryColor,
             accentColor,
@@ -657,8 +802,8 @@ export default function AdminScreenStudioPage() {
               <StatCard label="Letzte Synchronisierung" value={stats.latestSync ? new Date(stats.latestSync).toLocaleString('de-DE') : '-'} />
             </div>
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <ActionCard title="Display verbinden" text="QR-Code scannen und Gerät zuweisen." href="/admin/display-devices" />
-              <ActionCard title="Design bearbeiten" text="Farben, Schriften und Vorlagen anpassen." onClick={() => setActiveTab('DESIGN')} />
+              <ActionCard title="Display verbinden" text="QR-Code scannen und Gerät zuweisen." href="/admin/screen-studio?tab=devices" />
+              <ActionCard title="Design bearbeiten" text="Farben, Schriften und Vorlagen anpassen." onClick={() => setActiveTab('LAYOUT')} />
               <ActionCard title="Vorschau öffnen" text="Mehrere Auflösungen direkt simulieren." onClick={() => setActiveTab('PREVIEW')} />
             </div>
           </section>
@@ -799,9 +944,17 @@ export default function AdminScreenStudioPage() {
           </section>
         ) : null}
 
-        {activeTab === 'DESIGN' ? (
+        {activeTab === 'LAYOUT' || activeTab === 'BRANDING' || activeTab === 'EASY_ORDER' || activeTab === 'PUBLISH' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
-            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Design</h2>
+            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">
+              {activeTab === 'BRANDING'
+                ? 'Branding'
+                : activeTab === 'EASY_ORDER'
+                  ? 'Easy Order Vorbereitung'
+                  : activeTab === 'PUBLISH'
+                    ? 'Veröffentlichung'
+                    : 'Layout'}
+            </h2>
             <div className="mt-3 max-w-lg">
               <Field label="Bildschirm auswählen">
                 <div className="flex gap-2">
@@ -827,6 +980,55 @@ export default function AdminScreenStudioPage() {
                   </button>
                 </div>
               </Field>
+            </div>
+            <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:grid-cols-2">
+              <Field label="Display-Modus">
+                <select
+                  value={selectedDisplayMode}
+                  onChange={(event) => setSelectedDisplayMode(event.target.value as DisplayMode)}
+                  className="input-ui"
+                >
+                  {DISPLAY_MODES.map((mode) => (
+                    <option key={mode.id} value={mode.id}>
+                      {mode.id}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-600">
+                  {DISPLAY_MODES.find((entry) => entry.id === selectedDisplayMode)?.help}
+                </p>
+              </Field>
+              <Field label="Display-Vorlage">
+                <select
+                  value={selectedDisplayTemplate}
+                  onChange={(event) => applyDisplayTemplate(event.target.value as DisplayTemplate)}
+                  className="input-ui"
+                >
+                  {DISPLAY_TEMPLATES.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {template.id}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-600">
+                  {DISPLAY_TEMPLATES.find((entry) => entry.id === selectedDisplayTemplate)?.help}
+                </p>
+              </Field>
+              <div className="lg:col-span-2 grid gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                  Orientierung: <span className="font-semibold">{selectedScreen?.orientation || 'LANDSCAPE'}</span>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
+                  Auflösung: <span className="font-semibold">{selectedScreen?.resolutionPreset || 'FULL_HD'}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAutoLayoutRecommendation}
+                  className="rounded-xl bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                >
+                  Auto-Layout empfehlen
+                </button>
+              </div>
             </div>
             <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
               <p className="text-sm font-semibold text-emerald-900">Auto-Rotation wie Menüboard-Ketten</p>
@@ -937,6 +1139,59 @@ export default function AdminScreenStudioPage() {
               <div className="mt-2 rounded-xl border border-dashed border-blue-200 bg-white/60 px-3 py-2 text-xs text-blue-900">
                 {assistantNotice ||
                   'Design-Assistent aktiv: 1) Logo hochladen 2) Speisekarte hochladen 3) Vorschlag übernehmen und speichern.'}
+              </div>
+            </div>
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-900">Kategorien & Produkte für diesen Bildschirm</p>
+                <p className="text-xs text-slate-600">
+                  Sichtbar: {visibleDesignProducts.length} · Gefiltert: {filteredDesignProducts.length}
+                </p>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-3">
+                <select value={designCategoryFocus} onChange={(event) => setDesignCategoryFocus(event.target.value)} className="input-ui">
+                  <option value="ALL">Alle Kategorien</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  value={designProductSearch}
+                  onChange={(event) => setDesignProductSearch(event.target.value)}
+                  placeholder="Produkt suchen..."
+                  className="input-ui"
+                />
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('CONTENT')}
+                  className="rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Im Tab „Inhalte“ vollständig bearbeiten
+                </button>
+              </div>
+              <div className="mt-3 max-h-56 overflow-auto rounded-xl border border-slate-200">
+                {filteredDesignProducts.slice(0, 30).map((product) => (
+                  <div key={product.id} className="flex items-center justify-between border-b border-slate-100 px-3 py-2 text-sm last:border-b-0">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900">{product.name}</p>
+                      <p className="truncate text-xs text-slate-600">{product.screen.displayCategory || product.category?.name || 'Allgemein'}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleToggleProductVisibility(product, !product.screen.showOnScreen)}
+                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                        product.screen.showOnScreen ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'
+                      }`}
+                    >
+                      {product.screen.showOnScreen ? 'Sichtbar' : 'Aus'}
+                    </button>
+                  </div>
+                ))}
+                {filteredDesignProducts.length === 0 ? (
+                  <p className="px-3 py-4 text-sm text-slate-600">Keine Produkte für den Filter gefunden.</p>
+                ) : null}
               </div>
             </div>
             <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_1fr]">
@@ -1193,6 +1448,12 @@ export default function AdminScreenStudioPage() {
                 {savingDesign ? 'Speichert…' : 'Design speichern'}
               </button>
             </div>
+            {activeTab === 'PUBLISH' ? (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
+                Veröffentlichung nutzt die aktuellen Einstellungen aus Layout, Branding und Inhalte.
+                Änderungen werden mit „Design speichern“ als neuer Stand veröffentlicht.
+              </div>
+            ) : null}
           </section>
         ) : null}
 
@@ -1217,7 +1478,11 @@ export default function AdminScreenStudioPage() {
                     </span>
                   </div>
                   <p className="mt-2 text-xs text-rose-900/75">Zuletzt gesehen: {row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString('de-DE') : '-'}</p>
+                  <p className="text-xs text-rose-900/75">Letzter Sync: {row.lastSyncAt ? new Date(row.lastSyncAt).toLocaleString('de-DE') : '-'}</p>
+                  <p className="text-xs text-rose-900/75">Veröffentlichte Version: {row.lastSyncAt ? new Date(row.lastSyncAt).toISOString() : '-'}</p>
+                  <p className="text-xs text-rose-900/75">Gecachte Version: {row.lastSyncAt ? new Date(row.lastSyncAt).toISOString() : '-'}</p>
                   <p className="text-xs text-rose-900/75">Erkannte Auflösung: {row.resolution || 'Wird erkannt'}</p>
+                  <p className="text-xs text-rose-900/75">App-Version: {row.deviceInfo?.appVersion || '-'}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1298,6 +1563,24 @@ export default function AdminScreenStudioPage() {
                 Noch keine Displays verbunden.
               </div>
             ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === 'OFFLINE_SYNC' ? (
+          <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Offline & Sync</h2>
+            <p className="mt-2 text-sm text-slate-700">
+              Offline-First ist aktiv: Displays nutzen den letzten gültigen Snapshot und synchronisieren nach Wiederverbindung.
+            </p>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <StatCard label="Verbundene Geräte" value={rows.length} />
+              <StatCard label="Online" value={stats.online} />
+              <StatCard label="Letzter Sync" value={stats.latestSync ? new Date(stats.latestSync).toLocaleString('de-DE') : '-'} />
+              <StatCard label="Offline Queue" value="Vorbereitet" />
+            </div>
+            <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">
+              Easy-Order Offline Queue, Bestell-Sync und Konfliktauflösung sind vorbereitet und werden im nächsten Schritt erweitert.
+            </div>
           </section>
         ) : null}
 

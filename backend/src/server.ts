@@ -215,6 +215,35 @@ app.get('/api/health', (_req, res) => {
   })
 })
 
+app.get('/api/ready', async (_req, res) => {
+  const startedAtIso = processStartedAt.toISOString()
+  try {
+    await prisma.$queryRaw`SELECT 1`
+    return res.json({
+      ok: true,
+      ready: true,
+      checks: {
+        database: 'ok',
+      },
+      backendVersion: backendBuildMetadata.backendVersion,
+      startedAt: startedAtIso,
+      serverTime: new Date().toISOString(),
+    })
+  } catch (error) {
+    console.error('READY CHECK ERROR:', error)
+    return res.status(503).json({
+      ok: false,
+      ready: false,
+      checks: {
+        database: 'failed',
+      },
+      backendVersion: backendBuildMetadata.backendVersion,
+      startedAt: startedAtIso,
+      serverTime: new Date().toISOString(),
+    })
+  }
+})
+
 app.get('/api/version', (_req, res) => {
   res.json({
     version: backendBuildMetadata.version,

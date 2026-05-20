@@ -182,6 +182,15 @@ router.get('/:deviceCode/config', async (req, res) => {
   }
 })
 
+router.get('/:deviceCode', async (req, res) => {
+  const code = normalizeCodeParam(req.params.deviceCode)
+  if (!code) {
+    return res.status(400).json({ error: 'deviceCode fehlt' })
+  }
+  const suffix = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''
+  return res.redirect(307, `/api/display-runtime/${encodeURIComponent(code)}/config${suffix}`)
+})
+
 router.patch(
   '/:deviceCode/performance-mode',
   requirePermission(PermissionKey.SETTINGS_WRITE),

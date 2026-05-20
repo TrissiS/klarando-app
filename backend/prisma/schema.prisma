@@ -814,6 +814,9 @@ model Order {
   id                   String        @id @default(uuid())
   tenantId             String
   terminalId           String?
+  terminalDeviceId     String?
+  clientOrderId        String?
+  idempotencyKey       String?
   appCustomerAccountId String?
   customerName         String?
   customerPhone        String?
@@ -860,7 +863,10 @@ model Order {
 
   @@index([tenantId, status, createdAt])
   @@index([tenantId, sourceChannel, createdAt])
+  @@index([tenantId, terminalDeviceId, createdAt])
   @@index([tenantId, inventoryDeductedAt])
+  @@unique([tenantId, clientOrderId])
+  @@unique([tenantId, idempotencyKey])
   @@index([terminalId, createdAt])
   @@index([cashDisplayId, status, createdAt])
   @@index([kitchenDisplayId, status, createdAt])

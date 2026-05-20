@@ -10,7 +10,7 @@ export const CHAINADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/chainadmin/business-templates', label: 'Vorlagen' },
   { href: '/chainadmin/finanzen', label: 'Finanzen' },
   { href: '/admin/orders', label: 'Bestellungen' },
-  { href: '/chainadmin/display-devices', label: 'System' },
+  { href: '/admin/screen-studio?tab=devices', label: 'Bildschirmstudio' },
   { href: '/chainadmin/closings', label: 'Abschlüsse' },
   { href: '/admin', label: 'Zum Adminbereich' },
 ]

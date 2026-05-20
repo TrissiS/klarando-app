@@ -93,7 +93,7 @@ export default function AdminStats({
         label: 'Bildschirme aktiv',
         value: screenDevicesCount,
         hint: 'Verbundene Ausspielgeräte',
-        href: '/admin/screen',
+        href: '/admin/screen-studio?tab=devices',
         sourceLabel: 'Quelle öffnen',
       },
       {
@@ -101,7 +101,7 @@ export default function AdminStats({
         label: 'Sichtbar auf Screen',
         value: screenVisibleProductsCount,
         hint: 'Aktive Bildschirm-Produkte',
-        href: '/admin/screen',
+        href: '/admin/screen-studio?tab=content',
         sourceLabel: 'Quelle öffnen',
       },
       {
@@ -117,7 +117,7 @@ export default function AdminStats({
         label: 'Bestell-Displays',
         value: orderDisplayCount,
         hint: 'Küchen- und Ausgabedisplays',
-        href: '/admin/order-displays',
+        href: '/admin/screen-studio?tab=devices',
         sourceLabel: 'Quelle öffnen',
       },
       {

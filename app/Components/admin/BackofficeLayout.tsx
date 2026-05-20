@@ -98,7 +98,7 @@ export default function BackofficeLayout({
               label: 'System',
               items: pickItemsByHref([
                 '/superadmin/orders',
-                '/superadmin/display-devices',
+                '/superadmin/devices',
                 '/superadmin/fees',
                 '/superadmin/app-settings',
                 '/superadmin/misc-settings',
@@ -128,7 +128,7 @@ export default function BackofficeLayout({
               {
                 id: 'devices',
                 label: 'Geräte',
-                items: pickItemsByHref(['/chainadmin/display-devices']),
+                items: pickItemsByHref(['/admin/screen-studio?tab=devices']),
               },
               {
                 id: 'links',

@@ -17,6 +17,12 @@ import {
   type DisplayRuntimeConfig,
   type DisplayRuntimeConnectionState,
 } from '@/lib/display-runtime'
+import {
+  listOfflineOrders,
+  readOfflineDisplaySnapshot,
+  removeOfflineOrder,
+  writeOfflineDisplaySnapshot,
+} from '@/lib/display-offline'
 import { DisplayConnectionStatus } from '@/app/Components/display/DisplayConnectionStatus'
 import { DisplayRuntimeShell } from '@/app/Components/display/DisplayRuntimeShell'
 
@@ -441,7 +447,33 @@ export default function ScreenDevicePage({ params }: Props) {
   const [tickerClock, setTickerClock] = useState<Date>(() => new Date())
   const [runtimeConfig, setRuntimeConfig] = useState<DisplayRuntimeConfig | null>(null)
   const [connectionState, setConnectionState] = useState<DisplayRuntimeConnectionState>('online')
+  const [isOfflineNoticeVisible, setIsOfflineNoticeVisible] = useState(false)
+  const [debugMode, setDebugMode] = useState(false)
+  const [viewportResolution, setViewportResolution] = useState<{ width: number; height: number }>({
+    width: 1920,
+    height: 1080,
+  })
   const isLowPerformanceMode = runtimeConfig?.performanceMode === 'LOW'
+
+  useEffect(() => {
+    function updateViewportResolution() {
+      setViewportResolution({
+        width: Math.max(320, window.innerWidth || 1920),
+        height: Math.max(240, window.innerHeight || 1080),
+      })
+    }
+    updateViewportResolution()
+    window.addEventListener('resize', updateViewportResolution)
+    return () => window.removeEventListener('resize', updateViewportResolution)
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const byQuery = params.get('debugDisplay') === '1'
+    const byStorage = window.localStorage.getItem('klarando:display-debug') === '1'
+    setDebugMode(byQuery || byStorage)
+  }, [])
 
   useEffect(() => {
     params.then((resolved) => {
@@ -456,10 +488,21 @@ export default function ScreenDevicePage({ params }: Props) {
 
     let isMounted = true
     let timer: ReturnType<typeof setTimeout> | null = null
+    let restoredFromCache = false
+
+    const cachedSnapshot = readOfflineDisplaySnapshot(deviceCode)
+    if (cachedSnapshot?.feed) {
+      setFeed(cachedSnapshot.feed)
+      if (cachedSnapshot.runtimeConfig) {
+        setRuntimeConfig(cachedSnapshot.runtimeConfig)
+      }
+      restoredFromCache = true
+      setLoading(false)
+    }
 
     async function loadFeed() {
       try {
-        if (!feed) {
+        if (!restoredFromCache) {
           setLoading(true)
         }
         const data = await getPublicScreenFeed(deviceCode)
@@ -469,6 +512,16 @@ export default function ScreenDevicePage({ params }: Props) {
 
         setFeed(data)
         setError('')
+        setIsOfflineNoticeVisible(false)
+        const publishedVersion = data.config?.updatedAt || null
+        writeOfflineDisplaySnapshot({
+          deviceCode,
+          savedAt: new Date().toISOString(),
+          publishedVersion,
+          cachedVersion: runtimeConfig?.cacheVersion || null,
+          feed: data,
+          runtimeConfig,
+        })
 
         const configuredMinInterval = isLowPerformanceMode ? 15 : 8
         const baseIntervalMs = Math.max(configuredMinInterval, data.device.refreshIntervalSec) * 1000
@@ -482,7 +535,13 @@ export default function ScreenDevicePage({ params }: Props) {
         if (!isMounted) {
           return
         }
-        setError(loadError instanceof Error ? loadError.message : 'Feed konnte nicht geladen werden')
+        if (restoredFromCache || Boolean(cachedSnapshot?.feed)) {
+          setConnectionState('offline_cached')
+          setIsOfflineNoticeVisible(true)
+          setError('')
+        } else {
+          setError(loadError instanceof Error ? loadError.message : 'Feed konnte nicht geladen werden')
+        }
         timer = setTimeout(() => {
           loadFeed().catch(() => null)
         }, document.hidden ? 30000 : 12000)
@@ -501,7 +560,7 @@ export default function ScreenDevicePage({ params }: Props) {
         clearTimeout(timer)
       }
     }
-  }, [deviceCode])
+  }, [deviceCode, isLowPerformanceMode, runtimeConfig])
 
   useEffect(() => {
     if (!deviceCode) {
@@ -519,6 +578,16 @@ export default function ScreenDevicePage({ params }: Props) {
           return
         }
         setRuntimeConfig(config)
+        if (feed) {
+          writeOfflineDisplaySnapshot({
+            deviceCode,
+            savedAt: new Date().toISOString(),
+            publishedVersion: feed.config?.updatedAt || null,
+            cachedVersion: config.cacheVersion || null,
+            feed,
+            runtimeConfig: config,
+          })
+        }
         setConnectionState('online')
         const retryMs = document.hidden
           ? Math.max(30000, config.refreshIntervalMs * 2)
@@ -551,7 +620,7 @@ export default function ScreenDevicePage({ params }: Props) {
         clearTimeout(timer)
       }
     }
-  }, [deviceCode, isLowPerformanceMode])
+  }, [deviceCode, feed, isLowPerformanceMode])
 
   useEffect(() => {
     if (!feed || !feed.config.offerWindowEnabled) {
@@ -574,6 +643,37 @@ export default function ScreenDevicePage({ params }: Props) {
 
     return () => window.clearInterval(handle)
   }, [feed])
+
+  useEffect(() => {
+    const offlineOrderingEnabled =
+      Boolean((runtimeConfig?.layoutSettings as Record<string, unknown> | undefined)?.offlineOrderingEnabled)
+    if (!offlineOrderingEnabled || !feed) {
+      return
+    }
+    void (async () => {
+      try {
+        const queued = await listOfflineOrders(deviceCode)
+        for (const order of queued) {
+          const response = await fetch('/api/easy-order/offline-sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              ...order.payload,
+              clientOrderId: order.clientOrderId,
+              idempotencyKey: order.idempotencyKey,
+              tenantId: order.tenantId,
+              deviceCode: order.deviceCode,
+            }),
+          })
+          if (response.ok) {
+            await removeOfflineOrder(order.id)
+          }
+        }
+      } catch {
+        // Queue bleibt erhalten und wird beim nächsten Online-Zyklus erneut versucht.
+      }
+    })()
+  }, [deviceCode, feed, runtimeConfig?.layoutSettings])
 
   useEffect(() => {
     if (!feed?.config.tickerEnabled || !feed.config.tickerShowClock) {
@@ -771,16 +871,19 @@ export default function ScreenDevicePage({ params }: Props) {
     return rows
   }, [feed])
   const deviceResolutionWidth = Number(feed?.device.resolutionWidth || 1920)
+  const deviceResolutionHeight = Number(feed?.device.resolutionHeight || 1080)
+  const effectiveResolutionWidth = Math.max(320, Math.min(7680, viewportResolution.width || deviceResolutionWidth))
+  const effectiveResolutionHeight = Math.max(240, Math.min(4320, viewportResolution.height || deviceResolutionHeight))
   const columnCount = feed ? clampInt(Number(feed.config.defaultColumnCount || 4), 1, 6) : 4
   const isListMode = feed?.config.cardStyle === 'LIST'
   const responsiveColumnLimit =
-    deviceResolutionWidth < 700
+    effectiveResolutionWidth < 700
       ? 1
-      : deviceResolutionWidth < 1040
+      : effectiveResolutionWidth < 1040
         ? 2
-        : deviceResolutionWidth < 1460
+        : effectiveResolutionWidth < 1460
           ? 3
-          : deviceResolutionWidth < 1780
+          : effectiveResolutionWidth < 1780
             ? 4
             : 6
   const effectiveColumnCount = isListMode
@@ -813,13 +916,13 @@ export default function ScreenDevicePage({ params }: Props) {
   const offerWindowHeightPx = feed ? resolveOfferWindowHeightPx(feed.config) : 280
   const offerWindowWidthEffectivePx = Math.min(
     offerWindowWidthPx,
-    Math.max(220, deviceResolutionWidth - 36)
+    Math.max(220, effectiveResolutionWidth - 36)
   )
   const offerWindowHeightEffectivePx = Math.min(
     offerWindowHeightPx,
     Math.max(
       160,
-      Math.round((deviceResolutionWidth < 768 ? 0.64 : 0.78) * offerWindowWidthEffectivePx)
+      Math.round((effectiveResolutionWidth < 768 ? 0.64 : 0.78) * offerWindowWidthEffectivePx)
     )
   )
   const offerWindowOpacity = clampInt(Number(feed?.config.offerWindowOpacity || 28), 0, 100)
@@ -834,7 +937,7 @@ export default function ScreenDevicePage({ params }: Props) {
         Math.round(
           Math.min(
             Math.max(120, offerWindowHeightPx * 0.58),
-            Number(feed.device.resolutionHeight || 1080) * 0.42
+            effectiveResolutionHeight * 0.42
           )
         ),
         120,
@@ -856,8 +959,7 @@ export default function ScreenDevicePage({ params }: Props) {
   const tickerBarHeightPx = Math.max(42, Math.max(tickerClockFontSize, tickerFontSize) + 26)
   const contentViewportHeightPx = Math.max(
     240,
-    Number(feed?.device.resolutionHeight || 1080) -
-      (tickerEnabled ? tickerBarHeightPx + tickerOffsetPx : 0)
+    effectiveResolutionHeight - (tickerEnabled ? tickerBarHeightPx + tickerOffsetPx : 0)
   )
   const offerReservePaddingStyle =
     feed && feed.device
@@ -868,12 +970,12 @@ export default function ScreenDevicePage({ params }: Props) {
           yPercent: offerWindowCoordinates.y,
           widthPx: offerWindowWidthEffectivePx,
           heightPx: offerWindowHeightEffectivePx,
-          viewportWidthPx: Number(feed.device.resolutionWidth || 1920),
+          viewportWidthPx: effectiveResolutionWidth,
           viewportHeightPx: contentViewportHeightPx,
         })
       : {}
   const effectiveOfferReservePaddingStyle =
-    deviceResolutionWidth < 1280 ? {} : offerReservePaddingStyle
+    effectiveResolutionWidth < 1280 ? {} : offerReservePaddingStyle
   const runtimeLastSyncMs = runtimeConfig?.lastSyncAt ? Date.parse(runtimeConfig.lastSyncAt) : Number.NaN
   const connectionStaleSeconds = Number.isFinite(runtimeLastSyncMs)
     ? Math.max(0, Math.floor((Date.now() - runtimeLastSyncMs) / 1000))
@@ -890,9 +992,12 @@ export default function ScreenDevicePage({ params }: Props) {
   if (!feed) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
-        <p className="max-w-xl text-center text-lg">
-          {error || 'Keine Bildschirmdaten verfuegbar'}
-        </p>
+        <div className="max-w-xl rounded-2xl border border-white/20 bg-black/30 p-6 text-center">
+          <p className="text-xl font-semibold">Display wird eingerichtet</p>
+          <p className="mt-2 text-sm text-white/85">
+            {error || 'Noch keine veröffentlichten Bildschirmdaten gefunden. Bitte im Admin einen Bildschirm verbinden und Inhalte veröffentlichen.'}
+          </p>
+        </div>
       </main>
     )
   }
@@ -906,6 +1011,11 @@ export default function ScreenDevicePage({ params }: Props) {
       className="safe-area-padding relative flex min-h-screen flex-col overflow-hidden text-white"
     >
       <DisplayRuntimeShell runtimeConfig={runtimeConfig}>
+      {debugMode && isOfflineNoticeVisible ? (
+        <div className="absolute right-3 top-3 z-40 rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+          Offline-Cache aktiv
+        </div>
+      ) : null}
       <DisplayConnectionStatus state={connectionState} staleSeconds={connectionStaleSeconds} />
       {hasVideoBackground ? (
         <>
@@ -1015,6 +1125,10 @@ export default function ScreenDevicePage({ params }: Props) {
             {feed.config.subtitle ? (
               <p className="mt-2 break-words text-base text-white/85 sm:text-lg xl:text-xl">{feed.config.subtitle}</p>
             ) : null}
+            <p className="mt-2 text-xs text-white/70">
+              Auflösung: {effectiveResolutionWidth}×{effectiveResolutionHeight} · Device-ID: {feed.device.id.slice(0, 8)} · Letzter Sync:{' '}
+              {runtimeConfig?.lastSyncAt ? new Date(runtimeConfig.lastSyncAt).toLocaleTimeString('de-DE') : '-'}
+            </p>
           </div>
 
           {feed.config.logoUrl ? (
@@ -1023,8 +1137,8 @@ export default function ScreenDevicePage({ params }: Props) {
               alt="Betreiber-Logo"
             className="rounded-lg object-contain"
             style={{
-              width: `${clampInt(Number(feed.config.logoSize || 72), 28, deviceResolutionWidth < 640 ? 80 : 220)}px`,
-              height: `${clampInt(Number(feed.config.logoSize || 72), 28, deviceResolutionWidth < 640 ? 80 : 220)}px`,
+              width: `${clampInt(Number(feed.config.logoSize || 72), 28, effectiveResolutionWidth < 640 ? 80 : 220)}px`,
+              height: `${clampInt(Number(feed.config.logoSize || 72), 28, effectiveResolutionWidth < 640 ? 80 : 220)}px`,
             }}
           />
           ) : null}
@@ -1141,6 +1255,14 @@ export default function ScreenDevicePage({ params }: Props) {
             ...effectiveOfferReservePaddingStyle,
           }}
         >
+          {screenRows.length === 0 ? (
+            <article className="col-span-full rounded-2xl border border-amber-200 bg-amber-50 px-5 py-6 text-center text-slate-800">
+              <p className="text-lg font-semibold">Keine Produkte für diesen Bildschirm freigegeben.</p>
+              <p className="mt-1 text-sm text-slate-700">
+                Bitte im Bildschirmstudio Produkte/Kategorien aktivieren oder einen anderen Bildschirm zuweisen.
+              </p>
+            </article>
+          ) : null}
           {screenRows.map((row, rowIndex) => {
             if (row.type === 'category') {
               return (

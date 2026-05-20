@@ -95,6 +95,11 @@ function normalizeZipCode(value: unknown) {
   return digits.slice(0, 5)
 }
 
+function isPrismaUniqueConstraintError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  return (error as { code?: string }).code === 'P2002'
+}
+
 function parseAmountFromText(value: string | null | undefined) {
   if (!value) {
     return null
@@ -759,6 +764,39 @@ async function loadOrderForCreateResponse(orderId: string) {
       },
     },
   })
+}
+
+async function findExistingOrderForIdempotency(params: {
+  tenantId: string
+  clientOrderId: string | null
+  idempotencyKey: string | null
+}) {
+  const checks: Prisma.OrderWhereInput[] = []
+  if (params.clientOrderId) {
+    checks.push({
+      tenantId: params.tenantId,
+      clientOrderId: params.clientOrderId,
+    })
+  }
+  if (params.idempotencyKey) {
+    checks.push({
+      tenantId: params.tenantId,
+      idempotencyKey: params.idempotencyKey,
+    })
+  }
+  if (checks.length === 0) {
+    return null
+  }
+
+  const existing = await prisma.order.findFirst({
+    where: { OR: checks },
+    select: { id: true },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!existing) {
+    return null
+  }
+  return loadOrderForCreateResponse(existing.id)
 }
 
 function modifierSelectionGroupKey(modifier: { name: string; ingredientId: string | null }) {
@@ -2275,6 +2313,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerAddress,
       customerZipCode,
       customerCity,
+      branchId,
+      clientOrderId,
+      deviceCode,
+      terminalDeviceId,
       idempotencyKey,
     } = req.body as {
       tenantId?: string
@@ -2294,6 +2336,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerAddress?: string | null
       customerZipCode?: string | null
       customerCity?: string | null
+      branchId?: string | null
+      clientOrderId?: string | null
+      deviceCode?: string | null
+      terminalDeviceId?: string | null
       idempotencyKey?: string | null
     }
 
@@ -2313,6 +2359,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     const normalizedCustomerAddress = normalizeText(customerAddress)
     const normalizedCustomerZipCode = normalizeZipCode(customerZipCode)
     const normalizedCustomerCity = normalizeText(customerCity)
+    const normalizedBranchId = normalizeText(branchId)
+    const normalizedClientOrderId = normalizeText(clientOrderId)
+    const normalizedTerminalDeviceId =
+      normalizeText(terminalDeviceId) ?? normalizeText(deviceCode)
     const requestIdempotencyKey = extractOrderIdempotencyKey(
       req.header('x-idempotency-key'),
       idempotencyKey
@@ -2355,12 +2405,69 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       ? tenantId
       : ((await resolveTenantScope(req, tenantId)).tenantId as string)
 
+    if (normalizedBranchId && normalizedBranchId !== resolvedTenantId) {
+      return res.status(400).json({
+        error: 'branchId passt nicht zur ausgewaehlten Filiale',
+      })
+    }
+
+    const likelyOfflineSyncRequest =
+      Boolean(normalizedClientOrderId) ||
+      Boolean(normalizedTerminalDeviceId) ||
+      normalizedSourceChannel === 'TERMINAL'
+    if (likelyOfflineSyncRequest && !requestIdempotencyKey) {
+      return res.status(400).json({
+        error: 'idempotencyKey ist für Offline-/Terminal-Sync erforderlich',
+      })
+    }
+
+    console.info('ORDER IDEMPOTENCY CHECK START', {
+      tenantId: resolvedTenantId,
+      branchId: normalizedBranchId,
+      recognizedClientOrderId: normalizedClientOrderId,
+      recognizedIdempotencyKey: requestIdempotencyKey,
+      terminalDeviceId: normalizedTerminalDeviceId,
+      sourceTerminalDeviceField: normalizeText(terminalDeviceId) ? 'terminalDeviceId' : normalizeText(deviceCode) ? 'deviceCode' : null,
+    })
+
+    const existingOrder = await findExistingOrderForIdempotency({
+      tenantId: resolvedTenantId,
+      clientOrderId: normalizedClientOrderId,
+      idempotencyKey: requestIdempotencyKey,
+    })
+    if (existingOrder) {
+      console.info('ORDER IDEMPOTENCY DUPLICATE PREVENTED', {
+        tenantId: resolvedTenantId,
+        existingOrderId: existingOrder.id,
+        clientOrderId: normalizedClientOrderId,
+        idempotencyKey: requestIdempotencyKey,
+      })
+      await writeAuditLog({
+        req,
+        module: 'orders',
+        action: 'order_create_duplicate_prevented',
+        targetType: 'order',
+        targetId: existingOrder.id,
+        tenantId: existingOrder.tenantId,
+        metadata: {
+          clientOrderId: normalizedClientOrderId,
+          idempotencyKey: requestIdempotencyKey,
+          terminalDeviceId: normalizedTerminalDeviceId,
+        },
+      })
+      return res.status(200).json({
+        ...existingOrder,
+        duplicatePrevented: true,
+      })
+    }
+
     const idempotencyResult = beginOrderCreateIdempotency({
       tenantId: resolvedTenantId,
       routeKey: 'orders',
       idempotencyKey: requestIdempotencyKey,
       fingerprintPayload: {
         tenantId: resolvedTenantId,
+        branchId: normalizedBranchId,
         terminalId: normalizedTerminalId,
         sourceChannel: normalizedSourceChannel,
         serviceType: normalizedServiceTypeRaw,
@@ -2409,6 +2516,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         return res.status(200).json({
           ...replayOrder,
           idempotencyReplay: true,
+          duplicatePrevented: true,
         })
       }
       return res.status(409).json({
@@ -2686,103 +2794,140 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
 
     const total = subtotal + deliveryFee
 
-    const order = await prisma.$transaction(async (tx) => {
-      const created = await tx.order.create({
-        data: {
-          tenantId: resolvedTenantId,
-          terminalId: terminal?.id ?? null,
-          appCustomerAccountId: appAccount?.id ?? null,
-          customerName: normalizedCustomerName ?? appAccount?.fullName ?? null,
-          customerPhone: normalizedCustomerPhone ?? appAccount?.phone ?? null,
-          customerAddress: normalizedCustomerAddress ?? appAccount?.street ?? null,
-          customerZipCode: normalizedCustomerZipCode ?? appAccount?.zipCode ?? null,
-          customerCity: normalizedCustomerCity ?? appAccount?.city ?? null,
-          serviceType: resolvedServiceType,
-          subtotal,
-          deliveryFee,
-          cashDisplayId: routedCashDisplayId,
-          kitchenDisplayId: routedKitchenDisplayId,
-          pickupDisplayId: routedPickupDisplayId,
-          pickupNumber: localPickupNumber,
-          total,
-          status: shouldForward ? 'open' : 'pending_payment',
-          sourceChannel: normalizedSourceChannel,
-          paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
-          paymentMethod: normalizedPaymentMethod,
-          paidAt: shouldMarkPaid ? new Date() : null,
-          forwardedToKitchenAt: shouldForward ? new Date() : null,
-          items: {
-            create: orderItemsData.map((item) => ({
-              quantity: item.quantity,
-              price: item.price,
-              unitBasePrice: item.unitBasePrice,
-              unitModifierDelta: item.unitModifierDelta,
-              modifierSnapshot: item.modifierSnapshot ?? undefined,
-              product: {
-                connect: {
-                  id: item.productId,
+    let duplicatePrevented = false
+    let order = null as Awaited<ReturnType<typeof loadOrderForCreateResponse>> | null
+    try {
+      order = await prisma.$transaction(async (tx) => {
+        const created = await tx.order.create({
+          data: {
+            tenantId: resolvedTenantId,
+            terminalId: terminal?.id ?? null,
+            terminalDeviceId: normalizedTerminalDeviceId,
+            clientOrderId: normalizedClientOrderId,
+            idempotencyKey: requestIdempotencyKey,
+            appCustomerAccountId: appAccount?.id ?? null,
+            customerName: normalizedCustomerName ?? appAccount?.fullName ?? null,
+            customerPhone: normalizedCustomerPhone ?? appAccount?.phone ?? null,
+            customerAddress: normalizedCustomerAddress ?? appAccount?.street ?? null,
+            customerZipCode: normalizedCustomerZipCode ?? appAccount?.zipCode ?? null,
+            customerCity: normalizedCustomerCity ?? appAccount?.city ?? null,
+            serviceType: resolvedServiceType,
+            subtotal,
+            deliveryFee,
+            cashDisplayId: routedCashDisplayId,
+            kitchenDisplayId: routedKitchenDisplayId,
+            pickupDisplayId: routedPickupDisplayId,
+            pickupNumber: localPickupNumber,
+            total,
+            status: shouldForward ? 'open' : 'pending_payment',
+            sourceChannel: normalizedSourceChannel,
+            paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
+            paymentMethod: normalizedPaymentMethod,
+            paidAt: shouldMarkPaid ? new Date() : null,
+            forwardedToKitchenAt: shouldForward ? new Date() : null,
+            items: {
+              create: orderItemsData.map((item) => ({
+                quantity: item.quantity,
+                price: item.price,
+                unitBasePrice: item.unitBasePrice,
+                unitModifierDelta: item.unitModifierDelta,
+                modifierSnapshot: item.modifierSnapshot ?? undefined,
+                product: {
+                  connect: {
+                    id: item.productId,
+                  },
                 },
-              },
-            })),
+              })),
+            },
           },
-        },
-        select: {
-          id: true,
-        },
-      })
+          select: {
+            id: true,
+          },
+        })
 
-      await applyInventoryConsumptionForOrder(tx, created.id)
+        await applyInventoryConsumptionForOrder(tx, created.id)
 
-      const hydrated = await tx.order.findUnique({
-        where: {
-          id: created.id,
-        },
-        include: {
-          tenant: {
-            select: {
-              id: true,
-              name: true,
-            },
+        const hydrated = await tx.order.findUnique({
+          where: {
+            id: created.id,
           },
-          appCustomerAccount: {
-            select: {
-              id: true,
-              email: true,
-              fullName: true,
-            },
-          },
-          terminal: {
-            select: {
-              id: true,
-              name: true,
-              terminalCode: true,
-              location: true,
-            },
-          },
-          items: {
-            include: {
-              product: {
-                include: {
-                  category: true,
-                },
+          include: {
+            tenant: {
+              select: {
+                id: true,
+                name: true,
               },
             },
+            appCustomerAccount: {
+              select: {
+                id: true,
+                email: true,
+                fullName: true,
+              },
+            },
+            terminal: {
+              select: {
+                id: true,
+                name: true,
+                terminalCode: true,
+                location: true,
+              },
+            },
+            items: {
+              include: {
+                product: {
+                  include: {
+                    category: true,
+                  },
+                },
+              },
+            },
           },
-        },
-      })
+        })
 
-      if (!hydrated) {
-        throw new Error('Bestellung konnte nach dem Speichern nicht geladen werden')
+        if (!hydrated) {
+          throw new Error('Bestellung konnte nach dem Speichern nicht geladen werden')
+        }
+
+        return hydrated
+      })
+    } catch (createError) {
+      if (!isPrismaUniqueConstraintError(createError)) {
+        throw createError
       }
+      const existingAfterRace = await findExistingOrderForIdempotency({
+        tenantId: resolvedTenantId,
+        clientOrderId: normalizedClientOrderId,
+        idempotencyKey: requestIdempotencyKey,
+      })
+      if (!existingAfterRace) {
+        throw createError
+      }
+      duplicatePrevented = true
+      order = existingAfterRace
+    }
 
-      return hydrated
+    if (!order) {
+      throw new Error('Bestellung konnte nicht geladen werden')
+    }
+
+    console.info('ORDER IDEMPOTENCY FINAL', {
+      tenantId: resolvedTenantId,
+      orderId: order.id,
+      finalClientOrderId: normalizedClientOrderId,
+      finalIdempotencyKey: requestIdempotencyKey,
+      finalTerminalDeviceId: normalizedTerminalDeviceId,
+      duplicatePrevented,
     })
 
     if (idempotencyReservation) {
       completeOrderCreateIdempotency(idempotencyReservation, order.id)
     }
 
-    return res.status(201).json(order)
+    return res.status(duplicatePrevented ? 200 : 201).json({
+      ...order,
+      duplicatePrevented,
+    })
   } catch (error) {
     if (idempotencyReservation) {
       releaseOrderCreateIdempotency(idempotencyReservation)
