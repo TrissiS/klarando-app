@@ -100,6 +100,16 @@ function dedupeIngredients(values: string[]): string[] {
   return out
 }
 
+function normalizeProductNumber(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const cleaned = value.trim().toUpperCase().replace(/\s+/g, '')
+  if (!cleaned) return null
+  const match = cleaned.match(/^(\d{1,4})([A-Z]{0,2})$/)
+  if (!match) return cleaned.slice(0, 12)
+  const padded = String(Number(match[1])).padStart(2, '0')
+  return `${padded}${match[2] || ''}`
+}
+
 function inferDescriptionAndIngredients(
   categoryName: string,
   currentDescription: string | null,
@@ -180,10 +190,7 @@ function mapCategoryProducts(categoryName: string, category: any): MenuImportCat
 
       return {
         name,
-        productNumber:
-          typeof product?.productNumber === 'string' && product.productNumber.trim().length > 0
-            ? product.productNumber.trim()
-            : null,
+        productNumber: normalizeProductNumber(product?.productNumber),
         description: inferred.description,
         price:
           product?.price === null || Number.isFinite(Number(product?.price)) ? Number(product.price) : null,
@@ -437,7 +444,7 @@ function parseFallbackProductsFromChunk(ocrChunk: string): Partial<MenuImportAna
     .filter(Boolean)
 
   const categories: MenuImportAnalysisResult['categories'] = []
-  let currentCategory = 'Ohne Kategorie'
+  let currentCategory = 'Sonstiges'
   const categoryWarnings: string[] = []
   const knownCategories = ['drehspieß', 'pommes', 'lahmacun', 'pizza', 'schnitzel', 'nudel', 'salat', 'getränke', 'hamburger', 'wurst', 'pizzabrötchen', 'spezial']
 
@@ -470,7 +477,7 @@ function parseFallbackProductsFromChunk(ocrChunk: string): Partial<MenuImportAna
     const category = ensureCategory(currentCategory)
     if (!categoryWarnings.includes(category.name)) categoryWarnings.push(category.name)
 
-    const number = regexMatch?.[1] ?? null
+    const number = normalizeProductNumber(regexMatch?.[1] ?? null)
     const name = (regexMatch?.[2] ?? looseMatch?.[1] ?? '').trim()
     if (!name) continue
     const rawPrice = (regexMatch?.[3] ?? looseMatch?.[2] ?? '').replace(',', '.')
@@ -576,7 +583,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   }
 
   const ensureCategory = (name: string) => {
-    const normalizedName = name.trim() || 'Unsortiert'
+    const normalizedName = name.trim() || 'Sonstiges'
     const existing = categories.find(
       (entry) => entry.name.toLocaleLowerCase('de-DE') === normalizedName.toLocaleLowerCase('de-DE')
     )
@@ -584,7 +591,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     const created = {
       name: normalizedName,
       sortOrder: categories.length + 1,
-      confidence: normalizedName === 'Unsortiert' ? 0.55 : 0.78,
+      confidence: normalizedName === 'Sonstiges' ? 0.55 : 0.78,
       products: [] as MenuImportAnalysisResult['categories'][number]['products'],
     }
     categories.push(created)
@@ -641,7 +648,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
       if (shouldAutoAssignDonerCategory(rawName)) {
         currentCategory = 'Drehspieß'
       } else {
-        currentCategory = 'Unsortiert'
+        currentCategory = 'Sonstiges'
         uncategorizedProductLines.push(line)
       }
     }
@@ -671,9 +678,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Bitte prüfen: automatisch per Fallback erkannt`)
     warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Allergene unklar`)
     warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Varianten prüfen`)
-    if (productNumber) {
-      warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Artikelnummer wird nicht übernommen`)
-    }
+    if (productNumber) warnings.push(`${targetCategory.name} / ${cleanedName || rawName}: Produktnummer erkannt (${productNumber})`)
   }
 
   for (const category of categories) {
@@ -682,8 +687,8 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     }
   }
 
-  const unsortedCategory = categories.find(
-    (entry) => entry.name.toLocaleLowerCase('de-DE') === 'unsortiert'
+  const unsortedCategory = categories.find((entry) =>
+    ['unsortiert', 'sonstiges'].includes(entry.name.toLocaleLowerCase('de-DE'))
   )
   if (unsortedCategory && unsortedCategory.products.length > 0) {
     const donerCategory = ensureCategory('Drehspieß')
@@ -736,7 +741,7 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
     warnings.push('Parserfehler: Produktzeile wurde als Kategorie erkannt')
   }
   if (unrecognizedPriceLines.length > 0) warnings.push(`Parser konnte ${unrecognizedPriceLines.length} Preiszeilen nicht erkennen.`)
-  if (uncategorizedProductLines.length > 0) warnings.push(`${uncategorizedProductLines.length} Produktzeilen ohne Kategorie wurden "Unsortiert" zugeordnet.`)
+  if (uncategorizedProductLines.length > 0) warnings.push(`${uncategorizedProductLines.length} Produktzeilen ohne Kategorie wurden "Sonstiges" zugeordnet.`)
 
   return {
     restaurantName: null,

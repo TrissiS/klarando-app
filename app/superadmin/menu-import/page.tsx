@@ -51,6 +51,10 @@ export default function SuperadminMenuImportPage() {
     ingredientLinksCreated: number
     productsWithoutIngredients: number
     productsWithWarnings: number
+    skuConflicts: number
+    recognizedSkuCount: number
+    finalSkuCount: number
+    avgConfidence: number | null
   } | null>(null)
 
   const selectedTenant = useMemo(
@@ -276,8 +280,8 @@ export default function SuperadminMenuImportPage() {
 
   async function runImport() {
     if (!token || !tenantId || !editableResult) return
-    const unsortedCategory = editableResult.categories.find(
-      (category) => category.name.trim().toLocaleLowerCase('de-DE') === 'unsortiert'
+    const unsortedCategory = editableResult.categories.find((category) =>
+      ['unsortiert', 'sonstiges'].includes(category.name.trim().toLocaleLowerCase('de-DE'))
     )
     if ((unsortedCategory?.products.length || 0) > 0) {
       const proceed = window.confirm(
@@ -305,6 +309,10 @@ export default function SuperadminMenuImportPage() {
         ingredientLinksCreated: response.ingredientLinksCreated,
         productsWithoutIngredients: response.productsWithoutIngredients,
         productsWithWarnings: response.productsWithWarnings,
+        skuConflicts: response.skuConflicts ?? 0,
+        recognizedSkuCount: response.recognizedSkuCount ?? 0,
+        finalSkuCount: response.finalSkuCount ?? 0,
+        avgConfidence: response.avgConfidence ?? null,
       })
       setSuccess(response.message)
     } catch (importError) {
@@ -409,7 +417,8 @@ export default function SuperadminMenuImportPage() {
     if (!editableResult) return false
     return editableResult.categories.some(
       (category) =>
-        category.name.trim().toLocaleLowerCase('de-DE') === 'unsortiert' && category.products.length > 0
+        ['unsortiert', 'sonstiges'].includes(category.name.trim().toLocaleLowerCase('de-DE')) &&
+        category.products.length > 0
     )
   }, [editableResult])
 
@@ -480,7 +489,12 @@ export default function SuperadminMenuImportPage() {
       flags.push({ level: 'yellow', text: 'Bitte prüfen: Varianten unklar/fehlen' })
     }
     if (product.productNumber) {
-      flags.push({ level: 'yellow', text: 'Artikelnummer wird beim Import nicht übernommen' })
+      flags.push({
+        level: useMenuNumbersAsSku ? 'yellow' : 'red',
+        text: useMenuNumbersAsSku
+          ? `Produktnummer erkannt: ${product.productNumber}`
+          : 'Artikelnummer wird beim Import nicht übernommen',
+      })
     }
     if (
       product.productNumber &&
@@ -496,6 +510,17 @@ export default function SuperadminMenuImportPage() {
     }
     return flags
   }
+
+  const productFlagsByKey = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getProductReviewFlags>>()
+    for (const category of filteredCategories) {
+      for (const product of category.products) {
+        const key = `${category.sourceIndex}:${product.sourceProductIndex}`
+        map.set(key, getProductReviewFlags(product))
+      }
+    }
+    return map
+  }, [filteredCategories, duplicateMenuNumberSet, useMenuNumbersAsSku])
 
   function getCategoryWarnings(categoryName: string) {
     if (!editableResult) return []
@@ -689,6 +714,16 @@ export default function SuperadminMenuImportPage() {
                 {importSummary.productsWithoutIngredients} Produkte ohne Zutaten
               </p>
               <p>{importSummary.productsWithWarnings} Produkte mit Warnhinweisen</p>
+              <p>
+                Produktnummern erkannt: {importSummary.recognizedSkuCount} · übernommen:{' '}
+                {importSummary.finalSkuCount} · Konflikte: {importSummary.skuConflicts}
+              </p>
+              <p>
+                Ø OCR/Parser-Confidence:{' '}
+                {importSummary.avgConfidence === null
+                  ? '—'
+                  : `${Math.round(importSummary.avgConfidence * 100)}%`}
+              </p>
             </div>
           ) : null}
 
@@ -779,7 +814,9 @@ export default function SuperadminMenuImportPage() {
                       className="rounded-lg border border-slate-200 px-2 py-1 text-sm font-semibold text-slate-900"
                     />
                     <span className="text-xs text-slate-500">({category.products.length} Produkte)</span>
-                    {category.name.trim().toLocaleLowerCase('de-DE') === 'unsortiert' ? (
+                    {['unsortiert', 'sonstiges'].includes(
+                      category.name.trim().toLocaleLowerCase('de-DE')
+                    ) ? (
                       <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-800">
                         Bitte zuordnen
                       </span>
@@ -817,9 +854,13 @@ export default function SuperadminMenuImportPage() {
                   {expandedCategories[category.name] ? 'Kategorie einklappen' : 'Kategorie ausklappen'}
                 </button>
                 {expandedCategories[category.name] ? (
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2 max-h-[52vh] space-y-2 overflow-y-auto pr-1">
                     {category.products.map((product, index) => (
-                    <div key={`${product.name}-${index}`} className="rounded-xl bg-slate-50 p-2">
+                    <div
+                      key={`${product.name}-${index}`}
+                      className="rounded-xl bg-slate-50 p-2"
+                      style={{ contentVisibility: 'auto', containIntrinsicSize: '360px' }}
+                    >
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <input
                           type="checkbox"
@@ -860,9 +901,13 @@ export default function SuperadminMenuImportPage() {
                           Neue Kategorie
                         </button>
                       </div>
-                      {getProductReviewFlags(product).length > 0 ? (
+                      {(productFlagsByKey.get(
+                        `${category.sourceIndex}:${product.sourceProductIndex}`
+                      ) || []).length > 0 ? (
                         <div className="mb-2 flex flex-wrap gap-1">
-                          {getProductReviewFlags(product).map((flag, flagIndex) => (
+                          {(productFlagsByKey.get(
+                            `${category.sourceIndex}:${product.sourceProductIndex}`
+                          ) || []).map((flag, flagIndex) => (
                             <span
                               key={`${flag.text}-${flagIndex}`}
                               className={`rounded-full px-2 py-1 text-[11px] font-semibold ${

@@ -84,6 +84,16 @@ function toIngredientKey(value: string): string {
   return singular || normalized
 }
 
+function normalizeProductNumber(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const cleaned = value.trim().toUpperCase().replace(/\s+/g, '')
+  if (!cleaned) return null
+  const match = cleaned.match(/^(\d{1,4})([A-Z]{0,2})$/)
+  if (!match) return cleaned.slice(0, 12)
+  const padded = String(Number(match[1])).padStart(2, '0')
+  return `${padded}${match[2] || ''}`
+}
+
 const INGREDIENT_KEYWORDS: Array<{ key: string; ingredient: string }> = [
   { key: 'tomatensauce', ingredient: 'Tomatensauce' },
   { key: 'käse', ingredient: 'Käse' },
@@ -271,6 +281,7 @@ router.post('/import', requireAuth, async (req, res) => {
     const preparedProducts: Array<{
       categoryName: string
       name: string
+      recognizedProductNumber: string | null
       productNumber: string | null
       description: string | null
       price: number | null
@@ -284,6 +295,7 @@ router.post('/import', requireAuth, async (req, res) => {
       additives: string[]
       notes: string | null
       warnings: string[]
+      conflictReason?: string | null
     }> = []
 
     for (const category of categories) {
@@ -292,7 +304,7 @@ router.post('/import', requireAuth, async (req, res) => {
       const products = Array.isArray(category.products) ? category.products : []
       for (const product of products) {
         const name = typeof product.name === 'string' ? product.name.trim() : ''
-        const numberRaw = typeof product.productNumber === 'string' ? product.productNumber.trim() : ''
+        const recognizedProductNumber = normalizeProductNumber(product.productNumber)
         const descriptionRaw = typeof product.description === 'string' ? product.description.trim() : ''
         if (!name) continue
         const priceRaw = product.price === null || product.price === undefined ? null : Number(product.price)
@@ -309,7 +321,7 @@ router.post('/import', requireAuth, async (req, res) => {
         if (Number.isFinite(confidenceRaw) && confidenceRaw < 0.85) {
           warnings.push('Bitte prüfen: Produkt-Erkennung unsicher.')
         }
-        if (numberRaw && !useMenuNumbersAsSku) {
+        if (recognizedProductNumber && !useMenuNumbersAsSku) {
           warnings.push('Artikelnummer wird beim Import nicht übernommen.')
         }
         const mergedIngredients = new Map<string, string>()
@@ -324,7 +336,8 @@ router.post('/import', requireAuth, async (req, res) => {
         preparedProducts.push({
           categoryName,
           name,
-          productNumber: numberRaw || null,
+          recognizedProductNumber,
+          productNumber: recognizedProductNumber,
           description: descriptionRaw || null,
           price:
             Number.isFinite(priceRaw ?? NaN) && (priceRaw ?? 0) > 0
@@ -351,6 +364,7 @@ router.post('/import', requireAuth, async (req, res) => {
           additives: additivesRaw.map((entry) => String(entry || '').trim()).filter(Boolean),
           notes: notesRaw,
           warnings,
+          conflictReason: null,
         })
       }
     }
@@ -372,9 +386,8 @@ router.post('/import', requireAuth, async (req, res) => {
       if (duplicateNumbersInImport.length > 0) {
         for (const entry of preparedProducts) {
           if (entry.productNumber && duplicateNumbersInImport.includes(entry.productNumber)) {
-            entry.warnings.push(
-              `Doppelte Produktnummer im Import (${entry.productNumber}) – Artikelnummer wurde geleert.`
-            )
+            entry.warnings.push(`Doppelte Produktnummer im Import (${entry.productNumber}) – Artikelnummer wurde geleert.`)
+            entry.conflictReason = `duplicate-import:${entry.productNumber}`
             entry.productNumber = null
           }
         }
@@ -402,6 +415,7 @@ router.post('/import', requireAuth, async (req, res) => {
               entry.warnings.push(
                 `Artikelnummer ${entry.productNumber} bereits vorhanden – Nummer wurde geleert.`
               )
+              entry.conflictReason = `duplicate-tenant:${entry.productNumber}`
               entry.productNumber = null
             }
           }
@@ -451,10 +465,18 @@ router.post('/import', requireAuth, async (req, res) => {
       let productsWithWarnings = 0
       let ingredientLinksCreated = 0
       let productsWithoutIngredients = 0
+      let skuConflicts = 0
+      let recognizedSkuCount = 0
+      let finalSkuCount = 0
+      const confidenceValues: number[] = []
 
       for (const product of preparedProducts) {
         const categoryId = categoryByName.get(product.categoryName) || null
         const extraWarnings: string[] = [...product.warnings]
+        if (product.conflictReason) skuConflicts += 1
+        if (product.recognizedProductNumber) recognizedSkuCount += 1
+        if (product.productNumber) finalSkuCount += 1
+        if (Number.isFinite(product.confidence)) confidenceValues.push(product.confidence)
         const productNotes: string[] = []
         if (product.productNumber && !useMenuNumbersAsSku) {
           productNotes.push(`Speisekarten-Nummer: ${product.productNumber}`)
@@ -484,6 +506,15 @@ router.post('/import', requireAuth, async (req, res) => {
             unitEans: [],
           },
           select: { id: true, price: true },
+        })
+
+        console.info('MENU_IMPORT_PRODUCT_NUMBER_MAP', {
+          tenantId,
+          product: product.name,
+          recognizedNumber: product.recognizedProductNumber,
+          finalNumber: product.productNumber,
+          conflict: product.conflictReason || null,
+          overwritten: product.recognizedProductNumber !== product.productNumber,
         })
 
         if (product.price === null) {
@@ -568,6 +599,17 @@ router.post('/import', requireAuth, async (req, res) => {
         productsWithWarnings,
         ingredientLinksCreated,
         productsWithoutIngredients,
+        skuConflicts,
+        recognizedSkuCount,
+        finalSkuCount,
+        avgConfidence:
+          confidenceValues.length > 0
+            ? Number(
+                (
+                  confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
+                ).toFixed(3)
+              )
+            : null,
       }
     })
 
@@ -587,7 +629,27 @@ router.post('/import', requireAuth, async (req, res) => {
         productsWithWarnings: result.productsWithWarnings,
         ingredientLinksCreated: result.ingredientLinksCreated,
         productsWithoutIngredients: result.productsWithoutIngredients,
+        skuConflicts: result.skuConflicts,
+        recognizedSkuCount: result.recognizedSkuCount,
+        finalSkuCount: result.finalSkuCount,
+        avgConfidence: result.avgConfidence,
       },
+    })
+
+    console.info('MENU_IMPORT_EXECUTE_SUMMARY', {
+      tenantId,
+      importedProducts: result.importedCount,
+      categoriesRecognized: result.categoryCount,
+      ingredientsCreated: result.createdIngredients,
+      ingredientsReused: result.reusedIngredients,
+      ingredientLinksCreated: result.ingredientLinksCreated,
+      productsWithoutIngredients: result.productsWithoutIngredients,
+      productsWithWarnings: result.productsWithWarnings,
+      recognizedNumbers: result.recognizedSkuCount,
+      finalNumbers: result.finalSkuCount,
+      skuConflicts: result.skuConflicts,
+      avgConfidence: result.avgConfidence,
+      useMenuNumbersAsSku,
     })
 
     return res.status(201).json({
@@ -600,6 +662,10 @@ router.post('/import', requireAuth, async (req, res) => {
       productsWithWarnings: result.productsWithWarnings,
       ingredientLinksCreated: result.ingredientLinksCreated,
       productsWithoutIngredients: result.productsWithoutIngredients,
+      skuConflicts: result.skuConflicts,
+      recognizedSkuCount: result.recognizedSkuCount,
+      finalSkuCount: result.finalSkuCount,
+      avgConfidence: result.avgConfidence,
       message: `${result.importedCount} Produkte importiert. Produkte sind zunächst nicht aktiv.`,
     })
   } catch (error) {

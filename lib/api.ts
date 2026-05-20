@@ -8025,6 +8025,10 @@ export async function importSuperadminMenuImport(
   ingredientLinksCreated: number
   productsWithoutIngredients: number
   productsWithWarnings: number
+  skuConflicts: number
+  recognizedSkuCount: number
+  finalSkuCount: number
+  avgConfidence: number | null
   message: string
 }> {
   const response = await apiFetch('/api/superadmin/menu-import/import', {
@@ -8048,6 +8052,10 @@ export async function importSuperadminMenuImport(
     ingredientLinksCreated: number
     productsWithoutIngredients: number
     productsWithWarnings: number
+    skuConflicts: number
+    recognizedSkuCount: number
+    finalSkuCount: number
+    avgConfidence: number | null
     message: string
   }
 }
