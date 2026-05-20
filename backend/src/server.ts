@@ -285,6 +285,49 @@ app.get('/api/health/ready', async (_req, res) => {
   }
 })
 
+app.get('/api/health/display-heartbeats', async (_req, res) => {
+  try {
+    const now = Date.now()
+    const onlineThreshold = new Date(now - 5 * 60 * 1000)
+    const staleThreshold = new Date(now - 30 * 60 * 1000)
+
+    const [total, onlineRecent, staleRecent] = await Promise.all([
+      prisma.displayDevice.count(),
+      prisma.displayDevice.count({
+        where: { lastSeenAt: { gte: onlineThreshold } },
+      }),
+      prisma.displayDevice.count({
+        where: {
+          OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: staleThreshold } }],
+        },
+      }),
+    ])
+
+    return res.json({
+      ok: true,
+      serverTime: new Date().toISOString(),
+      thresholds: {
+        onlineMinutes: 5,
+        staleMinutes: 30,
+      },
+      devices: {
+        total,
+        onlineRecent,
+        staleOrOffline: staleRecent,
+      },
+      backendVersion: backendBuildMetadata.backendVersion,
+    })
+  } catch (error) {
+    console.error('DISPLAY HEARTBEAT HEALTH ERROR:', error)
+    return res.status(500).json({
+      ok: false,
+      error: 'Display-Heartbeat-Status konnte nicht geladen werden',
+      backendVersion: backendBuildMetadata.backendVersion,
+      serverTime: new Date().toISOString(),
+    })
+  }
+})
+
 app.use('/api/auth', authRoutes)
 app.use('/api/app-auth', appAuthRoutes)
 app.use('/api/access', accessRoutes)

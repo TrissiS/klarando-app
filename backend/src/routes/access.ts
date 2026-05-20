@@ -2618,6 +2618,7 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
         chain: { select: { id: true, name: true } },
         tenantBillingPlan: true,
         tenantBillingSettings: true,
+        billingProfile: true,
       },
     })
 
@@ -2686,6 +2687,50 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
           notes: null,
           isActive: false,
           updatedBy: null,
+        },
+      billingProfile:
+        tenant.billingProfile ?? {
+          tenantId: tenant.id,
+          chainId: tenant.chainId,
+          companyName: tenant.name,
+          legalForm: null,
+          contactEmail: null,
+          contactPerson: null,
+          phone: null,
+          website: null,
+          vatId: null,
+          taxNumber: null,
+          street: null,
+          zipCode: null,
+          city: null,
+          countryCode: 'DE',
+          invoiceEmail: null,
+          paymentMethod: null,
+          paymentTermsDays: 14,
+          paymentStatus: null,
+          sepaActive: false,
+          sepaMandateReference: null,
+          sepaCreditorId: null,
+          bankName: null,
+          iban: null,
+          bic: null,
+          stripeCustomerId: null,
+          paymentProviderStatus: null,
+          plannedDebitAt: null,
+          lastDebitAt: null,
+          lastChargebackStatus: null,
+          invoiceLogoUrl: null,
+          standardPaymentTargetDays: 14,
+          managingDirector: null,
+          approvedBy: null,
+          sentAt: null,
+          paidAt: null,
+          cancelledAt: null,
+          createdBy: null,
+          updatedBy: null,
+          billingCycleDay: 1,
+          sepaPreNotificationDays: 5,
+          notes: null,
         },
       usage,
       commissionRules: activeRules,
@@ -2793,6 +2838,38 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
       currency?: unknown
       timezone?: unknown
       settingsNotes?: unknown
+      billingModel?: unknown
+      paymentMethod?: unknown
+      paymentTermsDays?: unknown
+      billingEmail?: unknown
+      invoiceEmail?: unknown
+      adminRecipients?: unknown
+      profileCompanyName?: unknown
+      profileStreet?: unknown
+      profileZipCode?: unknown
+      profileCity?: unknown
+      profileCountryCode?: unknown
+      profileVatId?: unknown
+      profileContactEmail?: unknown
+      sepaMandateReference?: unknown
+      sepaMandateSignedAt?: unknown
+      profileLegalForm?: unknown
+      profileTaxNumber?: unknown
+      profileManagingDirector?: unknown
+      profilePhone?: unknown
+      profileWebsite?: unknown
+      profileContactPerson?: unknown
+      profilePaymentMethod?: unknown
+      profilePaymentTermsDays?: unknown
+      profilePaymentStatus?: unknown
+      profileSepaActive?: unknown
+      profileSepaCreditorId?: unknown
+      profileBankName?: unknown
+      profileIban?: unknown
+      profileBic?: unknown
+      profileInvoiceLogoUrl?: unknown
+      profileStripeCustomerId?: unknown
+      profilePaymentProviderStatus?: unknown
     }
 
     const planType = parseBillingPlanType(body.planType)
@@ -2809,6 +2886,9 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     const countOnlyPaidOrders = parseOptionalBoolean(body.countOnlyPaidOrders)
     const countOnlyCompletedOrders = parseOptionalBoolean(body.countOnlyCompletedOrders)
     const excludeCanceledOrders = parseOptionalBoolean(body.excludeCanceledOrders)
+    const paymentTermsDays = parseOptionalInt(body.paymentTermsDays)
+    const profilePaymentTermsDays = parseOptionalInt(body.profilePaymentTermsDays)
+    const profileSepaActive = parseOptionalBoolean(body.profileSepaActive)
 
     if (!planType) {
       return res.status(400).json({ error: 'planType ist ungueltig' })
@@ -2826,7 +2906,7 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
       return res.status(400).json({ error: 'activeUntil ist ungueltig' })
     }
 
-    const [plan, settings] = await prisma.$transaction([
+    const [plan, settings, billingProfile] = await prisma.$transaction([
       prisma.tenantBillingPlan.upsert({
         where: { tenantId: tenant.id },
         create: {
@@ -2897,6 +2977,89 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
           updatedBy: req.authUser?.email ?? 'superadmin',
         },
       }),
+      prisma.billingProfile.upsert({
+        where: { tenantId: tenant.id },
+        create: {
+          tenantId: tenant.id,
+          chainId: tenant.chainId,
+          companyName: parseScopedId(body.profileCompanyName) || `Abrechnung ${tenant.id}`,
+          legalForm: parseScopedId(body.profileLegalForm),
+          contactEmail: parseScopedId(body.profileContactEmail),
+          contactPerson: parseScopedId(body.profileContactPerson),
+          phone: parseScopedId(body.profilePhone),
+          website: parseScopedId(body.profileWebsite),
+          vatId: parseScopedId(body.profileVatId),
+          taxNumber: parseScopedId(body.profileTaxNumber),
+          street: parseScopedId(body.profileStreet),
+          zipCode: parseScopedId(body.profileZipCode),
+          city: parseScopedId(body.profileCity),
+          countryCode: parseScopedId(body.profileCountryCode) || 'DE',
+          invoiceEmail: parseScopedId(body.invoiceEmail) || parseScopedId(body.billingEmail),
+          paymentMethod: parseScopedId(body.profilePaymentMethod) || parseScopedId(body.paymentMethod),
+          paymentTermsDays: Math.max(1, profilePaymentTermsDays ?? paymentTermsDays ?? 14),
+          paymentStatus: parseScopedId(body.profilePaymentStatus),
+          sepaActive: profileSepaActive ?? false,
+          sepaMandateReference: parseScopedId(body.sepaMandateReference),
+          sepaCreditorId: parseScopedId(body.profileSepaCreditorId),
+          bankName: parseScopedId(body.profileBankName),
+          iban: parseScopedId(body.profileIban),
+          bic: parseScopedId(body.profileBic),
+          stripeCustomerId: parseScopedId(body.profileStripeCustomerId),
+          paymentProviderStatus: parseScopedId(body.profilePaymentProviderStatus),
+          invoiceLogoUrl: parseScopedId(body.profileInvoiceLogoUrl),
+          standardPaymentTargetDays: Math.max(1, profilePaymentTermsDays ?? paymentTermsDays ?? 14),
+          managingDirector: parseScopedId(body.profileManagingDirector),
+          createdBy: req.authUser?.email ?? 'superadmin',
+          updatedBy: req.authUser?.email ?? 'superadmin',
+          billingCycleDay: 1,
+          sepaPreNotificationDays: 5,
+          notes: JSON.stringify({
+            paymentMethod: parseScopedId(body.paymentMethod) || 'BANK_TRANSFER',
+            billingModel: parseScopedId(body.billingModel) || 'HYBRID',
+            paymentTermsDays: Math.max(1, paymentTermsDays ?? 14),
+            adminRecipients: parseScopedId(body.adminRecipients),
+            sepaMandateSignedAt: parseScopedId(body.sepaMandateSignedAt),
+          }),
+        },
+        update: {
+          chainId: tenant.chainId,
+          companyName: parseScopedId(body.profileCompanyName) || `Abrechnung ${tenant.id}`,
+          legalForm: parseScopedId(body.profileLegalForm),
+          contactEmail: parseScopedId(body.profileContactEmail),
+          contactPerson: parseScopedId(body.profileContactPerson),
+          phone: parseScopedId(body.profilePhone),
+          website: parseScopedId(body.profileWebsite),
+          vatId: parseScopedId(body.profileVatId),
+          taxNumber: parseScopedId(body.profileTaxNumber),
+          street: parseScopedId(body.profileStreet),
+          zipCode: parseScopedId(body.profileZipCode),
+          city: parseScopedId(body.profileCity),
+          countryCode: parseScopedId(body.profileCountryCode) || 'DE',
+          invoiceEmail: parseScopedId(body.invoiceEmail) || parseScopedId(body.billingEmail),
+          paymentMethod: parseScopedId(body.profilePaymentMethod) || parseScopedId(body.paymentMethod),
+          paymentTermsDays: Math.max(1, profilePaymentTermsDays ?? paymentTermsDays ?? 14),
+          paymentStatus: parseScopedId(body.profilePaymentStatus),
+          sepaActive: profileSepaActive ?? false,
+          sepaMandateReference: parseScopedId(body.sepaMandateReference),
+          sepaCreditorId: parseScopedId(body.profileSepaCreditorId),
+          bankName: parseScopedId(body.profileBankName),
+          iban: parseScopedId(body.profileIban),
+          bic: parseScopedId(body.profileBic),
+          stripeCustomerId: parseScopedId(body.profileStripeCustomerId),
+          paymentProviderStatus: parseScopedId(body.profilePaymentProviderStatus),
+          invoiceLogoUrl: parseScopedId(body.profileInvoiceLogoUrl),
+          standardPaymentTargetDays: Math.max(1, profilePaymentTermsDays ?? paymentTermsDays ?? 14),
+          managingDirector: parseScopedId(body.profileManagingDirector),
+          updatedBy: req.authUser?.email ?? 'superadmin',
+          notes: JSON.stringify({
+            paymentMethod: parseScopedId(body.paymentMethod) || 'BANK_TRANSFER',
+            billingModel: parseScopedId(body.billingModel) || 'HYBRID',
+            paymentTermsDays: Math.max(1, paymentTermsDays ?? 14),
+            adminRecipients: parseScopedId(body.adminRecipients),
+            sepaMandateSignedAt: parseScopedId(body.sepaMandateSignedAt),
+          }),
+        },
+      }),
     ])
 
     await writeAuditLog({
@@ -2920,6 +3083,7 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
       tenantId: tenant.id,
       plan,
       settings,
+      billingProfile,
     })
   } catch (error) {
     const scopeError = asTenantScopeError(error)

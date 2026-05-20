@@ -1,4 +1,5 @@
 import { BillingPeriodType, BillingPlanType, InvoiceRecipientType, Prisma, type InvoiceStatus, type UserRole } from '@prisma/client'
+import crypto from 'node:crypto'
 import { prisma } from './prisma'
 import { calculateBillingUsageSnapshot } from './feature-modules'
 
@@ -224,6 +225,23 @@ export async function createInvoiceDraftFromCalculation(input: {
   const invoiceNumber = await getOrCreateInvoiceSequence('GLOBAL', issueDate)
   const dueAt = new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000)
   const periodEndInclusive = new Date(period.periodEnd.getTime() - 1)
+  const calcSnapshot = {
+    periodKey: period.key,
+    tenantId: tenantCalculation.tenantId,
+    includedOrders: tenantCalculation.includedOrders,
+    ordersCounted: tenantCalculation.ordersCounted,
+    extraOrders: tenantCalculation.extraOrders,
+    commissionPercentApplied: tenantCalculation.commissionPercentApplied,
+    monthlyFeeCents: tenantCalculation.monthlyFeeCents,
+    commissionCents: tenantCalculation.commissionCents,
+    fixedFeePerOrderCents: tenantCalculation.fixedFeePerOrderCents,
+    fixedFeesCents: tenantCalculation.fixedFeesCents,
+    totalFeeNetCents: tenantCalculation.totalFeeNetCents,
+    vatRatePercent: tenantCalculation.vatRatePercent,
+    vatCents: tenantCalculation.vatCents,
+    totalFeeGrossCents: tenantCalculation.totalFeeGrossCents,
+  }
+  const calcHash = crypto.createHash('sha256').update(JSON.stringify(calcSnapshot)).digest('hex')
   return prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.create({
       data: {
@@ -241,10 +259,10 @@ export async function createInvoiceDraftFromCalculation(input: {
         totalGrossCents: tenantCalculation.totalFeeGrossCents,
         openAmountCents: tenantCalculation.totalFeeGrossCents,
         metadata: {
-          includedOrders: tenantCalculation.includedOrders,
-          ordersCounted: tenantCalculation.ordersCounted,
-          extraOrders: tenantCalculation.extraOrders,
-          commissionPercentApplied: tenantCalculation.commissionPercentApplied,
+          calculationSnapshot: calcSnapshot,
+          calculationHash: calcHash,
+          draftLocked: true,
+          historyVersion: 1,
         },
       },
     })

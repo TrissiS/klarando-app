@@ -5542,6 +5542,92 @@ export type TenantBillingSettingsData = {
   updatedBy: string | null
 }
 
+export type BillingProfileData = {
+  id?: string
+  tenantId: string | null
+  chainId: string | null
+  companyName: string
+  legalForm?: string | null
+  contactEmail: string | null
+  contactPerson?: string | null
+  phone?: string | null
+  website?: string | null
+  vatId: string | null
+  taxNumber?: string | null
+  street: string | null
+  zipCode: string | null
+  city: string | null
+  countryCode: string
+  invoiceEmail: string | null
+  paymentMethod?: string | null
+  paymentTermsDays?: number | null
+  paymentStatus?: string | null
+  sepaActive?: boolean
+  sepaMandateReference?: string | null
+  sepaCreditorId?: string | null
+  bankName?: string | null
+  iban?: string | null
+  bic?: string | null
+  stripeCustomerId?: string | null
+  paymentProviderStatus?: string | null
+  plannedDebitAt?: string | null
+  lastDebitAt?: string | null
+  lastChargebackStatus?: string | null
+  invoiceLogoUrl?: string | null
+  standardPaymentTargetDays?: number | null
+  managingDirector?: string | null
+  approvedBy?: string | null
+  sentAt?: string | null
+  paidAt?: string | null
+  cancelledAt?: string | null
+  createdBy?: string | null
+  updatedBy?: string | null
+  billingCycleDay: number
+  sepaPreNotificationDays: number
+  notes: string | null
+}
+
+export type PlatformBillingSettings = {
+  id?: string
+  scopeKey: string
+  companyName?: string | null
+  legalForm?: string | null
+  street?: string | null
+  zipCode?: string | null
+  city?: string | null
+  countryCode: string
+  vatId?: string | null
+  taxNumber?: string | null
+  managingDirector?: string | null
+  invoiceEmail?: string | null
+  phone?: string | null
+  website?: string | null
+  bankName?: string | null
+  iban?: string | null
+  bic?: string | null
+  sepaCreditorId?: string | null
+  invoiceLogoUrl?: string | null
+  standardPaymentTargetDays?: number | null
+  invoicePrimaryColor?: string | null
+  invoiceAccentColor?: string | null
+  invoiceFooter?: string | null
+  invoicePaymentInfo?: string | null
+  invoiceTaxNotice?: string | null
+  invoiceEinvoiceNotice?: string | null
+  invoiceReminderNotice?: string | null
+  einvoiceFormatHint?: string | null
+  paymentProviderStatus?: string | null
+  plannedDebitAt?: string | null
+  lastDebitAt?: string | null
+  lastChargebackStatus?: string | null
+  createdBy?: string | null
+  updatedBy?: string | null
+  approvedBy?: string | null
+  sentAt?: string | null
+  paidAt?: string | null
+  cancelledAt?: string | null
+}
+
 export type BillingUsageSnapshot = {
   periodStart: string
   periodEnd: string
@@ -5888,6 +5974,7 @@ export async function getTenantBillingConfig(
   tenant: { id: string; name: string; chainId: string | null; chainName: string | null }
   plan: TenantBillingPlanSettings
   settings: TenantBillingSettingsData
+  billingProfile: BillingProfileData
   usage: BillingUsageSnapshot
   commissionRules: Array<{
     id: string
@@ -5925,6 +6012,38 @@ export async function updateTenantBillingConfig(
     TenantBillingPlanSettings &
       TenantBillingSettingsData & {
         settingsNotes: string | null
+        billingModel: string | null
+        paymentMethod: string | null
+        paymentTermsDays: number | null
+        billingEmail: string | null
+        invoiceEmail: string | null
+        adminRecipients: string | null
+        profileCompanyName: string | null
+        profileStreet: string | null
+        profileZipCode: string | null
+        profileCity: string | null
+        profileCountryCode: string | null
+        profileVatId: string | null
+        profileContactEmail: string | null
+        profileLegalForm: string | null
+        profileTaxNumber: string | null
+        profileManagingDirector: string | null
+        profilePhone: string | null
+        profileWebsite: string | null
+        profileContactPerson: string | null
+        profilePaymentMethod: string | null
+        profilePaymentTermsDays: number | null
+        profilePaymentStatus: string | null
+        profileSepaActive: boolean | null
+        profileSepaCreditorId: string | null
+        profileBankName: string | null
+        profileIban: string | null
+        profileBic: string | null
+        profileInvoiceLogoUrl: string | null
+        profileStripeCustomerId: string | null
+        profilePaymentProviderStatus: string | null
+        sepaMandateReference: string | null
+        sepaMandateSignedAt: string | null
       }
   >
 ): Promise<{
@@ -5932,6 +6051,7 @@ export async function updateTenantBillingConfig(
   tenantId: string
   plan: TenantBillingPlanSettings
   settings: TenantBillingSettingsData
+  billingProfile?: BillingProfileData
 }> {
   const res = await fetch(`${API_BASE_URL}/api/access/billing/tenant/${tenantId}`, {
     method: 'PUT',
@@ -6162,6 +6282,15 @@ export type BillingInvoice = {
   createdAt: string
   tenant?: { id: string; name: string } | null
   chain?: { id: string; name: string } | null
+  lifecycleStatus?: string
+  latestCollection?: {
+    id: string
+    status: string
+    dueAt: string | null
+    failedAt: string | null
+    failureReason: string | null
+    createdAt: string
+  } | null
 }
 
 export type BillingMailboxMessage = {
@@ -6258,8 +6387,8 @@ export async function createBillingRun(
 export async function finalizeBillingInvoice(
   token: string,
   invoiceId: string
-): Promise<{ ok: boolean; invoiceId: string; status: string }> {
-  return apiJson<{ ok: boolean; invoiceId: string; status: string }>(
+): Promise<{ ok: boolean; invoiceId: string; status: string; lifecycleStatus?: string; emailDeliveryStatus?: string; simulationMode?: boolean }> {
+  return apiJson<{ ok: boolean; invoiceId: string; status: string; lifecycleStatus?: string; emailDeliveryStatus?: string; simulationMode?: boolean }>(
     buildApiUrl(`/api/billing/invoices/${encodeURIComponent(invoiceId)}/finalize`),
     {
       method: 'POST',
@@ -7670,6 +7799,128 @@ export async function getPublicCmsPage(slug: string): Promise<CmsPage | null> {
   } catch {
     return null
   }
+}
+
+export type BillingProfileOverviewRow = {
+  tenantId: string
+  tenantName: string
+  chainId: string | null
+  plan: TenantBillingPlanSettings | null
+  profile: BillingProfileData | null
+  latestSepaMandate: {
+    id: string
+    mandateReference: string
+    status: string
+    signedAt: string | null
+    ibanLast4: string
+    bic: string | null
+  } | null
+}
+
+export async function getBillingProfiles(
+  token: string,
+  params: { tenantId?: string; chainId?: string } = {}
+): Promise<{ rows: BillingProfileOverviewRow[] }> {
+  const query = new URLSearchParams()
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  if (params.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<{ rows: BillingProfileOverviewRow[] }>(
+    buildApiUrl(`/api/billing/profiles${suffix}`),
+    { headers: authHeaders(token) },
+    'Abrechnungsprofile konnten nicht geladen werden'
+  )
+}
+
+export type BillingPaymentCollectionRow = {
+  id: string
+  tenantId: string | null
+  chainId: string | null
+  invoiceId: string | null
+  sepaMandateId: string | null
+  status: string
+  amountCents: number
+  currency: string
+  dueAt: string | null
+  collectedAt: string | null
+  failedAt: string | null
+  failureReason: string | null
+  metadata: Record<string, unknown> | null
+  createdAt: string
+  updatedAt: string
+  tenant?: { id: string; name: string } | null
+  invoice?: { id: string; invoiceNumber: string; dueAt: string | null; totalGrossCents: number } | null
+  sepaMandate?: { id: string; mandateReference: string; status: string } | null
+}
+
+export async function getBillingPayments(
+  token: string,
+  params: { tenantId?: string; chainId?: string; status?: string } = {}
+): Promise<{ rows: BillingPaymentCollectionRow[] }> {
+  const query = new URLSearchParams()
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  if (params.chainId) query.set('chainId', params.chainId)
+  if (params.status) query.set('status', params.status)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<{ rows: BillingPaymentCollectionRow[] }>(
+    buildApiUrl(`/api/billing/payments${suffix}`),
+    { headers: authHeaders(token) },
+    'Zahlungen konnten nicht geladen werden'
+  )
+}
+
+export type BillingChargebackRow = {
+  id: string
+  tenantId: string | null
+  tenantName: string | null
+  invoiceId: string | null
+  invoiceNumber: string | null
+  amountCents: number
+  dueAt: string | null
+  failedAt: string | null
+  failureReason: string
+  providerReference: unknown
+  returnFeeCents: number
+  retryEligible: boolean
+  reminderRequired: boolean
+}
+
+export async function getBillingChargebacks(
+  token: string,
+  params: { tenantId?: string; chainId?: string } = {}
+): Promise<{ rows: BillingChargebackRow[] }> {
+  const query = new URLSearchParams()
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  if (params.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<{ rows: BillingChargebackRow[] }>(
+    buildApiUrl(`/api/billing/chargebacks${suffix}`),
+    { headers: authHeaders(token) },
+    'Rücklastschriften konnten nicht geladen werden'
+  )
+}
+
+export async function getPlatformBillingSettings(token: string): Promise<{ profile: PlatformBillingSettings }> {
+  return apiJson<{ profile: PlatformBillingSettings }>(
+    buildApiUrl('/api/billing/settings/platform'),
+    { headers: authHeaders(token) },
+    'Zentrale Abrechnungsdaten konnten nicht geladen werden'
+  )
+}
+
+export async function updatePlatformBillingSettings(
+  token: string,
+  payload: Partial<PlatformBillingSettings>
+): Promise<{ ok: boolean; profile: PlatformBillingSettings }> {
+  return apiJson<{ ok: boolean; profile: PlatformBillingSettings }>(
+    buildApiUrl('/api/billing/settings/platform'),
+    {
+      method: 'PUT',
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    },
+    'Zentrale Abrechnungsdaten konnten nicht gespeichert werden'
+  )
 }
 
 export async function deleteDisplayDevice(

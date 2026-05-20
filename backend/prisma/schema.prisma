@@ -1117,13 +1117,41 @@ model BillingProfile {
   tenantId                String?  @unique
   chainId                 String?  @unique
   companyName             String
+  legalForm               String?
   contactEmail            String?
+  contactPerson           String?
+  phone                   String?
+  website                 String?
   vatId                   String?
+  taxNumber               String?
   street                  String?
   zipCode                 String?
   city                    String?
   countryCode             String   @default("DE")
   invoiceEmail            String?
+  paymentMethod           String?
+  paymentTermsDays        Int?
+  paymentStatus           String?
+  sepaActive              Boolean  @default(false)
+  sepaMandateReference    String?
+  sepaCreditorId          String?
+  bankName                String?
+  iban                    String?
+  bic                     String?
+  stripeCustomerId        String?
+  paymentProviderStatus   String?
+  plannedDebitAt          DateTime?
+  lastDebitAt             DateTime?
+  lastChargebackStatus    String?
+  invoiceLogoUrl          String?
+  standardPaymentTargetDays Int?   @default(14)
+  managingDirector        String?
+  approvedBy              String?
+  sentAt                  DateTime?
+  paidAt                  DateTime?
+  cancelledAt             DateTime?
+  createdBy               String?
+  updatedBy               String?
   billingCycleDay         Int      @default(1)
   sepaPreNotificationDays Int      @default(5)
   notes                   String?
@@ -1136,6 +1164,49 @@ model BillingProfile {
 
   @@index([tenantId])
   @@index([chainId])
+}
+
+model PlatformBillingSettings {
+  id                       String   @id @default(uuid())
+  scopeKey                 String   @unique @default("global")
+  companyName              String?
+  legalForm                String?
+  street                   String?
+  zipCode                  String?
+  city                     String?
+  countryCode              String   @default("DE")
+  vatId                    String?
+  taxNumber                String?
+  managingDirector         String?
+  invoiceEmail             String?
+  phone                    String?
+  website                  String?
+  bankName                 String?
+  iban                     String?
+  bic                      String?
+  sepaCreditorId           String?
+  invoiceLogoUrl           String?
+  standardPaymentTargetDays Int?   @default(14)
+  invoicePrimaryColor      String?
+  invoiceAccentColor       String?
+  invoiceFooter            String?
+  invoicePaymentInfo       String?
+  invoiceTaxNotice         String?
+  invoiceEinvoiceNotice    String?
+  invoiceReminderNotice    String?
+  einvoiceFormatHint       String?
+  paymentProviderStatus    String?
+  plannedDebitAt           DateTime?
+  lastDebitAt              DateTime?
+  lastChargebackStatus     String?
+  createdBy                String?
+  updatedBy                String?
+  approvedBy               String?
+  sentAt                   DateTime?
+  paidAt                   DateTime?
+  cancelledAt              DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
 }
 
 model InvoiceSequence {

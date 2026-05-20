@@ -1,9 +1,10 @@
-import { InvoiceStatus, PermissionKey, UserRole } from '@prisma/client'
+import { InvoiceStatus, PermissionKey, Prisma, UserRole } from '@prisma/client'
 import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
+import { isMailConfigured, sendMail } from '../lib/mail'
 import {
   calculateBillingSummary,
   calculateTenantBilling,
@@ -13,6 +14,8 @@ import {
 } from '../lib/billing-engine'
 
 const router = Router()
+const BILLING_EMAIL_MODE = (process.env.BILLING_EMAIL_MODE || 'TEST').trim().toUpperCase()
+const AUTO_APPROVE_MONTHLY_BILLING = (process.env.AUTO_APPROVE_MONTHLY_BILLING || 'false').trim().toLowerCase() === 'true'
 
 function asString(value: unknown) {
   return typeof value === 'string' ? value : undefined
@@ -21,6 +24,68 @@ function asString(value: unknown) {
 function toCents(value: unknown) {
   const amount = Number(value || 0)
   return Number.isFinite(amount) ? Math.round(amount * 100) : 0
+}
+
+function parseOptionalString(value: unknown) {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : null
+}
+
+function parseOptionalInt(value: unknown, fallback: number | null = null) {
+  if (value === null || value === undefined || value === '') return fallback
+  const numberValue = Number(value)
+  if (!Number.isFinite(numberValue)) return fallback
+  return Math.round(numberValue)
+}
+
+function normalizeInvoiceLifecycleStatus(input: {
+  invoiceStatus: InvoiceStatus
+  dueAt?: Date | null
+  hasPaymentCollection: boolean
+  paymentCollectionStatus?: string | null
+}) {
+  const { invoiceStatus, dueAt, hasPaymentCollection, paymentCollectionStatus } = input
+  if (invoiceStatus === InvoiceStatus.DRAFT) return 'DRAFT'
+  if (invoiceStatus === InvoiceStatus.ISSUED) return 'APPROVED'
+  if (invoiceStatus === InvoiceStatus.SENT && hasPaymentCollection) return 'PAYMENT_PLANNED'
+  if (invoiceStatus === InvoiceStatus.SENT) {
+    if (dueAt && dueAt.getTime() < Date.now()) return 'OVERDUE'
+    return 'SENT'
+  }
+  if (invoiceStatus === InvoiceStatus.PAID) return 'PAID'
+  if (invoiceStatus === InvoiceStatus.CANCELLED) return 'CANCELLED'
+  if (invoiceStatus === InvoiceStatus.FAILED) {
+    if (paymentCollectionStatus === 'FAILED') return 'PAYMENT_FAILED'
+    if (paymentCollectionStatus === 'CANCELLED') return 'CANCELLED'
+    return 'PAYMENT_FAILED'
+  }
+  return 'SENT'
+}
+
+function canCancelInvoice(status: InvoiceStatus) {
+  return (
+    status === InvoiceStatus.DRAFT ||
+    status === InvoiceStatus.ISSUED ||
+    status === InvoiceStatus.SENT ||
+    status === InvoiceStatus.FAILED
+  )
+}
+
+function buildInvoiceEmailBody(input: {
+  invoiceNumber: string
+  tenantName: string
+  monthLabel: string
+  grossCents: number
+  dueAt: Date | null
+}) {
+  const amount = (Math.max(0, input.grossCents) / 100).toFixed(2).replace('.', ',')
+  const due = input.dueAt ? input.dueAt.toLocaleDateString('de-DE') : 'gemäß Vereinbarung'
+  return {
+    subject: `Neue Klarando Monatsrechnung ${input.invoiceNumber} (${input.monthLabel})`,
+    text: `Hallo,\n\nfür ${input.tenantName} wurde die Klarando-Monatsrechnung ${input.invoiceNumber} freigegeben.\nBetrag: ${amount} € brutto\nZahlungsziel: ${due}\n\nHinweis: E-Rechnung/ZUGFeRD ist vorbereitet, steuerliche Prüfung empfohlen.\n`,
+    html: `<p>Hallo,</p><p>für <strong>${input.tenantName}</strong> wurde die Klarando-Monatsrechnung <strong>${input.invoiceNumber}</strong> freigegeben.</p><p>Betrag: <strong>${amount} € brutto</strong><br/>Zahlungsziel: ${due}</p><p><em>Hinweis: E-Rechnung/ZUGFeRD ist vorbereitet, steuerliche Prüfung empfohlen.</em></p>`,
+  }
 }
 
 function monthPeriodFromReq(req: { query?: Record<string, unknown>; body?: Record<string, unknown> }) {
@@ -58,6 +123,129 @@ router.get('/summary', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('GET BILLING SUMMARY ERROR:', error)
     return res.status(500).json({ error: 'Abrechnungsübersicht konnte nicht geladen werden' })
+  }
+})
+
+router.get('/settings/platform', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const profile = await prisma.platformBillingSettings.findFirst({
+      where: { scopeKey: 'global' },
+    })
+    return res.json({
+      profile: profile ?? {
+        scopeKey: 'global',
+        countryCode: 'DE',
+        standardPaymentTargetDays: 14,
+      },
+    })
+  } catch (error) {
+    console.error('GET BILLING PLATFORM SETTINGS ERROR:', error)
+    return res.status(500).json({ error: 'Zentrale Abrechnungsdaten konnten nicht geladen werden' })
+  }
+})
+
+router.put('/settings/platform', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>
+    const profile = await prisma.platformBillingSettings.upsert({
+      where: { scopeKey: 'global' },
+      create: {
+        scopeKey: 'global',
+        companyName: parseOptionalString(body.companyName),
+        legalForm: parseOptionalString(body.legalForm),
+        street: parseOptionalString(body.street),
+        zipCode: parseOptionalString(body.zipCode),
+        city: parseOptionalString(body.city),
+        countryCode: parseOptionalString(body.countryCode) || 'DE',
+        vatId: parseOptionalString(body.vatId),
+        taxNumber: parseOptionalString(body.taxNumber),
+        managingDirector: parseOptionalString(body.managingDirector),
+        invoiceEmail: parseOptionalString(body.invoiceEmail),
+        phone: parseOptionalString(body.phone),
+        website: parseOptionalString(body.website),
+        bankName: parseOptionalString(body.bankName),
+        iban: parseOptionalString(body.iban),
+        bic: parseOptionalString(body.bic),
+        sepaCreditorId: parseOptionalString(body.sepaCreditorId),
+        invoiceLogoUrl: parseOptionalString(body.invoiceLogoUrl),
+        standardPaymentTargetDays: Math.max(1, parseOptionalInt(body.standardPaymentTargetDays, 14) ?? 14),
+        invoicePrimaryColor: parseOptionalString(body.invoicePrimaryColor),
+        invoiceAccentColor: parseOptionalString(body.invoiceAccentColor),
+        invoiceFooter: parseOptionalString(body.invoiceFooter),
+        invoicePaymentInfo: parseOptionalString(body.invoicePaymentInfo),
+        invoiceTaxNotice: parseOptionalString(body.invoiceTaxNotice),
+        invoiceEinvoiceNotice: parseOptionalString(body.invoiceEinvoiceNotice),
+        invoiceReminderNotice: parseOptionalString(body.invoiceReminderNotice),
+        einvoiceFormatHint: parseOptionalString(body.einvoiceFormatHint),
+        paymentProviderStatus: parseOptionalString(body.paymentProviderStatus),
+        plannedDebitAt: parseOptionalString(body.plannedDebitAt) ? new Date(String(body.plannedDebitAt)) : null,
+        lastDebitAt: parseOptionalString(body.lastDebitAt) ? new Date(String(body.lastDebitAt)) : null,
+        lastChargebackStatus: parseOptionalString(body.lastChargebackStatus),
+        approvedBy: parseOptionalString(body.approvedBy),
+        sentAt: parseOptionalString(body.sentAt) ? new Date(String(body.sentAt)) : null,
+        paidAt: parseOptionalString(body.paidAt) ? new Date(String(body.paidAt)) : null,
+        cancelledAt: parseOptionalString(body.cancelledAt) ? new Date(String(body.cancelledAt)) : null,
+        createdBy: req.authUser?.email ?? 'superadmin',
+        updatedBy: req.authUser?.email ?? 'superadmin',
+      },
+      update: {
+        companyName: parseOptionalString(body.companyName),
+        legalForm: parseOptionalString(body.legalForm),
+        street: parseOptionalString(body.street),
+        zipCode: parseOptionalString(body.zipCode),
+        city: parseOptionalString(body.city),
+        countryCode: parseOptionalString(body.countryCode) || 'DE',
+        vatId: parseOptionalString(body.vatId),
+        taxNumber: parseOptionalString(body.taxNumber),
+        managingDirector: parseOptionalString(body.managingDirector),
+        invoiceEmail: parseOptionalString(body.invoiceEmail),
+        phone: parseOptionalString(body.phone),
+        website: parseOptionalString(body.website),
+        bankName: parseOptionalString(body.bankName),
+        iban: parseOptionalString(body.iban),
+        bic: parseOptionalString(body.bic),
+        sepaCreditorId: parseOptionalString(body.sepaCreditorId),
+        invoiceLogoUrl: parseOptionalString(body.invoiceLogoUrl),
+        standardPaymentTargetDays: Math.max(1, parseOptionalInt(body.standardPaymentTargetDays, 14) ?? 14),
+        invoicePrimaryColor: parseOptionalString(body.invoicePrimaryColor),
+        invoiceAccentColor: parseOptionalString(body.invoiceAccentColor),
+        invoiceFooter: parseOptionalString(body.invoiceFooter),
+        invoicePaymentInfo: parseOptionalString(body.invoicePaymentInfo),
+        invoiceTaxNotice: parseOptionalString(body.invoiceTaxNotice),
+        invoiceEinvoiceNotice: parseOptionalString(body.invoiceEinvoiceNotice),
+        invoiceReminderNotice: parseOptionalString(body.invoiceReminderNotice),
+        einvoiceFormatHint: parseOptionalString(body.einvoiceFormatHint),
+        paymentProviderStatus: parseOptionalString(body.paymentProviderStatus),
+        plannedDebitAt: parseOptionalString(body.plannedDebitAt) ? new Date(String(body.plannedDebitAt)) : null,
+        lastDebitAt: parseOptionalString(body.lastDebitAt) ? new Date(String(body.lastDebitAt)) : null,
+        lastChargebackStatus: parseOptionalString(body.lastChargebackStatus),
+        approvedBy: parseOptionalString(body.approvedBy),
+        sentAt: parseOptionalString(body.sentAt) ? new Date(String(body.sentAt)) : null,
+        paidAt: parseOptionalString(body.paidAt) ? new Date(String(body.paidAt)) : null,
+        cancelledAt: parseOptionalString(body.cancelledAt) ? new Date(String(body.cancelledAt)) : null,
+        updatedBy: req.authUser?.email ?? 'superadmin',
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'billing',
+      action: 'BILLING_PLATFORM_SETTINGS_UPDATED',
+      targetType: 'PlatformBillingSettings',
+      targetId: profile.id,
+      metadata: { scopeKey: profile.scopeKey },
+    })
+
+    return res.json({ ok: true, profile })
+  } catch (error) {
+    console.error('PUT BILLING PLATFORM SETTINGS ERROR:', error)
+    return res.status(500).json({ error: 'Zentrale Abrechnungsdaten konnten nicht gespeichert werden' })
   }
 })
 
@@ -178,10 +366,18 @@ router.post('/runs', requireAuth, async (req, res) => {
       },
     })
 
+    if (AUTO_APPROVE_MONTHLY_BILLING) {
+      await prisma.invoice.updateMany({
+        where: { id: { in: invoiceIds }, status: InvoiceStatus.DRAFT },
+        data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
+      })
+    }
+
     return res.status(201).json({
       billingRunId: billingRun.id,
       invoicesCreated: invoiceIds.length,
       invoiceIds,
+      autoApproved: AUTO_APPROVE_MONTHLY_BILLING,
     })
   } catch (error) {
     console.error('POST BILLING RUN CREATE ERROR:', error)
@@ -196,7 +392,21 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
     }
     const invoice = await prisma.invoice.findUnique({
       where: { id: String(req.params.invoiceId || '') },
-      include: { items: true },
+      include: {
+        items: true,
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            billingProfile: {
+              select: {
+                invoiceEmail: true,
+                contactEmail: true,
+              },
+            },
+          },
+        },
+      },
     })
     if (!invoice) {
       return res.status(404).json({ error: 'Rechnung nicht gefunden' })
@@ -210,6 +420,76 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
       data: {
         status: InvoiceStatus.ISSUED,
         issuedAt: new Date(),
+        metadata: {
+          ...(invoice.metadata as Record<string, unknown> | null),
+          lifecycleStatus: 'APPROVED',
+          emailDeliveryStatus: 'pending',
+          paymentStatus: 'PAYMENT_PLANNED',
+          finalizationLocked: true,
+        },
+      },
+    })
+
+    const monthLabel = `${updated.periodStart.getUTCFullYear()}-${String(updated.periodStart.getUTCMonth() + 1).padStart(2, '0')}`
+    const recipientEmail = invoice.tenant?.billingProfile?.invoiceEmail || invoice.tenant?.billingProfile?.contactEmail || null
+    let emailDeliveryStatus: 'pending' | 'sent' | 'failed' = 'pending'
+    let emailDeliveryError: string | null = null
+    if (recipientEmail) {
+      const emailBody = buildInvoiceEmailBody({
+        invoiceNumber: updated.invoiceNumber,
+        tenantName: invoice.tenant?.name || 'Filiale',
+        monthLabel,
+        grossCents: updated.totalGrossCents,
+        dueAt: updated.dueAt,
+      })
+      if (BILLING_EMAIL_MODE === 'LIVE' && isMailConfigured()) {
+        try {
+          await sendMail({
+            to: recipientEmail,
+            subject: emailBody.subject,
+            text: emailBody.text,
+            html: emailBody.html,
+          })
+          emailDeliveryStatus = 'sent'
+        } catch (mailError) {
+          emailDeliveryStatus = 'failed'
+          emailDeliveryError = mailError instanceof Error ? mailError.message : 'Unbekannter Mailfehler'
+        }
+      }
+    } else {
+      emailDeliveryStatus = 'failed'
+      emailDeliveryError = 'Keine Rechnungs-E-Mail im Abrechnungsprofil hinterlegt.'
+    }
+
+    await prisma.invoice.update({
+      where: { id: updated.id },
+      data: {
+        metadata: {
+          ...(updated.metadata as Record<string, unknown> | null),
+          lifecycleStatus: 'APPROVED',
+          emailDeliveryStatus,
+          emailDeliveryError,
+          emailMode: BILLING_EMAIL_MODE,
+          paymentStatus: 'PAYMENT_PLANNED',
+        },
+      },
+    })
+
+    await prisma.klarandoMailboxMessage.create({
+      data: {
+        tenantId: updated.tenantId,
+        chainId: updated.chainId,
+        invoiceId: updated.id,
+        messageType: 'INVOICE_ISSUED',
+        title: `Neue Klarando Monatsrechnung ${updated.invoiceNumber}`,
+        body: `Betrag: ${(updated.totalGrossCents / 100).toFixed(2).replace('.', ',')} € · Zeitraum ${monthLabel} · Zahlungsziel ${updated.dueAt ? updated.dueAt.toLocaleDateString('de-DE') : 'gemäß Profil'}`,
+        status: updated.status,
+        actionUrl: `/admin/finanzen?invoice=${updated.id}`,
+        metadata: {
+          emailDeliveryStatus,
+          emailMode: BILLING_EMAIL_MODE,
+          simulation: BILLING_EMAIL_MODE !== 'LIVE',
+        },
       },
     })
 
@@ -226,7 +506,14 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
       },
     })
 
-    return res.json({ ok: true, invoiceId: updated.id, status: updated.status })
+    return res.json({
+      ok: true,
+      invoiceId: updated.id,
+      status: updated.status,
+      lifecycleStatus: 'APPROVED',
+      emailDeliveryStatus,
+      simulationMode: BILLING_EMAIL_MODE !== 'LIVE',
+    })
   } catch (error) {
     console.error('POST FINALIZE INVOICE ERROR:', error)
     return res.status(500).json({ error: 'Rechnung konnte nicht finalisiert werden' })
@@ -305,14 +592,144 @@ router.get('/invoices', requirePermission(PermissionKey.ORDERS_READ), async (req
       include: {
         tenant: { select: { id: true, name: true } },
         chain: { select: { id: true, name: true } },
+        paymentCollections: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, status: true, dueAt: true, failedAt: true, failureReason: true, createdAt: true },
+        },
       },
     })
-    return res.json(invoices)
+    return res.json(
+      invoices.map((invoice) => {
+        const latestCollection = invoice.paymentCollections[0] || null
+        const lifecycleStatus = normalizeInvoiceLifecycleStatus({
+          invoiceStatus: invoice.status,
+          dueAt: invoice.dueAt,
+          hasPaymentCollection: Boolean(latestCollection),
+          paymentCollectionStatus: latestCollection?.status || null,
+        })
+        return {
+          ...invoice,
+          lifecycleStatus,
+          latestCollection,
+          paymentCollections: undefined,
+        }
+      })
+    )
   } catch (error) {
     const scopedError = asTenantScopeError(error)
     if (scopedError) return res.status(scopedError.status).json({ error: scopedError.message })
     console.error('GET BILLING INVOICES ERROR:', error)
     return res.status(500).json({ error: 'Rechnungen konnten nicht geladen werden' })
+  }
+})
+
+router.get('/profiles', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const chainId = asString(req.query.chainId)
+    const tenantId = asString(req.query.tenantId)
+    const tenants = await prisma.tenant.findMany({
+      where: {
+        ...(tenantId ? { id: tenantId } : {}),
+        ...(chainId ? { chainId } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        chainId: true,
+        tenantBillingPlan: true,
+        billingProfile: true,
+        sepaMandates: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { id: true, mandateReference: true, status: true, signedAt: true, ibanLast4: true, bic: true },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    return res.json({
+      rows: tenants.map((tenant) => ({
+        tenantId: tenant.id,
+        tenantName: tenant.name,
+        chainId: tenant.chainId,
+        plan: tenant.tenantBillingPlan,
+        profile: tenant.billingProfile,
+        latestSepaMandate: tenant.sepaMandates[0] || null,
+      })),
+    })
+  } catch (error) {
+    console.error('GET BILLING PROFILES ERROR:', error)
+    return res.status(500).json({ error: 'Abrechnungsprofile konnten nicht geladen werden' })
+  }
+})
+
+router.get('/payments', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
+  try {
+    const tenantId = asString(req.query.tenantId)
+    const chainId = asString(req.query.chainId)
+    const status = asString(req.query.status)
+    const collections = await prisma.paymentCollection.findMany({
+      where: {
+        ...(tenantId ? { tenantId } : {}),
+        ...(chainId ? { chainId } : {}),
+        ...(status ? { status: status as any } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 300,
+      include: {
+        tenant: { select: { id: true, name: true } },
+        invoice: { select: { id: true, invoiceNumber: true, dueAt: true, totalGrossCents: true } },
+        sepaMandate: { select: { id: true, mandateReference: true, status: true } },
+      },
+    })
+    return res.json({ rows: collections })
+  } catch (error) {
+    console.error('GET BILLING PAYMENTS ERROR:', error)
+    return res.status(500).json({ error: 'Zahlungen konnten nicht geladen werden' })
+  }
+})
+
+router.get('/chargebacks', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
+  try {
+    const tenantId = asString(req.query.tenantId)
+    const chainId = asString(req.query.chainId)
+    const failedCollections = await prisma.paymentCollection.findMany({
+      where: {
+        ...(tenantId ? { tenantId } : {}),
+        ...(chainId ? { chainId } : {}),
+        status: 'FAILED',
+      },
+      orderBy: { failedAt: 'desc' },
+      take: 200,
+      include: {
+        tenant: { select: { id: true, name: true } },
+        invoice: { select: { id: true, invoiceNumber: true, dueAt: true } },
+      },
+    })
+    return res.json({
+      rows: failedCollections.map((entry) => ({
+        id: entry.id,
+        tenantId: entry.tenantId,
+        tenantName: entry.tenant?.name || null,
+        invoiceId: entry.invoiceId,
+        invoiceNumber: entry.invoice?.invoiceNumber || null,
+        amountCents: entry.amountCents,
+        dueAt: entry.dueAt,
+        failedAt: entry.failedAt,
+        failureReason: entry.failureReason || 'Unbekannt',
+        providerReference: (entry.metadata as Record<string, unknown> | null)?.providerReference || null,
+        returnFeeCents: Number((entry.metadata as Record<string, unknown> | null)?.returnFeeCents || 0),
+        retryEligible: true,
+        reminderRequired: true,
+      })),
+    })
+  } catch (error) {
+    console.error('GET BILLING CHARGEBACKS ERROR:', error)
+    return res.status(500).json({ error: 'Rücklastschriften konnten nicht geladen werden' })
   }
 })
 
@@ -413,6 +830,163 @@ router.post('/superadmin/finalize', requireAuth, async (req, res) => {
     created.push(invoice.id)
   }
   return res.status(201).json({ billingRunId: billingRun.id, invoicesCreated: created.length })
+})
+
+router.post('/invoices/:invoiceId/cancel', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const invoiceId = String(req.params.invoiceId || '')
+    const reason = parseOptionalString((req.body as Record<string, unknown> | undefined)?.reason) || 'Keine Begründung angegeben'
+    const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId } })
+    if (!invoice) {
+      return res.status(404).json({ error: 'Rechnung nicht gefunden' })
+    }
+    if (!canCancelInvoice(invoice.status)) {
+      return res.status(409).json({ error: 'Rechnung kann in diesem Status nicht storniert werden' })
+    }
+    const updated = await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        status: InvoiceStatus.CANCELLED,
+        cancelledAt: new Date(),
+        metadata: {
+          ...(invoice.metadata as Record<string, unknown> | null),
+          cancellationReason: reason,
+        },
+      },
+    })
+    await writeAuditLog({
+      req,
+      module: 'billing',
+      action: 'INVOICE_CANCELLED',
+      targetType: 'Invoice',
+      targetId: invoice.id,
+      tenantId: invoice.tenantId || undefined,
+      chainId: invoice.chainId || undefined,
+      metadata: { invoiceNumber: invoice.invoiceNumber, reason },
+    })
+    return res.json({ ok: true, invoiceId: updated.id, status: updated.status })
+  } catch (error) {
+    console.error('POST BILLING CANCEL INVOICE ERROR:', error)
+    return res.status(500).json({ error: 'Rechnung konnte nicht storniert werden' })
+  }
+})
+
+router.post('/invoices/:invoiceId/correction', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const invoiceId = String(req.params.invoiceId || '')
+    const reason = parseOptionalString((req.body as Record<string, unknown> | undefined)?.reason) || 'Korrekturrechnung erstellt'
+    const source = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: { items: true },
+    })
+    if (!source) {
+      return res.status(404).json({ error: 'Rechnung nicht gefunden' })
+    }
+    if (source.status === InvoiceStatus.DRAFT || source.status === InvoiceStatus.CANCELLED) {
+      return res.status(409).json({ error: 'Korrekturrechnung setzt eine freigegebene Rechnung voraus' })
+    }
+    const correctionNumber = `${source.invoiceNumber}-K${Date.now().toString().slice(-4)}`
+    const correction = await prisma.$transaction(async (tx) => {
+      const created = await tx.invoice.create({
+        data: {
+          invoiceNumber: correctionNumber,
+          tenantId: source.tenantId,
+          chainId: source.chainId,
+          billingProfileId: source.billingProfileId,
+          recipientType: source.recipientType,
+          status: InvoiceStatus.DRAFT,
+          periodStart: source.periodStart,
+          periodEnd: source.periodEnd,
+          dueAt: source.dueAt,
+          subTotalCents: source.subTotalCents * -1,
+          taxTotalCents: source.taxTotalCents * -1,
+          totalGrossCents: source.totalGrossCents * -1,
+          openAmountCents: source.totalGrossCents * -1,
+          correctionOfInvoiceId: source.id,
+          metadata: {
+            ...(source.metadata as Record<string, unknown> | null),
+            correctionReason: reason,
+            correctionDraft: true,
+          },
+        },
+      })
+      for (const item of source.items) {
+        await tx.invoiceItem.create({
+          data: {
+            invoiceId: created.id,
+            lineNo: item.lineNo,
+            title: `${item.title} (Korrektur)`,
+            description: item.description,
+            quantity: item.quantity,
+            unitPriceCents: item.unitPriceCents * -1,
+            taxRatePercent: item.taxRatePercent,
+            netAmountCents: item.netAmountCents * -1,
+            taxAmountCents: item.taxAmountCents * -1,
+            grossAmountCents: item.grossAmountCents * -1,
+            metadata: (item.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+          },
+        })
+      }
+      return created
+    })
+    await writeAuditLog({
+      req,
+      module: 'billing',
+      action: 'INVOICE_CORRECTION_CREATED',
+      targetType: 'Invoice',
+      targetId: correction.id,
+      tenantId: correction.tenantId || undefined,
+      chainId: correction.chainId || undefined,
+      metadata: { sourceInvoiceId: source.id, sourceInvoiceNumber: source.invoiceNumber, reason },
+    })
+    return res.status(201).json({ ok: true, invoiceId: correction.id, invoiceNumber: correction.invoiceNumber, status: correction.status })
+  } catch (error) {
+    console.error('POST BILLING CORRECTION INVOICE ERROR:', error)
+    return res.status(500).json({ error: 'Korrekturrechnung konnte nicht erstellt werden' })
+  }
+})
+
+router.get('/invoices/:invoiceId/history', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
+  try {
+    const invoiceId = String(req.params.invoiceId || '')
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        items: { orderBy: { lineNo: 'asc' } },
+        paymentCollections: { orderBy: { createdAt: 'asc' } },
+      },
+    })
+    if (!invoice) {
+      return res.status(404).json({ error: 'Rechnung nicht gefunden' })
+    }
+    if (req.authUser?.role !== UserRole.SUPERADMIN && invoice.tenantId) {
+      await resolveTenantScope(req, invoice.tenantId)
+    }
+    const auditTrail = await prisma.auditLog.findMany({
+      where: {
+        module: 'billing',
+        targetType: 'Invoice',
+        targetId: invoice.id,
+      },
+      orderBy: { createdAt: 'asc' },
+    })
+    return res.json({
+      invoice,
+      paymentTimeline: invoice.paymentCollections,
+      auditTrail,
+    })
+  } catch (error) {
+    const scopedError = asTenantScopeError(error)
+    if (scopedError) return res.status(scopedError.status).json({ error: scopedError.message })
+    console.error('GET BILLING INVOICE HISTORY ERROR:', error)
+    return res.status(500).json({ error: 'Rechnungshistorie konnte nicht geladen werden' })
+  }
 })
 
 export default router
