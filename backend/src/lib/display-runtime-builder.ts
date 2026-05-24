@@ -211,8 +211,13 @@ function toStatus(isActive: boolean, lastSeenAt: Date | null | undefined): 'ONLI
 export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<RuntimeShape | null> {
   const nowIso = new Date().toISOString()
 
-  const screenDevice = await prisma.screenDevice.findUnique({
-    where: { deviceCode },
+  const screenDevice = await prisma.screenDevice.findFirst({
+    where: {
+      deviceCode: {
+        equals: deviceCode,
+        mode: 'insensitive',
+      },
+    },
   })
 
   if (screenDevice) {

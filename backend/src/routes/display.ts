@@ -181,8 +181,28 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
           },
         })
 
-    const resolvedDeviceCode =
-      matchedScreenDeviceByName?.deviceCode ?? fallbackScreenDevice?.deviceCode ?? null
+    let resolvedDeviceCode = matchedScreenDeviceByName?.deviceCode ?? fallbackScreenDevice?.deviceCode ?? null
+
+    if (!resolvedDeviceCode) {
+      const generatedDeviceCode = session.device.id.toUpperCase()
+      const createdScreenDevice = await prisma.screenDevice.create({
+        data: {
+          tenantId: session.device.tenantId,
+          name: session.device.name || `Display ${generatedDeviceCode.slice(0, 8)}`,
+          deviceCode: generatedDeviceCode,
+          isActive: true,
+        },
+        select: {
+          deviceCode: true,
+        },
+      })
+      resolvedDeviceCode = createdScreenDevice.deviceCode
+      console.info('DISPLAY PAIRING AUTO SCREEN DEVICE CREATED', {
+        tenantId: session.device.tenantId,
+        displayId: session.device.id,
+        deviceCode: resolvedDeviceCode,
+      })
+    }
 
     return res.json({
       status: 'connected',

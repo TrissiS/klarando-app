@@ -132,6 +132,75 @@ router.get('/:deviceCode/manifest', async (req, res) => {
   }
 })
 
+router.get('/:deviceCode/debug', async (req, res) => {
+  try {
+    const code = normalizeCodeParam(req.params.deviceCode)
+    if (!code) {
+      return res.status(400).json({ error: 'deviceCode fehlt' })
+    }
+
+    const screenDevice = await prisma.screenDevice.findFirst({
+      where: {
+        deviceCode: {
+          equals: code,
+          mode: 'insensitive',
+        },
+      },
+      select: {
+        id: true,
+        tenantId: true,
+        name: true,
+        deviceCode: true,
+      },
+    })
+
+    const runtime = await buildDisplayRuntimeForDevice(code)
+    const manifestPayload = runtime ? await buildDisplayManifestForDevice(code) : null
+
+    return res.json({
+      lookup: {
+        inputDeviceCode: req.params.deviceCode,
+        normalizedDeviceCode: code,
+      },
+      found: {
+        display: Boolean(screenDevice),
+        tenant: Boolean(runtime?.tenantId),
+        products: (runtime?.products || []).length > 0,
+        layout: Boolean(runtime?.layoutSettings),
+        branding: Boolean(runtime?.brandingSettings),
+        manifest: Boolean(manifestPayload),
+      },
+      screenDevice: screenDevice
+        ? {
+            id: screenDevice.id,
+            name: screenDevice.name,
+            tenantId: screenDevice.tenantId,
+            deviceCode: screenDevice.deviceCode,
+          }
+        : null,
+      runtime: runtime
+        ? {
+            tenantId: runtime.tenantId,
+            productCount: runtime.products.length,
+            categoryCount: runtime.categories.length,
+            template: runtime.template,
+            publishedVersion: runtime.publishedVersion,
+          }
+        : null,
+      manifest: manifestPayload
+        ? {
+            manifestVersion: manifestPayload.manifestVersion,
+            productCount: manifestPayload.products.length,
+            categoryCount: manifestPayload.categories.length,
+          }
+        : null,
+    })
+  } catch (error) {
+    console.error('GET DISPLAY RUNTIME DEBUG ERROR:', error)
+    return res.status(500).json({ error: 'Display-Runtime-Debug konnte nicht geladen werden' })
+  }
+})
+
 router.get('/:deviceCode', async (req, res) => {
   try {
     const code = normalizeCodeParam(req.params.deviceCode)
