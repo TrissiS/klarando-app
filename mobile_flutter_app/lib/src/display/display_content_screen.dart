@@ -64,6 +64,9 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final manifestDebug = (widget.content['manifestDebug'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final debugAlways = manifestDebug['debugAlways'] as bool? ?? false;
+    final debugEnabled = manifestDebug['debugEnabled'] as bool? ?? debugAlways;
     final screen = (widget.content['screen'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final screenConfig =
         (widget.content['screenConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
@@ -100,9 +103,40 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final cardStyle = '${screenConfig['cardStyle'] ?? 'SOFT'}'.toUpperCase();
     final enableAnimations = '${screenConfig['overlayAnimation'] ?? 'NONE'}'.toUpperCase() != 'NONE';
     final configuredColumns = (screenConfig['defaultColumnCount'] as num?)?.toInt();
+    final themePreset = '${screenConfig['themePreset'] ?? 'PREMIUM_DARK'}'.toUpperCase();
     final gradientFrom = _parseColor(screenConfig['gradientFrom'] as String?);
     final gradientTo = _parseColor(screenConfig['gradientTo'] as String?);
     final cardOpacity = ((screenConfig['cardOpacity'] as num?)?.toDouble() ?? 0.72).clamp(0.35, 1.0);
+
+    Color accentResolved = accentColor;
+    Color backgroundResolved = backgroundColor;
+    Color? gradientStart = gradientFrom;
+    Color? gradientEnd = gradientTo;
+
+    if (themePreset == 'NEON') {
+      accentResolved = const Color(0xFF67E8F9);
+      backgroundResolved = const Color(0xFF050816);
+      gradientStart ??= const Color(0xFF0b1027);
+      gradientEnd ??= const Color(0xFF1a0b2e);
+    } else if (themePreset == 'FASTFOOD_MODERN') {
+      accentResolved = const Color(0xFFF97316);
+      backgroundResolved = const Color(0xFF111827);
+      gradientStart ??= const Color(0xFF111827);
+      gradientEnd ??= const Color(0xFF7c2d12);
+    } else if (themePreset == 'FINE_DINING') {
+      accentResolved = const Color(0xFFE7C873);
+      backgroundResolved = const Color(0xFF111111);
+      gradientStart ??= const Color(0xFF141414);
+      gradientEnd ??= const Color(0xFF2c2420);
+    } else if (themePreset == 'MINIMAL_WHITE') {
+      accentResolved = const Color(0xFF1d4ed8);
+      backgroundResolved = const Color(0xFFF8FAFC);
+      gradientStart ??= const Color(0xFFFFFFFF);
+      gradientEnd ??= const Color(0xFFE2E8F0);
+    } else {
+      gradientStart ??= const Color(0xFF0f172a);
+      gradientEnd ??= const Color(0xFF1f2937);
+    }
     _syncBackgroundVideo(backgroundMediaUrl, backgroundMode);
     final menuRows = products
         .map((entry) => <String, String>{
@@ -125,8 +159,8 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
           final media = MediaQuery.of(context);
           final size = media.size;
           final isLandscape = size.width >= size.height;
-          final horizontalPadding = (constraints.maxWidth * 0.045).clamp(24.0, 84.0);
-          final verticalPadding = (constraints.maxHeight * 0.045).clamp(20.0, 64.0);
+          final horizontalPadding = (constraints.maxWidth * 0.055).clamp(28.0, 110.0);
+          final verticalPadding = (constraints.maxHeight * 0.055).clamp(24.0, 80.0);
           final cardHeight = isLandscape
               ? (constraints.maxHeight * 0.2).clamp(110.0, 280.0)
               : (constraints.maxHeight * 0.15).clamp(90.0, 230.0);
@@ -158,15 +192,15 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
 
           return Container(
             decoration: BoxDecoration(
-              color: backgroundColor,
-              gradient: (backgroundMode == 'GRADIENT' && gradientFrom != null && gradientTo != null)
+              color: backgroundResolved,
+              gradient: (backgroundMode == 'GRADIENT' && gradientStart != null && gradientEnd != null)
                   ? LinearGradient(
                       begin: Alignment.topLeft,
                       end: Alignment.bottomRight,
-                      colors: [gradientFrom, gradientTo],
+                      colors: [gradientStart, gradientEnd],
                     )
                   : (backgroundMode == 'COLOR' && (backgroundValue?.startsWith('linear-gradient') ?? false)
-                      ? const LinearGradient(colors: [Color(0xFF111827), Color(0xFF1f2937)])
+                      ? LinearGradient(colors: [gradientStart!, gradientEnd!])
                       : null),
             ),
             child: Stack(
@@ -201,7 +235,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                     maxWidth: constraints.maxWidth - (horizontalPadding * 2),
                                     showCategory: showCategory,
                                     configuredColumns: configuredColumns,
-                                    accentColor: accentColor,
+                                    accentColor: accentResolved,
                                     showPrices: showPrices,
                                     fontFamily: fontFamily,
                                     cardPadding: cardPadding,
@@ -234,7 +268,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                 maxWidth: constraints.maxWidth - (horizontalPadding * 2),
                                 showCategory: showCategory,
                                 configuredColumns: configuredColumns,
-                                accentColor: accentColor,
+                                accentColor: accentResolved,
                                 showPrices: showPrices,
                                 fontFamily: fontFamily,
                                 cardPadding: cardPadding,
@@ -303,7 +337,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                       ),
                     ),
                   ),
-                if (widget.debugLines.isNotEmpty)
+                if (debugEnabled && widget.debugLines.isNotEmpty)
                   Positioned(
                     left: 12,
                     top: 12,
@@ -524,12 +558,12 @@ class _MenuProductBoard extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
               itemCount: columns[column].length,
-              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
                 final row = columns[column][index];
                 if ((row['type'] ?? '') == 'header') {
                   return Padding(
-                    padding: const EdgeInsets.only(top: 4, bottom: 2),
+                    padding: const EdgeInsets.only(top: 12, bottom: 4),
                     child: Text(
                       row['category'] ?? '',
                       maxLines: 1,
@@ -588,7 +622,7 @@ class _MenuProductBoard extends StatelessWidget {
                                   maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: ((productFontSize * 0.9).clamp(15, 48)).toDouble(),
+                                    fontSize: ((productFontSize * 0.88).clamp(16, 44)).toDouble(),
                                     height: 1.15,
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
@@ -613,7 +647,7 @@ class _MenuProductBoard extends StatelessWidget {
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      fontSize: (ingredientFontSize.clamp(10, 24)).toDouble(),
+                                      fontSize: (ingredientFontSize.clamp(10, 18)).toDouble(),
                                       color: ingredientTextColor,
                                       fontFamily: fontFamily,
                                     ),
@@ -631,8 +665,8 @@ class _MenuProductBoard extends StatelessWidget {
                                 overflow: TextOverflow.ellipsis,
                                 textAlign: TextAlign.right,
                                 style: TextStyle(
-                                  fontSize: ((priceFontSize * 0.86).clamp(14, 44)).toDouble(),
-                                  color: accentColor,
+                                  fontSize: ((priceFontSize * 0.8).clamp(14, 38)).toDouble(),
+                                  color: accentColor.withOpacity(0.95),
                                   fontWeight: FontWeight.w900,
                                   fontFamily: fontFamily,
                                 ),

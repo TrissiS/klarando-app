@@ -569,6 +569,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         logoUrl: asString(screenSetting?.logoUrl, businessSettings.logoUrl || '') || null,
         logoSize: asNumber(screenSetting?.logoSize, 120),
         offerMediaRotateSec: asNumber(screenSetting?.offerMediaRotateSec, 10),
+        themePreset: asString((screenSetting as Record<string, unknown> | null)?.themePreset, 'PREMIUM_DARK'),
       },
       debug: {
         source: 'screenDevice',

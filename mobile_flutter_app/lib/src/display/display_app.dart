@@ -543,6 +543,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'showCategories': runtimeConfig['showCategoryOnCard'] ?? false,
         'showIngredients': showIngredients,
         'debugAlways': runtimeConfig['debug'] == true,
+        'debugEnabled': runtimeConfig['debug'] == true,
       },
     };
   }
