@@ -16,6 +16,8 @@ const _prefsDisplayId = 'klarando_display_id';
 const _prefsScreenId = 'klarando_display_screen_id';
 const _prefsTenantId = 'klarando_display_tenant_id';
 const _prefsDeviceCode = 'klarando_display_device_code';
+const _prefsPairingToken = 'klarando_display_pairing_token';
+const _prefsPairingSessionId = 'klarando_display_pairing_session_id';
 
 class KlarandoDisplayApp extends StatelessWidget {
   const KlarandoDisplayApp({super.key});
@@ -75,6 +77,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
   String _savedTenantId = '-';
   String _savedDeviceCode = '-';
   String _rendererVersion = 'flutter-manifest-renderer-v1';
+  String _lastManifestUrl = '-';
+  String _lastManifestBodyPreview = '-';
+  String _lastPairingTokenPreview = '-';
+  String _lastPairingSessionId = '-';
   bool _strictManifestFailed = false;
   static const String _pairingEndpoint = '/api/display/pairing/session';
 
@@ -98,12 +104,63 @@ class _DisplayRootState extends State<_DisplayRoot> {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
+  Future<void> _clearStoredDisplayState() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsDeviceToken);
+    await prefs.remove(_prefsDeviceCode);
+    await prefs.remove(_prefsDisplayId);
+    await prefs.remove(_prefsScreenId);
+    await prefs.remove(_prefsTenantId);
+    await prefs.remove(_prefsPairingToken);
+    await prefs.remove(_prefsPairingSessionId);
+  }
+
+  Future<void> _restartPairingFlow() async {
+    await _clearStoredDisplayState();
+    _deviceToken = null;
+    _deviceCode = null;
+    _pairingToken = null;
+    _pairingSessionId = null;
+    _savedDeviceCode = '-';
+    _savedDisplayId = '-';
+    _savedTenantId = '-';
+    _lastPairingTokenPreview = '-';
+    _lastPairingSessionId = '-';
+    _lastManifestUrl = '-';
+    _lastManifestBodyPreview = '-';
+    _lastContentHttpStatus = null;
+    _lastContentVersion = '-';
+    _lastContentProductCount = 0;
+    _contentEtag = null;
+    _content = null;
+    _strictManifestFailed = false;
+    _message = 'Neuer Pairing-Code wird erstellt …';
+    if (mounted) {
+      setState(() {});
+    }
+    await _startPairing();
+  }
+
   Future<void> _bootstrap() async {
     final prefs = await SharedPreferences.getInstance();
     _deviceToken = prefs.getString(_prefsDeviceToken);
     _deviceCode = prefs.getString(_prefsDeviceCode);
+    _savedDisplayId = prefs.getString(_prefsDisplayId) ?? '-';
+    _savedTenantId = prefs.getString(_prefsTenantId) ?? '-';
+    _savedDeviceCode = prefs.getString(_prefsDeviceCode) ?? '-';
 
     if (_deviceToken != null && _deviceToken!.isNotEmpty) {
+      if ((_deviceCode ?? '').trim().isEmpty) {
+        _strictManifestFailed = true;
+        _message = 'NO DEVICE CODE AVAILABLE - bitte neu koppeln.';
+        await prefs.remove(_prefsDeviceToken);
+        await prefs.remove(_prefsDeviceCode);
+        _deviceToken = null;
+        _deviceCode = null;
+        setState(() {});
+        await _startPairing();
+        return;
+      }
       final ok = await _loadContent();
       if (ok) {
         _strictManifestFailed = false;
@@ -137,6 +194,14 @@ class _DisplayRootState extends State<_DisplayRoot> {
       final response = await _api.createPairingSession();
       _pairingToken = '${response['pairingToken'] ?? ''}';
       _pairingSessionId = '${response['sessionId'] ?? response['id'] ?? ''}'.trim();
+      _lastPairingSessionId = _pairingSessionId ?? '-';
+      final prefs = await SharedPreferences.getInstance();
+      if ((_pairingToken ?? '').trim().isNotEmpty) {
+        await prefs.setString(_prefsPairingToken, _pairingToken!.trim());
+      }
+      if ((_pairingSessionId ?? '').trim().isNotEmpty) {
+        await prefs.setString(_prefsPairingSessionId, _pairingSessionId!.trim());
+      }
       _pairingCode = '${response['pairingCode'] ?? '------'}';
       _expiresAt = DateTime.tryParse('${response['expiresAt'] ?? ''}');
       _qrPayload = response['qrPayload'] is Map<String, dynamic>
@@ -187,6 +252,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
     try {
       _lastPairingAttemptAt = DateTime.now();
       final response = await _api.getPairingStatus(token);
+      _lastPairingTokenPreview = token.length <= 10 ? token : '${token.substring(0, 10)}...';
       final rawStatus = '${response['status'] ?? ''}'.trim();
       final rawState = '${response['state'] ?? ''}'.trim();
       final statusUpper = rawStatus.toUpperCase();
@@ -224,6 +290,8 @@ class _DisplayRootState extends State<_DisplayRoot> {
 
       final deviceToken = '${response['deviceToken'] ?? response['authToken'] ?? ''}'.trim();
       final deviceCode = '${response['deviceCode'] ?? response['displayCode'] ?? ''}'.trim().toUpperCase();
+      final displayIdFromPairing = '${response['displayId'] ?? response['deviceId'] ?? ''}'.trim();
+      final tenantIdFromPairing = '${response['tenantId'] ?? ''}'.trim();
       _lastPollTokenReceived = deviceToken.isNotEmpty;
       if (deviceToken.isEmpty) {
         _message = 'Display verbunden, aber es fehlt ein gültiges Gerätetoken.';
@@ -235,13 +303,18 @@ class _DisplayRootState extends State<_DisplayRoot> {
         setState(() {});
         return;
       }
+      if (displayIdFromPairing.isEmpty || tenantIdFromPairing.isEmpty) {
+        _message = 'Pairing unvollständig: displayId oder tenantId fehlt.';
+        setState(() {});
+        return;
+      }
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsDeviceToken, deviceToken);
       await prefs.setString(_prefsDeviceCode, deviceCode);
-      final displayId = '${response['displayId'] ?? response['deviceId'] ?? ''}'.trim();
+      final displayId = displayIdFromPairing;
       final screenId = '${response['screenId'] ?? ''}'.trim();
-      final tenantId = '${response['tenantId'] ?? ''}'.trim();
+      final tenantId = tenantIdFromPairing;
       if (displayId.isNotEmpty) {
         await prefs.setString(_prefsDisplayId, displayId);
         _savedDisplayId = displayId;
@@ -305,6 +378,8 @@ class _DisplayRootState extends State<_DisplayRoot> {
       final response = await _api.getManifest(deviceCode, etag: _contentEtag);
       _lastContentHttpStatus = response.statusCode;
       _lastContentEndpoint = response.endpoint;
+      _lastManifestUrl = response.requestUrl;
+      _lastManifestBodyPreview = response.responsePreview ?? '-';
       if (response.notModified) {
         _lastContentError = '-';
         _message = null;
@@ -338,6 +413,9 @@ class _DisplayRootState extends State<_DisplayRoot> {
       _lastContentError = _toFriendlyError(error);
       if (message.contains('ungültig') || message.contains('ungultig') || message.contains('401')) {
         return false;
+      }
+      if (error is DisplayApiException) {
+        _lastManifestBodyPreview = error.responsePreview ?? '-';
       }
       _message = 'STRICT MANIFEST FAILED: $_lastContentError';
       _strictManifestFailed = true;
@@ -489,9 +567,14 @@ class _DisplayRootState extends State<_DisplayRoot> {
       'displayId: $_savedDisplayId',
       'tenantId: $_savedTenantId',
       'runtimeApi: $_lastContentEndpoint',
+      'manifestUrl: $_lastManifestUrl',
       'manifestHttp: ${_lastContentHttpStatus?.toString() ?? '-'}',
+      'manifestBody: $_lastManifestBodyPreview',
       'manifestVersion: $_lastContentVersion',
       'products: $_lastContentProductCount',
+      'pairingSession: $_lastPairingSessionId',
+      'pairingToken: $_lastPairingTokenPreview',
+      'deviceToken: ${(_deviceToken ?? '').isEmpty ? '-' : '${_deviceToken!.substring(0, _deviceToken!.length > 10 ? 10 : _deviceToken!.length)}...'}',
       'lastError: $_lastContentError',
       'loadedAt: ${DateTime.now().toIso8601String()}',
     ];
@@ -547,7 +630,9 @@ class _DisplayRootState extends State<_DisplayRoot> {
                 Row(
                   children: [
                     FilledButton(
-                      onPressed: () async {
+                      onPressed: (_savedDeviceCode.trim().isEmpty || _savedDeviceCode == '-')
+                          ? null
+                          : () async {
                         final ok = await _loadContent();
                         if (ok) {
                           _strictManifestFailed = false;
@@ -561,7 +646,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
                     ),
                     const SizedBox(width: 10),
                     OutlinedButton(
-                      onPressed: _startPairing,
+                      onPressed: _restartPairingFlow,
                       child: const Text('Neu koppeln'),
                     ),
                   ],

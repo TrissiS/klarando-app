@@ -9,11 +9,13 @@ class DisplayApiException implements Exception {
     required this.message,
     required this.endpoint,
     required this.statusCode,
+    this.responsePreview,
   });
 
   final String message;
   final String endpoint;
   final int statusCode;
+  final String? responsePreview;
 
   @override
   String toString() => '[$statusCode] $endpoint: $message';
@@ -66,17 +68,22 @@ class DisplayApi {
     if (response.statusCode == 304) {
       return DisplayContentResponse(
         endpoint: endpoint,
+        requestUrl: '$_baseUrl$endpoint',
         statusCode: 304,
         content: null,
         etag: response.headers['etag'] ?? normalizedEtag,
+        responsePreview: response.body.trim().isEmpty ? null : response.body.trim().substring(0, response.body.trim().length > 800 ? 800 : response.body.trim().length),
       );
     }
     final decoded = _decode(response, endpoint);
+    final raw = response.body.trim();
     return DisplayContentResponse(
       endpoint: endpoint,
+      requestUrl: '$_baseUrl$endpoint',
       statusCode: response.statusCode,
       content: decoded,
       etag: response.headers['etag'],
+      responsePreview: raw.isEmpty ? null : raw.substring(0, raw.length > 800 ? 800 : raw.length),
     );
   }
 
@@ -106,6 +113,12 @@ class DisplayApi {
         message: message,
         endpoint: endpoint,
         statusCode: response.statusCode,
+        responsePreview: response.body.trim().isEmpty
+            ? null
+            : response.body.trim().substring(
+                0,
+                response.body.trim().length > 800 ? 800 : response.body.trim().length,
+              ),
       );
     }
     return body;
@@ -115,15 +128,19 @@ class DisplayApi {
 class DisplayContentResponse {
   DisplayContentResponse({
     required this.endpoint,
+    required this.requestUrl,
     required this.statusCode,
     required this.content,
     required this.etag,
+    required this.responsePreview,
   });
 
   final String endpoint;
+  final String requestUrl;
   final int statusCode;
   final Map<String, dynamic>? content;
   final String? etag;
+  final String? responsePreview;
 
   bool get notModified => statusCode == 304;
 }

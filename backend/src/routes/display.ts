@@ -99,7 +99,7 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
             id: true,
             tenantId: true,
             screenId: true,
-            deviceCode: true,
+            name: true,
           },
         },
       },
@@ -153,6 +153,37 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
       })
     }
 
+    const matchedScreenDeviceByName = await prisma.screenDevice.findFirst({
+      where: {
+        tenantId: session.device.tenantId,
+        name: session.device.name,
+      },
+      select: {
+        deviceCode: true,
+      },
+      orderBy: {
+        updatedAt: 'desc',
+      },
+    })
+
+    const fallbackScreenDevice = matchedScreenDeviceByName
+      ? null
+      : await prisma.screenDevice.findFirst({
+          where: {
+            tenantId: session.device.tenantId,
+            isActive: true,
+          },
+          select: {
+            deviceCode: true,
+          },
+          orderBy: {
+            updatedAt: 'desc',
+          },
+        })
+
+    const resolvedDeviceCode =
+      matchedScreenDeviceByName?.deviceCode ?? fallbackScreenDevice?.deviceCode ?? null
+
     return res.json({
       status: 'connected',
       state: 'CLAIMED',
@@ -161,9 +192,9 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
       tenantId: session.device.tenantId,
       screenId: session.device.screenId,
       displayId: session.device.id,
-      displayCode: session.device.deviceCode,
-      deviceCode: session.device.deviceCode,
-      manifestEndpoint: `/api/display-runtime/${session.device.deviceCode}/manifest`,
+      displayCode: session.device.id,
+      deviceCode: resolvedDeviceCode,
+      manifestEndpoint: resolvedDeviceCode ? `/api/display-runtime/${resolvedDeviceCode}/manifest` : null,
       apiBaseUrl: process.env.API_BASE_URL || 'https://api.klarando.com',
       authToken: oneTimeToken,
     })
