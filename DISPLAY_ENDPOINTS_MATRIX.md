@@ -5,10 +5,15 @@ Stand: 2026-05-20
 Ziel: klare Trennung zwischen **Primary**, **Legacy** und **Internal** für das Display-System.
 
 ## Primary
-- `GET /api/display-runtime/:deviceCode`
+- `GET /api/display-runtime/:deviceCode/manifest`
   - Status: **PRIMARY**
-  - Zweck: zentrale Runtime-Auslieferung für `/screen/[deviceCode]`
-  - Soll langfristig die Hauptquelle für Display-Clients sein.
+  - Zweck: versioniertes Display-Manifest als Single Source of Truth
+  - Hinweis: liefert Manifest + Runtime-Kompatibilitätsblock
+
+- `GET /api/display-runtime/:deviceCode`
+  - Status: **LEGACY/COMPAT**
+  - Zweck: bestehende Runtime-Clients ohne Manifest-Unterstützung
+  - Mittelfristig intern nur noch Kompatibilitätsroute.
 
 ## Legacy (kompatibel halten)
 - `GET /api/display/content`

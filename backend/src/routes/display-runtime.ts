@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { PermissionKey } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { buildDisplayRuntimeForDevice } from '../lib/display-runtime-builder'
+import { buildDisplayManifestForDevice } from '../lib/display-manifest-builder'
 import {
   applyDiagnosticsToNotes,
   applyPerformanceModeToNotes,
@@ -104,6 +105,30 @@ router.get('/:deviceCode/config', async (req, res) => {
   } catch (error) {
     console.error('GET DISPLAY RUNTIME CONFIG ERROR:', error)
     return res.status(500).json({ error: 'Display-Konfiguration konnte nicht geladen werden' })
+  }
+})
+
+router.get('/:deviceCode/manifest', async (req, res) => {
+  try {
+    const code = normalizeCodeParam(req.params.deviceCode)
+    if (!code) {
+      return res.status(400).json({ error: 'deviceCode fehlt' })
+    }
+
+    const manifestPayload = await buildDisplayManifestForDevice(code)
+    if (!manifestPayload) {
+      return res.status(404).json({ error: 'Display nicht gefunden' })
+    }
+
+    return res.json({
+      primary: true,
+      route: '/api/display-runtime/:deviceCode/manifest',
+      displayManifest: manifestPayload,
+      runtime: manifestPayload.runtime,
+    })
+  } catch (error) {
+    console.error('GET DISPLAY MANIFEST ERROR:', error)
+    return res.status(500).json({ error: 'Display-Manifest konnte nicht geladen werden' })
   }
 })
 

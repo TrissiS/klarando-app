@@ -151,6 +151,25 @@ export function writeCachedDisplayRuntimeConfig(config: DisplayRuntimeConfig) {
 }
 
 export async function fetchDisplayRuntimeConfig(deviceCode: string) {
+  const manifestResponse = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}/manifest`, {
+    cache: 'no-store',
+  })
+
+  if (manifestResponse.ok) {
+    const manifestPayload = (await manifestResponse.json()) as {
+      runtime?: DisplayRuntimeConfig
+      displayManifest?: { runtime?: DisplayRuntimeConfig }
+    }
+    const manifestRuntime =
+      manifestPayload.runtime ||
+      manifestPayload.displayManifest?.runtime ||
+      null
+    if (manifestRuntime) {
+      writeCachedDisplayRuntimeConfig(manifestRuntime)
+      return manifestRuntime
+    }
+  }
+
   const response = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}`, {
     cache: 'no-store',
   })
