@@ -21,21 +21,45 @@ class DisplayContentScreen extends StatefulWidget {
 
 class _DisplayContentScreenState extends State<DisplayContentScreen> {
   Timer? _pageTimer;
+  Timer? _debugAutoMinimizeTimer;
   int _pageTick = 0;
   VideoPlayerController? _videoController;
   String? _videoUrl;
+  bool _debugExpanded = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleDebugAutoMinimize();
+  }
 
   @override
   void didUpdateWidget(covariant DisplayContentScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     _syncBackgroundVideoIfNeeded();
+    _scheduleDebugAutoMinimize();
   }
 
   @override
   void dispose() {
     _pageTimer?.cancel();
+    _debugAutoMinimizeTimer?.cancel();
     _videoController?.dispose();
     super.dispose();
+  }
+
+  void _scheduleDebugAutoMinimize() {
+    _debugAutoMinimizeTimer?.cancel();
+    if (widget.debugLines.isEmpty) return;
+    final manifestDebug = (widget.content['manifestDebug'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final debugAlways = manifestDebug['debugAlways'] as bool? ?? false;
+    if (debugAlways) return;
+    _debugAutoMinimizeTimer = Timer(const Duration(seconds: 10), () {
+      if (!mounted) return;
+      setState(() {
+        _debugExpanded = false;
+      });
+    });
   }
 
   @override
@@ -55,7 +79,8 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final backgroundValue = screenConfig['backgroundValue'] as String?;
     final backgroundMediaUrl = screenConfig['backgroundMediaUrl'] as String?;
     final showPrices = (screenConfig['showPrices'] as bool?) ?? true;
-    final showCategory = (screenConfig['showCategoryOnCard'] as bool?) ?? true;
+    final showCategories = (screenConfig['showCategories'] as bool?) ?? true;
+    final showCategory = showCategories && ((screenConfig['showCategoryOnCard'] as bool?) ?? true);
     final showCategoryHeaders = (screenConfig['showCategoryHeaders'] as bool?) ?? false;
     final showIngredients = (screenConfig['showIngredients'] as bool?) ?? (screenConfig['showAllergens'] as bool?) ?? true;
     final showLogo = ((screenConfig['logoUrl'] as String?) ?? '').trim().isNotEmpty;
@@ -75,6 +100,9 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final cardStyle = '${screenConfig['cardStyle'] ?? 'SOFT'}'.toUpperCase();
     final enableAnimations = '${screenConfig['overlayAnimation'] ?? 'NONE'}'.toUpperCase() != 'NONE';
     final configuredColumns = (screenConfig['defaultColumnCount'] as num?)?.toInt();
+    final gradientFrom = _parseColor(screenConfig['gradientFrom'] as String?);
+    final gradientTo = _parseColor(screenConfig['gradientTo'] as String?);
+    final cardOpacity = ((screenConfig['cardOpacity'] as num?)?.toDouble() ?? 0.72).clamp(0.35, 1.0);
     _syncBackgroundVideo(backgroundMediaUrl, backgroundMode);
     final menuRows = products
         .map((entry) => <String, String>{
@@ -97,11 +125,11 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
           final media = MediaQuery.of(context);
           final size = media.size;
           final isLandscape = size.width >= size.height;
-          final horizontalPadding = constraints.maxWidth * 0.04;
-          final verticalPadding = constraints.maxHeight * 0.04;
+          final horizontalPadding = (constraints.maxWidth * 0.045).clamp(24.0, 84.0);
+          final verticalPadding = (constraints.maxHeight * 0.045).clamp(20.0, 64.0);
           final cardHeight = isLandscape
-              ? (constraints.maxHeight * 0.18).clamp(92.0, 220.0)
-              : (constraints.maxHeight * 0.13).clamp(82.0, 180.0);
+              ? (constraints.maxHeight * 0.2).clamp(110.0, 280.0)
+              : (constraints.maxHeight * 0.15).clamp(90.0, 230.0);
           final gap = (constraints.maxHeight * 0.015).clamp(8.0, 20.0);
           final usableHeight = constraints.maxHeight - (verticalPadding * 2);
           final itemsPerPage = usableHeight <= 0
@@ -131,9 +159,15 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
           return Container(
             decoration: BoxDecoration(
               color: backgroundColor,
-              gradient: backgroundMode == 'COLOR' && (backgroundValue?.startsWith('linear-gradient') ?? false)
-                  ? const LinearGradient(colors: [Color(0xFF111827), Color(0xFF1f2937)])
-                  : null,
+              gradient: (backgroundMode == 'GRADIENT' && gradientFrom != null && gradientTo != null)
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [gradientFrom, gradientTo],
+                    )
+                  : (backgroundMode == 'COLOR' && (backgroundValue?.startsWith('linear-gradient') ?? false)
+                      ? const LinearGradient(colors: [Color(0xFF111827), Color(0xFF1f2937)])
+                      : null),
             ),
             child: Stack(
               children: <Widget>[
@@ -180,6 +214,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                     showIngredients: showIngredients,
                                     showCategoryHeaders: showCategoryHeaders,
                                     cardStyle: cardStyle,
+                                    cardOpacity: cardOpacity,
                                   )
                                 : Column(
                                     children: <Widget>[
@@ -212,6 +247,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                 showIngredients: showIngredients,
                                 showCategoryHeaders: showCategoryHeaders,
                                 cardStyle: cardStyle,
+                                cardOpacity: cardOpacity,
                               ),
                   ),
                 ),
@@ -273,32 +309,49 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                     top: 12,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(maxWidth: 560),
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.78),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.white24),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'DISPLAY DIAGNOSTICS',
-                                style: TextStyle(
-                                  color: Colors.amberAccent,
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              for (final line in widget.debugLines)
+                      child: GestureDetector(
+                        onTap: () => setState(() => _debugExpanded = !_debugExpanded),
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.78),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: Colors.white24),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                  line,
-                                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                                  _debugExpanded
+                                      ? 'DISPLAY DIAGNOSTICS (Tap to collapse)'
+                                      : 'DISPLAY DIAGNOSTICS (Tap to expand)',
+                                  style: const TextStyle(
+                                    color: Colors.amberAccent,
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                            ],
+                                if (_debugExpanded) ...[
+                                  const SizedBox(height: 4),
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(maxHeight: 220),
+                                    child: SingleChildScrollView(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          for (final line in widget.debugLines)
+                                            Text(
+                                              line,
+                                              style: const TextStyle(color: Colors.white, fontSize: 11),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -403,6 +456,7 @@ class _MenuProductBoard extends StatelessWidget {
     required this.showIngredients,
     required this.showCategoryHeaders,
     required this.cardStyle,
+    required this.cardOpacity,
     this.configuredColumns,
     this.fontFamily,
   });
@@ -423,6 +477,7 @@ class _MenuProductBoard extends StatelessWidget {
   final bool showIngredients;
   final bool showCategoryHeaders;
   final String cardStyle;
+  final double cardOpacity;
   final int? configuredColumns;
   final String? fontFamily;
 
@@ -433,7 +488,7 @@ class _MenuProductBoard extends StatelessWidget {
         ? configuredColumns!.clamp(1, 5)
         : null;
     final columnCount = requestedColumns ?? (isLandscape ? 2 : 1);
-    final rowHeight = isLandscape ? 74.0 : 68.0;
+    final rowHeight = isLandscape ? 92.0 : 82.0;
     final rowsPerColumn = (maxHeight / rowHeight).floor().clamp(1, 20);
     final maxRowsVisible = rowsPerColumn * columnCount;
     final visibleRows = rows.take(maxRowsVisible).toList(growable: false);
@@ -462,8 +517,8 @@ class _MenuProductBoard extends StatelessWidget {
                             color: cardStyle == 'NONE'
                                 ? Colors.transparent
                                 : cardStyle == 'GLASS'
-                                    ? Colors.white.withOpacity(0.08)
-                                    : Colors.black.withOpacity(0.24),
+                                    ? Colors.white.withOpacity((cardOpacity * 0.22).clamp(0.08, 0.32))
+                                    : Colors.black.withOpacity((cardOpacity * 0.4).clamp(0.18, 0.48)),
                             border: cardStyle == 'BORDER'
                                 ? Border.all(color: accentColor.withOpacity(0.75))
                                 : null,
@@ -501,10 +556,10 @@ class _MenuProductBoard extends StatelessWidget {
                                         ),
                                       Text(
                                         chunks[column][rowIndex]['name'] ?? '-',
-                                        maxLines: 1,
+                                        maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
-                                          fontSize: productFontSize,
+                                          fontSize: (productFontSize * 0.92).clamp(14, 52),
                                           color: Colors.white,
                                           fontWeight: FontWeight.w700,
                                           fontFamily: fontFamily,

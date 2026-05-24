@@ -48,6 +48,7 @@ export type DisplayManifest = {
   products: Array<{
     id: string
     name: string
+    price: number
     categoryId: string | null
     categoryName: string | null
     ingredients: string[]

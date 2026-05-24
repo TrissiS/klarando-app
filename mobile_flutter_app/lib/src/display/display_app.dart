@@ -437,15 +437,39 @@ class _DisplayRootState extends State<_DisplayRoot> {
     final layout = (displayManifest['layout'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final runtimeConfig = (runtime['runtimeConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final productsRaw = (displayManifest['products'] as List?) ?? const [];
+    double? readPriceField(Map<String, dynamic> product, String field) {
+      final value = product[field];
+      if (value is num) return value.toDouble();
+      if (value is String) {
+        final normalized = value.replaceAll(',', '.').trim();
+        return double.tryParse(normalized);
+      }
+      return null;
+    }
+
     final mappedProducts = productsRaw.map((entry) {
       final product = (entry as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
       final ingredientsRaw = (product['ingredients'] as List?) ?? const [];
+      final fallbackPrice = readPriceField(product, 'sellingPrice') ??
+          readPriceField(product, 'salePrice') ??
+          readPriceField(product, 'price') ??
+          readPriceField(product, 'grossPrice') ??
+          readPriceField(product, 'calculatedPrice') ??
+          readPriceField(product, 'variantPrice');
+      final finalPrice = fallbackPrice ?? 0;
+      debugPrint(
+        'DISPLAY PRICE RESOLUTION productId=${product['id'] ?? '-'} '
+        'sellingPrice=${product['sellingPrice']} salePrice=${product['salePrice']} '
+        'price=${product['price']} grossPrice=${product['grossPrice']} '
+        'calculatedPrice=${product['calculatedPrice']} variantPrice=${product['variantPrice']} '
+        'resolved=$finalPrice',
+      );
       return <String, dynamic>{
         'id': product['id'],
         'name': product['name'],
         'categoryId': product['categoryId'],
         'categoryName': product['categoryName'],
-        'price': product['price'] ?? 0,
+        'price': finalPrice,
         'ingredients': ingredientsRaw
             .map((ingredient) => <String, dynamic>{'name': '$ingredient'.trim()})
             .where((ingredient) => (ingredient['name'] as String).isNotEmpty)
@@ -454,20 +478,29 @@ class _DisplayRootState extends State<_DisplayRoot> {
       };
     }).toList(growable: false);
 
+    final showCategoriesRaw = runtimeConfig['showCategories'];
+    final showCategories = showCategoriesRaw is bool ? showCategoriesRaw : true;
     final showIngredientsRaw = runtimeConfig['showIngredients'];
     final showIngredients = showIngredientsRaw is bool
         ? showIngredientsRaw
         : (runtimeConfig['showAllergens'] as bool?) ?? true;
 
+    final gradientFrom = (runtimeConfig['gradientFrom'] ?? theme['gradientFrom'] ?? runtimeConfig['backgroundFromColor']) as String?;
+    final gradientTo = (runtimeConfig['gradientTo'] ?? theme['gradientTo'] ?? runtimeConfig['backgroundToColor']) as String?;
+    final backgroundColor = (runtimeConfig['backgroundColor'] ?? theme['backgroundColor'] ?? '#111827') as String;
+    final accentColor = (runtimeConfig['accentColor'] ?? theme['accentColor'] ?? '#f97316') as String;
+    final cardOpacity = runtimeConfig['cardOpacity'] ?? theme['cardOpacity'] ?? 0.72;
+
     return <String, dynamic>{
       'screen': <String, dynamic>{
-        'backgroundColor': theme['backgroundColor'] ?? runtimeConfig['backgroundColor'] ?? '#111827',
-        'accentColor': theme['accentColor'] ?? runtimeConfig['accentColor'] ?? '#f97316',
+        'backgroundColor': backgroundColor,
+        'accentColor': accentColor,
       },
       'screenConfig': <String, dynamic>{
         'showPrices': runtimeConfig['showPrices'] ?? true,
-        'showCategoryOnCard': runtimeConfig['showCategoryOnCard'] ?? false,
+        'showCategoryOnCard': runtimeConfig['showCategoryOnCard'] ?? showCategories,
         'showCategoryHeaders': runtimeConfig['showCategoryHeaders'] ?? false,
+        'showCategories': showCategories,
         'showIngredients': showIngredients,
         'showAllergens': showIngredients,
         'logoUrl': runtimeConfig['logoUrl'],
@@ -482,8 +515,11 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'cardStyle': runtimeConfig['cardStyle'] ?? layout['cardStyle'] ?? 'SOFT',
         'overlayAnimation': runtimeConfig['overlayAnimation'] ?? 'NONE',
         'defaultColumnCount': runtimeConfig['defaultColumnCount'] ?? layout['defaultColumnCount'],
-        'backgroundMode': runtimeConfig['backgroundMode'] ?? 'COLOR',
-        'backgroundValue': runtimeConfig['backgroundValue'],
+        'backgroundMode': runtimeConfig['backgroundMode'] ?? ((gradientFrom != null && gradientTo != null) ? 'GRADIENT' : 'COLOR'),
+        'backgroundValue': runtimeConfig['backgroundValue'] ?? backgroundColor,
+        'gradientFrom': gradientFrom,
+        'gradientTo': gradientTo,
+        'cardOpacity': cardOpacity,
         'backgroundMediaUrl': runtimeConfig['backgroundMediaUrl'],
       },
       'items': const <Map<String, dynamic>>[
@@ -506,6 +542,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'template': layout['template'] ?? '-',
         'showCategories': runtimeConfig['showCategoryOnCard'] ?? false,
         'showIngredients': showIngredients,
+        'debugAlways': runtimeConfig['debug'] == true,
       },
     };
   }

@@ -65,6 +65,7 @@ type RuntimeShape = {
   products: Array<{
     id: string
     name: string
+    price: number
     categoryId: string | null
     categoryName: string | null
     ingredients: string[]
@@ -259,6 +260,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               id: true,
               name: true,
               categoryId: true,
+              price: true,
               category: { select: { name: true } },
               ingredients: {
                 include: {
@@ -282,6 +284,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               id: true,
               name: true,
               categoryId: true,
+              price: true,
               category: { select: { id: true, name: true } },
               ingredients: {
                 include: {
@@ -505,6 +508,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       products: distributedProducts.map((product) => ({
         id: product.id,
         name: product.name,
+        price: Number(product.price),
         categoryId: product.categoryId,
         categoryName: product.category?.name ?? null,
         ingredients: product.ingredients?.map((entry) => entry.ingredient.name).filter(Boolean) || [],
@@ -537,6 +541,34 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         displayType,
         template,
         source: 'screenDevice',
+        showPrices,
+        showCategories: showCategoryOnCard || showCategoryHeaders,
+        showCategoryOnCard,
+        showCategoryHeaders,
+        showIngredients:
+          screenDevice.showAllergensOverride ?? asBoolean(screenSetting?.showAllergens, true),
+        accentColor:
+          (screenDevice.accentColorOverride ?? asString(screenSetting?.accentColor, '#ea580c')) || '#ea580c',
+        backgroundColor: asString(screenSetting?.backgroundValue, '#111827') || '#111827',
+        gradientFrom: asString(screenSetting?.backgroundValue, '#111827') || '#111827',
+        gradientTo: asString(screenSetting?.accentColor, '#1f2937') || '#1f2937',
+        cardStyle,
+        cardOpacity: Math.max(0.35, Math.min(0.95, asNumber(screenSetting?.cardBackgroundOpacity, 35) / 100)),
+        productFontSize: asNumber(screenSetting?.productFontSize, 34),
+        categoryFontSize: asNumber(screenSetting?.categoryFontSize, 12),
+        priceFontSize: asNumber(screenSetting?.priceFontSize, 30),
+        ingredientFontSize: asNumber(screenSetting?.ingredientFontSize, 12),
+        ingredientTextColor: asString(screenSetting?.ingredientTextColor, '#e2e8f0'),
+        defaultColumnCount: asNumber(screenSetting?.defaultColumnCount, 2),
+        overlayAnimation,
+        backgroundMode: asString(screenSetting?.backgroundMode, 'COLOR'),
+        backgroundValue: asString(screenSetting?.backgroundValue, '#111827'),
+        backgroundMediaUrl:
+          (screenDevice.backgroundMediaUrlOverride ??
+            asString(screenSetting?.backgroundMediaUrl, '')) || null,
+        logoUrl: asString(screenSetting?.logoUrl, businessSettings.logoUrl || '') || null,
+        logoSize: asNumber(screenSetting?.logoSize, 120),
+        offerMediaRotateSec: asNumber(screenSetting?.offerMediaRotateSec, 10),
       },
       debug: {
         source: 'screenDevice',
