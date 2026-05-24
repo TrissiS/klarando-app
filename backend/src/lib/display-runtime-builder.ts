@@ -147,6 +147,42 @@ function parseCsvIds(value: string | null | undefined) {
     .filter(Boolean)
 }
 
+function readScreenSettingJson(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null
+  }
+  return value as Record<string, unknown>
+}
+
+function asString(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallback
+}
+
+function asNumber(value: unknown, fallback: number) {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : fallback
+}
+
+function asBoolean(value: unknown, fallback: boolean) {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function inferTemplateFromScreenSettings(params: {
+  cardStyle: string
+  overlayAnimation: string
+  showCategoryOnCard: boolean
+  showCategoryHeaders: boolean
+  showPrices: boolean
+}) {
+  const cardStyle = params.cardStyle.toUpperCase()
+  const overlay = params.overlayAnimation.toUpperCase()
+  if (overlay !== 'NONE' && params.showCategoryOnCard && cardStyle === 'SOFT') return 'MODERN_GRID'
+  if (overlay !== 'NONE' && params.showPrices && cardStyle === 'GLASS') return 'PROMOTION_HIGHLIGHT'
+  if (cardStyle === 'MINIMAL' || cardStyle === 'LIST') return 'TOUCH_KIOSK_PREVIEW'
+  if (params.showCategoryHeaders && cardStyle === 'OUTLINE') return 'CLASSIC_MENU'
+  return 'MODERN_GRID'
+}
+
 function toStatus(isActive: boolean, lastSeenAt: Date | null | undefined): 'ONLINE' | 'OFFLINE' | 'INACTIVE' {
   if (!isActive) return 'INACTIVE'
   if (!lastSeenAt) return 'OFFLINE'
@@ -177,7 +213,10 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     const performanceMode = meta.performanceMode ?? 'AUTO'
     const selectedCategoryIds = parseCsvIds(screenDevice.selectedCategoryIds)
     const selectedProductIds = parseCsvIds(screenDevice.selectedProductIds)
-    const [categories, products, activePlaylist] = await Promise.all([
+    const [screenSettingRaw, categories, productsBySelection, productsByVisibility, activePlaylist] = await Promise.all([
+      prisma.screenSetting.findUnique({
+        where: { tenantId: screenDevice.tenantId },
+      }),
       selectedCategoryIds.length > 0
         ? prisma.category.findMany({
             where: { id: { in: selectedCategoryIds }, tenantId: screenDevice.tenantId },
@@ -197,6 +236,20 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
             orderBy: { name: 'asc' },
           })
         : Promise.resolve([]),
+      prisma.screenProductSetting.findMany({
+        where: { tenantId: screenDevice.tenantId, showOnScreen: true },
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              categoryId: true,
+              category: { select: { id: true, name: true } },
+            },
+          },
+        },
+        orderBy: [{ sortOrder: 'asc' }, { product: { name: 'asc' } }],
+      }),
       prisma.displayPlaylist.findFirst({
         where: {
           tenantId: screenDevice.tenantId,
@@ -210,10 +263,39 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         orderBy: { updatedAt: 'desc' },
       }),
     ])
+    const screenSetting = readScreenSettingJson(screenSettingRaw)
+    const visibleProductsFromSettings = productsByVisibility.map((entry) => entry.product)
+    const products = productsBySelection.length > 0 ? productsBySelection : visibleProductsFromSettings
+    const categoryMap = new Map<string, { id: string; name: string }>()
+    for (const category of categories) {
+      categoryMap.set(category.id, category)
+    }
+    for (const product of products) {
+      if (product.categoryId && product.category?.name && !categoryMap.has(product.categoryId)) {
+        categoryMap.set(product.categoryId, { id: product.categoryId, name: product.category.name })
+      }
+    }
+    const categoriesFinal = Array.from(categoryMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'de'))
+
+    const cardStyle =
+      asString(screenDevice.cardStyleOverride, '') || asString(screenSetting?.cardStyle, 'SOFT')
+    const overlayAnimation = asString(screenSetting?.overlayAnimation, 'NONE')
+    const showCategoryOnCard = asBoolean(screenSetting?.showCategoryOnCard, true)
+    const showCategoryHeaders = asBoolean(screenSetting?.showCategoryHeaders, false)
+    const showPrices = screenDevice.showPricesOverride ?? asBoolean(screenSetting?.showPrices, true)
+    const inferredTemplate = inferTemplateFromScreenSettings({
+      cardStyle,
+      overlayAnimation,
+      showCategoryOnCard,
+      showCategoryHeaders,
+      showPrices,
+    })
+
     const displayType: RuntimeDisplayType = 'MENU'
     const mode = toModeFromDisplayType(displayType)
-    const template = (screenDevice.cardStyleOverride || 'MODERN_GRID').toUpperCase()
+    const template = inferredTemplate
     const cacheVersion = screenDevice.updatedAt.toISOString()
+    const publishedVersion = screenSettingRaw?.updatedAt?.toISOString() || cacheVersion
     const refreshIntervalMs = Math.max(5000, screenDevice.refreshIntervalSec * 1000)
 
     const signageSettingsInput: Record<string, unknown> = {}
@@ -279,24 +361,53 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       template,
       layoutSettings: {
         orientation: screenDevice.orientation,
+        defaultOrientation: asString(screenSetting?.defaultOrientation, screenDevice.orientation),
         resolutionWidth: screenDevice.resolutionWidth,
         resolutionHeight: screenDevice.resolutionHeight,
-        cardStyle: screenDevice.cardStyleOverride || null,
-        columnCount: screenDevice.columnCountOverride ?? null,
-        showPrices: screenDevice.showPricesOverride,
-        showAllergens: screenDevice.showAllergensOverride,
-        showUnavailable: screenDevice.showUnavailableOverride,
-        showProductNumber: screenDevice.showProductNumberOverride,
+        defaultResolutionWidth: asNumber(screenSetting?.defaultResolutionWidth, screenDevice.resolutionWidth),
+        defaultResolutionHeight: asNumber(screenSetting?.defaultResolutionHeight, screenDevice.resolutionHeight),
+        cardStyle,
+        columnCount:
+          screenDevice.columnCountOverride ?? asNumber(screenSetting?.defaultColumnCount, 4),
+        cardPadding: asNumber(screenSetting?.cardPadding, 16),
+        cardBackgroundOpacity: asNumber(screenSetting?.cardBackgroundOpacity, 35),
+        cardBorderOpacity: asNumber(screenSetting?.cardBorderOpacity, 20),
+        overlayAnimation,
+        showPrices,
+        showAllergens:
+          screenDevice.showAllergensOverride ?? asBoolean(screenSetting?.showAllergens, true),
+        showUnavailable:
+          screenDevice.showUnavailableOverride ?? asBoolean(screenSetting?.showUnavailable, false),
+        showProductNumber:
+          screenDevice.showProductNumberOverride ?? asBoolean(screenSetting?.showProductNumber, false),
+        showCategoryOnCard,
+        showCategoryHeaders,
+        productFontSize: asNumber(screenSetting?.productFontSize, 34),
+        ingredientFontSize: asNumber(screenSetting?.ingredientFontSize, 12),
+        categoryFontSize: asNumber(screenSetting?.categoryFontSize, 12),
+        priceFontSize: asNumber(screenSetting?.priceFontSize, 30),
       },
       brandingSettings: {
         tenantName,
-        logoUrl: businessSettings.logoUrl,
-        accentColor: screenDevice.accentColorOverride ?? null,
-        textColor: screenDevice.textColorOverride ?? null,
+        logoUrl: asString(screenSetting?.logoUrl, businessSettings.logoUrl || '') || null,
+        accentColor:
+          (screenDevice.accentColorOverride ?? asString(screenSetting?.accentColor, '')) || null,
+        textColor:
+          (screenDevice.textColorOverride ?? asString(screenSetting?.textColor, '')) || null,
+        productNameColor: asString(screenSetting?.productNameColor, '#ffffff'),
+        ingredientTextColor: asString(screenSetting?.ingredientTextColor, '#e2e8f0'),
+        categoryTextColor: asString(screenSetting?.categoryTextColor, '#cbd5e1'),
+        priceTextColor: asString(screenSetting?.priceTextColor, '#ffffff'),
+        logoSize: asNumber(screenSetting?.logoSize, 72),
+        backgroundMode: asString(screenSetting?.backgroundMode, 'COLOR'),
+        backgroundValue: asString(screenSetting?.backgroundValue, '#111827'),
+        backgroundMediaUrl:
+          (screenDevice.backgroundMediaUrlOverride ??
+            asString(screenSetting?.backgroundMediaUrl, '')) || null,
       },
       offlineSettings: {
         enabled: true,
-        publishedVersion: cacheVersion,
+        publishedVersion,
         cachedVersion: cacheVersion,
       },
       easyOrderSettings: {
@@ -314,19 +425,20 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         offerMediaRotateSec: screenDevice.offerMediaRotateSecOverride ?? null,
       },
       slides,
-      categories,
+      categories: categoriesFinal,
       products: products.map((product) => ({
         id: product.id,
         name: product.name,
         categoryId: product.categoryId,
         categoryName: product.category?.name ?? null,
       })),
-      publishedVersion: cacheVersion,
+      publishedVersion,
       cachedVersion: cacheVersion,
       runtimeConfig: {
         refreshIntervalMs,
         performanceMode,
         displayType,
+        template,
         source: 'screenDevice',
       },
       debug: {
@@ -341,10 +453,12 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       isActive: screenDevice.isActive,
       branding: {
         tenantName,
-        logoUrl: businessSettings.logoUrl,
-        primaryColor: screenDevice.accentColorOverride ?? null,
+        logoUrl: asString(screenSetting?.logoUrl, businessSettings.logoUrl || '') || null,
+        primaryColor:
+          (screenDevice.accentColorOverride ?? asString(screenSetting?.accentColor, '')) || null,
         secondaryColor: null,
-        textColor: screenDevice.textColorOverride ?? null,
+        textColor:
+          (screenDevice.textColorOverride ?? asString(screenSetting?.textColor, '')) || null,
       },
       refreshIntervalMs,
       performanceMode,
@@ -381,9 +495,17 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
           deriveRecommendedResolution(effectiveWidth, effectiveHeight),
         lastDiagnosticsAt: diagnosticsMeta?.measuredAt || null,
       },
-      videoBackgroundEnabled: Boolean(screenDevice.backgroundMediaUrlOverride),
-      videoBackgroundUrl: screenDevice.backgroundMediaUrlOverride,
-      fallbackBackgroundUrl: null,
+      videoBackgroundEnabled: Boolean(
+        screenDevice.backgroundMediaUrlOverride ||
+          asString(screenSetting?.backgroundMode, '').toUpperCase() === 'VIDEO'
+      ),
+      videoBackgroundUrl:
+        (screenDevice.backgroundMediaUrlOverride ??
+          asString(screenSetting?.backgroundMediaUrl, '')) || null,
+      fallbackBackgroundUrl:
+        asString(screenSetting?.backgroundMode, '').toUpperCase() === 'IMAGE'
+          ? asString(screenSetting?.backgroundMediaUrl, '') || null
+          : null,
       cacheVersion,
       lastSeenAt: screenDevice.lastSeenAt?.toISOString() ?? null,
       lastSyncAt: cacheVersion,

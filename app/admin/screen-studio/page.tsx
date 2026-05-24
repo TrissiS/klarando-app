@@ -259,6 +259,7 @@ export default function AdminScreenStudioPage() {
   const [showCategoryHeaders, setShowCategoryHeaders] = useState(true)
   const [showIngredients, setShowIngredients] = useState(true)
   const [showLogo, setShowLogo] = useState(true)
+  const [logoUrl, setLogoUrl] = useState('')
   const [highlightPrice, setHighlightPrice] = useState(true)
   const [enableAnimations, setEnableAnimations] = useState(true)
   const [cardStyle, setCardStyle] = useState<'SOFT' | 'GLASS' | 'BORDER' | 'NONE'>('SOFT')
@@ -346,6 +347,7 @@ export default function AdminScreenStudioPage() {
         setBackgroundMode(inferBackgroundMode(config))
         setBackgroundMediaUrl(config.backgroundMediaUrl || '')
         setShowLogo(Boolean(config.logoUrl))
+        setLogoUrl(config.logoUrl || '')
         setHighlightPrice(config.showPrices)
         setShowCategoryOnCard(config.showCategoryOnCard)
         setShowCategoryHeaders(config.showCategoryHeaders)
@@ -809,7 +811,7 @@ export default function AdminScreenStudioPage() {
         showAllergens: showIngredients,
         showCategoryHeaders,
         showCategoryOnCard,
-        logoUrl: showLogo ? '/klarando_logo.png' : null,
+        logoUrl: showLogo ? logoUrl.trim() || null : null,
         overlayAnimation: enableAnimations ? 'FLOAT' : 'NONE',
         cardStyle: cardStyle === 'NONE' ? 'MINIMAL' : cardStyle === 'BORDER' ? 'OUTLINE' : cardStyle,
         fontFamily,
@@ -1545,6 +1547,14 @@ export default function AdminScreenStudioPage() {
                   <option value="JA">Ja</option>
                   <option value="NEIN">Nein</option>
                 </select>
+              </Field>
+              <Field label="Logo-URL">
+                <input
+                  value={logoUrl}
+                  onChange={(e) => setLogoUrl(e.target.value)}
+                  placeholder="https://.../logo.png"
+                  className="input-ui"
+                />
               </Field>
               <Field label="Preis hervorheben">
                 <select value={highlightPrice ? 'JA' : 'NEIN'} onChange={(e) => setHighlightPrice(e.target.value === 'JA')} className="input-ui">
