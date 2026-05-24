@@ -58,7 +58,25 @@ export type DisplayRuntimeConfig = {
     active: boolean
   }>
   categories: Array<{ id: string; name: string }>
-  products: Array<{ id: string; name: string; categoryId: string | null; categoryName: string | null }>
+  products: Array<{
+    id: string
+    name: string
+    categoryId: string | null
+    categoryName: string | null
+    ingredients: string[]
+    allergens: string[]
+  }>
+  distribution: {
+    displayGroupId: string
+    displayCount: number
+    currentDisplayIndex: number
+    strategy: 'split-products' | 'duplicate-all' | 'category-based'
+    productsPerDisplay: number
+    totalProducts: number
+    pageNumber: number
+    totalPages: number
+    productIdsForDisplay: string[]
+  }
   publishedVersion: string
   cachedVersion: string
   runtimeConfig: Record<string, unknown>

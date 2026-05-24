@@ -50,7 +50,18 @@ export type DisplayManifest = {
     name: string
     categoryId: string | null
     categoryName: string | null
+    ingredients: string[]
+    allergens: string[]
   }>
+  distribution: {
+    displayCount: number
+    currentDisplayIndex: number
+    strategy: 'split-products' | 'duplicate-all' | 'category-based'
+    productsPerDisplay: number
+    totalProducts: number
+    pageNumber: number
+    totalPages: number
+  }
   categories: Array<{ id: string; name: string }>
   schedule: {
     timezone: string
@@ -183,6 +194,15 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
     assets,
     products: runtime.products,
     categories: runtime.categories,
+    distribution: {
+      displayCount: runtime.distribution.displayCount,
+      currentDisplayIndex: runtime.distribution.currentDisplayIndex,
+      strategy: runtime.distribution.strategy,
+      productsPerDisplay: runtime.distribution.productsPerDisplay,
+      totalProducts: runtime.distribution.totalProducts,
+      pageNumber: runtime.distribution.pageNumber,
+      totalPages: runtime.distribution.totalPages,
+    },
     schedule: {
       timezone: 'Europe/Berlin',
       generatedAt,

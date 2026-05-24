@@ -815,13 +815,48 @@ export default function ScreenDevicePage({ params }: Props) {
     [feed]
   )
 
+  const showCategoryOnCardEnabled = useMemo(() => {
+    if (!feed) return false
+    const fromRuntime =
+      runtimeConfig?.layoutSettings?.showCategoryOnCard ?? runtimeConfig?.contentSettings?.showCategoryOnCard
+    return typeof fromRuntime === 'boolean' ? fromRuntime : feed.config.showCategoryOnCard
+  }, [feed, runtimeConfig])
+
+  const showCategoryHeadersEnabled = useMemo(() => {
+    if (!feed) return false
+    const fromRuntime =
+      runtimeConfig?.layoutSettings?.showCategoryHeaders ?? runtimeConfig?.contentSettings?.showCategoryHeaders
+    return typeof fromRuntime === 'boolean' ? fromRuntime : feed.config.showCategoryHeaders
+  }, [feed, runtimeConfig])
+
+  const showIngredientsEnabled = useMemo(() => {
+    if (!feed) return false
+    const fromRuntime =
+      runtimeConfig?.layoutSettings?.showAllergens ?? runtimeConfig?.contentSettings?.showIngredients
+    return typeof fromRuntime === 'boolean' ? fromRuntime : feed.config.showAllergens
+  }, [feed, runtimeConfig])
+
+  const displayedProducts = useMemo(() => {
+    if (!feed) return [] as PublicScreenFeed['products']
+    const distribution = runtimeConfig?.distribution
+    if (!distribution || distribution.strategy === 'duplicate-all') {
+      return feed.products
+    }
+    if (distribution.productIdsForDisplay.length === 0) {
+      return feed.products
+    }
+    const idSet = new Set(distribution.productIdsForDisplay)
+    const filtered = feed.products.filter((product) => idSet.has(product.id))
+    return filtered.length > 0 ? filtered : feed.products
+  }, [feed, runtimeConfig])
+
   const allergenLegendEntries = useMemo(() => {
-    if (!feed || !feed.config.showAllergens || !feed.config.allergenLegendEnabled) {
+    if (!feed || !showIngredientsEnabled || !feed.config.allergenLegendEnabled) {
       return [] as Array<{ code: string; label: string }>
     }
 
     const usedCodes = new Set<string>()
-    for (const product of feed.products) {
+    for (const product of displayedProducts) {
       for (const ingredient of product.ingredients) {
         for (const code of ingredient.allergens) {
           usedCodes.add(code)
@@ -835,7 +870,7 @@ export default function ScreenDevicePage({ params }: Props) {
         code,
         label: ALLERGEN_LABELS[code] || 'Allergen/Zusatzstoff',
       }))
-  }, [feed])
+  }, [displayedProducts, feed, showIngredientsEnabled])
   const activePickupAnnouncements = useMemo(() => {
     if (!feed) {
       return [] as PublicScreenFeed['pickupAnnouncements']
@@ -864,8 +899,8 @@ export default function ScreenDevicePage({ params }: Props) {
       >
     }
 
-    if (!feed.config.showCategoryHeaders) {
-      return feed.products.map((product) => ({
+    if (!showCategoryHeadersEnabled) {
+      return displayedProducts.map((product) => ({
         type: 'product' as const,
         key: product.id,
         product,
@@ -878,7 +913,7 @@ export default function ScreenDevicePage({ params }: Props) {
     > = []
     let previousCategory = ''
 
-    for (const product of feed.products) {
+    for (const product of displayedProducts) {
       const currentCategory = resolveProductCategory(product)
       if (currentCategory !== previousCategory) {
         rows.push({
@@ -897,7 +932,7 @@ export default function ScreenDevicePage({ params }: Props) {
     }
 
     return rows
-  }, [feed])
+  }, [displayedProducts, feed, showCategoryHeadersEnabled])
   const deviceResolutionWidth = Number(feed?.device.resolutionWidth || 1920)
   const deviceResolutionHeight = Number(feed?.device.resolutionHeight || 1080)
   const effectiveResolutionWidth = Math.max(320, Math.min(7680, viewportResolution.width || deviceResolutionWidth))
@@ -917,6 +952,24 @@ export default function ScreenDevicePage({ params }: Props) {
   const effectiveColumnCount = isListMode
     ? 1
     : Math.max(1, Math.min(columnCount, responsiveColumnLimit))
+  const distributionDisplayCount = Math.max(1, Number(runtimeConfig?.distribution?.displayCount || 1))
+  const totalDistributedProducts = Math.max(0, Number(runtimeConfig?.distribution?.totalProducts || displayedProducts.length))
+  const densityFactor =
+    distributionDisplayCount === 1 && totalDistributedProducts > 20
+      ? Math.max(0.72, Math.min(1, 20 / totalDistributedProducts))
+      : 1
+  const scaledProductFontSize = feed
+    ? clampInt(Math.round(Number(feed.config.productFontSize || 34) * densityFactor), 14, 64)
+    : 34
+  const scaledIngredientFontSize = feed
+    ? clampInt(Math.round(Number(feed.config.ingredientFontSize || 12) * densityFactor), 10, 30)
+    : 12
+  const scaledCategoryFontSize = feed
+    ? clampInt(Math.round(Number(feed.config.categoryFontSize || 12) * densityFactor), 10, 32)
+    : 12
+  const scaledPriceFontSize = feed
+    ? clampInt(Math.round(Number(feed.config.priceFontSize || 30) * densityFactor), 12, 62)
+    : 30
   const cardBackgroundOpacity = feed
     ? clampInt(Number(feed.config.cardBackgroundOpacity || 35), 0, 100) / 100
     : 0.35
@@ -1157,6 +1210,12 @@ export default function ScreenDevicePage({ params }: Props) {
               Auflösung: {effectiveResolutionWidth}×{effectiveResolutionHeight} · Device-ID: {feed.device.id.slice(0, 8)} · Letzter Sync:{' '}
               {runtimeConfig?.lastSyncAt ? new Date(runtimeConfig.lastSyncAt).toLocaleTimeString('de-DE') : '-'}
             </p>
+            {runtimeConfig?.distribution ? (
+              <p className="mt-1 text-xs text-white/70">
+                Display {runtimeConfig.distribution.currentDisplayIndex} von {runtimeConfig.distribution.displayCount} ·
+                Produkte {runtimeConfig.distribution.productIdsForDisplay.length} von {runtimeConfig.distribution.totalProducts}
+              </p>
+            ) : null}
           </div>
 
           {feed.config.logoUrl ? (
@@ -1298,7 +1357,7 @@ export default function ScreenDevicePage({ params }: Props) {
                   key={row.key}
                   className="col-span-full rounded-2xl border border-white/25 bg-black/35 px-4 py-2 font-semibold tracking-[0.14em] text-white/85"
                   style={{
-                    fontSize: `${feed.config.categoryFontSize}px`,
+                    fontSize: `${scaledCategoryFontSize}px`,
                     color: feed.config.categoryTextColor || feed.config.textColor,
                     textTransform: feed.config.categoryUppercase ? 'uppercase' : 'none',
                   }}
@@ -1308,7 +1367,7 @@ export default function ScreenDevicePage({ params }: Props) {
               )
             }
 
-            const ingredientLine = formatIngredientLine(row.product.ingredients, feed.config.showAllergens)
+            const ingredientLine = formatIngredientLine(row.product.ingredients, showIngredientsEnabled)
             const depositLine = formatDepositLine(
               row.product.beverageContainerType,
               Number(row.product.deposit)
@@ -1360,7 +1419,7 @@ export default function ScreenDevicePage({ params }: Props) {
                   <h2
                     className="min-w-0 flex-1 font-bold leading-tight"
                     style={{
-                      fontSize: `${feed.config.productFontSize}px`,
+                      fontSize: `${scaledProductFontSize}px`,
                       color: feed.config.productNameColor || feed.config.textColor,
                       overflowWrap: 'anywhere',
                     }}
@@ -1385,7 +1444,7 @@ export default function ScreenDevicePage({ params }: Props) {
                       <span
                         className="font-extrabold leading-none"
                         style={{
-                          fontSize: `${feed.config.priceFontSize}px`,
+                          fontSize: `${scaledPriceFontSize}px`,
                           color: feed.config.priceTextColor || feed.config.textColor,
                         }}
                       >
@@ -1399,7 +1458,7 @@ export default function ScreenDevicePage({ params }: Props) {
                   <p
                     className="mt-2"
                     style={{
-                      fontSize: `${feed.config.ingredientFontSize}px`,
+                      fontSize: `${scaledIngredientFontSize}px`,
                       color: feed.config.ingredientTextColor || feed.config.textColor,
                     }}
                   >
@@ -1420,7 +1479,7 @@ export default function ScreenDevicePage({ params }: Props) {
                         <span
                           className="font-extrabold leading-none"
                           style={{
-                            fontSize: `${feed.config.priceFontSize}px`,
+                            fontSize: `${scaledPriceFontSize}px`,
                             color: feed.config.priceTextColor || feed.config.textColor,
                           }}
                         >
@@ -1429,11 +1488,11 @@ export default function ScreenDevicePage({ params }: Props) {
                       ) : (
                         <span />
                       )}
-                      {feed.config.showCategoryOnCard ? (
+                      {showCategoryOnCardEnabled ? (
                         <span
                           className="tracking-wide"
                           style={{
-                            fontSize: `${feed.config.categoryFontSize}px`,
+                            fontSize: `${scaledCategoryFontSize}px`,
                             color: feed.config.categoryTextColor || feed.config.textColor,
                             textTransform: feed.config.categoryUppercase ? 'uppercase' : 'none',
                           }}
@@ -1446,11 +1505,11 @@ export default function ScreenDevicePage({ params }: Props) {
                     </>
                   ) : (
                     <>
-                      {feed.config.showCategoryOnCard ? (
+                      {showCategoryOnCardEnabled ? (
                         <span
                           className="tracking-wide"
                           style={{
-                            fontSize: `${feed.config.categoryFontSize}px`,
+                            fontSize: `${scaledCategoryFontSize}px`,
                             color: feed.config.categoryTextColor || feed.config.textColor,
                             textTransform: feed.config.categoryUppercase ? 'uppercase' : 'none',
                           }}
@@ -1486,7 +1545,7 @@ export default function ScreenDevicePage({ params }: Props) {
         </section>
       </div>
 
-      {feed.config.showAllergens && feed.config.allergenLegendEnabled && allergenLegendEntries.length > 0 ? (
+      {showIngredientsEnabled && feed.config.allergenLegendEnabled && allergenLegendEntries.length > 0 ? (
         <aside
           className={`absolute z-20 max-w-md rounded-2xl border border-white/30 bg-black/50 px-4 py-3 backdrop-blur-sm ${legendPositionClass(feed.config.allergenLegendPosition)}`}
           style={{

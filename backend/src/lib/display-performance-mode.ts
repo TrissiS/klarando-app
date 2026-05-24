@@ -22,6 +22,11 @@ export type DisplayDeviceDiagnostics = {
 type DisplayMeta = {
   performanceMode?: DisplayPerformanceMode
   diagnostics?: DisplayDeviceDiagnostics | null
+  distribution?: {
+    displayCount?: number
+    strategy?: 'split-products' | 'duplicate-all' | 'category-based'
+    displayGroupId?: string
+  } | null
 }
 
 export function parseDisplayMetaFromNotes(notes: string | null | undefined): DisplayMeta {
@@ -47,7 +52,27 @@ export function parseDisplayMetaFromNotes(notes: string | null | undefined): Dis
     if (parsed.diagnostics && typeof parsed.diagnostics === 'object') {
       normalized.diagnostics = parsed.diagnostics
     }
-    if (normalized.performanceMode || normalized.diagnostics) {
+    if (parsed.distribution && typeof parsed.distribution === 'object') {
+      const dist = parsed.distribution
+      const safeDisplayCount = Number(dist.displayCount)
+      normalized.distribution = {
+        displayCount:
+          Number.isFinite(safeDisplayCount) && safeDisplayCount > 0
+            ? Math.trunc(safeDisplayCount)
+            : undefined,
+        strategy:
+          dist.strategy === 'split-products' ||
+          dist.strategy === 'duplicate-all' ||
+          dist.strategy === 'category-based'
+            ? dist.strategy
+            : undefined,
+        displayGroupId:
+          typeof dist.displayGroupId === 'string' && dist.displayGroupId.trim().length > 0
+            ? dist.displayGroupId
+            : undefined,
+      }
+    }
+    if (normalized.performanceMode || normalized.diagnostics || normalized.distribution) {
       return normalized
     }
     return {}

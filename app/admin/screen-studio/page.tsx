@@ -294,6 +294,8 @@ export default function AdminScreenStudioPage() {
   const [creatingLayout, setCreatingLayout] = useState(false)
   const [menuRotationSeconds, setMenuRotationSeconds] = useState(50)
   const [promoRotationSeconds, setPromoRotationSeconds] = useState(10)
+  const [previewDisplayIndex, setPreviewDisplayIndex] = useState(1)
+  const [manifestDebugOpen, setManifestDebugOpen] = useState(false)
 
   const [savingRotation, setSavingRotation] = useState(false)
   const [selectedDisplayMode, setSelectedDisplayMode] = useState<DisplayMode>('MENU_DISPLAY')
@@ -476,6 +478,7 @@ export default function AdminScreenStudioPage() {
       publish: {
         selectedDesignScreenId,
         selectedDisplayIdForSettings: selectedDeviceIdForSettings,
+        manifestDebugOpen,
       },
       sync: {
         menuRotationSeconds,
@@ -519,10 +522,29 @@ export default function AdminScreenStudioPage() {
       visibleDesignProducts.length,
       selectedDesignScreenId,
       selectedDeviceIdForSettings,
+      manifestDebugOpen,
       menuRotationSeconds,
       promoRotationSeconds,
     ]
   )
+
+  const previewDistribution = useMemo(() => {
+    const totalProducts = visibleDesignProducts.length
+    const displayCount = Math.max(1, targetWallDisplays)
+    const pageSize = Math.max(1, Math.ceil(totalProducts / displayCount))
+    const pageIndex = Math.min(Math.max(1, previewDisplayIndex), displayCount)
+    const start = (pageIndex - 1) * pageSize
+    const end = Math.min(totalProducts, start + pageSize)
+    const products = visibleDesignProducts.slice(start, end)
+    return {
+      displayCount,
+      pageIndex,
+      start: start + 1,
+      end,
+      totalProducts,
+      products,
+    }
+  }, [previewDisplayIndex, targetWallDisplays, visibleDesignProducts])
 
   const previewProducts = useMemo(() => {
     const pool = filteredDesignProducts.length > 0 ? filteredDesignProducts : visibleDesignProducts
@@ -1778,9 +1800,26 @@ export default function AdminScreenStudioPage() {
             </div>
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Manifest-Vorschau (Struktur vorbereitet)</p>
-              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-950 p-3 text-[11px] text-emerald-200">
-{JSON.stringify(workspaceSettings, null, 2)}
-              </pre>
+              <button
+                type="button"
+                onClick={() => setManifestDebugOpen((current) => !current)}
+                className="mt-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                {manifestDebugOpen ? 'Manifest ausblenden' : 'Manifest anzeigen'}
+              </button>
+              {manifestDebugOpen ? (
+                <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-950 p-3 text-[11px] text-emerald-200">
+{JSON.stringify({
+  showCategories: showCategoryHeaders || showCategoryOnCard,
+  showIngredients,
+  displayCount: targetWallDisplays,
+  currentDisplayIndex: previewDistribution.pageIndex,
+  productsInThisDisplay: previewDistribution.products.length,
+  totalProducts: previewDistribution.totalProducts,
+  settings: workspaceSettings,
+}, null, 2)}
+                </pre>
+              ) : null}
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
@@ -2044,6 +2083,26 @@ export default function AdminScreenStudioPage() {
         {activeTab === 'PREVIEW' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Vorschau</h2>
+            <div className="mt-3 grid gap-3 md:grid-cols-3">
+              <Field label="Display-Ansicht">
+                <select
+                  value={String(previewDisplayIndex)}
+                  onChange={(event) => setPreviewDisplayIndex(Number(event.target.value))}
+                  className="input-ui"
+                >
+                  {Array.from({ length: Math.max(1, targetWallDisplays) }).map((_, index) => (
+                    <option key={`preview-display-${index + 1}`} value={index + 1}>
+                      Display {index + 1} von {Math.max(1, targetWallDisplays)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="md:col-span-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                Display {previewDistribution.pageIndex} von {previewDistribution.displayCount} · Produkte{' '}
+                {previewDistribution.totalProducts === 0 ? 0 : previewDistribution.start}–{previewDistribution.end} von{' '}
+                {previewDistribution.totalProducts}
+              </div>
+            </div>
             <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
               Aktive Vorschau: {selectedDisplayTemplate} · {defaultColumnCount} Spalten · {previewProducts.length} Produkte je Display ·
               {showIngredients ? ' Zutaten an' : ' Zutaten aus'} · {showCategoryHeaders ? ' Kategorien als Überschrift' : ' Keine Kategorieüberschrift'}
@@ -2068,6 +2127,19 @@ export default function AdminScreenStudioPage() {
                   </div>
                 )
               })}
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Produkte dieser Display-Ansicht</p>
+              <ul className="mt-2 max-h-40 space-y-1 overflow-auto text-sm text-slate-800">
+                {previewDistribution.products.map((product) => (
+                  <li key={`preview-product-${product.id}`} className="rounded-md bg-slate-50 px-2 py-1">
+                    {product.name} · {product.screen.displayCategory || product.category?.name || 'Allgemein'}
+                  </li>
+                ))}
+                {previewDistribution.products.length === 0 ? (
+                  <li className="text-slate-500">Keine Produkte in dieser Verteilung.</li>
+                ) : null}
+              </ul>
             </div>
             <p className="mt-4 text-xs text-slate-500">Die Live-Vorschau im Layout-Tab verwendet dieselbe State-Konfiguration wie diese Kapazitätsvorschau.</p>
           </section>

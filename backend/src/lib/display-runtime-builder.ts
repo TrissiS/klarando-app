@@ -62,7 +62,25 @@ type RuntimeShape = {
     active: boolean
   }>
   categories: Array<{ id: string; name: string }>
-  products: Array<{ id: string; name: string; categoryId: string | null; categoryName: string | null }>
+  products: Array<{
+    id: string
+    name: string
+    categoryId: string | null
+    categoryName: string | null
+    ingredients: string[]
+    allergens: string[]
+  }>
+  distribution: {
+    displayGroupId: string
+    displayCount: number
+    currentDisplayIndex: number
+    strategy: 'split-products' | 'duplicate-all' | 'category-based'
+    productsPerDisplay: number
+    totalProducts: number
+    pageNumber: number
+    totalPages: number
+    productIdsForDisplay: string[]
+  }
   publishedVersion: string
   cachedVersion: string
   runtimeConfig: RuntimeSettingsMap
@@ -213,9 +231,14 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     const performanceMode = meta.performanceMode ?? 'AUTO'
     const selectedCategoryIds = parseCsvIds(screenDevice.selectedCategoryIds)
     const selectedProductIds = parseCsvIds(screenDevice.selectedProductIds)
-    const [screenSettingRaw, categories, productsBySelection, productsByVisibility, activePlaylist] = await Promise.all([
+    const [screenSettingRaw, siblingDevices, categories, productsBySelection, productsByVisibility, activePlaylist] = await Promise.all([
       prisma.screenSetting.findUnique({
         where: { tenantId: screenDevice.tenantId },
+      }),
+      prisma.screenDevice.findMany({
+        where: { tenantId: screenDevice.tenantId, isActive: true },
+        select: { id: true, deviceCode: true, name: true },
+        orderBy: [{ name: 'asc' }, { deviceCode: 'asc' }],
       }),
       selectedCategoryIds.length > 0
         ? prisma.category.findMany({
@@ -232,6 +255,16 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               name: true,
               categoryId: true,
               category: { select: { name: true } },
+              ingredients: {
+                include: {
+                  ingredient: {
+                    select: {
+                      name: true,
+                      allergens: true,
+                    },
+                  },
+                },
+              },
             },
             orderBy: { name: 'asc' },
           })
@@ -245,6 +278,16 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               name: true,
               categoryId: true,
               category: { select: { id: true, name: true } },
+              ingredients: {
+                include: {
+                  ingredient: {
+                    select: {
+                      name: true,
+                      allergens: true,
+                    },
+                  },
+                },
+              },
             },
           },
         },
@@ -326,6 +369,27 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         active: true,
       }
     })
+    const distributionMeta = meta.distribution || null
+    const displayGroupId = asString(distributionMeta?.displayGroupId, `tenant-${screenDevice.tenantId}`)
+    const distributionStrategy =
+      distributionMeta?.strategy === 'duplicate-all' || distributionMeta?.strategy === 'category-based'
+        ? distributionMeta.strategy
+        : 'split-products'
+    const displayCount =
+      distributionMeta?.displayCount && distributionMeta.displayCount > 0
+        ? Math.trunc(distributionMeta.displayCount)
+        : Math.max(1, siblingDevices.length)
+    const sortedDeviceCodes = siblingDevices.map((entry) => entry.deviceCode).sort((a, b) => a.localeCompare(b))
+    const currentDisplayIndex = Math.max(1, sortedDeviceCodes.indexOf(screenDevice.deviceCode) + 1)
+    const totalProducts = products.length
+    const productsPerDisplay = Math.max(1, Math.ceil(totalProducts / Math.max(1, displayCount)))
+    const totalPages = Math.max(1, Math.ceil(totalProducts / productsPerDisplay))
+    const pageNumber = Math.min(Math.max(1, currentDisplayIndex), totalPages)
+    const distributedProducts =
+      distributionStrategy === 'duplicate-all'
+        ? products
+        : products.slice((pageNumber - 1) * productsPerDisplay, pageNumber * productsPerDisplay)
+
     const diagnosticsMeta = meta.diagnostics || null
     const effectiveWidth = diagnosticsMeta?.viewportWidth ?? screenDevice.resolutionWidth
     const effectiveHeight = diagnosticsMeta?.viewportHeight ?? screenDevice.resolutionHeight
@@ -418,6 +482,13 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       contentSettings: {
         selectedCategoryIds,
         selectedProductIds,
+        showCategories: showCategoryOnCard || showCategoryHeaders,
+        showCategoryOnCard,
+        showCategoryHeaders,
+        showIngredients:
+          screenDevice.showAllergensOverride ?? asBoolean(screenSetting?.showAllergens, true),
+        distributionDisplayCount: displayCount,
+        distributionStrategy,
         offerWindowEnabled: screenDevice.offerWindowEnabledOverride ?? null,
         offerWindowPosition: screenDevice.offerWindowPositionOverride ?? null,
         offerWindowSize: screenDevice.offerWindowSizeOverride ?? null,
@@ -426,12 +497,33 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       },
       slides,
       categories: categoriesFinal,
-      products: products.map((product) => ({
+      products: distributedProducts.map((product) => ({
         id: product.id,
         name: product.name,
         categoryId: product.categoryId,
         categoryName: product.category?.name ?? null,
+        ingredients: product.ingredients?.map((entry) => entry.ingredient.name).filter(Boolean) || [],
+        allergens:
+          product.ingredients
+            ?.flatMap((entry) =>
+              String(entry.ingredient.allergens || '')
+                .split(',')
+                .map((allergen) => allergen.trim())
+                .filter(Boolean)
+            )
+            .filter((value, index, array) => array.indexOf(value) === index) || [],
       })),
+      distribution: {
+        displayGroupId,
+        displayCount,
+        currentDisplayIndex: pageNumber,
+        strategy: distributionStrategy,
+        productsPerDisplay,
+        totalProducts,
+        pageNumber,
+        totalPages,
+        productIdsForDisplay: distributedProducts.map((product) => product.id),
+      },
       publishedVersion,
       cachedVersion: cacheVersion,
       runtimeConfig: {
@@ -614,6 +706,17 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     slides: [],
     categories: [],
     products: [],
+    distribution: {
+      displayGroupId: `order-display-${orderDisplay.tenantId}`,
+      displayCount: 1,
+      currentDisplayIndex: 1,
+      strategy: 'duplicate-all',
+      productsPerDisplay: 0,
+      totalProducts: 0,
+      pageNumber: 1,
+      totalPages: 1,
+      productIdsForDisplay: [],
+    },
     publishedVersion: cacheVersion,
     cachedVersion: cacheVersion,
     runtimeConfig: {
