@@ -317,6 +317,9 @@ export default function OrderDisplayPage({ params }: Props) {
   >({})
   const [runtimeConfig, setRuntimeConfig] = useState<DisplayRuntimeConfig | null>(null)
   const [connectionState, setConnectionState] = useState<DisplayRuntimeConnectionState>('online')
+  const buildVersion = process.env.NEXT_PUBLIC_APP_VERSION || '0.1.22'
+  const commitId = process.env.NEXT_PUBLIC_GIT_SHA || 'unknown'
+  const loadedAt = useMemo(() => new Date().toISOString(), [])
   const isLowPerformanceMode = runtimeConfig?.performanceMode === 'LOW'
   const previousOrderStatusRef = useRef<Map<string, string>>(new Map())
   const previousSeenOrderIdsRef = useRef<Set<string>>(new Set())
@@ -1138,11 +1141,16 @@ export default function OrderDisplayPage({ params }: Props) {
         <div className="font-semibold">Display Diagnose</div>
         <div>Route: <span className="font-mono">/order-display/[displayCode]</span></div>
         <div>Renderer: <span className="font-mono">order-display-runtime-v1</span></div>
+        <div>Build: <span className="font-mono">{buildVersion}</span></div>
+        <div>Commit: <span className="font-mono">{commitId}</span></div>
         <div>Runtime API: <span className="font-mono">{runtimeConfig?.runtimeSourceRoute || 'unbekannt'}</span></div>
         <div>Manifest-Version: <span className="font-mono">{runtimeConfig?.loadedManifestVersion || '-'}</span></div>
         <div>displayCode: <span className="font-mono">{displayCode || '-'}</span></div>
         <div>displayId: <span className="font-mono">{runtimeConfig?.displayId || '-'}</span></div>
         <div>template: <span className="font-mono">{runtimeConfig?.template || '-'}</span></div>
+        <div>showCategories: <span className="font-mono">n/a (order-display)</span></div>
+        <div>showIngredients: <span className="font-mono">n/a (order-display)</span></div>
+        <div>loadedAt: <span className="font-mono">{loadedAt}</span></div>
       </div>
       <DisplayConnectionStatus state={connectionState} staleSeconds={connectionStaleSeconds} />
       {mediaMode === 'IMAGE' && mediaUrl ? (

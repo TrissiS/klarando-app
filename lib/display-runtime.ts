@@ -126,6 +126,23 @@ export type DisplayRuntimeConfig = {
   loadedManifestVersion?: string | null
 }
 
+export type DisplayRuntimeFetchDebug = {
+  deviceCode: string
+  manifestUrl: string
+  runtimeUrl: string
+  manifestStatus: number | null
+  runtimeStatus: number | null
+  lastSuccessfulUrl: string | null
+  lastError: string | null
+  fetchedAt: string
+}
+
+const runtimeFetchDebugByDevice = new Map<string, DisplayRuntimeFetchDebug>()
+
+export function getLastDisplayRuntimeDebug(deviceCode: string): DisplayRuntimeFetchDebug | null {
+  return runtimeFetchDebugByDevice.get(deviceCode.toUpperCase()) || null
+}
+
 export type DisplayRuntimeConnectionState = 'online' | 'reconnecting' | 'offline_cached'
 
 function cacheKey(deviceCode: string) {
@@ -173,12 +190,27 @@ export function writeCachedDisplayRuntimeConfig(config: DisplayRuntimeConfig) {
 
 export async function fetchDisplayRuntimeConfig(
   deviceCode: string,
-  options?: { strictManifest?: boolean }
+  options?: { strictManifest?: boolean; debugNoCache?: boolean }
 ) {
   const strictManifest = options?.strictManifest === true
-  const manifestResponse = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}/manifest`, {
+  const noCacheSuffix = options?.debugNoCache ? `?_ts=${Date.now()}` : ''
+  const manifestUrl = `${API_BASE_URL}/api/display-runtime/${deviceCode}/manifest${noCacheSuffix}`
+  const runtimeUrl = `${API_BASE_URL}/api/display-runtime/${deviceCode}${noCacheSuffix}`
+  const debug: DisplayRuntimeFetchDebug = {
+    deviceCode: deviceCode.toUpperCase(),
+    manifestUrl,
+    runtimeUrl,
+    manifestStatus: null,
+    runtimeStatus: null,
+    lastSuccessfulUrl: null,
+    lastError: null,
+    fetchedAt: new Date().toISOString(),
+  }
+
+  const manifestResponse = await fetch(manifestUrl, {
     cache: 'no-store',
   })
+  debug.manifestStatus = manifestResponse.status
 
   if (manifestResponse.ok) {
     const manifestPayload = (await manifestResponse.json()) as {
@@ -197,21 +229,28 @@ export async function fetchDisplayRuntimeConfig(
         loadedManifestVersion:
           (manifestPayload.displayManifest as { manifestVersion?: string } | undefined)?.manifestVersion || null,
       }
+      debug.lastSuccessfulUrl = manifestUrl
+      runtimeFetchDebugByDevice.set(deviceCode.toUpperCase(), debug)
       writeCachedDisplayRuntimeConfig(mergedRuntime)
       return mergedRuntime
     }
   }
 
   if (strictManifest) {
-    throw new Error('Kein gültiges Display-Manifest geladen')
+    debug.lastError = `Manifest ungültig oder leer (HTTP ${debug.manifestStatus ?? 'n/a'})`
+    runtimeFetchDebugByDevice.set(deviceCode.toUpperCase(), debug)
+    throw new Error(`Kein gültiges Display-Manifest geladen (HTTP ${debug.manifestStatus ?? 'n/a'})`)
   }
 
-  const response = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}`, {
+  const response = await fetch(runtimeUrl, {
     cache: 'no-store',
   })
+  debug.runtimeStatus = response.status
 
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
+    debug.lastError = payload?.error || `Runtime konnte nicht geladen werden (HTTP ${response.status})`
+    runtimeFetchDebugByDevice.set(deviceCode.toUpperCase(), debug)
     throw new Error(payload?.error || 'Display-Runtime konnte nicht geladen werden')
   }
 
@@ -222,6 +261,8 @@ export async function fetchDisplayRuntimeConfig(
     rendererVersion: 'legacy-runtime',
     loadedManifestVersion: null,
   }
+  debug.lastSuccessfulUrl = runtimeUrl
+  runtimeFetchDebugByDevice.set(deviceCode.toUpperCase(), debug)
 
   writeCachedDisplayRuntimeConfig(legacyRuntime)
   return legacyRuntime

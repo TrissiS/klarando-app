@@ -14,6 +14,7 @@ import {
 } from '@/lib/api'
 import {
   fetchDisplayRuntimeConfig,
+  getLastDisplayRuntimeDebug,
   readCachedDisplayRuntimeConfig,
   type DisplayRuntimeConfig,
   type DisplayRuntimeConnectionState,
@@ -452,6 +453,10 @@ export default function ScreenDevicePage({ params }: Props) {
   const [debugMode, setDebugMode] = useState(false)
   const [manifestDebugOpen, setManifestDebugOpen] = useState(false)
   const [manifestRuntimeError, setManifestRuntimeError] = useState('')
+  const [runtimeNetworkDebug, setRuntimeNetworkDebug] = useState<ReturnType<typeof getLastDisplayRuntimeDebug> | null>(null)
+  const loadedAt = useMemo(() => new Date().toISOString(), [])
+  const buildVersion = process.env.NEXT_PUBLIC_APP_VERSION || '0.1.22'
+  const commitId = process.env.NEXT_PUBLIC_GIT_SHA || 'unknown'
   const [viewportResolution, setViewportResolution] = useState<{ width: number; height: number }>({
     width: 1920,
     height: 1080,
@@ -589,11 +594,12 @@ export default function ScreenDevicePage({ params }: Props) {
     const loadRuntime = async () => {
       try {
         setConnectionState((current) => (current === 'offline_cached' ? 'reconnecting' : current))
-        const config = await fetchDisplayRuntimeConfig(deviceCode, { strictManifest: true })
+        const config = await fetchDisplayRuntimeConfig(deviceCode, { strictManifest: true, debugNoCache: true })
         if (!isMounted) {
           return
         }
         setManifestRuntimeError('')
+        setRuntimeNetworkDebug(getLastDisplayRuntimeDebug(deviceCode))
         setRuntimeConfig(config)
         if (feed) {
           writeOfflineDisplaySnapshot({
@@ -641,6 +647,7 @@ export default function ScreenDevicePage({ params }: Props) {
           )
           setConnectionState('reconnecting')
         }
+        setRuntimeNetworkDebug(getLastDisplayRuntimeDebug(deviceCode))
         timer = setTimeout(() => {
           void loadRuntime()
         }, document.hidden ? 30000 : isLowPerformanceMode ? 18000 : 12000)
@@ -665,14 +672,16 @@ export default function ScreenDevicePage({ params }: Props) {
 
   async function handleHardManifestReload() {
     try {
-      const fresh = await fetchDisplayRuntimeConfig(deviceCode, { strictManifest: true })
+      const fresh = await fetchDisplayRuntimeConfig(deviceCode, { strictManifest: true, debugNoCache: true })
       setRuntimeConfig(fresh)
       setManifestRuntimeError('')
       setConnectionState('online')
+      setRuntimeNetworkDebug(getLastDisplayRuntimeDebug(deviceCode))
     } catch (reloadError) {
       setManifestRuntimeError(
         reloadError instanceof Error ? reloadError.message : 'Kein gültiges Display-Manifest geladen'
       )
+      setRuntimeNetworkDebug(getLastDisplayRuntimeDebug(deviceCode))
     }
   }
 
@@ -1262,6 +1271,29 @@ export default function ScreenDevicePage({ params }: Props) {
     )
   }
 
+  if (manifestRuntimeError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-950 px-6 text-white">
+        <div className="w-full max-w-3xl rounded-2xl border border-red-300/60 bg-red-500/20 p-6">
+          <p className="text-sm font-semibold uppercase tracking-wide text-red-100">
+            STRICT MANIFEST FAILED - Legacy Renderer disabled
+          </p>
+          <p className="mt-2 text-lg font-bold">{manifestRuntimeError}</p>
+          <div className="mt-4 space-y-1 text-sm text-red-100/90">
+            <p>Route: /screen/[deviceCode]</p>
+            <p>Build: {buildVersion}</p>
+            <p>Commit: {commitId}</p>
+            <p>deviceCode: {deviceCode || '-'}</p>
+            <p>Runtime API: {runtimeConfig?.runtimeSourceRoute || 'manifest required'}</p>
+            <p>Manifest HTTP: {runtimeNetworkDebug?.manifestStatus ?? 'n/a'}</p>
+            <p>Manifest URL: {runtimeNetworkDebug?.manifestUrl || 'n/a'}</p>
+            <p>LoadedAt: {loadedAt}</p>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main
       style={{
@@ -1275,6 +1307,8 @@ export default function ScreenDevicePage({ params }: Props) {
         <div className="font-semibold">Display Diagnose</div>
         <div>Route: <span className="font-mono">/screen/[deviceCode]</span></div>
         <div>Renderer: <span className="font-mono">{rendererVersion}</span></div>
+        <div>Build: <span className="font-mono">{buildVersion}</span></div>
+        <div>Commit: <span className="font-mono">{commitId}</span></div>
         <div>Runtime API: <span className="font-mono">{runtimeRouteLabel}</span></div>
         <div>Manifest-Version: <span className="font-mono">{manifestVersionLabel}</span></div>
         <div>deviceCode: <span className="font-mono">{deviceCode || '-'}</span></div>
@@ -1282,6 +1316,11 @@ export default function ScreenDevicePage({ params }: Props) {
         <div>template: <span className="font-mono">{runtimeConfig?.template || '-'}</span></div>
         <div>showCategories: <span className="font-mono">{String(showCategoryHeadersEnabled || showCategoryOnCardEnabled)}</span></div>
         <div>showIngredients: <span className="font-mono">{String(showIngredientsEnabled)}</span></div>
+        <div>host/path: <span className="font-mono">{typeof window !== 'undefined' ? `${window.location.host}${window.location.pathname}` : '-'}</span></div>
+        <div>query: <span className="font-mono">{typeof window !== 'undefined' ? window.location.search || '-' : '-'}</span></div>
+        <div>lastFetch: <span className="font-mono">{runtimeNetworkDebug?.lastSuccessfulUrl || '-'}</span></div>
+        <div>manifestHTTP: <span className="font-mono">{runtimeNetworkDebug?.manifestStatus ?? 'n/a'}</span></div>
+        <div>loadedAt: <span className="font-mono">{loadedAt}</span></div>
         {manifestRuntimeError ? (
           <div className="mt-1 rounded border border-red-300/60 bg-red-500/20 px-2 py-1 text-red-100">
             Kein gueltiges Display-Manifest geladen: {manifestRuntimeError}
@@ -1316,6 +1355,8 @@ export default function ScreenDevicePage({ params }: Props) {
 {JSON.stringify({
   rendererVersion,
   runtimeRoute: runtimeRouteLabel,
+  buildVersion,
+  commitId,
   manifestVersion: manifestVersionLabel,
   deviceCode,
   displayId: runtimeConfig?.displayId || null,

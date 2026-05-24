@@ -118,6 +118,9 @@ export default function TerminalPage({ params }: Props) {
   const [success, setSuccess] = useState('')
   const [layoutScale, setLayoutScale] = useState(1)
   const [viewportHeight, setViewportHeight] = useState<number | null>(null)
+  const buildVersion = process.env.NEXT_PUBLIC_APP_VERSION || '0.1.22'
+  const commitId = process.env.NEXT_PUBLIC_GIT_SHA || 'unknown'
+  const loadedAt = useMemo(() => new Date().toISOString(), [])
 
   const [configuringProduct, setConfiguringProduct] = useState<PublicTerminalProduct | null>(
     null
@@ -475,7 +478,12 @@ export default function TerminalPage({ params }: Props) {
         <div className="font-semibold">Display Diagnose</div>
         <div>Route: <span className="font-mono">/terminal/[terminalCode]</span></div>
         <div>Renderer: <span className="font-mono">terminal-renderer-v1</span></div>
+        <div>Build: <span className="font-mono">{buildVersion}</span></div>
+        <div>Commit: <span className="font-mono">{commitId}</span></div>
         <div>terminalCode: <span className="font-mono">{terminalCode || '-'}</span></div>
+        <div>showCategories: <span className="font-mono">n/a (terminal)</span></div>
+        <div>showIngredients: <span className="font-mono">n/a (terminal)</span></div>
+        <div>loadedAt: <span className="font-mono">{loadedAt}</span></div>
       </div>
       <div className="mx-auto max-w-7xl" style={layoutStyle}>
         {config.terminal.customerLogoUrl ? (
