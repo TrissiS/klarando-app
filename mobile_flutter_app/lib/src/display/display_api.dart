@@ -21,6 +21,13 @@ class DisplayApiException implements Exception {
   String toString() => '[$statusCode] $endpoint: $message';
 }
 
+String _previewBody(String body, {int maxLen = 800}) {
+  final trimmed = body.trim();
+  if (trimmed.isEmpty) return '';
+  if (trimmed.length <= maxLen) return trimmed;
+  return trimmed.substring(0, maxLen);
+}
+
 class DisplayApi {
   DisplayApi({String? baseUrl}) : _baseUrl = normalizeApiBaseUrl(baseUrl ?? defaultApiBaseUrl);
 
@@ -72,18 +79,18 @@ class DisplayApi {
         statusCode: 304,
         content: null,
         etag: response.headers['etag'] ?? normalizedEtag,
-        responsePreview: response.body.trim().isEmpty ? null : response.body.trim().substring(0, response.body.trim().length > 800 ? 800 : response.body.trim().length),
+        responsePreview: _previewBody(response.body).isEmpty ? null : _previewBody(response.body),
       );
     }
     final decoded = _decode(response, endpoint);
-    final raw = response.body.trim();
+    final raw = _previewBody(response.body);
     return DisplayContentResponse(
       endpoint: endpoint,
       requestUrl: '$_baseUrl$endpoint',
       statusCode: response.statusCode,
       content: decoded,
       etag: response.headers['etag'],
-      responsePreview: raw.isEmpty ? null : raw.substring(0, raw.length > 800 ? 800 : raw.length),
+      responsePreview: raw.isEmpty ? null : raw,
     );
   }
 
@@ -104,21 +111,34 @@ class DisplayApi {
   }
 
   Map<String, dynamic> _decode(http.Response response, String endpoint) {
-    final body = response.body.isNotEmpty
-        ? (jsonDecode(response.body) as Map<String, dynamic>)
-        : <String, dynamic>{};
+    final rawBody = response.body;
+    final preview = _previewBody(rawBody);
+    Map<String, dynamic> body;
+    try {
+      body = rawBody.isNotEmpty
+          ? (jsonDecode(rawBody) as Map<String, dynamic>)
+          : <String, dynamic>{};
+    } catch (_) {
+      final contentType = response.headers['content-type'] ?? '';
+      final lower = preview.toLowerCase();
+      final htmlLike = lower.startsWith('<!doctype') || lower.startsWith('<html');
+      final message = htmlLike
+          ? 'API antwortet mit HTML statt JSON. Bitte API-Base-URL/Proxy prüfen.'
+          : 'Ungültige JSON-Antwort von der API.';
+      throw DisplayApiException(
+        message: '$message (content-type: ${contentType.isEmpty ? 'unknown' : contentType})',
+        endpoint: endpoint,
+        statusCode: response.statusCode == 0 ? 500 : response.statusCode,
+        responsePreview: preview.isEmpty ? null : preview,
+      );
+    }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       final message = '${body['message'] ?? body['error'] ?? 'Display-API Fehler'}';
       throw DisplayApiException(
         message: message,
         endpoint: endpoint,
         statusCode: response.statusCode,
-        responsePreview: response.body.trim().isEmpty
-            ? null
-            : response.body.trim().substring(
-                0,
-                response.body.trim().length > 800 ? 800 : response.body.trim().length,
-              ),
+        responsePreview: preview.isEmpty ? null : preview,
       );
     }
     return body;

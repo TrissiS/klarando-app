@@ -487,134 +487,166 @@ class _MenuProductBoard extends StatelessWidget {
     final requestedColumns = configuredColumns != null && configuredColumns! > 0
         ? configuredColumns!.clamp(1, 5)
         : null;
-    final columnCount = requestedColumns ?? (isLandscape ? 2 : 1);
-    final rowHeight = isLandscape ? 92.0 : 82.0;
-    final rowsPerColumn = (maxHeight / rowHeight).floor().clamp(1, 20);
-    final maxRowsVisible = rowsPerColumn * columnCount;
-    final visibleRows = rows.take(maxRowsVisible).toList(growable: false);
-    final chunks = <List<Map<String, String>>>[];
-    for (int i = 0; i < visibleRows.length; i += rowsPerColumn) {
-      chunks.add(visibleRows.sublist(i, (i + rowsPerColumn).clamp(0, visibleRows.length)));
+    final columnCount = requestedColumns ?? (isLandscape ? 3 : 2);
+    final safeColumnCount = columnCount.clamp(1, 5);
+
+    final showHeaderOnly = showCategoryHeaders && !showCategory;
+    final flattened = <Map<String, String>>[];
+    String? lastCategory;
+    for (final row in rows) {
+      final category = row['category'] ?? '';
+      if (showHeaderOnly && category.isNotEmpty && category != lastCategory) {
+        flattened.add(<String, String>{
+          'type': 'header',
+          'category': category,
+        });
+        lastCategory = category;
+      }
+      flattened.add(<String, String>{
+        ...row,
+        'type': 'product',
+      });
+    }
+
+    final rowCount = flattened.length;
+    final rowsPerColumn = (rowCount / safeColumnCount).ceil().clamp(1, 9999);
+    final columns = <List<Map<String, String>>>[];
+    for (int i = 0; i < rowCount; i += rowsPerColumn) {
+      columns.add(flattened.sublist(i, (i + rowsPerColumn).clamp(0, rowCount)));
     }
 
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (int column = 0; column < chunks.length; column++) ...[
+        for (int column = 0; column < columns.length; column++) ...[
           Expanded(
-            child: Column(
-              children: [
-                for (int rowIndex = 0; rowIndex < chunks[column].length; rowIndex++)
-                  Expanded(
+            child: ListView.separated(
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              itemCount: columns[column].length,
+              separatorBuilder: (_, __) => const SizedBox(height: 8),
+              itemBuilder: (context, index) {
+                final row = columns[column][index];
+                if ((row['type'] ?? '') == 'header') {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 2),
+                    child: Text(
+                      row['category'] ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: ((categoryFontSize + 3).clamp(12, 34)).toDouble(),
+                        color: Colors.white.withOpacity(0.9),
+                        fontWeight: FontWeight.w800,
+                        fontFamily: fontFamily,
+                      ),
+                    ),
+                  );
+                }
+
+                return TweenAnimationBuilder<double>(
+                  tween: Tween<double>(begin: enableAnimations ? 0.98 : 1.0, end: 1.0),
+                  duration: Duration(milliseconds: enableAnimations ? 350 : 1),
+                  curve: Curves.easeOutCubic,
+                  builder: (context, value, child) => Transform.scale(scale: value, child: child),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: cardStyle == 'NONE'
+                          ? Colors.transparent
+                          : cardStyle == 'GLASS'
+                              ? Colors.white.withOpacity((cardOpacity * 0.22).clamp(0.08, 0.32))
+                              : Colors.black.withOpacity((cardOpacity * 0.4).clamp(0.18, 0.48)),
+                      border: cardStyle == 'BORDER'
+                          ? Border.all(color: accentColor.withOpacity(0.75))
+                          : null,
+                      boxShadow: cardStyle == 'NONE'
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 14,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                      borderRadius: cardStyle == 'NONE' ? BorderRadius.zero : BorderRadius.circular(14),
+                    ),
                     child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4),
-                      child: TweenAnimationBuilder<double>(
-                        tween: Tween<double>(begin: enableAnimations ? 0.96 : 1.0, end: 1.0),
-                        duration: Duration(milliseconds: enableAnimations ? 420 : 1),
-                        curve: Curves.easeOutCubic,
-                        builder: (context, value, child) => Transform.scale(scale: value, child: child),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: cardStyle == 'NONE'
-                                ? Colors.transparent
-                                : cardStyle == 'GLASS'
-                                    ? Colors.white.withOpacity((cardOpacity * 0.22).clamp(0.08, 0.32))
-                                    : Colors.black.withOpacity((cardOpacity * 0.4).clamp(0.18, 0.48)),
-                            border: cardStyle == 'BORDER'
-                                ? Border.all(color: accentColor.withOpacity(0.75))
-                                : null,
-                            borderRadius: cardStyle == 'NONE' ? BorderRadius.zero : BorderRadius.circular(12),
-                          ),
-                          child: Padding(
-                            padding: EdgeInsets.symmetric(
-                              horizontal: (cardPadding * 0.75).clamp(8, 22),
-                              vertical: (cardPadding * 0.5).clamp(6, 16),
-                            ),
-                            child: Row(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: (cardPadding * 0.75).clamp(10, 24),
+                        vertical: (cardPadding * 0.58).clamp(8, 18),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      if (showCategoryHeaders &&
-                                          rowIndex > 0 &&
-                                          chunks[column][rowIndex - 1]['category'] !=
-                                              chunks[column][rowIndex]['category'])
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 4),
-                                          child: Text(
-                                            chunks[column][rowIndex]['category'] ?? '',
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: TextStyle(
-                                              fontSize: (categoryFontSize + 1).clamp(10, 40),
-                                              color: Colors.white70,
-                                              fontWeight: FontWeight.w700,
-                                              fontFamily: fontFamily,
-                                            ),
-                                          ),
-                                        ),
-                                      Text(
-                                        chunks[column][rowIndex]['name'] ?? '-',
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          fontSize: (productFontSize * 0.92).clamp(14, 52),
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.w700,
-                                          fontFamily: fontFamily,
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      if (showCategory)
-                                        Text(
-                                          chunks[column][rowIndex]['category'] ?? '',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: categoryFontSize,
-                                            color: Colors.white70,
-                                            fontFamily: fontFamily,
-                                          ),
-                                        ),
-                                      if (showIngredients &&
-                                          (chunks[column][rowIndex]['ingredients'] ?? '').isNotEmpty)
-                                        Text(
-                                          chunks[column][rowIndex]['ingredients'] ?? '',
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: TextStyle(
-                                            fontSize: ingredientFontSize,
-                                            color: ingredientTextColor,
-                                            fontFamily: fontFamily,
-                                          ),
-                                        ),
-                                    ],
+                                Text(
+                                  row['name'] ?? '-',
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: ((productFontSize * 0.9).clamp(15, 48)).toDouble(),
+                                    height: 1.15,
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                    fontFamily: fontFamily,
                                   ),
                                 ),
-                                const SizedBox(width: 12),
-                                if (showPrices &&
-                                    (chunks[column][rowIndex]['price'] ?? '').isNotEmpty)
+                                const SizedBox(height: 2),
+                                if (showCategory)
                                   Text(
-                                    chunks[column][rowIndex]['price'] ?? '-',
+                                    row['category'] ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      fontSize: priceFontSize,
-                                      color: accentColor,
-                                      fontWeight: FontWeight.w700,
+                                      fontSize: (categoryFontSize.clamp(10, 28)).toDouble(),
+                                      color: Colors.white70,
+                                      fontFamily: fontFamily,
+                                    ),
+                                  ),
+                                if (showIngredients && (row['ingredients'] ?? '').isNotEmpty)
+                                  Text(
+                                    row['ingredients'] ?? '',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: (ingredientFontSize.clamp(10, 24)).toDouble(),
+                                      color: ingredientTextColor,
                                       fontFamily: fontFamily,
                                     ),
                                   ),
                               ],
                             ),
                           ),
-                        ),
+                          const SizedBox(width: 14),
+                          if (showPrices && (row['price'] ?? '').isNotEmpty)
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(minWidth: 84, maxWidth: 180),
+                              child: Text(
+                                row['price'] ?? '-',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  fontSize: ((priceFontSize * 0.86).clamp(14, 44)).toDouble(),
+                                  color: accentColor,
+                                  fontWeight: FontWeight.w900,
+                                  fontFamily: fontFamily,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ),
-              ],
+                );
+              },
             ),
           ),
-          if (column < chunks.length - 1) const SizedBox(width: 10),
+          if (column < columns.length - 1) const SizedBox(width: 10),
         ],
       ],
     );
