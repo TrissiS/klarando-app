@@ -57,7 +57,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final showPrices = (screenConfig['showPrices'] as bool?) ?? true;
     final showCategory = (screenConfig['showCategoryOnCard'] as bool?) ?? true;
     final showCategoryHeaders = (screenConfig['showCategoryHeaders'] as bool?) ?? false;
-    final showIngredients = (screenConfig['showAllergens'] as bool?) ?? true;
+    final showIngredients = (screenConfig['showIngredients'] as bool?) ?? (screenConfig['showAllergens'] as bool?) ?? true;
     final showLogo = ((screenConfig['logoUrl'] as String?) ?? '').trim().isNotEmpty;
     final logoUrl = (screenConfig['logoUrl'] as String?) ?? '';
     final logoSize = (((screenConfig['logoSize'] as num?)?.toDouble() ?? 120).clamp(60, 220)).toDouble();
@@ -267,7 +267,43 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                       ),
                     ),
                   ),
-                // Runtime debug overlay stays hidden in live display mode.
+                if (widget.debugLines.isNotEmpty)
+                  Positioned(
+                    left: 12,
+                    top: 12,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 560),
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.78),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.white24),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'DISPLAY DIAGNOSTICS',
+                                style: TextStyle(
+                                  color: Colors.amberAccent,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              for (final line in widget.debugLines)
+                                Text(
+                                  line,
+                                  style: const TextStyle(color: Colors.white, fontSize: 11),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           );

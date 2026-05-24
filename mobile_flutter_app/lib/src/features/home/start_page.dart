@@ -321,7 +321,7 @@ class _StartHeaderContent extends StatelessWidget {
                 backgroundColor: Color(0x1AFF5A1F),
               ),
             ],
-          ),
+          ],
         ),
       ),
     );

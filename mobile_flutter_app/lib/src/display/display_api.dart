@@ -48,12 +48,13 @@ class DisplayApi {
     return _decode(response, endpoint);
   }
 
-  Future<DisplayContentResponse> getContent(
-    String deviceToken, {
+  Future<DisplayContentResponse> getManifest(
+    String deviceCode, {
     String? etag,
   }) async {
-    final endpoint = '/api/display/content';
-    final headers = <String, String>{'Authorization': 'Bearer $deviceToken'};
+    final normalizedCode = deviceCode.trim().toUpperCase();
+    final endpoint = '/api/display-runtime/$normalizedCode/manifest';
+    final headers = <String, String>{};
     final normalizedEtag = etag?.trim();
     if (normalizedEtag != null && normalizedEtag.isNotEmpty) {
       headers['If-None-Match'] = normalizedEtag;
@@ -79,15 +80,19 @@ class DisplayApi {
     );
   }
 
-  Future<void> heartbeat(String deviceToken) async {
-    final endpoint = '/api/display/heartbeat';
+  Future<void> heartbeat(String deviceCode) async {
+    final normalizedCode = deviceCode.trim().toUpperCase();
+    final endpoint = '/api/display-runtime/$normalizedCode/heartbeat';
     await http.post(
       Uri.parse('$_baseUrl$endpoint'),
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $deviceToken',
       },
-      body: jsonEncode({'screenStatus': 'ONLINE', 'appVersion': 'display-1'}),
+      body: jsonEncode({
+        'diagnostics': {
+          'appVersion': 'display-1',
+        },
+      }),
     );
   }
 

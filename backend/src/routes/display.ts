@@ -99,6 +99,7 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
             id: true,
             tenantId: true,
             screenId: true,
+            deviceCode: true,
           },
         },
       },
@@ -160,7 +161,9 @@ router.get('/pairing/session/:pairingToken', async (req, res) => {
       tenantId: session.device.tenantId,
       screenId: session.device.screenId,
       displayId: session.device.id,
-      displayCode: session.device.id,
+      displayCode: session.device.deviceCode,
+      deviceCode: session.device.deviceCode,
+      manifestEndpoint: `/api/display-runtime/${session.device.deviceCode}/manifest`,
       apiBaseUrl: process.env.API_BASE_URL || 'https://api.klarando.com',
       authToken: oneTimeToken,
     })

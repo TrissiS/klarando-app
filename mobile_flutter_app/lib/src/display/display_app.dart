@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:math';
 import 'dart:ui' as ui;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -16,6 +15,7 @@ const _prefsDeviceToken = 'klarando_display_device_token';
 const _prefsDisplayId = 'klarando_display_id';
 const _prefsScreenId = 'klarando_display_screen_id';
 const _prefsTenantId = 'klarando_display_tenant_id';
+const _prefsDeviceCode = 'klarando_display_device_code';
 
 class KlarandoDisplayApp extends StatelessWidget {
   const KlarandoDisplayApp({super.key});
@@ -50,6 +50,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
   Timer? _refreshTimer;
 
   String? _deviceToken;
+  String? _deviceCode;
   String? _pairingToken;
   String? _pairingSessionId;
   String _pairingCode = '------';
@@ -64,7 +65,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
   String _lastPollState = '-';
   String _lastPollError = '-';
   bool _lastPollTokenReceived = false;
-  String _lastContentEndpoint = '/api/display/content';
+  String _lastContentEndpoint = '/api/display-runtime/:deviceCode/manifest';
   int? _lastContentHttpStatus;
   String _lastContentError = '-';
   int _lastContentProductCount = 0;
@@ -72,6 +73,9 @@ class _DisplayRootState extends State<_DisplayRoot> {
   String _lastContentVersion = '-';
   String _savedDisplayId = '-';
   String _savedTenantId = '-';
+  String _savedDeviceCode = '-';
+  String _rendererVersion = 'flutter-manifest-renderer-v1';
+  bool _strictManifestFailed = false;
   static const String _pairingEndpoint = '/api/display/pairing/session';
 
   @override
@@ -97,15 +101,19 @@ class _DisplayRootState extends State<_DisplayRoot> {
   Future<void> _bootstrap() async {
     final prefs = await SharedPreferences.getInstance();
     _deviceToken = prefs.getString(_prefsDeviceToken);
+    _deviceCode = prefs.getString(_prefsDeviceCode);
 
     if (_deviceToken != null && _deviceToken!.isNotEmpty) {
       final ok = await _loadContent();
       if (ok) {
+        _strictManifestFailed = false;
         _startBackgroundJobs();
         return;
       }
-      await prefs.remove(_prefsDeviceToken);
-      _deviceToken = null;
+      _strictManifestFailed = true;
+      _message = 'STRICT MANIFEST FAILED - Legacy Renderer disabled';
+      setState(() {});
+      return;
     }
 
     await _startPairing();
@@ -215,15 +223,22 @@ class _DisplayRootState extends State<_DisplayRoot> {
       }
 
       final deviceToken = '${response['deviceToken'] ?? response['authToken'] ?? ''}'.trim();
+      final deviceCode = '${response['deviceCode'] ?? response['displayCode'] ?? ''}'.trim().toUpperCase();
       _lastPollTokenReceived = deviceToken.isNotEmpty;
       if (deviceToken.isEmpty) {
         _message = 'Display verbunden, aber es fehlt ein gültiges Gerätetoken.';
         setState(() {});
         return;
       }
+      if (deviceCode.isEmpty) {
+        _message = 'Display verbunden, aber deviceCode fehlt. Manifest kann nicht geladen werden.';
+        setState(() {});
+        return;
+      }
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_prefsDeviceToken, deviceToken);
+      await prefs.setString(_prefsDeviceCode, deviceCode);
       final displayId = '${response['displayId'] ?? response['deviceId'] ?? ''}'.trim();
       final screenId = '${response['screenId'] ?? ''}'.trim();
       final tenantId = '${response['tenantId'] ?? ''}'.trim();
@@ -239,10 +254,13 @@ class _DisplayRootState extends State<_DisplayRoot> {
         _savedTenantId = tenantId;
       }
       _deviceToken = deviceToken;
+      _deviceCode = deviceCode;
+      _savedDeviceCode = deviceCode;
       _pairingPollTimer?.cancel();
       _countdownTimer?.cancel();
       _pairingSessionReady = false;
       _message = 'Display wird verbunden …';
+      _strictManifestFailed = false;
       setState(() {});
 
       final ok = await _loadContent();
@@ -271,17 +289,20 @@ class _DisplayRootState extends State<_DisplayRoot> {
 
   Future<bool> _loadContent() async {
     final token = _deviceToken;
-    if (token == null || token.isEmpty) return false;
+    final deviceCode = (_deviceCode ?? '').trim().toUpperCase();
+    if (token == null || token.isEmpty || deviceCode.isEmpty) return false;
 
     try {
-      debugPrint('DISPLAY CONTENT LOAD START');
+      debugPrint('DISPLAY MANIFEST LOAD START');
       debugPrint('DISPLAY CONTENT TOKEN PRESENT: true');
       final prefs = await SharedPreferences.getInstance();
       _savedDisplayId = prefs.getString(_prefsDisplayId) ?? '-';
       _savedTenantId = prefs.getString(_prefsTenantId) ?? '-';
+      _savedDeviceCode = prefs.getString(_prefsDeviceCode) ?? deviceCode;
       debugPrint('DISPLAY CONTENT DISPLAY ID: $_savedDisplayId');
       debugPrint('DISPLAY CONTENT TENANT ID: $_savedTenantId');
-      final response = await _api.getContent(token, etag: _contentEtag);
+      debugPrint('DISPLAY MANIFEST DEVICE CODE: $_savedDeviceCode');
+      final response = await _api.getManifest(deviceCode, etag: _contentEtag);
       _lastContentHttpStatus = response.statusCode;
       _lastContentEndpoint = response.endpoint;
       if (response.notModified) {
@@ -291,13 +312,14 @@ class _DisplayRootState extends State<_DisplayRoot> {
         return true;
       }
       final payload = response.content ?? const <String, dynamic>{};
+      final mapped = _mapManifestPayloadToDisplayContent(deviceCode, payload);
       _contentEtag = response.etag ?? _contentEtag;
       _lastContentVersion = _contentEtag ?? '-';
-      final products = (payload['products'] as List?) ?? const [];
+      final products = (mapped['products'] as List?) ?? const [];
       _lastContentProductCount = products.length;
       _lastContentError = '-';
-      debugPrint('DISPLAY CONTENT PRODUCTS COUNT: $_lastContentProductCount');
-      _content = payload;
+      debugPrint('DISPLAY MANIFEST PRODUCTS COUNT: $_lastContentProductCount');
+      _content = mapped;
       if (_lastContentProductCount == 0) {
         _message = 'Keine Produkte für diesen Bildschirm freigegeben.';
       } else {
@@ -306,7 +328,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
       setState(() {});
       return true;
     } catch (error) {
-      debugPrint('DISPLAY CONTENT ERROR: $error');
+      debugPrint('DISPLAY MANIFEST ERROR: $error');
       _lastContentProductCount = 0;
       final message = '$error';
       if (error is DisplayApiException) {
@@ -317,15 +339,97 @@ class _DisplayRootState extends State<_DisplayRoot> {
       if (message.contains('ungültig') || message.contains('ungultig') || message.contains('401')) {
         return false;
       }
-      _message = _lastContentError;
-      _content = {
-        'screen': <String, dynamic>{},
-        'items': const <dynamic>[],
-        'products': const <dynamic>[],
-      };
+      _message = 'STRICT MANIFEST FAILED: $_lastContentError';
+      _strictManifestFailed = true;
+      _content = null;
       setState(() {});
-      return true;
+      return false;
     }
+  }
+
+  Map<String, dynamic> _mapManifestPayloadToDisplayContent(
+    String deviceCode,
+    Map<String, dynamic> payload,
+  ) {
+    final displayManifest = (payload['displayManifest'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final runtime = (payload['runtime'] as Map<String, dynamic>?) ??
+        (displayManifest['runtime'] as Map<String, dynamic>?) ??
+        const <String, dynamic>{};
+    final theme = (displayManifest['theme'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final layout = (displayManifest['layout'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final runtimeConfig = (runtime['runtimeConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final productsRaw = (displayManifest['products'] as List?) ?? const [];
+    final mappedProducts = productsRaw.map((entry) {
+      final product = (entry as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{};
+      final ingredientsRaw = (product['ingredients'] as List?) ?? const [];
+      return <String, dynamic>{
+        'id': product['id'],
+        'name': product['name'],
+        'categoryId': product['categoryId'],
+        'categoryName': product['categoryName'],
+        'price': product['price'] ?? 0,
+        'ingredients': ingredientsRaw
+            .map((ingredient) => <String, dynamic>{'name': '$ingredient'.trim()})
+            .where((ingredient) => (ingredient['name'] as String).isNotEmpty)
+            .toList(growable: false),
+        'allergens': (product['allergens'] as List?) ?? const [],
+      };
+    }).toList(growable: false);
+
+    final showIngredientsRaw = runtimeConfig['showIngredients'];
+    final showIngredients = showIngredientsRaw is bool
+        ? showIngredientsRaw
+        : (runtimeConfig['showAllergens'] as bool?) ?? true;
+
+    return <String, dynamic>{
+      'screen': <String, dynamic>{
+        'backgroundColor': theme['backgroundColor'] ?? runtimeConfig['backgroundColor'] ?? '#111827',
+        'accentColor': theme['accentColor'] ?? runtimeConfig['accentColor'] ?? '#f97316',
+      },
+      'screenConfig': <String, dynamic>{
+        'showPrices': runtimeConfig['showPrices'] ?? true,
+        'showCategoryOnCard': runtimeConfig['showCategoryOnCard'] ?? false,
+        'showCategoryHeaders': runtimeConfig['showCategoryHeaders'] ?? false,
+        'showIngredients': showIngredients,
+        'showAllergens': showIngredients,
+        'logoUrl': runtimeConfig['logoUrl'],
+        'logoSize': runtimeConfig['logoSize'] ?? 120,
+        'fontFamily': runtimeConfig['fontFamily'],
+        'cardPadding': runtimeConfig['cardPadding'] ?? 16,
+        'productFontSize': runtimeConfig['productFontSize'] ?? 24,
+        'categoryFontSize': runtimeConfig['categoryFontSize'] ?? 14,
+        'priceFontSize': runtimeConfig['priceFontSize'] ?? 24,
+        'ingredientFontSize': runtimeConfig['ingredientFontSize'] ?? 14,
+        'ingredientTextColor': runtimeConfig['ingredientTextColor'] ?? '#d1d5db',
+        'cardStyle': runtimeConfig['cardStyle'] ?? layout['cardStyle'] ?? 'SOFT',
+        'overlayAnimation': runtimeConfig['overlayAnimation'] ?? 'NONE',
+        'defaultColumnCount': runtimeConfig['defaultColumnCount'] ?? layout['defaultColumnCount'],
+        'backgroundMode': runtimeConfig['backgroundMode'] ?? 'COLOR',
+        'backgroundValue': runtimeConfig['backgroundValue'],
+        'backgroundMediaUrl': runtimeConfig['backgroundMediaUrl'],
+      },
+      'items': const <Map<String, dynamic>>[
+        <String, dynamic>{'type': 'PRODUCT_GRID'},
+      ],
+      'products': mappedProducts,
+      'sync': <String, dynamic>{
+        'pageDurationSec': runtimeConfig['offerMediaRotateSec'] ?? 10,
+        'serverTimeMs': DateTime.now().millisecondsSinceEpoch,
+      },
+      'layout': <String, dynamic>{
+        'displayIndex': (((displayManifest['distribution'] as Map<String, dynamic>?)?['currentDisplayIndex'] as num?) ?? 1) - 1,
+        'displayCount': ((displayManifest['distribution'] as Map<String, dynamic>?)?['displayCount'] as num?) ?? 1,
+      },
+      'manifestDebug': <String, dynamic>{
+        'rendererVersion': _rendererVersion,
+        'runtimeRoute': payload['route'] ?? '/api/display-runtime/:deviceCode/manifest',
+        'manifestVersion': displayManifest['manifestVersion'] ?? '-',
+        'deviceCode': deviceCode,
+        'template': layout['template'] ?? '-',
+        'showCategories': runtimeConfig['showCategoryOnCard'] ?? false,
+        'showIngredients': showIngredients,
+      },
+    };
   }
 
   String _toFriendlyError(Object error) {
@@ -344,9 +448,9 @@ class _DisplayRootState extends State<_DisplayRoot> {
     _refreshTimer?.cancel();
 
     _heartbeatTimer = Timer.periodic(const Duration(seconds: 30), (_) {
-      final token = _deviceToken;
-      if (token == null || token.isEmpty) return;
-      unawaited(_api.heartbeat(token));
+      final code = (_deviceCode ?? '').trim().toUpperCase();
+      if (code.isEmpty) return;
+      unawaited(_api.heartbeat(code));
     });
 
     _scheduleNextRefreshWithJitter();
@@ -377,21 +481,95 @@ class _DisplayRootState extends State<_DisplayRoot> {
 
   @override
   Widget build(BuildContext context) {
+    final diagnostics = <String>[
+      'route: /screen/[deviceCode] (native display)',
+      'renderer: $_rendererVersion',
+      'build: ${const String.fromEnvironment('APP_BUILD_VERSION', defaultValue: '0.1.22')}',
+      'deviceCode: ${_savedDeviceCode.isEmpty ? '-' : _savedDeviceCode}',
+      'displayId: $_savedDisplayId',
+      'tenantId: $_savedTenantId',
+      'runtimeApi: $_lastContentEndpoint',
+      'manifestHttp: ${_lastContentHttpStatus?.toString() ?? '-'}',
+      'manifestVersion: $_lastContentVersion',
+      'products: $_lastContentProductCount',
+      'lastError: $_lastContentError',
+      'loadedAt: ${DateTime.now().toIso8601String()}',
+    ];
+
     if (_content != null) {
       return DisplayContentScreen(
         content: _content!,
         connectionMessage: _message,
-        debugLines: kDebugMode
-            ? <String>[
-                'tenantId: $_savedTenantId',
-                'displayId: $_savedDisplayId',
-                'endpoint: $_lastContentEndpoint',
-                'HTTP: ${_lastContentHttpStatus?.toString() ?? '-'}',
-                'Version: $_lastContentVersion',
-                'Produkte: $_lastContentProductCount',
-                'Fehler: $_lastContentError',
-              ]
-            : const <String>[],
+        debugLines: diagnostics,
+      );
+    }
+
+    if (_strictManifestFailed) {
+      return Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'STRICT MANIFEST FAILED - Legacy Renderer disabled',
+                  style: TextStyle(color: Colors.redAccent, fontSize: 22, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  _message ?? 'Kein gültiges Display-Manifest geladen.',
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: ListView(
+                      padding: const EdgeInsets.all(12),
+                      children: diagnostics
+                          .map(
+                            (line) => Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 2),
+                              child: Text(line, style: const TextStyle(color: Colors.white, fontSize: 12)),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    FilledButton(
+                      onPressed: () async {
+                        final ok = await _loadContent();
+                        if (ok) {
+                          _strictManifestFailed = false;
+                          _startBackgroundJobs();
+                        }
+                        if (mounted) {
+                          setState(() {});
+                        }
+                      },
+                      child: const Text('Manifest neu laden'),
+                    ),
+                    const SizedBox(width: 10),
+                    OutlinedButton(
+                      onPressed: _startPairing,
+                      child: const Text('Neu koppeln'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
       );
     }
 
@@ -433,18 +611,16 @@ class _DisplayRootState extends State<_DisplayRoot> {
         };
     final qrPayload = jsonEncode(qrPayloadMap);
     final qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=720x720&data=${Uri.encodeComponent(qrPayload)}';
-    final debugLines = kDebugMode
-        ? <String>[
-            'API: ${_api.baseUrl}',
-            'Endpoint: $_pairingEndpoint',
-            'Letzter HTTP-Status: ${_lastPairingHttpStatus?.toString() ?? '-'}',
-            'Letzter Versuch: ${_lastPairingAttemptAt?.toIso8601String() ?? '-'}',
-            'Letzter Poll status: $_lastPollStatus',
-            'Letzter Poll state: $_lastPollState',
-            'Token erhalten: ${_lastPollTokenReceived ? 'ja' : 'nein'}',
-            'Letzter Fehler: $_lastPollError',
-          ]
-        : const <String>[];
+    final debugLines = <String>[
+      'API: ${_api.baseUrl}',
+      'Endpoint: $_pairingEndpoint',
+      'Letzter HTTP-Status: ${_lastPairingHttpStatus?.toString() ?? '-'}',
+      'Letzter Versuch: ${_lastPairingAttemptAt?.toIso8601String() ?? '-'}',
+      'Letzter Poll status: $_lastPollStatus',
+      'Letzter Poll state: $_lastPollState',
+      'Token erhalten: ${_lastPollTokenReceived ? 'ja' : 'nein'}',
+      'Letzter Fehler: $_lastPollError',
+    ];
 
     return DisplayPairingScreen(
       qrUrl: qrUrl,
