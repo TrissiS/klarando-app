@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   getPublicScreenFeed,
   type PublicScreenFeed,
+  type ScreenConfig,
   type ScreenAllergenLegendPosition,
   type ScreenCardStyle,
   type ScreenPriceDisplayMode,
@@ -776,6 +777,128 @@ export default function ScreenDevicePage({ params }: Props) {
     }
   }, [feed])
 
+  const displayConfig = useMemo(() => {
+    if (!feed) {
+      return null
+    }
+
+    const layout = (runtimeConfig?.layoutSettings || {}) as Record<string, unknown>
+    const branding = (runtimeConfig?.brandingSettings || {}) as Record<string, unknown>
+    const content = (runtimeConfig?.contentSettings || {}) as Record<string, unknown>
+
+    const merged = {
+      ...feed.config,
+      defaultColumnCount:
+        typeof layout.columnCount === 'number'
+          ? clampInt(layout.columnCount, 1, 8)
+          : feed.config.defaultColumnCount,
+      cardStyle:
+        typeof layout.cardStyle === 'string'
+          ? layout.cardStyle
+          : feed.config.cardStyle,
+      cardPadding:
+        typeof layout.cardPadding === 'number'
+          ? clampInt(layout.cardPadding, 8, 48)
+          : feed.config.cardPadding,
+      cardBackgroundOpacity:
+        typeof layout.cardBackgroundOpacity === 'number'
+          ? clampInt(layout.cardBackgroundOpacity, 0, 100)
+          : feed.config.cardBackgroundOpacity,
+      cardBorderOpacity:
+        typeof layout.cardBorderOpacity === 'number'
+          ? clampInt(layout.cardBorderOpacity, 0, 100)
+          : feed.config.cardBorderOpacity,
+      overlayAnimation:
+        typeof layout.overlayAnimation === 'string'
+          ? layout.overlayAnimation
+          : feed.config.overlayAnimation,
+      productFontSize:
+        typeof layout.productFontSize === 'number'
+          ? clampInt(layout.productFontSize, 14, 64)
+          : feed.config.productFontSize,
+      ingredientFontSize:
+        typeof layout.ingredientFontSize === 'number'
+          ? clampInt(layout.ingredientFontSize, 10, 30)
+          : feed.config.ingredientFontSize,
+      categoryFontSize:
+        typeof layout.categoryFontSize === 'number'
+          ? clampInt(layout.categoryFontSize, 10, 32)
+          : feed.config.categoryFontSize,
+      priceFontSize:
+        typeof layout.priceFontSize === 'number'
+          ? clampInt(layout.priceFontSize, 12, 62)
+          : feed.config.priceFontSize,
+      showCategoryOnCard:
+        typeof layout.showCategoryOnCard === 'boolean'
+          ? layout.showCategoryOnCard
+          : feed.config.showCategoryOnCard,
+      showCategoryHeaders:
+        typeof layout.showCategoryHeaders === 'boolean'
+          ? layout.showCategoryHeaders
+          : feed.config.showCategoryHeaders,
+      showAllergens:
+        typeof content.showIngredients === 'boolean'
+          ? content.showIngredients
+          : typeof layout.showAllergens === 'boolean'
+            ? layout.showAllergens
+            : feed.config.showAllergens,
+      showPrices:
+        typeof layout.showPrices === 'boolean'
+          ? layout.showPrices
+          : feed.config.showPrices,
+      accentColor:
+        typeof branding.accentColor === 'string' && branding.accentColor.trim().length > 0
+          ? branding.accentColor
+          : feed.config.accentColor,
+      textColor:
+        typeof branding.textColor === 'string' && branding.textColor.trim().length > 0
+          ? branding.textColor
+          : feed.config.textColor,
+      productNameColor:
+        typeof branding.productNameColor === 'string' && branding.productNameColor.trim().length > 0
+          ? branding.productNameColor
+          : feed.config.productNameColor,
+      ingredientTextColor:
+        typeof branding.ingredientTextColor === 'string' && branding.ingredientTextColor.trim().length > 0
+          ? branding.ingredientTextColor
+          : feed.config.ingredientTextColor,
+      categoryTextColor:
+        typeof branding.categoryTextColor === 'string' && branding.categoryTextColor.trim().length > 0
+          ? branding.categoryTextColor
+          : feed.config.categoryTextColor,
+      priceTextColor:
+        typeof branding.priceTextColor === 'string' && branding.priceTextColor.trim().length > 0
+          ? branding.priceTextColor
+          : feed.config.priceTextColor,
+      logoUrl:
+        typeof branding.logoUrl === 'string'
+          ? branding.logoUrl
+          : feed.config.logoUrl,
+      logoSize:
+        typeof branding.logoSize === 'number'
+          ? clampInt(branding.logoSize, 24, 320)
+          : feed.config.logoSize,
+      backgroundMode:
+        typeof branding.backgroundMode === 'string'
+          ? branding.backgroundMode
+          : feed.config.backgroundMode,
+      backgroundValue:
+        typeof branding.backgroundValue === 'string'
+          ? branding.backgroundValue
+          : feed.config.backgroundValue,
+      backgroundMediaUrl:
+        typeof branding.backgroundMediaUrl === 'string'
+          ? branding.backgroundMediaUrl
+          : feed.config.backgroundMediaUrl,
+      fontFamily:
+        typeof layout.fontFamily === 'string' && layout.fontFamily.trim().length > 0
+          ? layout.fontFamily
+          : feed.config.fontFamily,
+    }
+
+    return merged
+  }, [feed, runtimeConfig])
+
   const backgroundStyle = useMemo(() => {
     if (!feed) {
       return {
@@ -783,15 +906,15 @@ export default function ScreenDevicePage({ params }: Props) {
       }
     }
 
-    if (feed.config.backgroundMode === 'COLOR') {
+    if (displayConfig?.backgroundMode === 'COLOR') {
       return {
-        backgroundColor: feed.config.backgroundValue || '#0f172a',
+        backgroundColor: displayConfig?.backgroundValue || '#0f172a',
       }
     }
 
-    if (feed.config.backgroundMode === 'IMAGE' && feed.config.backgroundMediaUrl) {
+    if (displayConfig?.backgroundMode === 'IMAGE' && displayConfig?.backgroundMediaUrl) {
       return {
-        backgroundImage: `linear-gradient(120deg, rgba(2,6,23,0.65), rgba(2,6,23,0.35)), url(${feed.config.backgroundMediaUrl})`,
+        backgroundImage: `linear-gradient(120deg, rgba(2,6,23,0.65), rgba(2,6,23,0.35)), url(${displayConfig?.backgroundMediaUrl})`,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
       }
@@ -800,58 +923,83 @@ export default function ScreenDevicePage({ params }: Props) {
     return {
       backgroundImage: 'linear-gradient(145deg, #0f172a, #1e293b)',
     }
-  }, [feed])
+  }, [feed, displayConfig])
 
   const hasVideoBackground = Boolean(
     feed &&
-      feed.config.backgroundMode === 'VIDEO' &&
-      feed.config.backgroundMediaUrl
+      displayConfig?.backgroundMode === 'VIDEO' &&
+      displayConfig?.backgroundMediaUrl
   )
   const youtubeBackgroundEmbedUrl = useMemo(
     () =>
-      feed && feed.config.backgroundMode === 'VIDEO'
-        ? getYouTubeEmbedUrl(feed.config.backgroundMediaUrl)
+      feed && displayConfig?.backgroundMode === 'VIDEO'
+        ? getYouTubeEmbedUrl(displayConfig?.backgroundMediaUrl)
         : null,
-    [feed]
+    [feed, displayConfig]
   )
 
   const showCategoryOnCardEnabled = useMemo(() => {
-    if (!feed) return false
+    if (!feed || !displayConfig) return false
     const fromRuntime =
       runtimeConfig?.layoutSettings?.showCategoryOnCard ?? runtimeConfig?.contentSettings?.showCategoryOnCard
-    return typeof fromRuntime === 'boolean' ? fromRuntime : feed.config.showCategoryOnCard
-  }, [feed, runtimeConfig])
+    return typeof fromRuntime === 'boolean' ? fromRuntime : displayConfig?.showCategoryOnCard
+  }, [displayConfig, feed, runtimeConfig])
 
   const showCategoryHeadersEnabled = useMemo(() => {
-    if (!feed) return false
+    if (!feed || !displayConfig) return false
     const fromRuntime =
       runtimeConfig?.layoutSettings?.showCategoryHeaders ?? runtimeConfig?.contentSettings?.showCategoryHeaders
-    return typeof fromRuntime === 'boolean' ? fromRuntime : feed.config.showCategoryHeaders
-  }, [feed, runtimeConfig])
+    return typeof fromRuntime === 'boolean' ? fromRuntime : displayConfig?.showCategoryHeaders
+  }, [displayConfig, feed, runtimeConfig])
 
   const showIngredientsEnabled = useMemo(() => {
-    if (!feed) return false
+    if (!feed || !displayConfig) return false
     const fromRuntime =
       runtimeConfig?.layoutSettings?.showAllergens ?? runtimeConfig?.contentSettings?.showIngredients
-    return typeof fromRuntime === 'boolean' ? fromRuntime : feed.config.showAllergens
-  }, [feed, runtimeConfig])
+    return typeof fromRuntime === 'boolean' ? fromRuntime : displayConfig?.showAllergens
+  }, [displayConfig, feed, runtimeConfig])
 
   const displayedProducts = useMemo(() => {
     if (!feed) return [] as PublicScreenFeed['products']
+    const runtimeProductMap = new Map(
+      (runtimeConfig?.products || []).map((entry) => [entry.id, entry])
+    )
+    const withRuntimeMeta = feed.products.map((product) => {
+      const runtimeProduct = runtimeProductMap.get(product.id)
+      if (!runtimeProduct) {
+        return product
+      }
+      const derivedIngredients =
+        runtimeProduct.ingredients.length > 0
+          ? runtimeProduct.ingredients.map((name) => ({ name, allergens: runtimeProduct.allergens || [] }))
+          : product.ingredients
+      return {
+        ...product,
+        category: runtimeProduct.categoryName
+          ? { ...(product.category || { id: runtimeProduct.categoryId || 'runtime-category', tenantId: product.tenantId, name: runtimeProduct.categoryName, sortOrder: 0, imageUrl: null, createdAt: new Date().toISOString() }), name: runtimeProduct.categoryName }
+          : product.category,
+        ingredients: derivedIngredients,
+        screen: {
+          ...product.screen,
+          displayCategory: runtimeProduct.categoryName || product.screen.displayCategory,
+        },
+      }
+    })
+
     const distribution = runtimeConfig?.distribution
     if (!distribution || distribution.strategy === 'duplicate-all') {
-      return feed.products
+      return withRuntimeMeta
     }
     if (distribution.productIdsForDisplay.length === 0) {
-      return feed.products
+      return withRuntimeMeta
     }
     const idSet = new Set(distribution.productIdsForDisplay)
-    const filtered = feed.products.filter((product) => idSet.has(product.id))
-    return filtered.length > 0 ? filtered : feed.products
+    const filtered = withRuntimeMeta.filter((product) => idSet.has(product.id))
+    return filtered.length > 0 ? filtered : withRuntimeMeta
   }, [feed, runtimeConfig])
 
   const allergenLegendEntries = useMemo(() => {
-    if (!feed || !showIngredientsEnabled || !feed.config.allergenLegendEnabled) {
+    if (!feed || !showIngredientsEnabled || !displayConfig?.allergenLegendEnabled) {
       return [] as Array<{ code: string; label: string }>
     }
 
@@ -937,8 +1085,8 @@ export default function ScreenDevicePage({ params }: Props) {
   const deviceResolutionHeight = Number(feed?.device.resolutionHeight || 1080)
   const effectiveResolutionWidth = Math.max(320, Math.min(7680, viewportResolution.width || deviceResolutionWidth))
   const effectiveResolutionHeight = Math.max(240, Math.min(4320, viewportResolution.height || deviceResolutionHeight))
-  const columnCount = feed ? clampInt(Number(feed.config.defaultColumnCount || 4), 1, 6) : 4
-  const isListMode = feed?.config.cardStyle === 'LIST'
+  const columnCount = feed ? clampInt(Number(displayConfig?.defaultColumnCount || 4), 1, 6) : 4
+  const isListMode = displayConfig?.cardStyle === 'LIST'
   const responsiveColumnLimit =
     effectiveResolutionWidth < 700
       ? 1
@@ -959,27 +1107,27 @@ export default function ScreenDevicePage({ params }: Props) {
       ? Math.max(0.72, Math.min(1, 20 / totalDistributedProducts))
       : 1
   const scaledProductFontSize = feed
-    ? clampInt(Math.round(Number(feed.config.productFontSize || 34) * densityFactor), 14, 64)
+    ? clampInt(Math.round(Number(displayConfig?.productFontSize || 34) * densityFactor), 14, 64)
     : 34
   const scaledIngredientFontSize = feed
-    ? clampInt(Math.round(Number(feed.config.ingredientFontSize || 12) * densityFactor), 10, 30)
+    ? clampInt(Math.round(Number(displayConfig?.ingredientFontSize || 12) * densityFactor), 10, 30)
     : 12
   const scaledCategoryFontSize = feed
-    ? clampInt(Math.round(Number(feed.config.categoryFontSize || 12) * densityFactor), 10, 32)
+    ? clampInt(Math.round(Number(displayConfig?.categoryFontSize || 12) * densityFactor), 10, 32)
     : 12
   const scaledPriceFontSize = feed
-    ? clampInt(Math.round(Number(feed.config.priceFontSize || 30) * densityFactor), 12, 62)
+    ? clampInt(Math.round(Number(displayConfig?.priceFontSize || 30) * densityFactor), 12, 62)
     : 30
   const cardBackgroundOpacity = feed
-    ? clampInt(Number(feed.config.cardBackgroundOpacity || 35), 0, 100) / 100
+    ? clampInt(Number(displayConfig?.cardBackgroundOpacity || 35), 0, 100) / 100
     : 0.35
   const cardBorderOpacity = feed
-    ? clampInt(Number(feed.config.cardBorderOpacity || 20), 0, 100) / 100
+    ? clampInt(Number(displayConfig?.cardBorderOpacity || 20), 0, 100) / 100
     : 0.2
-  const cardPadding = feed ? clampInt(Number(feed.config.cardPadding || 16), 8, 48) : 16
+  const cardPadding = feed ? clampInt(Number(displayConfig?.cardPadding || 16), 8, 48) : 16
   const offerMediaUrls =
-    feed && Array.isArray(feed.config.offerMediaUrls)
-      ? feed.config.offerMediaUrls.filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+    feed && Array.isArray(displayConfig?.offerMediaUrls)
+      ? displayConfig?.offerMediaUrls.filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
       : []
   const activeOfferActions = feed?.activeActions || []
   const hasOfferActions = activeOfferActions.length > 0
@@ -989,12 +1137,13 @@ export default function ScreenDevicePage({ params }: Props) {
     activeOfferMediaUrl && /\.(mp4|webm|ogg)(\?.*)?$/i.test(activeOfferMediaUrl)
   )
   const offerWindowCoordinates = resolveOfferWindowCoordinates(
-    feed?.config.offerWindowPosition,
-    feed?.config.offerWindowXPercent,
-    feed?.config.offerWindowYPercent
+    displayConfig?.offerWindowPosition,
+    displayConfig?.offerWindowXPercent,
+    displayConfig?.offerWindowYPercent
   )
-  const offerWindowWidthPx = feed ? resolveOfferWindowWidthPx(feed.config) : 380
-  const offerWindowHeightPx = feed ? resolveOfferWindowHeightPx(feed.config) : 280
+  const offerWindowConfig = displayConfig || feed?.config || null
+  const offerWindowWidthPx = offerWindowConfig ? resolveOfferWindowWidthPx(offerWindowConfig as ScreenConfig) : 380
+  const offerWindowHeightPx = offerWindowConfig ? resolveOfferWindowHeightPx(offerWindowConfig as ScreenConfig) : 280
   const offerWindowWidthEffectivePx = Math.min(
     offerWindowWidthPx,
     Math.max(220, effectiveResolutionWidth - 36)
@@ -1006,13 +1155,13 @@ export default function ScreenDevicePage({ params }: Props) {
       Math.round((effectiveResolutionWidth < 768 ? 0.64 : 0.78) * offerWindowWidthEffectivePx)
     )
   )
-  const offerWindowOpacity = clampInt(Number(feed?.config.offerWindowOpacity || 28), 0, 100)
+  const offerWindowOpacity = clampInt(Number(displayConfig?.offerWindowOpacity || 28), 0, 100)
   const offerWindowBackgroundColor = hexToRgba(
-    feed?.config.offerWindowBackgroundColor || '#f97316',
+    displayConfig?.offerWindowBackgroundColor || '#f97316',
     offerWindowOpacity / 100
   )
-  const offerWindowBorderColor = hexToRgba(feed?.config.offerWindowBackgroundColor || '#f97316', 0.55)
-  const offerWindowTextColor = feed?.config.offerWindowTextColor || '#ffffff'
+  const offerWindowBorderColor = hexToRgba(displayConfig?.offerWindowBackgroundColor || '#f97316', 0.55)
+  const offerWindowTextColor = displayConfig?.offerWindowTextColor || '#ffffff'
   const offerMediaRenderHeightPx = feed
     ? clampInt(
         Math.round(
@@ -1025,18 +1174,18 @@ export default function ScreenDevicePage({ params }: Props) {
         520
       )
     : 180
-  const tickerEnabled = Boolean(feed?.config.tickerEnabled)
-  const tickerOnTop = tickerEnabled && feed?.config.tickerPosition === 'TOP'
+  const tickerEnabled = Boolean(displayConfig?.tickerEnabled)
+  const tickerOnTop = tickerEnabled && displayConfig?.tickerPosition === 'TOP'
   const tickerOnBottom = tickerEnabled && !tickerOnTop
-  const tickerBarText = tickerText || feed?.config.tickerCustomText?.trim() || 'Willkommen bei Klarando.'
-  const tickerFontSize = clampInt(Number(feed?.config.tickerFontSize || 14), 10, 42)
-  const tickerClockFontSize = clampInt(Number(feed?.config.tickerClockFontSize || 12), 10, 48)
-  const tickerInsetPx = clampInt(Number(feed?.config.tickerInsetPx || 0), 0, 420)
+  const tickerBarText = tickerText || displayConfig?.tickerCustomText?.trim() || 'Willkommen bei Klarando.'
+  const tickerFontSize = clampInt(Number(displayConfig?.tickerFontSize || 14), 10, 42)
+  const tickerClockFontSize = clampInt(Number(displayConfig?.tickerClockFontSize || 12), 10, 48)
+  const tickerInsetPx = clampInt(Number(displayConfig?.tickerInsetPx || 0), 0, 420)
   const tickerInsetEffectivePx = Math.min(
     tickerInsetPx,
     Math.max(0, Math.round(Number(feed?.device.resolutionWidth || 1920) / 2) - 120)
   )
-  const tickerOffsetPx = clampInt(Number(feed?.config.tickerOffsetPx || 0), 0, 260)
+  const tickerOffsetPx = clampInt(Number(displayConfig?.tickerOffsetPx || 0), 0, 260)
   const tickerBarHeightPx = Math.max(42, Math.max(tickerClockFontSize, tickerFontSize) + 26)
   const contentViewportHeightPx = Math.max(
     240,
@@ -1045,8 +1194,8 @@ export default function ScreenDevicePage({ params }: Props) {
   const offerReservePaddingStyle =
     feed && feed.device
       ? resolveOfferReservePaddingStyle({
-          enabled: Boolean(feed.config.offerWindowEnabled),
-          reserveSpace: Boolean(feed.config.offerWindowReserveSpace),
+          enabled: Boolean(displayConfig?.offerWindowEnabled),
+          reserveSpace: Boolean(displayConfig?.offerWindowReserveSpace),
           xPercent: offerWindowCoordinates.x,
           yPercent: offerWindowCoordinates.y,
           widthPx: offerWindowWidthEffectivePx,
@@ -1087,7 +1236,7 @@ export default function ScreenDevicePage({ params }: Props) {
     <main
       style={{
         ...backgroundStyle,
-        fontFamily: feed.config.fontFamily,
+        fontFamily: displayConfig?.fontFamily,
       }}
       className="safe-area-padding relative flex min-h-screen flex-col overflow-hidden text-white"
     >
@@ -1111,7 +1260,7 @@ export default function ScreenDevicePage({ params }: Props) {
           ) : (
             <video
               className="absolute inset-0 h-full w-full object-cover"
-              src={feed.config.backgroundMediaUrl || undefined}
+              src={displayConfig?.backgroundMediaUrl || undefined}
               autoPlay
               muted
               loop
@@ -1135,13 +1284,13 @@ export default function ScreenDevicePage({ params }: Props) {
               top: `${tickerOffsetPx}px`,
               left: `${tickerInsetEffectivePx}px`,
               right: `${tickerInsetEffectivePx}px`,
-              backgroundColor: feed.config.tickerBackgroundColor || '#111827',
-              color: feed.config.tickerTextColor || '#ffffff',
+              backgroundColor: displayConfig?.tickerBackgroundColor || '#111827',
+              color: displayConfig?.tickerTextColor || '#ffffff',
               minHeight: `${tickerBarHeightPx}px`,
             }}
           >
           <div className="flex items-center gap-4">
-            {feed.config.tickerShowClock ? (
+            {displayConfig?.tickerShowClock ? (
               <span
                 className="shrink-0 rounded-md bg-black/25 px-2 py-1 font-semibold"
                 style={{ fontSize: `${tickerClockFontSize}px` }}
@@ -1200,11 +1349,11 @@ export default function ScreenDevicePage({ params }: Props) {
             <p className="text-xs uppercase tracking-[0.26em] text-white/70">
               Klarando Screen {feed.device.deviceCode}
             </p>
-            <h1 className="mt-1 break-words text-3xl font-black tracking-tight sm:text-4xl xl:text-5xl" style={{ color: feed.config.textColor }}>
-              {feed.config.title}
+            <h1 className="mt-1 break-words text-3xl font-black tracking-tight sm:text-4xl xl:text-5xl" style={{ color: displayConfig?.textColor }}>
+              {displayConfig?.title}
             </h1>
-            {feed.config.subtitle ? (
-              <p className="mt-2 break-words text-base text-white/85 sm:text-lg xl:text-xl">{feed.config.subtitle}</p>
+            {displayConfig?.subtitle ? (
+              <p className="mt-2 break-words text-base text-white/85 sm:text-lg xl:text-xl">{displayConfig?.subtitle}</p>
             ) : null}
             <p className="mt-2 text-xs text-white/70">
               Auflösung: {effectiveResolutionWidth}×{effectiveResolutionHeight} · Device-ID: {feed.device.id.slice(0, 8)} · Letzter Sync:{' '}
@@ -1218,22 +1367,22 @@ export default function ScreenDevicePage({ params }: Props) {
             ) : null}
           </div>
 
-          {feed.config.logoUrl ? (
+          {displayConfig?.logoUrl ? (
             <img
-              src={feed.config.logoUrl}
+              src={displayConfig?.logoUrl}
               alt="Betreiber-Logo"
             className="rounded-lg object-contain"
             style={{
-              width: `${clampInt(Number(feed.config.logoSize || 72), 28, effectiveResolutionWidth < 640 ? 80 : 220)}px`,
-              height: `${clampInt(Number(feed.config.logoSize || 72), 28, effectiveResolutionWidth < 640 ? 80 : 220)}px`,
+              width: `${clampInt(Number(displayConfig?.logoSize || 72), 28, effectiveResolutionWidth < 640 ? 80 : 220)}px`,
+              height: `${clampInt(Number(displayConfig?.logoSize || 72), 28, effectiveResolutionWidth < 640 ? 80 : 220)}px`,
             }}
           />
           ) : null}
 
         </div>
 
-        {feed.config.offerWindowEnabled &&
-        (hasOfferActions || feed.config.offerWindowTitle || feed.config.offerWindowText || activeOfferMediaUrl) ? (
+        {displayConfig?.offerWindowEnabled &&
+        (hasOfferActions || displayConfig?.offerWindowTitle || displayConfig?.offerWindowText || activeOfferMediaUrl) ? (
           <aside
             className="absolute z-20 rounded-2xl border p-4 shadow-2xl backdrop-blur-sm"
             style={{
@@ -1291,11 +1440,11 @@ export default function ScreenDevicePage({ params }: Props) {
               </div>
             ) : (
               <>
-                {feed.config.offerWindowTitle ? (
-                  <p className="mt-1 text-2xl font-bold">{feed.config.offerWindowTitle}</p>
+                {displayConfig?.offerWindowTitle ? (
+                  <p className="mt-1 text-2xl font-bold">{displayConfig?.offerWindowTitle}</p>
                 ) : null}
-                {feed.config.offerWindowText ? (
-                  <p className="mt-1 text-sm opacity-90">{feed.config.offerWindowText}</p>
+                {displayConfig?.offerWindowText ? (
+                  <p className="mt-1 text-sm opacity-90">{displayConfig?.offerWindowText}</p>
                 ) : null}
                 {activeOfferMediaUrl ? (
                   <div className="mt-3 flex items-center justify-center overflow-hidden rounded-xl border border-white/35 bg-black/25">
@@ -1358,8 +1507,8 @@ export default function ScreenDevicePage({ params }: Props) {
                   className="col-span-full rounded-2xl border border-white/25 bg-black/35 px-4 py-2 font-semibold tracking-[0.14em] text-white/85"
                   style={{
                     fontSize: `${scaledCategoryFontSize}px`,
-                    color: feed.config.categoryTextColor || feed.config.textColor,
-                    textTransform: feed.config.categoryUppercase ? 'uppercase' : 'none',
+                    color: displayConfig?.categoryTextColor || displayConfig?.textColor,
+                    textTransform: displayConfig?.categoryUppercase ? 'uppercase' : 'none',
                   }}
                 >
                   {row.label}
@@ -1380,10 +1529,10 @@ export default function ScreenDevicePage({ params }: Props) {
               sizeOptions.length > 0
                 ? Math.min(...sizeOptions.map((entry) => Number(entry.totalPrice)))
                 : null
-            const displayPriceText = feed.config.showPrices
+            const displayPriceText = displayConfig?.showPrices
               ? sizeOptions.length > 0 && minSizePrice !== null
-                ? `ab ${formatPriceForDisplay(minSizePrice, feed.config.priceDisplayMode)}`
-                : formatPriceForDisplay(Number(row.product.price), feed.config.priceDisplayMode)
+                ? `ab ${formatPriceForDisplay(minSizePrice, displayConfig?.priceDisplayMode)}`
+                : formatPriceForDisplay(Number(row.product.price), displayConfig?.priceDisplayMode)
               : null
             return (
               <article
@@ -1391,27 +1540,27 @@ export default function ScreenDevicePage({ params }: Props) {
                 className={
                   isListMode
                     ? 'border-b border-white/20 px-2 py-3'
-                    : cardClassByStyle(feed.config.cardStyle)
+                    : cardClassByStyle((displayConfig?.cardStyle as ScreenCardStyle) || 'SOFT')
                 }
                 style={{
                   ...(isListMode
                     ? {
-                        ...productAnimationStyle(feed.config.overlayAnimation, rowIndex),
+                        ...productAnimationStyle(displayConfig?.overlayAnimation, rowIndex),
                       }
                     : {
                         padding: `${cardPadding}px`,
                         borderColor: `rgba(255,255,255,${cardBorderOpacity})`,
                         backgroundColor:
-                          feed.config.cardStyle === 'GLASS'
+                          displayConfig?.cardStyle === 'GLASS'
                             ? `rgba(255,255,255,${Math.max(0.08, cardBackgroundOpacity * 0.6)})`
-                            : feed.config.cardStyle === 'OUTLINE'
+                            : displayConfig?.cardStyle === 'OUTLINE'
                             ? 'transparent'
-                            : feed.config.cardStyle === 'MINIMAL'
+                            : displayConfig?.cardStyle === 'MINIMAL'
                             ? `rgba(15,23,42,${Math.max(0.08, cardBackgroundOpacity * 0.5)})`
-                            : feed.config.cardStyle === 'BOLD'
+                            : displayConfig?.cardStyle === 'BOLD'
                             ? `rgba(15,23,42,${Math.max(0.45, cardBackgroundOpacity)})`
                             : `rgba(15,23,42,${Math.max(0.15, cardBackgroundOpacity)})`,
-                        ...productAnimationStyle(feed.config.overlayAnimation, rowIndex),
+                        ...productAnimationStyle(displayConfig?.overlayAnimation, rowIndex),
                       }),
                 }}
               >
@@ -1420,11 +1569,11 @@ export default function ScreenDevicePage({ params }: Props) {
                     className="min-w-0 flex-1 font-bold leading-tight"
                     style={{
                       fontSize: `${scaledProductFontSize}px`,
-                      color: feed.config.productNameColor || feed.config.textColor,
+                      color: displayConfig?.productNameColor || displayConfig?.textColor,
                       overflowWrap: 'anywhere',
                     }}
                   >
-                    {feed.config.showProductNumber ? (
+                    {displayConfig?.showProductNumber ? (
                       <span className="mr-2 opacity-80">Nr. {row.product.productNumber}</span>
                     ) : null}
                     {row.product.name}
@@ -1434,18 +1583,18 @@ export default function ScreenDevicePage({ params }: Props) {
                       <span
                         className="rounded-md px-2 py-1 text-xs font-semibold text-slate-900"
                         style={{
-                          backgroundColor: row.product.screen.highlightColor || feed.config.accentColor,
+                          backgroundColor: row.product.screen.highlightColor || displayConfig?.accentColor,
                         }}
                       >
                         {row.product.screen.badgeText}
                       </span>
                     ) : null}
-                    {!feed.config.pricePinnedLeft && displayPriceText ? (
+                    {!displayConfig?.pricePinnedLeft && displayPriceText ? (
                       <span
                         className="font-extrabold leading-none"
                         style={{
                           fontSize: `${scaledPriceFontSize}px`,
-                          color: feed.config.priceTextColor || feed.config.textColor,
+                          color: displayConfig?.priceTextColor || displayConfig?.textColor,
                         }}
                       >
                         {displayPriceText}
@@ -1459,7 +1608,7 @@ export default function ScreenDevicePage({ params }: Props) {
                     className="mt-2"
                     style={{
                       fontSize: `${scaledIngredientFontSize}px`,
-                      color: feed.config.ingredientTextColor || feed.config.textColor,
+                      color: displayConfig?.ingredientTextColor || displayConfig?.textColor,
                     }}
                   >
                     {detailLine.map((entry, index) => (
@@ -1473,14 +1622,14 @@ export default function ScreenDevicePage({ params }: Props) {
                 ) : null}
 
                 <div className="mt-2 flex items-center justify-between gap-3">
-                  {feed.config.pricePinnedLeft ? (
+                  {displayConfig?.pricePinnedLeft ? (
                     <>
                       {displayPriceText ? (
                         <span
                           className="font-extrabold leading-none"
                           style={{
                             fontSize: `${scaledPriceFontSize}px`,
-                            color: feed.config.priceTextColor || feed.config.textColor,
+                            color: displayConfig?.priceTextColor || displayConfig?.textColor,
                           }}
                         >
                           {displayPriceText}
@@ -1493,8 +1642,8 @@ export default function ScreenDevicePage({ params }: Props) {
                           className="tracking-wide"
                           style={{
                             fontSize: `${scaledCategoryFontSize}px`,
-                            color: feed.config.categoryTextColor || feed.config.textColor,
-                            textTransform: feed.config.categoryUppercase ? 'uppercase' : 'none',
+                            color: displayConfig?.categoryTextColor || displayConfig?.textColor,
+                            textTransform: displayConfig?.categoryUppercase ? 'uppercase' : 'none',
                           }}
                         >
                           {resolveProductCategory(row.product)}
@@ -1510,8 +1659,8 @@ export default function ScreenDevicePage({ params }: Props) {
                           className="tracking-wide"
                           style={{
                             fontSize: `${scaledCategoryFontSize}px`,
-                            color: feed.config.categoryTextColor || feed.config.textColor,
-                            textTransform: feed.config.categoryUppercase ? 'uppercase' : 'none',
+                            color: displayConfig?.categoryTextColor || displayConfig?.textColor,
+                            textTransform: displayConfig?.categoryUppercase ? 'uppercase' : 'none',
                           }}
                         >
                           {resolveProductCategory(row.product)}
@@ -1523,7 +1672,7 @@ export default function ScreenDevicePage({ params }: Props) {
                   )}
                 </div>
 
-                {feed.config.showPrices && sizeOptions.length > 0 ? (
+                {displayConfig?.showPrices && sizeOptions.length > 0 ? (
                   <div className="mt-2 flex flex-wrap gap-2">
                     {sizeOptions.map((entry) => (
                       <span
@@ -1534,7 +1683,7 @@ export default function ScreenDevicePage({ params }: Props) {
                             : 'bg-white/15 text-white'
                         }`}
                       >
-                        {entry.name}: {formatPriceForDisplay(Number(entry.totalPrice), feed.config.priceDisplayMode)}
+                        {entry.name}: {formatPriceForDisplay(Number(entry.totalPrice), displayConfig?.priceDisplayMode)}
                       </span>
                     ))}
                   </div>
@@ -1545,12 +1694,12 @@ export default function ScreenDevicePage({ params }: Props) {
         </section>
       </div>
 
-      {showIngredientsEnabled && feed.config.allergenLegendEnabled && allergenLegendEntries.length > 0 ? (
+      {showIngredientsEnabled && displayConfig?.allergenLegendEnabled && allergenLegendEntries.length > 0 ? (
         <aside
-          className={`absolute z-20 max-w-md rounded-2xl border border-white/30 bg-black/50 px-4 py-3 backdrop-blur-sm ${legendPositionClass(feed.config.allergenLegendPosition)}`}
+          className={`absolute z-20 max-w-md rounded-2xl border border-white/30 bg-black/50 px-4 py-3 backdrop-blur-sm ${legendPositionClass(displayConfig?.allergenLegendPosition)}`}
           style={{
             bottom:
-              tickerOnBottom && feed.config.allergenLegendPosition !== 'TOP_LEFT' && feed.config.allergenLegendPosition !== 'TOP_RIGHT'
+              tickerOnBottom && displayConfig?.allergenLegendPosition !== 'TOP_LEFT' && displayConfig?.allergenLegendPosition !== 'TOP_RIGHT'
                 ? `${tickerBarHeightPx + tickerOffsetPx + 24}px`
                 : undefined,
           }}
@@ -1579,13 +1728,13 @@ export default function ScreenDevicePage({ params }: Props) {
               bottom: `${tickerOffsetPx}px`,
               left: `${tickerInsetEffectivePx}px`,
               right: `${tickerInsetEffectivePx}px`,
-              backgroundColor: feed.config.tickerBackgroundColor || '#111827',
-              color: feed.config.tickerTextColor || '#ffffff',
+              backgroundColor: displayConfig?.tickerBackgroundColor || '#111827',
+              color: displayConfig?.tickerTextColor || '#ffffff',
               minHeight: `${tickerBarHeightPx}px`,
             }}
           >
           <div className="flex items-center gap-4">
-            {feed.config.tickerShowClock ? (
+            {displayConfig?.tickerShowClock ? (
               <span
                 className="shrink-0 rounded-md bg-black/25 px-2 py-1 font-semibold"
                 style={{ fontSize: `${tickerClockFontSize}px` }}
@@ -1674,3 +1823,5 @@ export default function ScreenDevicePage({ params }: Props) {
     </main>
   )
 }
+
+

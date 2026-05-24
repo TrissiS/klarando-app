@@ -12,9 +12,11 @@ import {
   deleteDisplayDevice,
   getDisplayDeviceOverview,
   getMyEffectiveFeatureModules,
+  getScreenDevices,
   getScreenConfig,
   getScreenProducts,
   updateAdminDisplayScreen,
+  updateScreenDevice,
   updateScreenProduct,
   updateScreenConfig,
   updateDisplayDeviceActiveState,
@@ -99,6 +101,51 @@ const DISPLAY_TEMPLATES: Array<{ id: DisplayTemplate; label: string; help: strin
   { id: 'PROMOTION_HIGHLIGHT', label: 'PROMOTION_HIGHLIGHT', help: 'Große Headlines für Promos und Angebote.' },
   { id: 'TOUCH_KIOSK_PREVIEW', label: 'TOUCH_KIOSK_PREVIEW', help: 'Vorschau für zukünftigen Kiosk-/Touch-Flow.' },
 ]
+
+const DISPLAY_META_PREFIX = '@@klarando-display-meta:'
+
+function applyDistributionMetaToNotes(
+  notes: string | null | undefined,
+  distribution: {
+    displayCount: number
+    strategy: 'split-products' | 'duplicate-all' | 'category-based'
+    displayGroupId?: string | null
+  }
+) {
+  const raw = notes || ''
+  const firstLine = raw.split('\n')[0]?.trim() || ''
+  let currentMeta: Record<string, unknown> = {}
+  if (firstLine.startsWith(DISPLAY_META_PREFIX)) {
+    try {
+      currentMeta = JSON.parse(firstLine.slice(DISPLAY_META_PREFIX.length).trim()) as Record<string, unknown>
+    } catch {
+      currentMeta = {}
+    }
+  }
+
+  const nextMeta = {
+    ...currentMeta,
+    distribution: {
+      ...(typeof currentMeta.distribution === 'object' && currentMeta.distribution
+        ? (currentMeta.distribution as Record<string, unknown>)
+        : {}),
+      displayCount: Math.max(1, Math.min(8, Math.trunc(distribution.displayCount))),
+      strategy: distribution.strategy,
+      displayGroupId: distribution.displayGroupId || null,
+    },
+  }
+
+  const metaLine = `${DISPLAY_META_PREFIX}${JSON.stringify(nextMeta)}`
+  if (firstLine.startsWith(DISPLAY_META_PREFIX)) {
+    const lines = raw.split('\n')
+    lines[0] = metaLine
+    return lines.join('\n')
+  }
+  if (!raw.trim()) {
+    return metaLine
+  }
+  return `${metaLine}\n${raw}`
+}
 
 function inferTemplateFromConfig(config: ScreenConfig): DisplayTemplate {
   if (config.overlayAnimation !== 'NONE' && config.showCategoryOnCard && config.cardStyle === 'SOFT') {
@@ -936,6 +983,18 @@ export default function AdminScreenStudioPage() {
         defaultColumnCount: Math.max(1, Math.min(8, defaultColumnCount)),
       }
       await updateScreenConfig(payload)
+      const allScreenDevices = await getScreenDevices()
+      await Promise.all(
+        allScreenDevices.map((device) =>
+          updateScreenDevice(device.id, {
+            notes: applyDistributionMetaToNotes(device.notes, {
+              displayCount: targetWallDisplays,
+              strategy: 'split-products',
+              displayGroupId: `tenant-${session?.tenantId || 'default'}`,
+            }),
+          })
+        )
+      )
       if (selectedDesignScreenId && session?.tenantId) {
         const currentScreen = screenSettingsById[selectedDesignScreenId]
         if (currentScreen) {
