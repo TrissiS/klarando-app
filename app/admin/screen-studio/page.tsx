@@ -294,6 +294,7 @@ export default function AdminScreenStudioPage() {
   const [creatingLayout, setCreatingLayout] = useState(false)
   const [menuRotationSeconds, setMenuRotationSeconds] = useState(50)
   const [promoRotationSeconds, setPromoRotationSeconds] = useState(10)
+
   const [savingRotation, setSavingRotation] = useState(false)
   const [selectedDisplayMode, setSelectedDisplayMode] = useState<DisplayMode>('MENU_DISPLAY')
   const [selectedDisplayTemplate, setSelectedDisplayTemplate] = useState<DisplayTemplate>('MODERN_GRID')
@@ -432,6 +433,96 @@ export default function AdminScreenStudioPage() {
       )
     })
   }, [visibleDesignProducts, designCategoryFocus, designProductSearch])
+
+  const workspaceSettings = useMemo(
+    () => ({
+      layout: {
+        selectedDisplayMode,
+        selectedDisplayTemplate,
+        orientation: selectedScreen?.orientation || 'LANDSCAPE',
+        resolutionPreset: selectedScreen?.resolutionPreset || 'FULL_HD',
+        defaultColumnCount,
+        cardStyle,
+        cardDensity,
+        productNameFontSize,
+        ingredientFontSize,
+        categoryFontSize,
+        priceFontSize,
+        pixelPadding,
+        enableAnimations,
+        showCategoryOnCard,
+        showCategoryHeaders,
+        showIngredients,
+        highlightPrice,
+        targetWallDisplays,
+        expertMode,
+      },
+      branding: {
+        primaryColor,
+        accentColor,
+        backgroundMode,
+        backgroundMediaUrl,
+        showLogo,
+        logoUrl,
+        selectedTemplate,
+        fontFamily,
+        scalePercent,
+      },
+      content: {
+        categoryFocus: designCategoryFocus,
+        productSearch: designProductSearch,
+        visibleProductCount: visibleDesignProducts.length,
+      },
+      publish: {
+        selectedDesignScreenId,
+        selectedDisplayIdForSettings: selectedDeviceIdForSettings,
+      },
+      sync: {
+        menuRotationSeconds,
+        promoRotationSeconds,
+      },
+      devices: {
+        selectedScreenId: selectedDesignScreenId,
+      },
+    }),
+    [
+      selectedDisplayMode,
+      selectedDisplayTemplate,
+      selectedScreen?.orientation,
+      selectedScreen?.resolutionPreset,
+      defaultColumnCount,
+      cardStyle,
+      cardDensity,
+      productNameFontSize,
+      ingredientFontSize,
+      categoryFontSize,
+      priceFontSize,
+      pixelPadding,
+      enableAnimations,
+      showCategoryOnCard,
+      showCategoryHeaders,
+      showIngredients,
+      highlightPrice,
+      targetWallDisplays,
+      expertMode,
+      primaryColor,
+      accentColor,
+      backgroundMode,
+      backgroundMediaUrl,
+      showLogo,
+      logoUrl,
+      selectedTemplate,
+      fontFamily,
+      scalePercent,
+      designCategoryFocus,
+      designProductSearch,
+      visibleDesignProducts.length,
+      selectedDesignScreenId,
+      selectedDeviceIdForSettings,
+      menuRotationSeconds,
+      promoRotationSeconds,
+    ]
+  )
 
   const previewProducts = useMemo(() => {
     const pool = filteredDesignProducts.length > 0 ? filteredDesignProducts : visibleDesignProducts
@@ -1075,14 +1166,10 @@ export default function AdminScreenStudioPage() {
           </section>
         ) : null}
 
-        {activeTab === 'LAYOUT' || activeTab === 'BRANDING' || activeTab === 'PUBLISH' ? (
+        {activeTab === 'LAYOUT' || activeTab === 'BRANDING' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
             <h2 className="text-lg font-semibold text-[var(--brand-ink)]">
-              {activeTab === 'BRANDING'
-                ? 'Branding'
-                : activeTab === 'PUBLISH'
-                    ? 'Veröffentlichung'
-                    : 'Layout'}
+              {activeTab === 'BRANDING' ? 'Branding' : 'Layout'}
             </h2>
             <div className="mt-3 max-w-lg">
               <Field label="Bildschirm auswählen">
@@ -1110,6 +1197,7 @@ export default function AdminScreenStudioPage() {
                 </div>
               </Field>
             </div>
+            {activeTab === 'LAYOUT' ? (
             <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 lg:grid-cols-2">
               <Field label="Display-Modus">
                 <select
@@ -1197,6 +1285,8 @@ export default function AdminScreenStudioPage() {
                 </button>
               </div>
             </div>
+            ) : null}
+            {activeTab === 'LAYOUT' ? (
             <div className="mt-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
               <p className="text-sm font-semibold text-emerald-900">Auto-Rotation wie Menüboard-Ketten</p>
               <p className="mt-1 text-xs text-emerald-800">
@@ -1231,6 +1321,8 @@ export default function AdminScreenStudioPage() {
                 </div>
               </div>
             </div>
+            ) : null}
+            {activeTab === 'BRANDING' ? (
             <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
@@ -1308,6 +1400,8 @@ export default function AdminScreenStudioPage() {
                   'Design-Assistent aktiv: 1) Logo hochladen 2) Speisekarte hochladen 3) Vorschlag übernehmen und speichern.'}
               </div>
             </div>
+            ) : null}
+            {activeTab === 'LAYOUT' ? (
             <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm font-semibold text-slate-900">Kategorien & Produkte für diesen Bildschirm</p>
@@ -1361,6 +1455,8 @@ export default function AdminScreenStudioPage() {
                 ) : null}
               </div>
             </div>
+            ) : null}
+            {activeTab === 'LAYOUT' ? (
             <div className="mt-4 grid gap-4 xl:grid-cols-[1.3fr_1fr]">
               <div className="grid gap-3 sm:grid-cols-2">
                 {DESIGN_TEMPLATES.map((template) => (
@@ -1470,6 +1566,8 @@ export default function AdminScreenStudioPage() {
                 </div>
               </div>
             </div>
+            ) : null}
+            {activeTab === 'BRANDING' ? (
             <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="md:col-span-2 xl:col-span-4">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Farben & Branding</p>
@@ -1586,6 +1684,10 @@ export default function AdminScreenStudioPage() {
                   <option value="NEIN">Nein</option>
                 </select>
               </Field>
+            </div>
+            ) : null}
+            {activeTab === 'LAYOUT' ? (
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <div className="md:col-span-2 xl:col-span-4 mt-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Layout & Timing</p>
               </div>
@@ -1626,7 +1728,8 @@ export default function AdminScreenStudioPage() {
                 <p className="mt-1 text-xs text-slate-500">Schaltet erweiterte Felder frei. Kein eigener Runtime-Schalter.</p>
               </Field>
             </div>
-            {expertMode ? (
+            ) : null}
+            {activeTab === 'LAYOUT' && expertMode ? (
               <div className="mt-4 grid gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 md:grid-cols-3">
                 <Field label="Font Family">
                   <input value={fontFamily} onChange={(e) => setFontFamily(e.target.value)} className="input-ui" />
@@ -1655,15 +1758,48 @@ export default function AdminScreenStudioPage() {
                 disabled={savingDesign}
                 className="rounded-xl bg-orange-600 px-5 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
               >
-                {savingDesign ? 'Speichert…' : 'Design speichern'}
+                {savingDesign ? 'Speichert…' : activeTab === 'BRANDING' ? 'Branding speichern' : 'Layout speichern'}
               </button>
             </div>
-            {activeTab === 'PUBLISH' ? (
-              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-900">
-                Veröffentlichung nutzt die aktuellen Einstellungen aus Layout, Branding und Inhalte.
-                Änderungen werden mit „Design speichern“ als neuer Stand veröffentlicht.
-              </div>
-            ) : null}
+          </section>
+        ) : null}
+
+        {activeTab === 'PUBLISH' ? (
+          <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Veröffentlichung</h2>
+            <p className="mt-2 text-sm text-rose-900/80">
+              Dieser Bereich steuert ausschließlich Manifest-Generierung, Versionierung und Rollout.
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <StatCard label="Aktive Version" value={rows[0]?.lastSyncAt ? new Date(rows[0].lastSyncAt).toISOString() : '-'} />
+              <StatCard label="Letzter Publish" value={success ? 'Gerade aktualisiert' : 'Noch offen'} />
+              <StatCard label="Geräte mit Sync" value={`${rows.filter((row) => row.status === 'online').length}/${rows.length}`} />
+              <StatCard label="Manifest-Zustand" value={selectedDesignScreenId ? 'Bereit' : 'Bildschirm wählen'} />
+            </div>
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Manifest-Vorschau (Struktur vorbereitet)</p>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-950 p-3 text-[11px] text-emerald-200">
+{JSON.stringify(workspaceSettings, null, 2)}
+              </pre>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleSaveDesign()}
+                disabled={savingDesign}
+                className="rounded-xl bg-orange-600 px-5 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+              >
+                {savingDesign ? 'Veröffentlicht…' : 'Manifest generieren & veröffentlichen'}
+              </button>
+              <button
+                type="button"
+                disabled
+                className="rounded-xl border border-slate-300 bg-slate-100 px-5 py-2 text-sm font-semibold text-slate-500"
+                title="Rollback wird in einem nächsten Schritt angebunden."
+              >
+                Rollback (in Vorbereitung)
+              </button>
+            </div>
           </section>
         ) : null}
 
