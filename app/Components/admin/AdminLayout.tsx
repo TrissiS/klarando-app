@@ -818,9 +818,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                       </div>
                     ) : null}
                   </div>
-                  <span className="rounded-xl border border-[var(--brand-border)] bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
-                    Modus: {isTouchMode ? 'Touch' : 'Kompakt'}
-                  </span>
                   <button
                     type="button"
                     onClick={() => setMobileNavOpen(true)}
@@ -838,9 +835,23 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                         setNotificationOpen((current) => !current)
                         setMailboxOpen(false)
                       }}
-                      className="relative rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
+                      title="Benachrichtigungen"
+                      aria-label="Benachrichtigungen"
+                      className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--brand-border)] bg-white text-rose-900 transition hover:bg-rose-100"
                     >
-                      Glocke
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2a2 2 0 0 1-.6 1.4L4 17h5" />
+                        <path d="M9.7 17a2.3 2.3 0 0 0 4.6 0" />
+                      </svg>
                       {unreadNotifications > 0 ? (
                         <span className="absolute -right-1 -top-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
                           {unreadNotifications}
@@ -886,9 +897,23 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                         setMailboxOpen((current) => !current)
                         setNotificationOpen(false)
                       }}
-                      className="relative rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
+                      title="Postfach"
+                      aria-label="Postfach"
+                      className="relative inline-flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--brand-border)] bg-white text-rose-900 transition hover:bg-rose-100"
                     >
-                      Postfach
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="h-4 w-4"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M4 7h16v10H4z" />
+                        <path d="m4 8 8 6 8-6" />
+                      </svg>
                       {unreadMailboxItems > 0 ? (
                         <span className="absolute -right-1 -top-1 rounded-full bg-rose-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
                           {unreadMailboxItems}
@@ -914,14 +939,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                       </div>
                     ) : null}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setUiMode((current) => (current === 'compact' ? 'touch' : 'compact'))}
-                    className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
-                    title={isTouchMode ? 'Auf Kompakt-Modus umstellen' : 'Auf Touch-Modus umstellen'}
-                  >
-                    {isTouchMode ? 'Touch' : 'Kompakt'}
-                  </button>
                   <button
                     type="button"
                     onClick={handleLogout}

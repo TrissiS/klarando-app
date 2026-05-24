@@ -513,17 +513,6 @@ export default function BackofficeLayout({
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="rounded-xl border border-[var(--brand-border)] bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
-                    Modus: {isTouchMode ? 'Touch' : 'Kompakt'}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setUiMode((current) => (current === 'compact' ? 'touch' : 'compact'))}
-                    className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-rose-900 transition hover:bg-rose-100"
-                    title={isTouchMode ? 'Auf Kompakt-Modus umstellen' : 'Auf Touch-Modus umstellen'}
-                  >
-                    {isTouchMode ? 'Touch' : 'Kompakt'}
-                  </button>
                   <button
                     type="button"
                     onClick={() => setMobileNavOpen(true)}

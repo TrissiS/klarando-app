@@ -37,13 +37,6 @@ import {
 
 type ProductTab = 'products' | 'categories' | 'ingredients' | 'pricing'
 
-const PRODUCT_TABS: Array<{ id: ProductTab; label: string }> = [
-  { id: 'products', label: 'Produkte' },
-  { id: 'categories', label: 'Kategorien' },
-  { id: 'ingredients', label: 'Zutaten' },
-  { id: 'pricing', label: 'Schnellpreise' },
-]
-
 function isProductTab(value: string | null): value is ProductTab {
   return value === 'products' || value === 'categories' || value === 'ingredients' || value === 'pricing'
 }
@@ -970,25 +963,6 @@ function AdminProductsPageContent() {
           {success}
         </div>
       ) : null}
-
-      <section className="mb-6 rounded-3xl bg-white p-3 shadow-sm ring-1 ring-[var(--brand-border)]">
-        <div className="flex flex-wrap gap-2">
-          {PRODUCT_TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setTab(tab.id)}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                activeTab === tab.id
-                  ? 'bg-slate-900 text-white'
-                  : 'border border-[var(--brand-border)] bg-white text-rose-900/85 hover:bg-rose-50'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </section>
 
       {activeTab === 'products' ? (
         <>
