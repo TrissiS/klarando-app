@@ -20,6 +20,7 @@ import {
   clearSuperadminTenantContext,
   isSuperadminTenantPreviewEnabled,
 } from '@/lib/superadmin-tenant-context'
+import { ADMIN_SEARCH_PREPARED_DOMAINS, ADMIN_SEARCH_STATIC_ENTRIES } from '@/app/Components/admin/admin-search'
 
 type Props = {
   title: string
@@ -626,17 +627,11 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       section.items.map((item) => ({
         href: item.href,
         label: item.label,
+        domain: 'menu',
         keywords: [section.label, item.label, item.href],
       }))
     )
-    const staticEntries = [
-      { href: '/admin/products', label: 'Produkte', keywords: ['produkt', 'produkte', 'speisekarte'] },
-      { href: '/admin/screen-studio', label: 'Geräte / Screen-Studio', keywords: ['geraete', 'display', 'orderdesk'] },
-      { href: '/admin/settings', label: 'Einstellungen', keywords: ['einstellungen', 'config', 'verwaltung'] },
-      { href: '/admin/staff', label: 'Benutzer', keywords: ['benutzer', 'rechte', 'users'] },
-      { href: '/admin/billing', label: 'Abrechnung', keywords: ['abrechnung', 'billing', 'finanzen'] },
-    ]
-    return [...fromNav, ...staticEntries]
+    return [...fromNav, ...ADMIN_SEARCH_STATIC_ENTRIES]
   }, [visibleNavSections])
 
   const globalSearchResults = useMemo(() => {
@@ -809,9 +804,17 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                             href={entry.href}
                             className="block rounded-xl px-3 py-2 text-sm text-rose-900 transition hover:bg-rose-50"
                           >
-                            {entry.label}
+                            <span className="flex items-center justify-between gap-2">
+                              <span>{entry.label}</span>
+                              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                {entry.domain}
+                              </span>
+                            </span>
                           </a>
                         ))}
+                        <p className="px-3 pb-1 pt-2 text-[11px] text-slate-500">
+                          Vorbereitete Entitätssuche: {ADMIN_SEARCH_PREPARED_DOMAINS.join(', ')}
+                        </p>
                       </div>
                     ) : null}
                   </div>

@@ -1,7 +1,15 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
+import {
+  getAccessContext,
+  getDisplayDeviceOverview,
+  getStoredAccessToken,
+  type AccessContext,
+  type DisplayDeviceOverviewRow,
+} from '@/lib/api'
 
 type ReadinessStatus = 'READY' | 'LIMITED' | 'IN_PREPARATION' | 'BROKEN'
 
@@ -95,6 +103,45 @@ const statusClass: Record<ReadinessStatus, string> = {
 }
 
 export default function SuperadminReadinessPage() {
+  const [displayRows, setDisplayRows] = useState<DisplayDeviceOverviewRow[]>([])
+  const [accessContext, setAccessContext] = useState<AccessContext | null>(null)
+  const [lastApiError, setLastApiError] = useState('—')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const token = getStoredAccessToken()
+        if (!token) return
+        const [context, displays] = await Promise.all([
+          getAccessContext(token),
+          getDisplayDeviceOverview(token),
+        ])
+        if (cancelled) return
+        setAccessContext(context)
+        setDisplayRows(displays.rows || [])
+      } catch (error) {
+        if (cancelled) return
+        setLastApiError(error instanceof Error ? error.message : 'Unbekannter API-Fehler')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const readinessStats = useMemo(() => {
+    const offlineDevices = displayRows.filter((row) => row.status === 'offline').length
+    const unpairedDisplays = displayRows.filter((row) => !row.pairingSupported).length
+    const incompleteBranches = (accessContext?.tenants || []).filter((tenant) => !tenant.name?.trim()).length
+    return {
+      offlineDevices,
+      unpairedDisplays,
+      missingModulePrices: 'N/A (lokale Preis-Drafts, zentrale API folgt)',
+      incompleteBranches,
+    }
+  }, [accessContext?.tenants, displayRows])
+
   return (
     <BackofficeLayout
       brand="Superadmin"
@@ -102,6 +149,28 @@ export default function SuperadminReadinessPage() {
       subtitle="Ampelstatus für zentrale Klarando-Bereiche."
       navItems={SUPERADMIN_NAV_ITEMS}
     >
+      <div className="mb-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="text-xs text-slate-500">Letzter API-Fehler</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">{lastApiError}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="text-xs text-slate-500">Offline-Geräte</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">{readinessStats.offlineDevices}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="text-xs text-slate-500">Ungepaarte Displays</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">{readinessStats.unpairedDisplays}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="text-xs text-slate-500">Fehlende Modulpreise</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">{readinessStats.missingModulePrices}</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+          <p className="text-xs text-slate-500">Unvollständige Filialen</p>
+          <p className="mt-1 text-sm font-semibold text-slate-900">{readinessStats.incompleteBranches}</p>
+        </div>
+      </div>
       <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">

@@ -1,8 +1,14 @@
 'use client'
 
-import Link from 'next/link'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
-import { FeatureUnavailableNotice, ComingSoonAction } from '@/app/Components/admin/FeatureUnavailableNotice'
+import { FeatureUnavailableNotice } from '@/app/Components/admin/FeatureUnavailableNotice'
+import {
+  WorkspaceActions,
+  WorkspaceHeader,
+  WorkspaceStats,
+  WorkspaceTabs,
+  WorkspaceWarnings,
+} from '@/app/Components/admin/WorkspaceComponents'
 
 const tabs = [
   { href: '/admin/products', label: 'Produkte' },
@@ -17,18 +23,28 @@ export default function MenuWorkspacePage() {
   return (
     <AdminLayout title="Speisekarten-Workspace" subtitle="Alle Menüaufgaben gebündelt in einem Bereich.">
       <div className="space-y-4">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <p className="text-sm font-semibold text-slate-900">Arbeitsbereiche</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {tabs.map((tab) => (
-              <Link key={tab.href} href={tab.href} className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-semibold text-rose-900 hover:bg-rose-50">
-                {tab.label}
-              </Link>
-            ))}
-            <ComingSoonAction label="Produktnummern-Konflikte" />
-            <ComingSoonAction label="Import-Warnungen" />
-          </div>
-        </div>
+        <WorkspaceHeader
+          title="Workspace: Speisekarte"
+          subtitle="Produkte, Kategorien, Zutaten, Preise und Import zentral steuern."
+        />
+        <WorkspaceTabs tabs={tabs} />
+        <WorkspaceStats
+          stats={[
+            { label: 'Struktur', value: 'Aktiv' },
+            { label: 'Import', value: 'LIMITED' },
+            { label: 'Konfliktlösung', value: 'In Vorbereitung' },
+            { label: 'Warnungen', value: 1 },
+          ]}
+        />
+        <WorkspaceActions
+          actions={[
+            { href: '/admin/products', label: 'Produkte öffnen' },
+            { href: '/admin/categories', label: 'Kategorien prüfen' },
+            { label: 'Produktnummern-Konflikte', disabled: true, hint: 'Konfliktverwaltung wird als nächster Schritt angebunden.' },
+            { label: 'Import-Warnungen', disabled: true, hint: 'Warnungs-Center wird vorbereitet.' },
+          ]}
+        />
+        <WorkspaceWarnings warnings={['Produktnummern-Konflikte und Import-Warnungen sind noch in Vorbereitung.']} />
         <FeatureUnavailableNotice
           title="Hinweis zur Produktionsreife"
           message="Konfliktaufloesung fuer Produktnummern ist vorbereitet und wird als naechster stabiler Schritt angebunden."
