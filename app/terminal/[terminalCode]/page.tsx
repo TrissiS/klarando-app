@@ -471,6 +471,12 @@ export default function TerminalPage({ params }: Props) {
         background: `radial-gradient(circle at top, ${backgroundStart}, ${backgroundEnd} 58%)`,
       }}
     >
+      <div className="fixed left-3 top-3 z-50 rounded-xl border border-cyan-200/55 bg-slate-950/85 px-3 py-2 text-[11px] text-cyan-100 shadow-lg backdrop-blur">
+        <div className="font-semibold">Display Diagnose</div>
+        <div>Route: <span className="font-mono">/terminal/[terminalCode]</span></div>
+        <div>Renderer: <span className="font-mono">terminal-renderer-v1</span></div>
+        <div>terminalCode: <span className="font-mono">{terminalCode || '-'}</span></div>
+      </div>
       <div className="mx-auto max-w-7xl" style={layoutStyle}>
         {config.terminal.customerLogoUrl ? (
           <div className="mb-4 flex justify-center">

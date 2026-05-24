@@ -1134,6 +1134,16 @@ export default function OrderDisplayPage({ params }: Props) {
       style={{ background: displayBackground }}
     >
       <DisplayRuntimeShell runtimeConfig={runtimeConfig}>
+      <div className="absolute left-3 top-3 z-50 rounded-xl border border-cyan-200/55 bg-slate-950/85 px-3 py-2 text-[11px] text-cyan-100 shadow-lg backdrop-blur">
+        <div className="font-semibold">Display Diagnose</div>
+        <div>Route: <span className="font-mono">/order-display/[displayCode]</span></div>
+        <div>Renderer: <span className="font-mono">order-display-runtime-v1</span></div>
+        <div>Runtime API: <span className="font-mono">{runtimeConfig?.runtimeSourceRoute || 'unbekannt'}</span></div>
+        <div>Manifest-Version: <span className="font-mono">{runtimeConfig?.loadedManifestVersion || '-'}</span></div>
+        <div>displayCode: <span className="font-mono">{displayCode || '-'}</span></div>
+        <div>displayId: <span className="font-mono">{runtimeConfig?.displayId || '-'}</span></div>
+        <div>template: <span className="font-mono">{runtimeConfig?.template || '-'}</span></div>
+      </div>
       <DisplayConnectionStatus state={connectionState} staleSeconds={connectionStaleSeconds} />
       {mediaMode === 'IMAGE' && mediaUrl ? (
         <div

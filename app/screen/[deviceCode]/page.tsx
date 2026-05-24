@@ -450,6 +450,8 @@ export default function ScreenDevicePage({ params }: Props) {
   const [connectionState, setConnectionState] = useState<DisplayRuntimeConnectionState>('online')
   const [isOfflineNoticeVisible, setIsOfflineNoticeVisible] = useState(false)
   const [debugMode, setDebugMode] = useState(false)
+  const [manifestDebugOpen, setManifestDebugOpen] = useState(false)
+  const [manifestRuntimeError, setManifestRuntimeError] = useState('')
   const [viewportResolution, setViewportResolution] = useState<{ width: number; height: number }>({
     width: 1920,
     height: 1080,
@@ -587,10 +589,11 @@ export default function ScreenDevicePage({ params }: Props) {
     const loadRuntime = async () => {
       try {
         setConnectionState((current) => (current === 'offline_cached' ? 'reconnecting' : current))
-        const config = await fetchDisplayRuntimeConfig(deviceCode)
+        const config = await fetchDisplayRuntimeConfig(deviceCode, { strictManifest: true })
         if (!isMounted) {
           return
         }
+        setManifestRuntimeError('')
         setRuntimeConfig(config)
         if (feed) {
           writeOfflineDisplaySnapshot({
@@ -622,15 +625,20 @@ export default function ScreenDevicePage({ params }: Props) {
         timer = setTimeout(() => {
           void loadRuntime()
         }, retryMs)
-      } catch {
+      } catch (runtimeError) {
         if (!isMounted) {
           return
         }
         const cachedConfig = readCachedDisplayRuntimeConfig(deviceCode)
-        if (cachedConfig) {
+        if (cachedConfig && cachedConfig.runtimeSourceRoute === '/api/display-runtime/:deviceCode/manifest') {
           setRuntimeConfig(cachedConfig)
           setConnectionState('offline_cached')
         } else {
+          setManifestRuntimeError(
+            runtimeError instanceof Error
+              ? runtimeError.message
+              : 'Kein gültiges Display-Manifest geladen'
+          )
           setConnectionState('reconnecting')
         }
         timer = setTimeout(() => {
@@ -648,6 +656,25 @@ export default function ScreenDevicePage({ params }: Props) {
       }
     }
   }, [deviceCode, feed, isLowPerformanceMode])
+
+  async function handleClearDisplayRuntimeCache() {
+    if (typeof window === 'undefined') return
+    window.localStorage.removeItem(`klarando:display-runtime:${deviceCode.toUpperCase()}`)
+    window.location.reload()
+  }
+
+  async function handleHardManifestReload() {
+    try {
+      const fresh = await fetchDisplayRuntimeConfig(deviceCode, { strictManifest: true })
+      setRuntimeConfig(fresh)
+      setManifestRuntimeError('')
+      setConnectionState('online')
+    } catch (reloadError) {
+      setManifestRuntimeError(
+        reloadError instanceof Error ? reloadError.message : 'Kein gültiges Display-Manifest geladen'
+      )
+    }
+  }
 
   useEffect(() => {
     if (!feed || !feed.config.offerWindowEnabled) {
@@ -898,6 +925,9 @@ export default function ScreenDevicePage({ params }: Props) {
 
     return merged
   }, [feed, runtimeConfig])
+  const rendererVersion = 'screen-manifest-renderer-v2'
+  const runtimeRouteLabel = runtimeConfig?.runtimeSourceRoute || 'unbekannt'
+  const manifestVersionLabel = runtimeConfig?.loadedManifestVersion || '-'
 
   const backgroundStyle = useMemo(() => {
     if (!feed) {
@@ -1241,6 +1271,62 @@ export default function ScreenDevicePage({ params }: Props) {
       className="safe-area-padding relative flex min-h-screen flex-col overflow-hidden text-white"
     >
       <DisplayRuntimeShell runtimeConfig={runtimeConfig}>
+      <div className="absolute left-3 top-3 z-50 max-w-[92vw] rounded-xl border border-cyan-200/55 bg-slate-950/85 px-3 py-2 text-[11px] text-cyan-100 shadow-lg backdrop-blur">
+        <div className="font-semibold">Display Diagnose</div>
+        <div>Route: <span className="font-mono">/screen/[deviceCode]</span></div>
+        <div>Renderer: <span className="font-mono">{rendererVersion}</span></div>
+        <div>Runtime API: <span className="font-mono">{runtimeRouteLabel}</span></div>
+        <div>Manifest-Version: <span className="font-mono">{manifestVersionLabel}</span></div>
+        <div>deviceCode: <span className="font-mono">{deviceCode || '-'}</span></div>
+        <div>displayId: <span className="font-mono">{runtimeConfig?.displayId || '-'}</span></div>
+        <div>template: <span className="font-mono">{runtimeConfig?.template || '-'}</span></div>
+        <div>showCategories: <span className="font-mono">{String(showCategoryHeadersEnabled || showCategoryOnCardEnabled)}</span></div>
+        <div>showIngredients: <span className="font-mono">{String(showIngredientsEnabled)}</span></div>
+        {manifestRuntimeError ? (
+          <div className="mt-1 rounded border border-red-300/60 bg-red-500/20 px-2 py-1 text-red-100">
+            Kein gueltiges Display-Manifest geladen: {manifestRuntimeError}
+          </div>
+        ) : null}
+        <div className="mt-2 flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setManifestDebugOpen((current) => !current)}
+            className="rounded border border-cyan-200/60 bg-cyan-500/15 px-2 py-1 text-[11px] font-semibold hover:bg-cyan-500/25"
+          >
+            {manifestDebugOpen ? 'Manifest Debug aus' : 'Manifest Debug'}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleHardManifestReload()}
+            className="rounded border border-emerald-200/60 bg-emerald-500/15 px-2 py-1 text-[11px] font-semibold hover:bg-emerald-500/25"
+          >
+            Manifest neu laden
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleClearDisplayRuntimeCache()}
+            className="rounded border border-amber-200/60 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold hover:bg-amber-500/25"
+          >
+            Cache loeschen
+          </button>
+        </div>
+      </div>
+      {manifestDebugOpen ? (
+        <pre className="absolute left-3 top-56 z-50 max-h-[45vh] w-[min(760px,92vw)] overflow-auto rounded-xl border border-slate-300/50 bg-slate-950/90 p-3 text-[11px] text-emerald-200">
+{JSON.stringify({
+  rendererVersion,
+  runtimeRoute: runtimeRouteLabel,
+  manifestVersion: manifestVersionLabel,
+  deviceCode,
+  displayId: runtimeConfig?.displayId || null,
+  templateName: runtimeConfig?.template || null,
+  showCategories: showCategoryHeadersEnabled || showCategoryOnCardEnabled,
+  showIngredients: showIngredientsEnabled,
+  distribution: runtimeConfig?.distribution || null,
+  productsLoaded: displayedProducts.length,
+}, null, 2)}
+        </pre>
+      ) : null}
       {debugMode && isOfflineNoticeVisible ? (
         <div className="absolute right-3 top-3 z-40 rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
           Offline-Cache aktiv

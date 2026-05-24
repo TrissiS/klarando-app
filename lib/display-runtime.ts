@@ -121,6 +121,9 @@ export type DisplayRuntimeConfig = {
   lastSyncAt: string | null
   updatedAt: string
   serverTime: string
+  runtimeSourceRoute?: string
+  rendererVersion?: string
+  loadedManifestVersion?: string | null
 }
 
 export type DisplayRuntimeConnectionState = 'online' | 'reconnecting' | 'offline_cached'
@@ -168,7 +171,11 @@ export function writeCachedDisplayRuntimeConfig(config: DisplayRuntimeConfig) {
   window.localStorage.setItem(cacheKey(config.deviceCode), JSON.stringify(config))
 }
 
-export async function fetchDisplayRuntimeConfig(deviceCode: string) {
+export async function fetchDisplayRuntimeConfig(
+  deviceCode: string,
+  options?: { strictManifest?: boolean }
+) {
+  const strictManifest = options?.strictManifest === true
   const manifestResponse = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}/manifest`, {
     cache: 'no-store',
   })
@@ -183,9 +190,20 @@ export async function fetchDisplayRuntimeConfig(deviceCode: string) {
       manifestPayload.displayManifest?.runtime ||
       null
     if (manifestRuntime) {
-      writeCachedDisplayRuntimeConfig(manifestRuntime)
-      return manifestRuntime
+      const mergedRuntime: DisplayRuntimeConfig = {
+        ...manifestRuntime,
+        runtimeSourceRoute: '/api/display-runtime/:deviceCode/manifest',
+        rendererVersion: 'manifest-v2',
+        loadedManifestVersion:
+          (manifestPayload.displayManifest as { manifestVersion?: string } | undefined)?.manifestVersion || null,
+      }
+      writeCachedDisplayRuntimeConfig(mergedRuntime)
+      return mergedRuntime
     }
+  }
+
+  if (strictManifest) {
+    throw new Error('Kein gültiges Display-Manifest geladen')
   }
 
   const response = await fetch(`${API_BASE_URL}/api/display-runtime/${deviceCode}`, {
@@ -198,6 +216,13 @@ export async function fetchDisplayRuntimeConfig(deviceCode: string) {
   }
 
   const config = (await response.json()) as DisplayRuntimeConfig
-  writeCachedDisplayRuntimeConfig(config)
-  return config
+  const legacyRuntime: DisplayRuntimeConfig = {
+    ...config,
+    runtimeSourceRoute: '/api/display-runtime/:deviceCode',
+    rendererVersion: 'legacy-runtime',
+    loadedManifestVersion: null,
+  }
+
+  writeCachedDisplayRuntimeConfig(legacyRuntime)
+  return legacyRuntime
 }
