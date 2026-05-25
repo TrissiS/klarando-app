@@ -113,21 +113,31 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     Color? gradientStart = gradientFrom;
     Color? gradientEnd = gradientTo;
 
-    if (themePreset == 'NEON') {
+    if (themePreset == 'DOENER_NEON' || themePreset == 'NEON') {
       accentResolved = const Color(0xFF67E8F9);
-      backgroundResolved = const Color(0xFF050816);
-      gradientStart ??= const Color(0xFF0b1027);
-      gradientEnd ??= const Color(0xFF1a0b2e);
+      backgroundResolved = const Color(0xFF070b18);
+      gradientStart ??= const Color(0xFF101426);
+      gradientEnd ??= const Color(0xFF1a1f33);
     } else if (themePreset == 'FASTFOOD_MODERN') {
       accentResolved = const Color(0xFFF97316);
       backgroundResolved = const Color(0xFF111827);
-      gradientStart ??= const Color(0xFF111827);
-      gradientEnd ??= const Color(0xFF7c2d12);
+      gradientStart ??= const Color(0xFF171f2d);
+      gradientEnd ??= const Color(0xFF2a1f1a);
     } else if (themePreset == 'FINE_DINING') {
       accentResolved = const Color(0xFFE7C873);
       backgroundResolved = const Color(0xFF111111);
-      gradientStart ??= const Color(0xFF141414);
-      gradientEnd ??= const Color(0xFF2c2420);
+      gradientStart ??= const Color(0xFF151515);
+      gradientEnd ??= const Color(0xFF26211d);
+    } else if (themePreset == 'PIZZA_RUSTIC') {
+      accentResolved = const Color(0xFFf59e0b);
+      backgroundResolved = const Color(0xFF171312);
+      gradientStart ??= const Color(0xFF201816);
+      gradientEnd ??= const Color(0xFF2d221f);
+    } else if (themePreset == 'BURGER_DARK') {
+      accentResolved = const Color(0xFFf97316);
+      backgroundResolved = const Color(0xFF121212);
+      gradientStart ??= const Color(0xFF1b1b1b);
+      gradientEnd ??= const Color(0xFF262626);
     } else if (themePreset == 'MINIMAL_WHITE') {
       accentResolved = const Color(0xFF1d4ed8);
       backgroundResolved = const Color(0xFFF8FAFC);
@@ -339,52 +349,53 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                   ),
                 if (debugEnabled && widget.debugLines.isNotEmpty)
                   Positioned(
-                    left: 12,
-                    top: 12,
+                    right: 10,
+                    top: 8,
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 560),
-                      child: GestureDetector(
-                        onTap: () => setState(() => _debugExpanded = !_debugExpanded),
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.78),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.white24),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _debugExpanded
-                                      ? 'DISPLAY DIAGNOSTICS (Tap to collapse)'
-                                      : 'DISPLAY DIAGNOSTICS (Tap to expand)',
-                                  style: const TextStyle(
-                                    color: Colors.amberAccent,
-                                    fontWeight: FontWeight.w700,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                if (_debugExpanded) ...[
-                                  const SizedBox(height: 4),
-                                  ConstrainedBox(
-                                    constraints: const BoxConstraints(maxHeight: 220),
-                                    child: SingleChildScrollView(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          for (final line in widget.debugLines)
-                                            Text(
-                                              line,
-                                              style: const TextStyle(color: Colors.white, fontSize: 11),
-                                            ),
-                                        ],
-                                      ),
+                      constraints: const BoxConstraints(maxWidth: 420),
+                      child: IgnorePointer(
+                        ignoring: false,
+                        child: GestureDetector(
+                          onTap: () => setState(() => _debugExpanded = !_debugExpanded),
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.62),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.white24),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _debugExpanded ? 'DEBUG (tap)' : 'DEBUG',
+                                    style: const TextStyle(
+                                      color: Colors.amberAccent,
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 11,
                                     ),
                                   ),
+                                  if (_debugExpanded) ...[
+                                    const SizedBox(height: 4),
+                                    ConstrainedBox(
+                                      constraints: const BoxConstraints(maxHeight: 180),
+                                      child: SingleChildScrollView(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            for (final line in widget.debugLines)
+                                              Text(
+                                                line,
+                                                style: const TextStyle(color: Colors.white, fontSize: 10),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ],
-                              ],
+                              ),
                             ),
                           ),
                         ),
@@ -542,25 +553,33 @@ class _MenuProductBoard extends StatelessWidget {
       });
     }
 
-    final rowCount = flattened.length;
-    final rowsPerColumn = (rowCount / safeColumnCount).ceil().clamp(1, 9999);
-    final columns = <List<Map<String, String>>>[];
-    for (int i = 0; i < rowCount; i += rowsPerColumn) {
-      columns.add(flattened.sublist(i, (i + rowsPerColumn).clamp(0, rowCount)));
+    final columns = List.generate(safeColumnCount, (_) => <Map<String, String>>[]);
+    final columnWeights = List.generate(safeColumnCount, (_) => 0.0);
+    for (final row in flattened) {
+      final minIndex = columnWeights.indexOf(columnWeights.reduce((a, b) => a < b ? a : b));
+      columns[minIndex].add(row);
+      final type = row['type'] ?? 'product';
+      final name = row['name'] ?? '';
+      final ingredient = row['ingredients'] ?? '';
+      final estimate = type == 'header'
+          ? 0.95
+          : 1.3 + (name.length > 28 ? 0.45 : 0) + (ingredient.isNotEmpty ? 0.25 : 0);
+      columnWeights[minIndex] += estimate;
     }
+    final nonEmptyColumns = columns.where((c) => c.isNotEmpty).toList(growable: false);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (int column = 0; column < columns.length; column++) ...[
+        for (int column = 0; column < nonEmptyColumns.length; column++) ...[
           Expanded(
             child: ListView.separated(
               physics: const NeverScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
-              itemCount: columns[column].length,
+              itemCount: nonEmptyColumns[column].length,
               separatorBuilder: (_, __) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
-                final row = columns[column][index];
+                final row = nonEmptyColumns[column][index];
                 if ((row['type'] ?? '') == 'header') {
                   return Padding(
                     padding: const EdgeInsets.only(top: 12, bottom: 4),
@@ -597,9 +616,9 @@ class _MenuProductBoard extends StatelessWidget {
                           ? null
                           : [
                               BoxShadow(
-                                color: Colors.black.withOpacity(0.2),
-                                blurRadius: 14,
-                                offset: const Offset(0, 6),
+                                color: Colors.black.withOpacity(0.24),
+                                blurRadius: 18,
+                                offset: const Offset(0, 7),
                               ),
                             ],
                       borderRadius: cardStyle == 'NONE' ? BorderRadius.zero : BorderRadius.circular(14),
@@ -657,8 +676,8 @@ class _MenuProductBoard extends StatelessWidget {
                           ),
                           const SizedBox(width: 14),
                           if (showPrices && (row['price'] ?? '').isNotEmpty)
-                            ConstrainedBox(
-                              constraints: const BoxConstraints(minWidth: 84, maxWidth: 180),
+                            SizedBox(
+                              width: 140,
                               child: Text(
                                 row['price'] ?? '-',
                                 maxLines: 1,
@@ -680,7 +699,7 @@ class _MenuProductBoard extends StatelessWidget {
               },
             ),
           ),
-          if (column < columns.length - 1) const SizedBox(width: 10),
+          if (column < nonEmptyColumns.length - 1) const SizedBox(width: 10),
         ],
       ],
     );

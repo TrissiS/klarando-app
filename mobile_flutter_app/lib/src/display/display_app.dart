@@ -437,6 +437,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
     final layout = (displayManifest['layout'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final runtimeConfig = (runtime['runtimeConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final productsRaw = (displayManifest['products'] as List?) ?? const [];
+    final slidesRaw = (displayManifest['playlist'] as List?) ?? const [];
     double? readPriceField(Map<String, dynamic> product, String field) {
       final value = product[field];
       if (value is num) return value.toDouble();
@@ -475,6 +476,8 @@ class _DisplayRootState extends State<_DisplayRoot> {
             .where((ingredient) => (ingredient['name'] as String).isNotEmpty)
             .toList(growable: false),
         'allergens': (product['allergens'] as List?) ?? const [],
+        'isHero': product['isHero'] == true,
+        'isPromo': product['isPromo'] == true,
       };
     }).toList(growable: false);
 
@@ -525,6 +528,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
       'items': const <Map<String, dynamic>>[
         <String, dynamic>{'type': 'PRODUCT_GRID'},
       ],
+      'playlist': slidesRaw,
       'products': mappedProducts,
       'sync': <String, dynamic>{
         'pageDurationSec': runtimeConfig['offerMediaRotateSec'] ?? 10,
