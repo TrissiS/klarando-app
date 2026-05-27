@@ -405,7 +405,9 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               deposit: true,
               category: { select: { name: true } },
               ingredients: {
-                include: {
+                select: {
+                  showInMenuBoard: true,
+                  displayNameOverride: true,
                   ingredient: {
                     select: {
                       name: true,
@@ -431,7 +433,9 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               deposit: true,
               category: { select: { id: true, name: true } },
               ingredients: {
-                include: {
+                select: {
+                  showInMenuBoard: true,
+                  displayNameOverride: true,
                   ingredient: {
                     select: {
                       name: true,
@@ -775,9 +779,14 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         price: Number(product.price),
         categoryId: product.categoryId,
         categoryName: product.category?.name ?? null,
-        ingredients: product.ingredients?.map((entry) => entry.ingredient.name).filter(Boolean) || [],
+        ingredients:
+          product.ingredients
+            ?.filter((entry) => entry.showInMenuBoard !== false)
+            .map((entry) => (entry.displayNameOverride || '').trim() || entry.ingredient.name)
+            .filter(Boolean) || [],
         allergens:
           product.ingredients
+            ?.filter((entry) => entry.showInMenuBoard !== false)
             ?.flatMap((entry) =>
               String(entry.ingredient.allergens || '')
                 .split(',')

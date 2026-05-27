@@ -750,6 +750,11 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
             select: {
               quantity: true,
               displayNameOverride: true,
+              showInCustomerApp: true,
+              showInOrderDisplay: true,
+              showInMenuBoard: true,
+              showInOrderDesk: true,
+              showInCashierDisplay: true,
               ingredient: {
                 select: {
                   id: true,
@@ -825,6 +830,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       .map((product) => {
         const allergenSet = new Set<string>()
         const ingredients = product.ingredients
+          .filter((entry) => entry.showInCustomerApp !== false)
           .filter((entry) => !isPackagingCategory(entry.ingredient.category))
           .map((entry) => {
             const allergens = parseAllergenCodes(entry.ingredient.allergens)

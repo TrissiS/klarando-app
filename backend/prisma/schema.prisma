@@ -848,6 +848,11 @@ model ProductIngredient {
   ingredientId String
   quantity     Decimal @db.Decimal(10, 2)
   displayNameOverride String?
+  showInCustomerApp    Boolean @default(true)
+  showInOrderDisplay   Boolean @default(true)
+  showInMenuBoard      Boolean @default(true)
+  showInOrderDesk      Boolean @default(true)
+  showInCashierDisplay Boolean @default(true)
 
   product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)

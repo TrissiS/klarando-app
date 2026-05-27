@@ -813,6 +813,11 @@ export type ProductIngredient = {
   ingredientId: string
   quantity: string
   displayNameOverride: string | null
+  showInCustomerApp: boolean
+  showInOrderDisplay: boolean
+  showInMenuBoard: boolean
+  showInOrderDesk: boolean
+  showInCashierDisplay: boolean
   createdAt: string
   ingredient: Ingredient
 }
@@ -3578,6 +3583,11 @@ export async function createProductIngredient(data: {
   ingredientId: string
   quantity: number
   displayNameOverride?: string | null
+  showInCustomerApp?: boolean
+  showInOrderDisplay?: boolean
+  showInMenuBoard?: boolean
+  showInOrderDesk?: boolean
+  showInCashierDisplay?: boolean
 }): Promise<ProductIngredient> {
   const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/product-ingredients`, {
@@ -3591,6 +3601,11 @@ export async function createProductIngredient(data: {
       ingredientId: data.ingredientId,
       quantity: data.quantity,
       displayNameOverride: data.displayNameOverride ?? null,
+      showInCustomerApp: data.showInCustomerApp ?? true,
+      showInOrderDisplay: data.showInOrderDisplay ?? true,
+      showInMenuBoard: data.showInMenuBoard ?? true,
+      showInOrderDesk: data.showInOrderDesk ?? true,
+      showInCashierDisplay: data.showInCashierDisplay ?? true,
     }),
   })
 
@@ -3621,6 +3636,11 @@ export async function updateProductIngredient(
   data: {
     quantity?: number
     displayNameOverride?: string | null
+    showInCustomerApp?: boolean
+    showInOrderDisplay?: boolean
+    showInMenuBoard?: boolean
+    showInOrderDesk?: boolean
+    showInCashierDisplay?: boolean
   }
 ): Promise<ProductIngredient> {
   const token = readBrowserAccessToken()
@@ -3634,6 +3654,13 @@ export async function updateProductIngredient(
       ...(data.quantity !== undefined ? { quantity: data.quantity } : {}),
       ...(data.displayNameOverride !== undefined
         ? { displayNameOverride: data.displayNameOverride }
+        : {}),
+      ...(data.showInCustomerApp !== undefined ? { showInCustomerApp: data.showInCustomerApp } : {}),
+      ...(data.showInOrderDisplay !== undefined ? { showInOrderDisplay: data.showInOrderDisplay } : {}),
+      ...(data.showInMenuBoard !== undefined ? { showInMenuBoard: data.showInMenuBoard } : {}),
+      ...(data.showInOrderDesk !== undefined ? { showInOrderDesk: data.showInOrderDesk } : {}),
+      ...(data.showInCashierDisplay !== undefined
+        ? { showInCashierDisplay: data.showInCashierDisplay }
         : {}),
     }),
   })

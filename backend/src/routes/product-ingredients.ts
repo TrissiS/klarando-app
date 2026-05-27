@@ -50,7 +50,17 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { productId, ingredientId, quantity, displayNameOverride } = req.body
+    const {
+      productId,
+      ingredientId,
+      quantity,
+      displayNameOverride,
+      showInCustomerApp,
+      showInOrderDisplay,
+      showInMenuBoard,
+      showInOrderDesk,
+      showInCashierDisplay,
+    } = req.body
 
     if (!productId || !ingredientId || quantity === undefined) {
       return res.status(400).json({ error: 'Pflichtfelder fehlen' })
@@ -64,6 +74,13 @@ router.post('/', async (req, res) => {
       typeof displayNameOverride === 'string' && displayNameOverride.trim().length > 0
         ? displayNameOverride.trim()
         : null
+    const visibilityFlags = {
+      showInCustomerApp: showInCustomerApp !== false,
+      showInOrderDisplay: showInOrderDisplay !== false,
+      showInMenuBoard: showInMenuBoard !== false,
+      showInOrderDesk: showInOrderDesk !== false,
+      showInCashierDisplay: showInCashierDisplay !== false,
+    }
 
     const ingredient = await prisma.ingredient.findUnique({
       where: { id: ingredientId },
@@ -107,6 +124,7 @@ router.post('/', async (req, res) => {
           data: {
             quantity: normalizedQuantity.value,
             displayNameOverride: normalizedDisplayNameOverride,
+            ...visibilityFlags,
           },
           include: {
             ingredient: true,
@@ -118,6 +136,7 @@ router.post('/', async (req, res) => {
             ingredientId,
             quantity: normalizedQuantity.value,
             displayNameOverride: normalizedDisplayNameOverride,
+            ...visibilityFlags,
           },
           include: {
             ingredient: true,
@@ -137,12 +156,25 @@ router.patch('/:id', async (req, res) => {
     const { quantity, displayNameOverride } = req.body as {
       quantity?: number | string
       displayNameOverride?: string | null
+      showInCustomerApp?: boolean
+      showInOrderDisplay?: boolean
+      showInMenuBoard?: boolean
+      showInOrderDesk?: boolean
+      showInCashierDisplay?: boolean
     }
 
     if (!id) {
       return res.status(400).json({ error: 'id fehlt' })
     }
-    if (quantity === undefined && displayNameOverride === undefined) {
+    if (
+      quantity === undefined &&
+      displayNameOverride === undefined &&
+      req.body.showInCustomerApp === undefined &&
+      req.body.showInOrderDisplay === undefined &&
+      req.body.showInMenuBoard === undefined &&
+      req.body.showInOrderDesk === undefined &&
+      req.body.showInCashierDisplay === undefined
+    ) {
       return res.status(400).json({ error: 'Keine Aenderung uebergeben' })
     }
 
@@ -191,12 +223,29 @@ router.patch('/:id', async (req, res) => {
         : displayNameOverride === null || displayNameOverride === ''
         ? null
         : undefined
+    const nextShowInCustomerApp =
+      req.body.showInCustomerApp === undefined ? undefined : req.body.showInCustomerApp === true
+    const nextShowInOrderDisplay =
+      req.body.showInOrderDisplay === undefined ? undefined : req.body.showInOrderDisplay === true
+    const nextShowInMenuBoard =
+      req.body.showInMenuBoard === undefined ? undefined : req.body.showInMenuBoard === true
+    const nextShowInOrderDesk =
+      req.body.showInOrderDesk === undefined ? undefined : req.body.showInOrderDesk === true
+    const nextShowInCashierDisplay =
+      req.body.showInCashierDisplay === undefined
+        ? undefined
+        : req.body.showInCashierDisplay === true
 
     const updated = await prisma.productIngredient.update({
       where: { id },
       data: {
         quantity: normalizedQuantity,
         displayNameOverride: normalizedDisplayNameOverride,
+        showInCustomerApp: nextShowInCustomerApp,
+        showInOrderDisplay: nextShowInOrderDisplay,
+        showInMenuBoard: nextShowInMenuBoard,
+        showInOrderDesk: nextShowInOrderDesk,
+        showInCashierDisplay: nextShowInCashierDisplay,
       },
       include: {
         ingredient: true,

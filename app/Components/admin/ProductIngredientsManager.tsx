@@ -58,10 +58,29 @@ export default function ProductIngredientsManager({ productId, productName, prod
   const [ingredientId, setIngredientId] = useState('')
   const [quantity, setQuantity] = useState('')
   const [displayNameOverride, setDisplayNameOverride] = useState('')
+  const [newVisibility, setNewVisibility] = useState({
+    showInCustomerApp: true,
+    showInOrderDisplay: true,
+    showInMenuBoard: true,
+    showInOrderDesk: true,
+    showInCashierDisplay: true,
+  })
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({})
   const [displayNameOverrideDrafts, setDisplayNameOverrideDrafts] = useState<Record<string, string>>(
     {}
   )
+  const [visibilityDrafts, setVisibilityDrafts] = useState<
+    Record<
+      string,
+      {
+        showInCustomerApp: boolean
+        showInOrderDisplay: boolean
+        showInMenuBoard: boolean
+        showInOrderDesk: boolean
+        showInCashierDisplay: boolean
+      }
+    >
+  >({})
   const [modifierName, setModifierName] = useState('')
   const [modifierKind, setModifierKind] = useState<'OPTION' | 'SIZE'>('OPTION')
   const [modifierIngredientId, setModifierIngredientId] = useState('')
@@ -120,6 +139,7 @@ export default function ProductIngredientsManager({ productId, productName, prod
         setModifiers([])
         setQuantityDrafts({})
         setDisplayNameOverrideDrafts({})
+        setVisibilityDrafts({})
         setError('')
         return
       }
@@ -137,6 +157,20 @@ export default function ProductIngredientsManager({ productId, productName, prod
       setDisplayNameOverrideDrafts(
         Object.fromEntries(
           productIngredientData.map((entry) => [entry.id, entry.displayNameOverride || ''])
+        )
+      )
+      setVisibilityDrafts(
+        Object.fromEntries(
+          productIngredientData.map((entry) => [
+            entry.id,
+            {
+              showInCustomerApp: entry.showInCustomerApp,
+              showInOrderDisplay: entry.showInOrderDisplay,
+              showInMenuBoard: entry.showInMenuBoard,
+              showInOrderDesk: entry.showInOrderDesk,
+              showInCashierDisplay: entry.showInCashierDisplay,
+            },
+          ])
         )
       )
       setError('')
@@ -177,10 +211,18 @@ export default function ProductIngredientsManager({ productId, productName, prod
         ingredientId,
         quantity: parsedQuantity,
         displayNameOverride: displayNameOverride.trim() || null,
+        ...newVisibility,
       })
 
       setQuantity('')
       setDisplayNameOverride('')
+      setNewVisibility({
+        showInCustomerApp: true,
+        showInOrderDisplay: true,
+        showInMenuBoard: true,
+        showInOrderDesk: true,
+        showInCashierDisplay: true,
+      })
       await loadData()
     } catch (submitError) {
       setError(
@@ -197,6 +239,14 @@ export default function ProductIngredientsManager({ productId, productName, prod
     const draftValue = quantityDrafts[productIngredient.id] ?? String(productIngredient.quantity)
     const displayNameOverrideDraft =
       displayNameOverrideDrafts[productIngredient.id] ?? productIngredient.displayNameOverride ?? ''
+    const visibility =
+      visibilityDrafts[productIngredient.id] || {
+        showInCustomerApp: productIngredient.showInCustomerApp,
+        showInOrderDisplay: productIngredient.showInOrderDisplay,
+        showInMenuBoard: productIngredient.showInMenuBoard,
+        showInOrderDesk: productIngredient.showInOrderDesk,
+        showInCashierDisplay: productIngredient.showInCashierDisplay,
+      }
     const parsedQuantity = Number(draftValue.replace(',', '.'))
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
       setError('Bitte eine gueltige Menge groesser 0 eintragen.')
@@ -217,6 +267,7 @@ export default function ProductIngredientsManager({ productId, productName, prod
       await updateProductIngredient(productIngredient.id, {
         quantity: parsedQuantity,
         displayNameOverride: displayNameOverrideDraft.trim() || null,
+        ...visibility,
       })
       await loadData()
     } catch (updateError) {
@@ -414,6 +465,18 @@ export default function ProductIngredientsManager({ productId, productName, prod
                   placeholder="leer = normaler Zutatenname"
                 />
               </div>
+              <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/40 p-2">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-900/70">
+                  Sichtbarkeit
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs text-rose-900/85 md:grid-cols-5">
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={newVisibility.showInCustomerApp} onChange={(e)=>setNewVisibility((c)=>({...c,showInCustomerApp:e.target.checked}))}/>App</label>
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={newVisibility.showInOrderDisplay} onChange={(e)=>setNewVisibility((c)=>({...c,showInOrderDisplay:e.target.checked}))}/>Order Display</label>
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={newVisibility.showInMenuBoard} onChange={(e)=>setNewVisibility((c)=>({...c,showInMenuBoard:e.target.checked}))}/>TV</label>
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={newVisibility.showInOrderDesk} onChange={(e)=>setNewVisibility((c)=>({...c,showInOrderDesk:e.target.checked}))}/>Küche</label>
+                  <label className="flex items-center gap-1"><input type="checkbox" checked={newVisibility.showInCashierDisplay} onChange={(e)=>setNewVisibility((c)=>({...c,showInCashierDisplay:e.target.checked}))}/>Kasse</label>
+                </div>
+              </div>
               <PrimaryButton
                 type="submit"
                 disabled={savingIngredient || !ingredientId || !resolvedProductId}
@@ -462,6 +525,9 @@ export default function ProductIngredientsManager({ productId, productName, prod
                 Alternativer Anzeigetext
               </th>
               <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                Sichtbarkeit
+              </th>
+              <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
                 Einkauf / Pfand
               </th>
               <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
@@ -475,13 +541,13 @@ export default function ProductIngredientsManager({ productId, productName, prod
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={7}>
+                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={8}>
                   Lade Produkt-Zutaten...
                 </td>
               </tr>
             ) : productIngredients.length === 0 ? (
               <tr>
-                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={7}>
+                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={8}>
                   Noch keine Zutaten zugeordnet.
                 </td>
               </tr>
@@ -542,6 +608,15 @@ export default function ProductIngredientsManager({ productId, productName, prod
                         }
                         placeholder="leer = normaler Zutatenname"
                       />
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="grid grid-cols-2 gap-1 text-xs text-rose-900/85">
+                        <label className="flex items-center gap-1"><input type="checkbox" checked={(visibilityDrafts[item.id]?.showInCustomerApp ?? item.showInCustomerApp)} onChange={(e)=>setVisibilityDrafts((current)=>({ ...current,[item.id]:{...(current[item.id] || {showInCustomerApp:item.showInCustomerApp,showInOrderDisplay:item.showInOrderDisplay,showInMenuBoard:item.showInMenuBoard,showInOrderDesk:item.showInOrderDesk,showInCashierDisplay:item.showInCashierDisplay}),showInCustomerApp:e.target.checked,},}))}/>App</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" checked={(visibilityDrafts[item.id]?.showInOrderDisplay ?? item.showInOrderDisplay)} onChange={(e)=>setVisibilityDrafts((current)=>({ ...current,[item.id]:{...(current[item.id] || {showInCustomerApp:item.showInCustomerApp,showInOrderDisplay:item.showInOrderDisplay,showInMenuBoard:item.showInMenuBoard,showInOrderDesk:item.showInOrderDesk,showInCashierDisplay:item.showInCashierDisplay}),showInOrderDisplay:e.target.checked,},}))}/>Order Display</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" checked={(visibilityDrafts[item.id]?.showInMenuBoard ?? item.showInMenuBoard)} onChange={(e)=>setVisibilityDrafts((current)=>({ ...current,[item.id]:{...(current[item.id] || {showInCustomerApp:item.showInCustomerApp,showInOrderDisplay:item.showInOrderDisplay,showInMenuBoard:item.showInMenuBoard,showInOrderDesk:item.showInOrderDesk,showInCashierDisplay:item.showInCashierDisplay}),showInMenuBoard:e.target.checked,},}))}/>TV</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" checked={(visibilityDrafts[item.id]?.showInOrderDesk ?? item.showInOrderDesk)} onChange={(e)=>setVisibilityDrafts((current)=>({ ...current,[item.id]:{...(current[item.id] || {showInCustomerApp:item.showInCustomerApp,showInOrderDisplay:item.showInOrderDisplay,showInMenuBoard:item.showInMenuBoard,showInOrderDesk:item.showInOrderDesk,showInCashierDisplay:item.showInCashierDisplay}),showInOrderDesk:e.target.checked,},}))}/>Küche</label>
+                        <label className="flex items-center gap-1"><input type="checkbox" checked={(visibilityDrafts[item.id]?.showInCashierDisplay ?? item.showInCashierDisplay)} onChange={(e)=>setVisibilityDrafts((current)=>({ ...current,[item.id]:{...(current[item.id] || {showInCustomerApp:item.showInCustomerApp,showInOrderDisplay:item.showInOrderDisplay,showInMenuBoard:item.showInMenuBoard,showInOrderDesk:item.showInOrderDesk,showInCashierDisplay:item.showInCashierDisplay}),showInCashierDisplay:e.target.checked,},}))}/>Kasse</label>
+                      </div>
                     </td>
                     <td className="px-3 py-3 text-sm text-rose-900/85">
                       <p>EK {item.ingredient.purchasePrice} EUR</p>
