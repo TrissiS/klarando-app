@@ -1926,13 +1926,20 @@ export async function updateBusinessSettings(
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
   if (typeof window !== 'undefined') {
+    const polygonPath = Array.isArray(settings.deliveryArea?.polygonPath)
+      ? settings.deliveryArea.polygonPath
+      : []
     console.info('BUSINESS_SETTINGS_SAVE_PAYLOAD', {
       tenantId,
       strategy: settings.deliveryArea?.strategy ?? null,
       deliveryAreaEnabled: settings.deliveryArea?.enabled ?? null,
-      polygonPoints: Array.isArray(settings.deliveryArea?.polygonPath)
-        ? settings.deliveryArea.polygonPath.length
-        : null,
+      polygonPoints: polygonPath.length,
+      polygonSample: polygonPath.slice(0, 3),
+      polygonAllNumeric: polygonPath.every(
+        (point) => typeof point?.lat === 'number' && typeof point?.lng === 'number'
+      ),
+      hasDeliveryAreaPolygon: false,
+      hasServiceAreaPolygon: false,
       deliveryAreaKeys:
         settings.deliveryArea && typeof settings.deliveryArea === 'object'
           ? Object.keys(settings.deliveryArea as Record<string, unknown>)

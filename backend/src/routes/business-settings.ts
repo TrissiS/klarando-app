@@ -486,7 +486,34 @@ router.get('/', requirePermission(PermissionKey.SETTINGS_READ), async (req, res)
 router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
   try {
     const tenantIdInput = req.body.tenantId as string | undefined
-    const settingsInput = req.body.settings as unknown
+    const settingsInputRaw = req.body.settings as unknown
+    const settingsInput =
+      settingsInputRaw && typeof settingsInputRaw === 'object'
+        ? { ...(settingsInputRaw as Record<string, unknown>) }
+        : settingsInputRaw
+    const bodyDeliveryAreaPolygon = req.body?.deliveryAreaPolygon
+    const bodyServiceAreaPolygon = req.body?.serviceAreaPolygon
+    if (
+      settingsInput &&
+      typeof settingsInput === 'object' &&
+      (Array.isArray(bodyDeliveryAreaPolygon) || Array.isArray(bodyServiceAreaPolygon))
+    ) {
+      const sourcePolygon = Array.isArray(bodyDeliveryAreaPolygon)
+        ? bodyDeliveryAreaPolygon
+        : bodyServiceAreaPolygon
+      const currentDeliveryArea =
+        (settingsInput as { deliveryArea?: unknown }).deliveryArea &&
+        typeof (settingsInput as { deliveryArea?: unknown }).deliveryArea === 'object'
+          ? ((settingsInput as { deliveryArea: Record<string, unknown> }).deliveryArea as Record<
+              string,
+              unknown
+            >)
+          : {}
+      ;(settingsInput as Record<string, unknown>).deliveryArea = {
+        ...currentDeliveryArea,
+        polygonPath: sourcePolygon,
+      }
+    }
     const deliveryAreaInput =
       settingsInput && typeof settingsInput === 'object'
         ? (settingsInput as { deliveryArea?: unknown }).deliveryArea
@@ -565,6 +592,33 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
     })
     const polygonValidationError = validatePolygonSettings(normalizedSettings.deliveryArea)
     if (polygonValidationError) {
+      console.warn('BUSINESS_SETTINGS_POLYGON_VALIDATION_ERROR', {
+        tenantId,
+        error: polygonValidationError,
+        requestBodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : [],
+        settingsKeys:
+          settingsInput && typeof settingsInput === 'object'
+            ? Object.keys(settingsInput as Record<string, unknown>)
+            : [],
+        deliveryAreaKeys:
+          deliveryAreaInput && typeof deliveryAreaInput === 'object'
+            ? Object.keys(deliveryAreaInput as Record<string, unknown>)
+            : [],
+        rawPolygonPathLength:
+          deliveryAreaInput &&
+          typeof deliveryAreaInput === 'object' &&
+          Array.isArray((deliveryAreaInput as { polygonPath?: unknown }).polygonPath)
+            ? (deliveryAreaInput as { polygonPath: unknown[] }).polygonPath.length
+            : null,
+        rawPolygonPointsLength:
+          deliveryAreaInput &&
+          typeof deliveryAreaInput === 'object' &&
+          Array.isArray((deliveryAreaInput as { polygonPoints?: unknown }).polygonPoints)
+            ? (deliveryAreaInput as { polygonPoints: unknown[] }).polygonPoints.length
+            : null,
+        normalizedPolygonLength: normalizedSettings.deliveryArea.polygonPath.length,
+        normalizedPolygonSample: normalizedSettings.deliveryArea.polygonPath.slice(0, 3),
+      })
       return res.status(400).json({
         error: polygonValidationError,
       })

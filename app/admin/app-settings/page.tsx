@@ -13,6 +13,39 @@ function confirmDoubleSave() {
   return window.confirm('Zweite Bestätigung: Änderungen jetzt speichern?')
 }
 
+function normalizePolygonPath(points: Array<{ lat: number; lng: number }> | undefined) {
+  const source = Array.isArray(points) ? points : []
+  const normalized = source
+    .filter(
+      (point) =>
+        Number.isFinite(point?.lat) &&
+        Number.isFinite(point?.lng) &&
+        point.lat >= -90 &&
+        point.lat <= 90 &&
+        point.lng >= -180 &&
+        point.lng <= 180
+    )
+    .map((point) => ({
+      lat: Number(point.lat.toFixed(6)),
+      lng: Number(point.lng.toFixed(6)),
+    }))
+    .filter((point, index, arr) => {
+      if (index === 0) return true
+      const prev = arr[index - 1]
+      return prev.lat !== point.lat || prev.lng !== point.lng
+    })
+
+  if (normalized.length >= 2) {
+    const first = normalized[0]
+    const last = normalized[normalized.length - 1]
+    if (first.lat === last.lat && first.lng === last.lng) {
+      normalized.pop()
+    }
+  }
+
+  return normalized.slice(0, 200)
+}
+
 export default function AdminAppSettingsPage() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null)
   const [loading, setLoading] = useState(true)
@@ -57,10 +90,18 @@ export default function AdminAppSettingsPage() {
       return
     }
 
-    const polygonPoints = settings.deliveryArea.polygonPath?.length ?? 0
+    const normalizedPolygonPath = normalizePolygonPath(settings.deliveryArea.polygonPath)
+    const settingsToSave: BusinessSettings = {
+      ...settings,
+      deliveryArea: {
+        ...settings.deliveryArea,
+        polygonPath: normalizedPolygonPath,
+      },
+    }
+    const polygonPoints = normalizedPolygonPath.length
     if (
-      settings.deliveryArea.enabled &&
-      settings.deliveryArea.strategy === 'POLYGON' &&
+      settingsToSave.deliveryArea.enabled &&
+      settingsToSave.deliveryArea.strategy === 'POLYGON' &&
       polygonPoints < 3
     ) {
       setError('Polygon ist ungültig: mindestens 3 Punkte erforderlich.')
@@ -71,7 +112,7 @@ export default function AdminAppSettingsPage() {
       setSaving(true)
       setError('')
       setSuccess('')
-      const saved = await updateBusinessSettings(settings)
+      const saved = await updateBusinessSettings(settingsToSave)
       setSettings(saved)
       setSuccess('App-Einstellungen gespeichert.')
       setPolygonDebug({
