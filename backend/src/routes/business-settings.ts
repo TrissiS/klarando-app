@@ -278,6 +278,11 @@ function validatePolygonSettings(area: BusinessSettings['deliveryArea']) {
   return null
 }
 
+function countRawPolygonPoints(value: unknown) {
+  if (!Array.isArray(value)) return 0
+  return value.length
+}
+
 router.post(
   '/upload-image',
   requirePermission(PermissionKey.SETTINGS_WRITE),
@@ -599,6 +604,19 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
           : requestedSettings
 
     const normalizedSettings = mirrorPickupAreaFromDelivery(settings)
+    const rawPolygonPathLength =
+      deliveryAreaInput &&
+      typeof deliveryAreaInput === 'object' &&
+      Array.isArray((deliveryAreaInput as { polygonPath?: unknown }).polygonPath)
+        ? countRawPolygonPoints((deliveryAreaInput as { polygonPath: unknown[] }).polygonPath)
+        : 0
+    const rawPolygonPointsLength =
+      deliveryAreaInput &&
+      typeof deliveryAreaInput === 'object' &&
+      Array.isArray((deliveryAreaInput as { polygonPoints?: unknown }).polygonPoints)
+        ? countRawPolygonPoints((deliveryAreaInput as { polygonPoints: unknown[] }).polygonPoints)
+        : 0
+    const rawPolygonInputLength = Math.max(rawPolygonPathLength, rawPolygonPointsLength)
     console.info('BUSINESS_SETTINGS_DELIVERY_SAVE_ATTEMPT', {
       tenantId,
       strategy: normalizedSettings.deliveryArea.strategy,
@@ -607,9 +625,17 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
     })
     const polygonValidationError = validatePolygonSettings(normalizedSettings.deliveryArea)
     if (polygonValidationError) {
+      const normalizedPolygonLength = normalizedSettings.deliveryArea.polygonPath.length
+      const strategy = normalizedSettings.deliveryArea.strategy
+      const hasReadableRawPolygon = rawPolygonInputLength >= 3
+      const likelyFieldMappingIssue =
+        strategy === 'POLYGON' && hasReadableRawPolygon && normalizedPolygonLength < 3
+      const improvedError = likelyFieldMappingIssue
+        ? 'Polygon konnte nicht normalisiert werden. Bitte Punkte als lat/lng oder latitude/longitude (Zahlen) senden.'
+        : polygonValidationError
       console.warn('BUSINESS_SETTINGS_POLYGON_VALIDATION_ERROR', {
         tenantId,
-        error: polygonValidationError,
+        error: improvedError,
         requestBodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : [],
         settingsKeys:
           settingsInput && typeof settingsInput === 'object'
@@ -619,18 +645,9 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
           deliveryAreaInput && typeof deliveryAreaInput === 'object'
             ? Object.keys(deliveryAreaInput as Record<string, unknown>)
             : [],
-        rawPolygonPathLength:
-          deliveryAreaInput &&
-          typeof deliveryAreaInput === 'object' &&
-          Array.isArray((deliveryAreaInput as { polygonPath?: unknown }).polygonPath)
-            ? (deliveryAreaInput as { polygonPath: unknown[] }).polygonPath.length
-            : null,
-        rawPolygonPointsLength:
-          deliveryAreaInput &&
-          typeof deliveryAreaInput === 'object' &&
-          Array.isArray((deliveryAreaInput as { polygonPoints?: unknown }).polygonPoints)
-            ? (deliveryAreaInput as { polygonPoints: unknown[] }).polygonPoints.length
-            : null,
+        rawPolygonPathLength,
+        rawPolygonPointsLength,
+        rawPolygonInputLength,
         rawPolygonPathSample:
           deliveryAreaInput &&
           typeof deliveryAreaInput === 'object' &&
@@ -647,7 +664,7 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
         normalizedPolygonSample: normalizedSettings.deliveryArea.polygonPath.slice(0, 3),
       })
       return res.status(400).json({
-        error: polygonValidationError,
+        error: improvedError,
       })
     }
 
