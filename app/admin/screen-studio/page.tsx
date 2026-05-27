@@ -110,6 +110,12 @@ function applyDistributionMetaToNotes(
     displayCount: number
     strategy: 'split-products' | 'duplicate-all' | 'category-based'
     displayGroupId?: string | null
+  },
+  settings?: {
+    rotationEnabled?: boolean
+    targetProductsPerScreen?: number | null
+    layoutMode?: 'AUTO' | 'STANDARD' | 'COMPACT' | 'ULTRA_COMPACT'
+    depositDisplayMode?: 'INCLUDED' | 'EXTRA'
   }
 ) {
   const raw = notes || ''
@@ -133,6 +139,18 @@ function applyDistributionMetaToNotes(
       strategy: distribution.strategy,
       displayGroupId: distribution.displayGroupId || null,
     },
+    settings: {
+      ...(typeof currentMeta.settings === 'object' && currentMeta.settings
+        ? (currentMeta.settings as Record<string, unknown>)
+        : {}),
+      rotationEnabled: settings?.rotationEnabled ?? true,
+      targetProductsPerScreen:
+        typeof settings?.targetProductsPerScreen === 'number' && settings.targetProductsPerScreen > 0
+          ? Math.max(10, Math.min(60, Math.trunc(settings.targetProductsPerScreen)))
+          : null,
+      layoutMode: settings?.layoutMode || 'AUTO',
+      depositDisplayMode: settings?.depositDisplayMode || 'INCLUDED',
+    },
   }
 
   const metaLine = `${DISPLAY_META_PREFIX}${JSON.stringify(nextMeta)}`
@@ -145,6 +163,17 @@ function applyDistributionMetaToNotes(
     return metaLine
   }
   return `${metaLine}\n${raw}`
+}
+
+function parseDisplayMetaFromNotes(notes: string | null | undefined) {
+  const raw = notes || ''
+  const firstLine = raw.split('\n')[0]?.trim() || ''
+  if (!firstLine.startsWith(DISPLAY_META_PREFIX)) return null
+  try {
+    return JSON.parse(firstLine.slice(DISPLAY_META_PREFIX.length).trim()) as Record<string, unknown>
+  } catch {
+    return null
+  }
 }
 
 function inferTemplateFromConfig(config: ScreenConfig): DisplayTemplate {
@@ -341,6 +370,10 @@ export default function AdminScreenStudioPage() {
   const [creatingLayout, setCreatingLayout] = useState(false)
   const [menuRotationSeconds, setMenuRotationSeconds] = useState(50)
   const [promoRotationSeconds, setPromoRotationSeconds] = useState(10)
+  const [rotationEnabled, setRotationEnabled] = useState(true)
+  const [targetProductsPerScreen, setTargetProductsPerScreen] = useState<number | 'AUTO'>('AUTO')
+  const [layoutMode, setLayoutMode] = useState<'AUTO' | 'STANDARD' | 'COMPACT' | 'ULTRA_COMPACT'>('AUTO')
+  const [depositDisplayMode, setDepositDisplayMode] = useState<'INCLUDED' | 'EXTRA'>('INCLUDED')
   const [previewDisplayIndex, setPreviewDisplayIndex] = useState(1)
   const [manifestDebugOpen, setManifestDebugOpen] = useState(false)
 
@@ -415,6 +448,30 @@ export default function AdminScreenStudioPage() {
         setFontSizeMode(config.productFontSize >= 32 ? 'GROSS' : config.productFontSize <= 22 ? 'KLEIN' : 'MITTEL')
         setCardDensity(config.cardPadding <= 12 ? 'KOMPAKT' : config.cardPadding >= 22 ? 'GROSS' : 'KOMFORT')
         setSelectedDisplayTemplate(inferTemplateFromConfig(config))
+        const displayDevices = await getScreenDevices()
+        const firstDeviceMeta = parseDisplayMetaFromNotes(displayDevices[0]?.notes)
+        if (firstDeviceMeta && typeof firstDeviceMeta === 'object') {
+          const settings = (firstDeviceMeta.settings ?? {}) as Record<string, unknown>
+          if (typeof settings.rotationEnabled === 'boolean') setRotationEnabled(settings.rotationEnabled)
+          if (
+            typeof settings.targetProductsPerScreen === 'number' &&
+            settings.targetProductsPerScreen >= 10 &&
+            settings.targetProductsPerScreen <= 60
+          ) {
+            setTargetProductsPerScreen(Math.trunc(settings.targetProductsPerScreen))
+          }
+          if (
+            settings.layoutMode === 'AUTO' ||
+            settings.layoutMode === 'STANDARD' ||
+            settings.layoutMode === 'COMPACT' ||
+            settings.layoutMode === 'ULTRA_COMPACT'
+          ) {
+            setLayoutMode(settings.layoutMode)
+          }
+          if (settings.depositDisplayMode === 'INCLUDED' || settings.depositDisplayMode === 'EXTRA') {
+            setDepositDisplayMode(settings.depositDisplayMode)
+          }
+        }
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : 'Screen Studio konnte nicht geladen werden.')
       } finally {
@@ -499,11 +556,15 @@ export default function AdminScreenStudioPage() {
         priceFontSize,
         pixelPadding,
         enableAnimations,
+        rotationEnabled,
         showCategoryOnCard,
         showCategoryHeaders,
         showIngredients,
         highlightPrice,
         targetWallDisplays,
+        targetProductsPerScreen,
+        layoutMode,
+        depositDisplayMode,
         expertMode,
       },
       branding: {
@@ -530,6 +591,7 @@ export default function AdminScreenStudioPage() {
       sync: {
         menuRotationSeconds,
         promoRotationSeconds,
+        rotationEnabled,
       },
       devices: {
         selectedScreenId: selectedDesignScreenId,
@@ -549,11 +611,15 @@ export default function AdminScreenStudioPage() {
       priceFontSize,
       pixelPadding,
       enableAnimations,
+      rotationEnabled,
       showCategoryOnCard,
       showCategoryHeaders,
       showIngredients,
       highlightPrice,
       targetWallDisplays,
+      targetProductsPerScreen,
+      layoutMode,
+      depositDisplayMode,
       expertMode,
       primaryColor,
       accentColor,
@@ -572,6 +638,7 @@ export default function AdminScreenStudioPage() {
       manifestDebugOpen,
       menuRotationSeconds,
       promoRotationSeconds,
+      rotationEnabled,
     ]
   )
 
@@ -858,18 +925,22 @@ export default function AdminScreenStudioPage() {
           wallDisplayCount: Math.max(1, Math.min(8, targetWallDisplays)),
         },
       })
-      await createAdminDisplayPlaylistItem(token, playlist.id, {
-        tenantId,
-        type: 'PROMOTION',
-        sortOrder: 2,
-        durationSeconds: Math.max(5, Math.min(60, promoRotationSeconds)),
-        config: {
-          title: 'Angebote',
-          text: 'Unsere Highlights & Aktionen',
-        },
-      })
+      if (rotationEnabled) {
+        await createAdminDisplayPlaylistItem(token, playlist.id, {
+          tenantId,
+          type: 'PROMOTION',
+          sortOrder: 2,
+          durationSeconds: Math.max(5, Math.min(60, promoRotationSeconds)),
+          config: {
+            title: 'Angebote',
+            text: 'Unsere Highlights & Aktionen',
+          },
+        })
+      }
       setSuccess(
-        `Auto-Rotation aktiviert: ${menuRotationSeconds}s Speisekarte + ${promoRotationSeconds}s Promo · Verteilung auf ${targetWallDisplays} Display(s).`
+        rotationEnabled
+          ? `Rotation aktiv: ${menuRotationSeconds}s Speisekarte + ${promoRotationSeconds}s Promo · Verteilung auf ${targetWallDisplays} Display(s).`
+          : `Rotation deaktiviert: Es wird nur das Menüboard angezeigt · Verteilung auf ${targetWallDisplays} Display(s).`
       )
     } catch (rotationError) {
       setError(
@@ -991,6 +1062,12 @@ export default function AdminScreenStudioPage() {
               displayCount: targetWallDisplays,
               strategy: 'split-products',
               displayGroupId: `tenant-${session?.tenantId || 'default'}`,
+            }, {
+              rotationEnabled,
+              targetProductsPerScreen:
+                typeof targetProductsPerScreen === 'number' ? targetProductsPerScreen : null,
+              layoutMode,
+              depositDisplayMode,
             }),
           })
         )
@@ -1374,6 +1451,16 @@ export default function AdminScreenStudioPage() {
                 Hier stellst du die Rotation ein: Speisekarte ↔ Promo (z. B. alle 60 Sekunden).
               </p>
               <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                <Field label="Rotation aktiv">
+                  <select
+                    value={rotationEnabled ? 'JA' : 'NEIN'}
+                    onChange={(e) => setRotationEnabled(e.target.value === 'JA')}
+                    className="input-ui"
+                  >
+                    <option value="JA">Ja</option>
+                    <option value="NEIN">Nein (nur Menüboard)</option>
+                  </select>
+                </Field>
                 <Field label="Speisekarte (Sek.)">
                   <input
                     type="number"
@@ -1387,6 +1474,7 @@ export default function AdminScreenStudioPage() {
                     type="number"
                     value={promoRotationSeconds}
                     onChange={(e) => setPromoRotationSeconds(Number(e.target.value) || 10)}
+                    disabled={!rotationEnabled}
                     className="input-ui"
                   />
                 </Field>
@@ -1397,10 +1485,13 @@ export default function AdminScreenStudioPage() {
                     disabled={savingRotation || !selectedDesignScreenId}
                     className="w-full rounded-xl bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-60"
                   >
-                    {savingRotation ? 'Aktiviert…' : 'Rotation aktivieren'}
+                    {savingRotation ? 'Speichert…' : rotationEnabled ? 'Rotation aktivieren' : 'Nur Menü speichern'}
                   </button>
                 </div>
               </div>
+              <p className="mt-2 text-xs font-semibold text-emerald-900">
+                {rotationEnabled ? 'Status: Rotation aktiv' : 'Status: Rotation deaktiviert (keine Promo-Rotation)'}
+              </p>
             </div>
             ) : null}
             {activeTab === 'BRANDING' ? (
@@ -1800,6 +1891,41 @@ export default function AdminScreenStudioPage() {
                   <option value="8">8 Displays</option>
                 </select>
                 <p className="mt-1 text-xs text-slate-500">Wird in der Auto-Rotation für Wand-Setups genutzt.</p>
+              </Field>
+              <Field label="Ziel: Anzahl Produkte pro Bildschirm">
+                <select
+                  value={String(targetProductsPerScreen)}
+                  onChange={(e) =>
+                    setTargetProductsPerScreen(e.target.value === 'AUTO' ? 'AUTO' : Number(e.target.value))
+                  }
+                  className="input-ui"
+                >
+                  <option value="AUTO">Auto</option>
+                  <option value="10">10</option>
+                  <option value="20">20</option>
+                  <option value="30">30</option>
+                  <option value="40">40</option>
+                  <option value="50">50</option>
+                  <option value="60">60</option>
+                </select>
+              </Field>
+              <Field label="Layout-Modus">
+                <select value={layoutMode} onChange={(e) => setLayoutMode(e.target.value as typeof layoutMode)} className="input-ui">
+                  <option value="AUTO">Automatisch</option>
+                  <option value="STANDARD">Standard</option>
+                  <option value="COMPACT">Kompakt</option>
+                  <option value="ULTRA_COMPACT">Ultra-Kompakt (bis 60)</option>
+                </select>
+              </Field>
+              <Field label="Pfandanzeige">
+                <select
+                  value={depositDisplayMode}
+                  onChange={(e) => setDepositDisplayMode(e.target.value as typeof depositDisplayMode)}
+                  className="input-ui"
+                >
+                  <option value="INCLUDED">Preis inkl. Pfand</option>
+                  <option value="EXTRA">Preis zzgl. Pfand</option>
+                </select>
               </Field>
               <Field label="Expertenmodus">
                 <select value={expertMode ? 'AKTIV' : 'INAKTIV'} onChange={(e) => setExpertMode(e.target.value === 'AKTIV')} className="input-ui">
