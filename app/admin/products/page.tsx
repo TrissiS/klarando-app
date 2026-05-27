@@ -13,6 +13,7 @@ import {
   createProductIngredient,
   createProductModifier,
   createProduct,
+  getCalculationList,
   deleteCategory,
   deleteIngredient,
   deleteProduct,
@@ -33,6 +34,7 @@ import {
   type UnitEanEntry,
   type BusinessTemplateDetail,
   type BusinessTemplateOverview,
+  type ProductCalculation,
 } from '@/lib/api'
 
 type ProductTab = 'products' | 'categories' | 'ingredients' | 'modifiers' | 'pricing'
@@ -181,6 +183,8 @@ function AdminProductsPageContent() {
   const [pricingCategoryFilter, setPricingCategoryFilter] = useState('ALL')
   const [draftPrices, setDraftPrices] = useState<Record<string, string>>({})
   const [savingPriceIds, setSavingPriceIds] = useState<Set<string>>(new Set())
+  const [calculationRows, setCalculationRows] = useState<ProductCalculation[]>([])
+  const [loadingCalculation, setLoadingCalculation] = useState(false)
   const [modifierWorkspaceProductId, setModifierWorkspaceProductId] = useState('')
 
   const [loadingCore, setLoadingCore] = useState(true)
@@ -238,6 +242,18 @@ function AdminProductsPageContent() {
       setError(loadError instanceof Error ? loadError.message : 'Zutaten konnten nicht geladen werden')
     } finally {
       setLoadingIngredients(false)
+    }
+  }
+
+  async function loadCalculationData() {
+    try {
+      setLoadingCalculation(true)
+      const rows = await getCalculationList()
+      setCalculationRows(rows)
+    } catch {
+      setCalculationRows([])
+    } finally {
+      setLoadingCalculation(false)
     }
   }
 
@@ -300,6 +316,9 @@ function AdminProductsPageContent() {
   useEffect(() => {
     if (activeTab === 'ingredients') {
       void loadIngredientsData()
+    }
+    if (activeTab === 'pricing') {
+      void loadCalculationData()
     }
   }, [activeTab])
 
@@ -896,6 +915,10 @@ function AdminProductsPageContent() {
         .map((product) => product.id),
     [filteredPricingProducts, draftPrices]
   )
+  const calculationByProductId = useMemo(
+    () => new Map(calculationRows.map((row) => [row.productId, row])),
+    [calculationRows]
+  )
 
   async function saveProductPrice(product: Product) {
     const raw = draftPrices[product.id]
@@ -917,6 +940,7 @@ function AdminProductsPageContent() {
       })
       setSuccess(`Preis fuer ${product.name} gespeichert.`)
       await refreshProductsOnly()
+      await loadCalculationData()
       if (ingredientsLoaded) {
         await loadIngredientsData(true)
       }
@@ -960,6 +984,7 @@ function AdminProductsPageContent() {
 
       setSuccess(`${dirtyProducts.length} Preise gespeichert.`)
       await refreshProductsOnly()
+      await loadCalculationData()
       if (ingredientsLoaded) {
         await loadIngredientsData(true)
       }
@@ -1361,7 +1386,7 @@ function AdminProductsPageContent() {
           </div>
 
           <div className="mt-4 max-w-full overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
-            <table className="w-full min-w-[920px] border-collapse">
+            <table className="w-full min-w-[1320px] border-collapse">
               <thead>
                 <tr>
                   <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
@@ -1371,10 +1396,28 @@ function AdminProductsPageContent() {
                     Kategorie
                   </th>
                   <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
-                    Preis aktuell
+                    VK Brutto
                   </th>
                   <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
-                    Neuer Preis
+                    VK Netto
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Wareneinsatz
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    MwSt.
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Pfand
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Marge
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Aufschlag
+                  </th>
+                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                    Neuer VK Brutto
                   </th>
                   <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
                     Aktion
@@ -1384,22 +1427,32 @@ function AdminProductsPageContent() {
               <tbody>
                 {loadingCore ? (
                   <tr>
-                    <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={5}>
+                    <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={10}>
                       Lade Produkte...
                     </td>
                   </tr>
                 ) : filteredPricingProducts.length === 0 ? (
                   <tr>
-                    <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={5}>
+                    <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={10}>
                       Keine Produkte gefunden.
                     </td>
                   </tr>
                 ) : (
                   filteredPricingProducts.map((product) => {
+                    const calculation = calculationByProductId.get(product.id)
                     const currentPrice = String(Number(product.price).toFixed(2))
                     const nextPrice = draftPrices[product.id] ?? currentPrice
                     const isDirty = nextPrice !== currentPrice
                     const isSaving = savingPriceIds.has(product.id)
+                    const vatRateValue = Number(product.vatRate || 0)
+                    const vatFactor = 1 + vatRateValue / 100
+                    const currentPriceNumber = Number(product.price || 0)
+                    const netPrice = vatFactor > 0 ? currentPriceNumber / vatFactor : currentPriceNumber
+                    const purchaseCost = Number(calculation?.totalCost ?? 0)
+                    const marginEur = currentPriceNumber - purchaseCost
+                    const marginPercent = currentPriceNumber > 0 ? (marginEur / currentPriceNumber) * 100 : 0
+                    const markupPercent = purchaseCost > 0 ? (marginEur / purchaseCost) * 100 : 0
+                    const depositValue = Number(product.deposit || 0)
 
                     return (
                       <tr key={product.id}>
@@ -1412,6 +1465,24 @@ function AdminProductsPageContent() {
                         </td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
                           {currentPrice} EUR
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {netPrice.toFixed(2)} EUR
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {loadingCalculation ? '...' : `${purchaseCost.toFixed(2)} EUR`}
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {vatRateValue.toFixed(2)} %
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {depositValue > 0 ? `${depositValue.toFixed(2)} EUR` : '-'}
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {marginEur.toFixed(2)} EUR ({marginPercent.toFixed(1)} %)
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
+                          {Number.isFinite(markupPercent) ? `${markupPercent.toFixed(1)} %` : '-'}
                         </td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">
                           <input

@@ -579,6 +579,9 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     }
 
     if ([...itemQuery.keys()].length === 0) {
+      if (itemPath === '/admin/products' && searchParams.has('tab')) {
+        return false
+      }
       return true
     }
 
@@ -1093,7 +1096,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
             </div>
           ) : null}
 
-          <div className={`relative z-10 ${pageSpacingClass} pb-20`}>
+          <div className={`relative z-10 ${pageSpacingClass} pb-8`}>
             {!authChecked ? (
               <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
                 Sitzung wird geprüft...
@@ -1125,7 +1128,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
               </section>
             )}
           </div>
-          <footer className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--brand-border)] bg-white/95 px-4 py-3 backdrop-blur">
+          <footer className="mt-8 border-t border-[var(--brand-border)] bg-white px-4 py-3">
             <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 text-xs text-rose-900/70">
               <Link href="/impressum" className="hover:text-rose-900">Impressum</Link>
               <Link href="/datenschutz" className="hover:text-rose-900">Datenschutz</Link>
