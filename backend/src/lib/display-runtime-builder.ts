@@ -111,6 +111,10 @@ type RuntimeShape = {
     isSoldOut: boolean
     estimatedPrepTime: number | null
     popularityRank: number | null
+    depositAmount: number
+    depositIncludedInPrice: boolean
+    displayPrice: number
+    depositNotice: string | null
   }>
   liveStats: LiveStatsSummary
   distribution: {
@@ -398,6 +402,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               imageUrl: true,
               categoryId: true,
               price: true,
+              deposit: true,
               category: { select: { name: true } },
               ingredients: {
                 include: {
@@ -423,6 +428,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
               imageUrl: true,
               categoryId: true,
               price: true,
+              deposit: true,
               category: { select: { id: true, name: true } },
               ingredients: {
                 include: {
@@ -559,6 +565,21 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       }
     })
     const distributionMeta = meta.distribution || null
+    const settingsMeta = meta.settings || null
+    const rotationEnabled = settingsMeta?.rotationEnabled !== false
+    const layoutMode =
+      settingsMeta?.layoutMode === 'STANDARD' ||
+      settingsMeta?.layoutMode === 'COMPACT' ||
+      settingsMeta?.layoutMode === 'ULTRA_COMPACT'
+        ? settingsMeta.layoutMode
+        : 'AUTO'
+    const targetProductsPerScreen =
+      typeof settingsMeta?.targetProductsPerScreen === 'number' &&
+      settingsMeta.targetProductsPerScreen >= 10 &&
+      settingsMeta.targetProductsPerScreen <= 60
+        ? Math.trunc(settingsMeta.targetProductsPerScreen)
+        : null
+    const depositDisplayMode = settingsMeta?.depositDisplayMode === 'EXTRA' ? 'EXTRA' : 'INCLUDED'
     const displayGroupId = asString(distributionMeta?.displayGroupId, `tenant-${screenDevice.tenantId}`)
     const distributionStrategy =
       distributionMeta?.strategy === 'duplicate-all' || distributionMeta?.strategy === 'category-based'
@@ -571,7 +592,10 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     const sortedDeviceCodes = siblingDevices.map((entry) => entry.deviceCode).sort((a, b) => a.localeCompare(b))
     const currentDisplayIndex = Math.max(1, sortedDeviceCodes.indexOf(screenDevice.deviceCode) + 1)
     const totalProducts = products.length
-    const productsPerDisplay = Math.max(1, Math.ceil(totalProducts / Math.max(1, displayCount)))
+    const calculatedProductsPerDisplay = Math.max(1, Math.ceil(totalProducts / Math.max(1, displayCount)))
+    const productsPerDisplay = targetProductsPerScreen
+      ? Math.max(1, Math.min(60, targetProductsPerScreen))
+      : calculatedProductsPerDisplay
     const totalPages = Math.max(1, Math.ceil(totalProducts / productsPerDisplay))
     const pageNumber = Math.min(Math.max(1, currentDisplayIndex), totalPages)
     const distributedProducts =
@@ -680,6 +704,10 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         showCategoryHeaders,
         showIngredients:
           screenDevice.showAllergensOverride ?? asBoolean(screenSetting?.showAllergens, true),
+        rotationEnabled,
+        targetProductsPerScreen,
+        layoutMode,
+        depositDisplayMode,
         distributionDisplayCount: displayCount,
         distributionStrategy,
         offerWindowEnabled: screenDevice.offerWindowEnabledOverride ?? null,
@@ -691,6 +719,26 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       slides,
       categories: categoriesFinal,
       products: distributedProducts.map((product) => ({
+        ...(() => {
+          const basePrice = Number(product.price)
+          const safeBasePrice = Number.isFinite(basePrice) ? basePrice : 0
+          const rawDeposit = Number((product as { deposit?: unknown }).deposit ?? 0)
+          const depositAmount = Number.isFinite(rawDeposit) ? Math.max(0, rawDeposit) : 0
+          const displayPrice =
+            depositDisplayMode === 'INCLUDED'
+              ? Number((safeBasePrice + depositAmount).toFixed(2))
+              : Number(safeBasePrice.toFixed(2))
+          const depositNotice =
+            depositAmount > 0 && depositDisplayMode === 'EXTRA'
+              ? `zzgl. ${depositAmount.toFixed(2).replace('.', ',')} € Pfand`
+              : null
+          return {
+            depositAmount,
+            depositIncludedInPrice: depositDisplayMode === 'INCLUDED',
+            displayPrice,
+            depositNotice,
+          }
+        })(),
         ...(() => {
           const setting = productSettingsMap.get(product.id)
           const badgeLabel = setting?.badgeText ?? null
@@ -786,6 +834,10 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         logoUrl: asString(screenSetting?.logoUrl, businessSettings.logoUrl || '') || null,
         logoSize: asNumber(screenSetting?.logoSize, 120),
         offerMediaRotateSec: asNumber(screenSetting?.offerMediaRotateSec, 10),
+        rotationEnabled,
+        targetProductsPerScreen,
+        layoutMode,
+        depositDisplayMode,
         themePreset: asString((screenSetting as Record<string, unknown> | null)?.themePreset, 'PREMIUM_DARK'),
         tableOrderingEnabled: false,
         qrOrderingEnabled: false,

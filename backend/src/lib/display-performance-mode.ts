@@ -27,6 +27,12 @@ type DisplayMeta = {
     strategy?: 'split-products' | 'duplicate-all' | 'category-based'
     displayGroupId?: string
   } | null
+  settings?: {
+    rotationEnabled?: boolean
+    targetProductsPerScreen?: number | null
+    layoutMode?: 'AUTO' | 'STANDARD' | 'COMPACT' | 'ULTRA_COMPACT'
+    depositDisplayMode?: 'INCLUDED' | 'EXTRA'
+  } | null
 }
 
 export function parseDisplayMetaFromNotes(notes: string | null | undefined): DisplayMeta {
@@ -72,7 +78,30 @@ export function parseDisplayMetaFromNotes(notes: string | null | undefined): Dis
             : undefined,
       }
     }
-    if (normalized.performanceMode || normalized.diagnostics || normalized.distribution) {
+    if (parsed.settings && typeof parsed.settings === 'object') {
+      const settings = parsed.settings
+      const targetProductsRaw = Number(settings.targetProductsPerScreen)
+      normalized.settings = {
+        rotationEnabled:
+          typeof settings.rotationEnabled === 'boolean' ? settings.rotationEnabled : undefined,
+        targetProductsPerScreen:
+          Number.isFinite(targetProductsRaw) && targetProductsRaw >= 10 && targetProductsRaw <= 60
+            ? Math.trunc(targetProductsRaw)
+            : null,
+        layoutMode:
+          settings.layoutMode === 'AUTO' ||
+          settings.layoutMode === 'STANDARD' ||
+          settings.layoutMode === 'COMPACT' ||
+          settings.layoutMode === 'ULTRA_COMPACT'
+            ? settings.layoutMode
+            : 'AUTO',
+        depositDisplayMode:
+          settings.depositDisplayMode === 'EXTRA' || settings.depositDisplayMode === 'INCLUDED'
+            ? settings.depositDisplayMode
+            : 'INCLUDED',
+      }
+    }
+    if (normalized.performanceMode || normalized.diagnostics || normalized.distribution || normalized.settings) {
       return normalized
     }
     return {}

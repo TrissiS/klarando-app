@@ -91,6 +91,10 @@ export type DisplayManifest = {
     isSoldOut: boolean
     estimatedPrepTime: number | null
     popularityRank: number | null
+    depositAmount: number
+    depositIncludedInPrice: boolean
+    displayPrice: number
+    depositNotice: string | null
   }>
   liveStats: {
     topProductsToday: Array<{ productId: string; quantity: number }>
@@ -317,6 +321,10 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
       isSoldOut: Boolean(product.isSoldOut),
       estimatedPrepTime: product.estimatedPrepTime ?? null,
       popularityRank: product.popularityRank ?? null,
+      depositAmount: Number(product.depositAmount ?? 0),
+      depositIncludedInPrice: Boolean(product.depositIncludedInPrice),
+      displayPrice: Number(product.displayPrice ?? product.price ?? 0),
+      depositNotice: product.depositNotice ?? null,
     })),
     liveStats: runtime.liveStats,
     categories: runtime.categories,
