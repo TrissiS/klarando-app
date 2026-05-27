@@ -529,6 +529,12 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
           : requestedSettings
 
     const normalizedSettings = mirrorPickupAreaFromDelivery(settings)
+    console.info('BUSINESS_SETTINGS_DELIVERY_SAVE_ATTEMPT', {
+      tenantId,
+      strategy: normalizedSettings.deliveryArea.strategy,
+      enabled: normalizedSettings.deliveryArea.enabled,
+      polygonPoints: normalizedSettings.deliveryArea.polygonPath.length,
+    })
     const polygonValidationError = validatePolygonSettings(normalizedSettings.deliveryArea)
     if (polygonValidationError) {
       return res.status(400).json({
@@ -576,7 +582,15 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
-    console.error('UPDATE BUSINESS SETTINGS ERROR:', error)
+    console.error('UPDATE BUSINESS SETTINGS ERROR:', {
+      tenantId: req.body?.tenantId ?? null,
+      strategy: req.body?.settings?.deliveryArea?.strategy ?? null,
+      polygonPoints: Array.isArray(req.body?.settings?.deliveryArea?.polygonPath)
+        ? req.body.settings.deliveryArea.polygonPath.length
+        : null,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : null,
+    })
     return res.status(500).json({ error: 'Einstellungen konnten nicht gespeichert werden' })
   }
 })

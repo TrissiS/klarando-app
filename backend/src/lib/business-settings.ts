@@ -757,6 +757,13 @@ function sanitizeHolidayHours(value: unknown) {
 
 function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const polygonInput =
+    source.polygonPath ??
+    source.polygon ??
+    source.geoJson ??
+    source.geoJSON ??
+    source.coordinates ??
+    null
 
   return {
     enabled:
@@ -768,7 +775,7 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
     excludedZipCodes: normalizeZipCodeList(source.excludedZipCodes),
     excludedStreets: normalizeStreetList(source.excludedStreets),
     radiusKm: normalizeRadius(source.radiusKm),
-    polygonPath: normalizePolygonPath(source.polygonPath),
+    polygonPath: normalizePolygonPath(polygonInput),
     centerLatitude: normalizeCoordinate(source.centerLatitude, -90, 90),
     centerLongitude: normalizeCoordinate(source.centerLongitude, -180, 180),
     centerZipCode: normalizeZipCode(source.centerZipCode),

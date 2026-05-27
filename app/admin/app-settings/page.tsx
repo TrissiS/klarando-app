@@ -19,6 +19,13 @@ export default function AdminAppSettingsPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [polygonDebug, setPolygonDebug] = useState<{
+    saved: boolean
+    points: number
+    responseStatus: number | null
+    tenantId: string | null
+    zoneId: string | null
+  } | null>(null)
 
   useEffect(() => {
     async function loadData() {
@@ -50,6 +57,16 @@ export default function AdminAppSettingsPage() {
       return
     }
 
+    const polygonPoints = settings.deliveryArea.polygonPath?.length ?? 0
+    if (
+      settings.deliveryArea.enabled &&
+      settings.deliveryArea.strategy === 'POLYGON' &&
+      polygonPoints < 3
+    ) {
+      setError('Polygon ist ungültig: mindestens 3 Punkte erforderlich.')
+      return
+    }
+
     try {
       setSaving(true)
       setError('')
@@ -57,12 +74,26 @@ export default function AdminAppSettingsPage() {
       const saved = await updateBusinessSettings(settings)
       setSettings(saved)
       setSuccess('App-Einstellungen gespeichert.')
+      setPolygonDebug({
+        saved: true,
+        points: saved.deliveryArea.polygonPath.length,
+        responseStatus: 200,
+        tenantId: null,
+        zoneId: 'deliveryArea',
+      })
     } catch (saveError) {
       setError(
         saveError instanceof Error
           ? saveError.message
           : 'App-Einstellungen konnten nicht gespeichert werden'
       )
+      setPolygonDebug({
+        saved: false,
+        points: polygonPoints,
+        responseStatus: null,
+        tenantId: null,
+        zoneId: null,
+      })
     } finally {
       setSaving(false)
     }
@@ -81,6 +112,13 @@ export default function AdminAppSettingsPage() {
       {success ? (
         <div className="mb-4 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
           {success}
+        </div>
+      ) : null}
+      {polygonDebug ? (
+        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+          Polygon gespeichert: {polygonDebug.saved ? 'ja' : 'nein'} · Punkte: {polygonDebug.points} ·
+          API: {polygonDebug.responseStatus ?? '-'} · Zone-ID: {polygonDebug.zoneId ?? '-'} ·
+          Tenant: {polygonDebug.tenantId ?? '-'}
         </div>
       ) : null}
 
