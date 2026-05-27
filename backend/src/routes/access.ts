@@ -2667,24 +2667,52 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-    const usage = await calculateBillingUsageSnapshot({
-      tenantId: tenant.id,
-      periodStart,
-      periodEnd,
-      countOnlyPaidOrders: tenant.tenantBillingSettings?.countOnlyPaidOrders ?? true,
-      countOnlyCompletedOrders: tenant.tenantBillingSettings?.countOnlyCompletedOrders ?? true,
-      excludeCanceledOrders: tenant.tenantBillingSettings?.excludeCanceledOrders ?? true,
-    })
-
-    const activeRules = await prisma.commissionRule.findMany({
-      where: {
+    let usage = {
+      ordersTotal: 0,
+      ordersCounted: 0,
+      ordersCanceled: 0,
+      revenueGrossCents: 0,
+      revenueCountedCents: 0,
+    }
+    try {
+      usage = await calculateBillingUsageSnapshot({
         tenantId: tenant.id,
-        isActive: true,
-      },
-      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
-    })
+        periodStart,
+        periodEnd,
+        countOnlyPaidOrders: tenant.tenantBillingSettings?.countOnlyPaidOrders ?? true,
+        countOnlyCompletedOrders: tenant.tenantBillingSettings?.countOnlyCompletedOrders ?? true,
+        excludeCanceledOrders: tenant.tenantBillingSettings?.excludeCanceledOrders ?? true,
+      })
+    } catch (usageError) {
+      const usageMessage = usageError instanceof Error ? usageError.message : String(usageError)
+      console.error('ACCESS_BILLING_TENANT_ERROR', { tenantId: tenant.id, message: usageMessage, source: 'usage_snapshot' })
+    }
+
+    let activeRules: Awaited<ReturnType<typeof prisma.commissionRule.findMany>> = []
+    try {
+      activeRules = await prisma.commissionRule.findMany({
+        where: {
+          tenantId: tenant.id,
+          isActive: true,
+        },
+        orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+      })
+    } catch (rulesError) {
+      const rulesMessage = rulesError instanceof Error ? rulesError.message : String(rulesError)
+      console.error('ACCESS_BILLING_TENANT_ERROR', { tenantId: tenant.id, message: rulesMessage, source: 'commission_rules' })
+    }
+
+    const hasBillingConfig = Boolean(tenant.tenantBillingPlan || tenant.tenantBillingSettings || tenant.billingProfile)
+    const defaultMessage = hasBillingConfig ? null : 'Noch keine Abrechnungskonfiguration vorhanden.'
 
     return res.json({
+      tenantId: tenant.id,
+      billingEnabled: hasBillingConfig,
+      profile: tenant.billingProfile ?? null,
+      includedOrders: tenant.tenantBillingPlan?.includedOrders ?? 0,
+      commissionPercent: tenant.tenantBillingPlan?.commissionPercent ?? 0,
+      fixedFeePerOrder: (tenant.tenantBillingPlan?.fixedFeePerOrderCents ?? 0) / 100,
+      message: defaultMessage,
       tenant: {
         id: tenant.id,
         name: tenant.name,
@@ -2777,7 +2805,9 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
-    console.error('GET TENANT BILLING SETTINGS ERROR:', error)
+    const message = error instanceof Error ? error.message : String(error)
+    const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
+    console.error('ACCESS_BILLING_TENANT_ERROR', { tenantId, message })
     return res.status(500).json({ error: 'Abrechnung konnte nicht geladen werden' })
   }
 })

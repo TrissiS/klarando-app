@@ -5983,6 +5983,13 @@ export async function getTenantBillingConfig(
   token: string,
   tenantId: string
 ): Promise<{
+  tenantId?: string
+  billingEnabled?: boolean
+  profile?: BillingProfileData | null
+  includedOrders?: number
+  commissionPercent?: number
+  fixedFeePerOrder?: number
+  message?: string | null
   tenant: { id: string; name: string; chainId: string | null; chainName: string | null }
   plan: TenantBillingPlanSettings
   settings: TenantBillingSettingsData

@@ -216,6 +216,9 @@ export default function SuperadminFeesPage() {
     void (async () => {
       try {
         const config = await getTenantBillingConfig(token, selectedTenantId)
+        if (config.message) {
+          setInfo('Für diesen Betrieb ist noch keine Abrechnung eingerichtet.')
+        }
         setBillingForm({
           planType: config.plan.planType,
           billingPeriod: config.plan.billingPeriod,
