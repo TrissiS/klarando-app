@@ -101,8 +101,13 @@ export default function SuperadminMenuImportPage() {
   }, [editableResult])
 
   useEffect(() => {
-    const raw = localStorage.getItem('sessionUser')
-    const parsed = raw ? (JSON.parse(raw) as SessionUser) : null
+    let parsed: SessionUser | null = null
+    try {
+      const raw = localStorage.getItem('sessionUser')
+      parsed = raw ? (JSON.parse(raw) as SessionUser) : null
+    } catch {
+      parsed = null
+    }
     if (!parsed || parsed.role !== 'superadmin') {
       setSessionError('Nur Superadmin hat Zugriff auf den Menü-Import.')
       window.location.href = '/'
@@ -470,8 +475,6 @@ export default function SuperadminMenuImportPage() {
       return category.name.toLocaleLowerCase('de-DE').includes(categoryTerm)
     })
 
-  if (sessionLoading || !session) return null
-
   function getProductReviewFlags(product: MenuImportAnalysisResult['categories'][number]['products'][number]) {
     const flags: Array<{ level: 'red' | 'yellow'; text: string }> = []
     if ((product.confidence || 0) < 0.85) flags.push({ level: 'red', text: 'Bitte prüfen: Erkennung unsicher' })
@@ -527,6 +530,8 @@ export default function SuperadminMenuImportPage() {
     const prefix = `${categoryName}:`
     return editableResult.warnings.filter((warning) => warning.startsWith(prefix))
   }
+
+  if (sessionLoading || !session) return null
 
   return (
     <BackofficeLayout
