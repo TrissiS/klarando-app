@@ -435,13 +435,28 @@ function normalizePolygonPath(value: unknown) {
       return
     }
 
-    const source = entry as { lat?: unknown; lng?: unknown; type?: unknown; coordinates?: unknown }
+    const source = entry as {
+      lat?: unknown
+      lng?: unknown
+      latitude?: unknown
+      longitude?: unknown
+      type?: unknown
+      coordinates?: unknown
+    }
     if (typeof source.type === 'string' && source.type.toUpperCase() === 'POLYGON' && Array.isArray(source.coordinates)) {
       parseEntry(source.coordinates)
       return
     }
-    if (source.lat !== undefined || source.lng !== undefined) {
-      addPoint(source.lat, source.lng)
+    if (
+      source.lat !== undefined ||
+      source.lng !== undefined ||
+      source.latitude !== undefined ||
+      source.longitude !== undefined
+    ) {
+      addPoint(
+        source.lat !== undefined ? source.lat : source.latitude,
+        source.lng !== undefined ? source.lng : source.longitude
+      )
       return
     }
     if (Array.isArray(source.coordinates)) {

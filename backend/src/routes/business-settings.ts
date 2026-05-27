@@ -509,9 +509,17 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
               unknown
             >)
           : {}
-      ;(settingsInput as Record<string, unknown>).deliveryArea = {
-        ...currentDeliveryArea,
-        polygonPath: sourcePolygon,
+      const currentPolygonPath = Array.isArray(
+        (currentDeliveryArea as { polygonPath?: unknown }).polygonPath
+      )
+        ? ((currentDeliveryArea as { polygonPath?: unknown[] }).polygonPath as unknown[])
+        : []
+      // Backward compatibility: only lift top-level polygon fields when nested deliveryArea polygon is empty.
+      if (currentPolygonPath.length === 0) {
+        ;(settingsInput as Record<string, unknown>).deliveryArea = {
+          ...currentDeliveryArea,
+          polygonPath: sourcePolygon,
+        }
       }
     }
     const deliveryAreaInput =
@@ -521,6 +529,13 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
     console.info('BUSINESS_SETTINGS_SAVE_PAYLOAD', {
       tenantIdInput: tenantIdInput ?? null,
       hasSettings: Boolean(settingsInput && typeof settingsInput === 'object'),
+      topLevelKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : [],
+      topLevelDeliveryAreaPolygonLength: Array.isArray(bodyDeliveryAreaPolygon)
+        ? bodyDeliveryAreaPolygon.length
+        : null,
+      topLevelServiceAreaPolygonLength: Array.isArray(bodyServiceAreaPolygon)
+        ? bodyServiceAreaPolygon.length
+        : null,
       deliveryAreaKeys:
         deliveryAreaInput && typeof deliveryAreaInput === 'object'
           ? Object.keys(deliveryAreaInput as Record<string, unknown>)
@@ -615,6 +630,18 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
           typeof deliveryAreaInput === 'object' &&
           Array.isArray((deliveryAreaInput as { polygonPoints?: unknown }).polygonPoints)
             ? (deliveryAreaInput as { polygonPoints: unknown[] }).polygonPoints.length
+            : null,
+        rawPolygonPathSample:
+          deliveryAreaInput &&
+          typeof deliveryAreaInput === 'object' &&
+          Array.isArray((deliveryAreaInput as { polygonPath?: unknown }).polygonPath)
+            ? (deliveryAreaInput as { polygonPath: unknown[] }).polygonPath.slice(0, 3)
+            : null,
+        rawPolygonPointsSample:
+          deliveryAreaInput &&
+          typeof deliveryAreaInput === 'object' &&
+          Array.isArray((deliveryAreaInput as { polygonPoints?: unknown }).polygonPoints)
+            ? (deliveryAreaInput as { polygonPoints: unknown[] }).polygonPoints.slice(0, 3)
             : null,
         normalizedPolygonLength: normalizedSettings.deliveryArea.polygonPath.length,
         normalizedPolygonSample: normalizedSettings.deliveryArea.polygonPath.slice(0, 3),
