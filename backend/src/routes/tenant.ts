@@ -498,6 +498,7 @@ router.get('/public/discovery', async (req, res) => {
           name: tenant.name,
           email: tenant.email,
         })
+        const intake = settings.orderIntake
         const tenantRating = ratingByTenant.get(tenant.id)
 
         if (!settings.customerApp.listingEnabled) {
@@ -580,6 +581,19 @@ router.get('/public/discovery', async (req, res) => {
           deliveryFeeNote: settings.deliveryFeeNote,
           minOrderValue: settings.minOrderValue,
           customerApp: sanitizePublicCustomerApp(settings.customerApp),
+          orderIntake: {
+            enabled: intake.orderIntakeEnabled,
+            reason: intake.orderIntakePausedReason,
+            pausedUntil: intake.orderIntakePausedUntil,
+            services: {
+              delivery: intake.services.deliveryEnabledNow,
+              pickup: intake.services.pickupEnabledNow,
+              tableOrdering: intake.services.tableOrderingEnabledNow,
+            },
+            customerMessage: intake.orderIntakeEnabled
+              ? null
+              : 'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Bestellungen an. Bitte versuche es später erneut.',
+          },
           outOfArea,
           services: {
             delivery: {
@@ -688,6 +702,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       name: tenant.name,
       email: tenant.email,
     })
+    const intake = settings.orderIntake
     if (!settings.customerApp.listingEnabled) {
       return res.status(403).json({ error: 'Filiale ist in der App noch nicht freigegeben' })
     }
@@ -924,6 +939,19 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         minOrderValue: settings.minOrderValue,
       },
       customerApp: sanitizePublicCustomerApp(settings.customerApp),
+      orderIntake: {
+        enabled: intake.orderIntakeEnabled,
+        reason: intake.orderIntakePausedReason,
+        pausedUntil: intake.orderIntakePausedUntil,
+        services: {
+          delivery: intake.services.deliveryEnabledNow,
+          pickup: intake.services.pickupEnabledNow,
+          tableOrdering: intake.services.tableOrderingEnabledNow,
+        },
+        customerMessage: intake.orderIntakeEnabled
+          ? null
+          : 'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Bestellungen an. Bitte versuche es später erneut.',
+      },
       categories: publicCategories,
       products: mappedProducts,
       generatedAt: new Date().toISOString(),

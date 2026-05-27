@@ -2959,6 +2959,29 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         email: tenant.email,
       })
 
+      const intake = settings.orderIntake
+      const serviceAllowed =
+        resolvedServiceType === 'DELIVERY'
+          ? intake.services.deliveryEnabledNow
+          : resolvedServiceType === 'PICKUP'
+            ? intake.services.pickupEnabledNow
+            : true
+      if (!intake.orderIntakeEnabled || !serviceAllowed) {
+        return res.status(423).json({
+          error:
+            intake.orderIntakePausedReason ||
+            'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Bestellungen an. Bitte versuche es später erneut.',
+          code: 'ORDER_INTAKE_PAUSED',
+          orderIntakeEnabled: intake.orderIntakeEnabled,
+          pausedUntil: intake.orderIntakePausedUntil,
+          services: {
+            delivery: intake.services.deliveryEnabledNow,
+            pickup: intake.services.pickupEnabledNow,
+            tableOrdering: intake.services.tableOrderingEnabledNow,
+          },
+        })
+      }
+
       if (!settings.customerApp.orderingEnabled) {
         return res
           .status(403)

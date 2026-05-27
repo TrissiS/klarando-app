@@ -418,6 +418,20 @@ export type BusinessDriverSettings = {
   customerLiveTrackingEnabled: boolean
 }
 
+export type BranchOrderIntakeStatus = {
+  branchId: string
+  tenantId: string
+  orderIntakeEnabled: boolean
+  reason: string | null
+  pausedUntil: string | null
+  pausedAt?: string | null
+  services: {
+    delivery: boolean
+    pickup: boolean
+    tableOrdering: boolean
+  }
+}
+
 export type BusinessSettings = {
   businessName: string | null
   legalName: string | null
@@ -458,6 +472,18 @@ export type BusinessSettings = {
   driver: BusinessDriverSettings
   customerApp: BusinessCustomerAppSettings
   compliance: BusinessComplianceSettings
+  orderIntake?: {
+    orderIntakeEnabled: boolean
+    orderIntakePausedReason: string | null
+    orderIntakePausedUntil: string | null
+    orderIntakePausedByUserId: string | null
+    orderIntakePausedAt: string | null
+    services: {
+      deliveryEnabledNow: boolean
+      pickupEnabledNow: boolean
+      tableOrderingEnabledNow: boolean
+    }
+  }
   notes: string | null
 }
 
@@ -7989,6 +8015,60 @@ export async function deleteDisplayDevice(
     throw new Error(errorData?.message || errorData?.error || 'Display konnte nicht gelöscht werden')
   }
 
+  return res.json()
+}
+
+export async function getBranchOrderIntakeStatus(
+  branchId = resolveTenantId()
+): Promise<BranchOrderIntakeStatus> {
+  if (!branchId) {
+    throw new Error('Bitte zuerst eine Filiale auswählen.')
+  }
+  const token = readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/branches/${branchId}/order-intake-status`, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.error ?? 'Bestellannahme-Status konnte nicht geladen werden')
+  }
+  return res.json()
+}
+
+export async function updateBranchOrderIntakeStatus(
+  payload: {
+    orderIntakeEnabled: boolean
+    reason?: string | null
+    pausedUntil?: string | null
+    services?: {
+      delivery?: boolean
+      pickup?: boolean
+      tableOrdering?: boolean
+    }
+  },
+  branchId = resolveTenantId()
+): Promise<BranchOrderIntakeStatus> {
+  if (!branchId) {
+    throw new Error('Bitte zuerst eine Filiale auswählen.')
+  }
+  const token = readBrowserAccessToken()
+  if (!token) {
+    throw new Error('Nicht eingeloggt')
+  }
+  const res = await fetch(`${API_BASE_URL}/api/branches/${branchId}/order-intake-status`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => null)
+    throw new Error(body?.error ?? 'Bestellannahme-Status konnte nicht gespeichert werden')
+  }
   return res.json()
 }
 

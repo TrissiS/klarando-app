@@ -158,6 +158,21 @@ export type CustomerAppSubMenuItem = {
   sortOrder: number
 }
 
+export type OrderIntakeServiceOverrides = {
+  deliveryEnabledNow: boolean
+  pickupEnabledNow: boolean
+  tableOrderingEnabledNow: boolean
+}
+
+export type OrderIntakeSettings = {
+  orderIntakeEnabled: boolean
+  orderIntakePausedReason: string | null
+  orderIntakePausedUntil: string | null
+  orderIntakePausedByUserId: string | null
+  orderIntakePausedAt: string | null
+  services: OrderIntakeServiceOverrides
+}
+
 export type BusinessSettings = {
   businessName: string | null
   legalName: string | null
@@ -200,6 +215,7 @@ export type BusinessSettings = {
   deliveryScheduling: DeliverySchedulingSettings
   customerApp: CustomerAppSettings
   compliance: ComplianceSettings
+  orderIntake: OrderIntakeSettings
   notes: string | null
 }
 
@@ -345,6 +361,18 @@ function normalizePublicUrl(value: unknown) {
   }
 
   return null
+}
+
+function normalizeIsoDateTimeString(value: unknown) {
+  const text = normalizeText(value)
+  if (!text) {
+    return null
+  }
+  const parsed = new Date(text)
+  if (Number.isNaN(parsed.getTime())) {
+    return null
+  }
+  return parsed.toISOString()
 }
 
 function normalizeCoordinate(value: unknown, min: number, max: number) {
@@ -681,6 +709,21 @@ export function defaultComplianceSettings(): ComplianceSettings {
   }
 }
 
+export function defaultOrderIntakeSettings(): OrderIntakeSettings {
+  return {
+    orderIntakeEnabled: true,
+    orderIntakePausedReason: null,
+    orderIntakePausedUntil: null,
+    orderIntakePausedByUserId: null,
+    orderIntakePausedAt: null,
+    services: {
+      deliveryEnabledNow: true,
+      pickupEnabledNow: true,
+      tableOrderingEnabledNow: true,
+    },
+  }
+}
+
 function sanitizeDailyHours(value: unknown, fallback: DailyWindow[]) {
   if (!Array.isArray(value)) {
     return fallback
@@ -941,6 +984,43 @@ function sanitizeCompliance(value: unknown, fallback: ComplianceSettings): Compl
   }
 }
 
+function sanitizeOrderIntakeSettings(
+  value: unknown,
+  fallback: OrderIntakeSettings
+): OrderIntakeSettings {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const rawServices =
+    source.services && typeof source.services === 'object'
+      ? (source.services as Record<string, unknown>)
+      : {}
+  const orderIntakeEnabled =
+    typeof source.orderIntakeEnabled === 'boolean'
+      ? source.orderIntakeEnabled
+      : fallback.orderIntakeEnabled
+
+  return {
+    orderIntakeEnabled,
+    orderIntakePausedReason: normalizeText(source.orderIntakePausedReason),
+    orderIntakePausedUntil: normalizeIsoDateTimeString(source.orderIntakePausedUntil),
+    orderIntakePausedByUserId: normalizeText(source.orderIntakePausedByUserId),
+    orderIntakePausedAt: normalizeIsoDateTimeString(source.orderIntakePausedAt),
+    services: {
+      deliveryEnabledNow:
+        typeof rawServices.deliveryEnabledNow === 'boolean'
+          ? rawServices.deliveryEnabledNow
+          : orderIntakeEnabled,
+      pickupEnabledNow:
+        typeof rawServices.pickupEnabledNow === 'boolean'
+          ? rawServices.pickupEnabledNow
+          : orderIntakeEnabled,
+      tableOrderingEnabledNow:
+        typeof rawServices.tableOrderingEnabledNow === 'boolean'
+          ? rawServices.tableOrderingEnabledNow
+          : orderIntakeEnabled,
+    },
+  }
+}
+
 function sanitizeDriverSettings(value: unknown, fallback: DriverSettings): DriverSettings {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
 
@@ -1112,6 +1192,7 @@ export function parseSettings(
   const defaultOrdering = defaultOrderingAvailabilitySettings()
   const defaultDeliveryScheduling = defaultDeliverySchedulingSettings()
   const defaultCompliance = defaultComplianceSettings()
+  const defaultOrderIntake = defaultOrderIntakeSettings()
 
   return {
     businessName: normalizeText(source.businessName) ?? tenantDefaults.name,
@@ -1158,6 +1239,7 @@ export function parseSettings(
     ),
     customerApp: sanitizeCustomerApp(source.customerApp, defaultCustomerApp),
     compliance: sanitizeCompliance(source.compliance, defaultCompliance),
+    orderIntake: sanitizeOrderIntakeSettings(source.orderIntake, defaultOrderIntake),
     notes: normalizeText(source.notes),
   }
 }
