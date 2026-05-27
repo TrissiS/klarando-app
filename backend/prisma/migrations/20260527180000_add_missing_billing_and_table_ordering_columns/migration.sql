@@ -13,11 +13,25 @@ ON "Order"("tableId", "createdAt");
 -- Ensure foreign key Order.tableId -> RestaurantTable.id exists
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_constraint
-    WHERE conname = 'Order_tableId_fkey'
-  ) THEN
+  IF to_regclass('"Order"') IS NOT NULL
+     AND to_regclass('"RestaurantTable"') IS NOT NULL
+     AND EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_name = 'Order'
+         AND column_name = 'tableId'
+     )
+     AND EXISTS (
+       SELECT 1
+       FROM information_schema.columns
+       WHERE table_name = 'RestaurantTable'
+         AND column_name = 'id'
+     )
+     AND NOT EXISTS (
+       SELECT 1
+       FROM pg_constraint
+       WHERE conname = 'Order_tableId_fkey'
+     ) THEN
     ALTER TABLE "Order"
     ADD CONSTRAINT "Order_tableId_fkey"
     FOREIGN KEY ("tableId") REFERENCES "RestaurantTable"("id")
