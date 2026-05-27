@@ -1,6 +1,5 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 
 type Props = {
@@ -24,8 +23,6 @@ type StatItem = {
   label: string
   value: number
   hint: string
-  href: string
-  sourceLabel: string
 }
 
 const STORAGE_KEY_BASE = 'klarando.admin.dashboard.stats.order.v1'
@@ -53,80 +50,60 @@ export default function AdminStats({
         label: 'Kategorien',
         value: categoriesCount,
         hint: 'Menüstruktur',
-        href: '/admin/products?tab=categories',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'products',
         label: 'Produkte',
         value: productsCount,
         hint: 'Artikel im System',
-        href: '/admin/products?tab=products',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'ingredients',
         label: 'Zutaten',
         value: ingredientsCount,
         hint: 'Basis für Kalkulation',
-        href: '/admin/products?tab=ingredients',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'suppliers',
         label: 'Lieferanten',
         value: suppliersCount,
         hint: 'Stammdaten Einkauf',
-        href: '/admin/stock?tab=suppliers',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'actions',
         label: 'Aktionen',
         value: actionsCount,
         hint: 'Angebote und Rabatte',
-        href: '/admin/actions',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'screens-active',
         label: 'Bildschirme aktiv',
         value: screenDevicesCount,
         hint: 'Verbundene Ausspielgeräte',
-        href: '/admin/screen-studio?tab=devices',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'screen-products',
         label: 'Sichtbar auf Screen',
         value: screenVisibleProductsCount,
         hint: 'Aktive Bildschirm-Produkte',
-        href: '/admin/screen-studio?tab=content',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'terminals',
         label: 'Bestellterminals',
         value: orderTerminalCount,
         hint: 'Self-Order Geräte',
-        href: '/admin/terminals',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'order-displays',
         label: 'Bestell-Displays',
         value: orderDisplayCount,
         hint: 'Küchen- und Ausgabedisplays',
-        href: '/admin/screen-studio?tab=devices',
-        sourceLabel: 'Quelle öffnen',
       },
       {
         id: 'checkout-ready',
         label: 'Direkt abrechenbar',
         value: checkoutReadyTerminalCount,
         hint: 'Aktive Terminals mit Zahlung',
-        href: '/admin/terminals',
-        sourceLabel: 'Quelle öffnen',
       },
     ],
     [
@@ -254,14 +231,6 @@ export default function AdminStats({
             <p className="text-sm text-rose-900/70">{item.label}</p>
             <p className="mt-2 text-3xl font-bold">{item.value}</p>
             <p className="mt-1 text-sm text-slate-400">{item.hint}</p>
-            <div className="mt-3">
-              <Link
-                href={item.href}
-                className="inline-flex items-center rounded-lg border border-[var(--brand-border)] bg-white px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-rose-50/60"
-              >
-                {item.sourceLabel}
-              </Link>
-            </div>
           </div>
         )
       })}

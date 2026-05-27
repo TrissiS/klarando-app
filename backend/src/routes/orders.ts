@@ -1804,48 +1804,76 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
         message: toErrorMessage(queryError),
         ...extractPrismaErrorDetails(queryError),
       })
-      orders = await prisma.order.findMany({
-        where,
-        include: {
-          tenant: {
-            select: {
-              id: true,
-              name: true,
-              chain: {
-                select: {
-                  id: true,
-                  name: true,
+      try {
+        orders = await prisma.order.findMany({
+          where,
+          include: {
+            tenant: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+            terminal: {
+              select: {
+                id: true,
+                name: true,
+                terminalCode: true,
+                location: true,
+              },
+            },
+            items: {
+              include: {
+                product: {
+                  select: {
+                    id: true,
+                    name: true,
+                  },
                 },
               },
             },
           },
-          terminal: {
-            select: {
-              id: true,
-              name: true,
-              terminalCode: true,
-              location: true,
-            },
-          },
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                },
+          orderBy: [{ createdAt: 'desc' }],
+          take: limit,
+        })
+      } catch (fallbackError) {
+        if (!isPrismaMissingColumnOrRelationError(fallbackError)) {
+          throw fallbackError
+        }
+        console.error('ORDERS_MANAGEMENT_MINIMAL_FALLBACK', {
+          route: '/api/orders/management',
+          message: toErrorMessage(fallbackError),
+          ...extractPrismaErrorDetails(fallbackError),
+        })
+        orders = await prisma.order.findMany({
+          where,
+          include: {
+            tenant: {
+              select: {
+                id: true,
+                name: true,
               },
             },
+            items: true,
           },
-        },
-        orderBy: [{ createdAt: 'desc' }],
-        take: limit,
-      })
+          orderBy: [{ createdAt: 'desc' }],
+          take: limit,
+        })
+      }
     }
 
     const byStatus: Record<string, number> = {}
     const bySource: Record<string, number> = {}
-    const issueStateByOrderId = await loadOrderIssueStateByOrderId(orders.map((entry) => entry.id))
+    let issueStateByOrderId = new Map<string, OrderIssueState>()
+    try {
+      issueStateByOrderId = await loadOrderIssueStateByOrderId(orders.map((entry) => entry.id))
+    } catch (issueStateError) {
+      console.error('ORDERS_MANAGEMENT_ISSUESTATE_FALLBACK', {
+        route: '/api/orders/management',
+        message: toErrorMessage(issueStateError),
+        ...extractPrismaErrorDetails(issueStateError),
+      })
+    }
     for (const order of orders) {
       byStatus[order.status] = (byStatus[order.status] ?? 0) + 1
       bySource[order.sourceChannel] = (bySource[order.sourceChannel] ?? 0) + 1

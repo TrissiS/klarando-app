@@ -127,6 +127,9 @@ export default function AdminPage() {
     grantedPermissions?.has('ORDERS_READ') &&
       (grantedPermissions?.has('COMPLAINTS_READ') ?? true)
   )
+  const isInternalViewer = ['superadmin', 'support', 'developer'].includes(
+    sessionRole.trim().toLowerCase()
+  )
 
   useEffect(() => {
     try {
@@ -295,7 +298,11 @@ export default function AdminPage() {
       setLastUpdatedAt(new Date())
 
       if (failedSections.length > 0) {
-        setLoadWarning(`Teilweise geladen: ${failedSections.join(', ')}`)
+        if (isInternalViewer) {
+          setLoadWarning(`Teilweise geladen: ${failedSections.join(', ')}`)
+        } else {
+          setLoadWarning('Einige Dashboard-Daten konnten gerade nicht aktualisiert werden.')
+        }
         void failedReasonTexts
       } else {
         setLoadWarning(null)
@@ -321,7 +328,7 @@ export default function AdminPage() {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [refreshTick, autoRefreshEnabled, canLoadTenantDashboard, sessionReady, accessToken, sessionTenantId, hasAccessToken, sessionRole])
+  }, [refreshTick, autoRefreshEnabled, canLoadTenantDashboard, sessionReady, accessToken, sessionTenantId, hasAccessToken, sessionRole, isInternalViewer])
 
   useEffect(() => {
     try {
@@ -514,22 +521,10 @@ export default function AdminPage() {
               Bezahlt: {salesDashboard.totals.paidOrders} | Unbezahlt:{' '}
               {salesDashboard.totals.unpaidOrders} | Offen: {salesDashboard.totals.openOrders}
             </p>
-            <Link
-              href="/admin/orders"
-              className="mt-3 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-rose-100"
-            >
-              Quelle öffnen
-            </Link>
           </article>
 
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-base font-semibold text-[var(--brand-ink)]">Renner-Produkte</h2>
-            <Link
-              href="/admin/orders"
-              className="mt-2 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-rose-100"
-            >
-              Quelle öffnen
-            </Link>
             <div className="mt-3 space-y-2">
               {salesDashboard.topProducts.length > 0 ? (
                 salesDashboard.topProducts.map((entry, index) => (
@@ -553,12 +548,6 @@ export default function AdminPage() {
 
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-base font-semibold text-[var(--brand-ink)]">Penner-Produkte</h2>
-            <Link
-              href="/admin/orders"
-              className="mt-2 inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-rose-100"
-            >
-              Quelle öffnen
-            </Link>
             <div className="mt-3 space-y-2">
               {salesDashboard.flopProducts.length > 0 ? (
                 salesDashboard.flopProducts.map((entry, index) => (
@@ -583,12 +572,6 @@ export default function AdminPage() {
           <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)] xl:col-span-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-base font-semibold text-[var(--brand-ink)]">Kundenbewertungen</h2>
-              <Link
-                href="/admin/orders"
-                className="inline-flex rounded-lg border border-[var(--brand-border)] bg-rose-50/60 px-2.5 py-1 text-xs font-semibold text-[var(--brand-ink)] transition hover:bg-rose-100"
-              >
-              Quelle öffnen
-              </Link>
             </div>
             {!ratingsDashboard ? (
               <p className="mt-3 rounded-xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-3 py-3 text-sm text-rose-900/70">
@@ -658,24 +641,6 @@ export default function AdminPage() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <Link
-                href="/admin/screen"
-                className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-1.5 text-xs font-semibold text-rose-900/85 transition hover:bg-rose-100"
-              >
-                Quelle Bildschirme
-              </Link>
-              <Link
-                href="/admin/order-displays"
-                className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-1.5 text-xs font-semibold text-rose-900/85 transition hover:bg-rose-100"
-              >
-                Quelle Bestell-Displays
-              </Link>
-              <Link
-                href="/admin/terminals"
-                className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-1.5 text-xs font-semibold text-rose-900/85 transition hover:bg-rose-100"
-              >
-                Quelle Terminals
-              </Link>
               <Link
                 href="/admin/orders"
                 className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
@@ -874,7 +839,13 @@ export default function AdminPage() {
         </div>
       ) : null}
       {loadWarning ? (
-        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div
+          className={`mb-4 rounded-2xl px-4 py-3 text-sm ${
+            isInternalViewer
+              ? 'border border-amber-200 bg-amber-50 text-amber-900'
+              : 'border border-slate-200 bg-slate-50 text-slate-700'
+          }`}
+        >
           {loadWarning}
         </div>
       ) : null}
