@@ -65,6 +65,8 @@ type ProductWithRelations = {
     updatedAt: Date
   } | null
   ingredients: Array<{
+    displayNameOverride: string | null
+    showInMenuBoard: boolean
     ingredient: {
       name: string
       allergens: string | null
@@ -326,6 +328,9 @@ function collectAllergens(product: ProductWithRelations) {
   const codes = new Set<string>()
 
   for (const item of product.ingredients) {
+    if (item.showInMenuBoard === false) {
+      continue
+    }
     if (isPackagingCategory(item.ingredient.category)) {
       continue
     }
@@ -337,9 +342,10 @@ function collectAllergens(product: ProductWithRelations) {
 
 function collectIngredients(product: ProductWithRelations) {
   return product.ingredients
+    .filter((item) => item.showInMenuBoard !== false)
     .filter((item) => !isPackagingCategory(item.ingredient.category))
     .map((item) => ({
-      name: item.ingredient.name,
+      name: (item.displayNameOverride || '').trim() || item.ingredient.name,
       allergens: parseAllergenCodes(item.ingredient.allergens),
     }))
 }
@@ -1258,7 +1264,9 @@ router.get('/products', requirePermission(PermissionKey.PRODUCTS_READ), async (r
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         },
         ingredients: {
-          include: {
+          select: {
+            displayNameOverride: true,
+            showInMenuBoard: true,
             ingredient: {
               select: {
                 name: true,
@@ -1391,7 +1399,9 @@ router.put('/products/:productId', requirePermission(PermissionKey.PRODUCTS_WRIT
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         },
         ingredients: {
-          include: {
+          select: {
+            displayNameOverride: true,
+            showInMenuBoard: true,
             ingredient: {
               select: {
                 name: true,
@@ -2051,7 +2061,9 @@ router.get('/public/devices/:deviceCode/feed', async (req, res) => {
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
         },
         ingredients: {
-          include: {
+          select: {
+            displayNameOverride: true,
+            showInMenuBoard: true,
             ingredient: {
               select: {
                 name: true,

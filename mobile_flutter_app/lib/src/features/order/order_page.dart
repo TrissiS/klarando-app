@@ -820,7 +820,8 @@ String? _ingredientPreview(TenantCatalogProduct product, _DisclosureData disclos
 bool _hasArticleDetails(TenantCatalogProduct product) {
   return (product.articleInfo?.trim().isNotEmpty ?? false) ||
       (product.foodBusinessOperator?.trim().isNotEmpty ?? false) ||
-      (product.nutritionInfo?.trim().isNotEmpty ?? false);
+      (product.nutritionInfo?.trim().isNotEmpty ?? false) ||
+      (product.nutrition?.hasValues ?? false);
 }
 
 List<Widget> _buildArticleDetails(TenantCatalogProduct product) {
@@ -857,9 +858,79 @@ List<Widget> _buildArticleDetails(TenantCatalogProduct product) {
 
   addRow('Artikelinfo', product.articleInfo);
   addRow('Lebensmittelunternehmer', product.foodBusinessOperator);
+  final nutrition = product.nutrition;
+  if (nutrition != null && nutrition.hasValues) {
+    final unitLabel = () {
+      final unit = (nutrition.referenceUnit ?? '').trim().toLowerCase();
+      if (unit == 'ml') return '100 ml';
+      if (unit == 'portion') {
+        final portion = nutrition.portionSize != null
+            ? '${_formatNutrientValue(nutrition.portionSize!)} ${nutrition.portionUnit ?? ''}'.trim()
+            : 'Portion';
+        return portion;
+      }
+      return '100 g';
+    }();
+
+    rows.add(
+      Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Durchschnittliche Nährwerte pro $unitLabel',
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            ..._buildNutritionLines(nutrition),
+          ],
+        ),
+      ),
+    );
+  }
   addRow('Nährwertangaben', product.nutritionInfo);
 
   return rows;
+}
+
+List<Widget> _buildNutritionLines(TenantProductNutrition nutrition) {
+  Widget line(String label, double? value, {String unit = 'g'}) {
+    if (value == null) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text('$label: ${_formatNutrientValue(value)} $unit', style: const TextStyle(fontSize: 12)),
+    );
+  }
+
+  final widgets = <Widget>[];
+  if (nutrition.energyKj != null || nutrition.energyKcal != null) {
+    widgets.add(
+      Padding(
+        padding: const EdgeInsets.only(bottom: 4),
+        child: Text(
+          'Energie: ${nutrition.energyKj != null ? '${_formatNutrientValue(nutrition.energyKj!)} kJ' : '-'}'
+          '${nutrition.energyKcal != null ? ' / ${_formatNutrientValue(nutrition.energyKcal!)} kcal' : ''}',
+          style: const TextStyle(fontSize: 12),
+        ),
+      ),
+    );
+  }
+  widgets.add(line('Fett', nutrition.fat));
+  widgets.add(line('davon gesättigte Fettsäuren', nutrition.saturatedFat));
+  widgets.add(line('Kohlenhydrate', nutrition.carbohydrates));
+  widgets.add(line('davon Zucker', nutrition.sugar));
+  widgets.add(line('Eiweiß', nutrition.protein));
+  widgets.add(line('Salz', nutrition.salt));
+  widgets.add(line('Ballaststoffe', nutrition.fiber));
+  return widgets.where((widget) => widget is! SizedBox).toList(growable: false);
+}
+
+String _formatNutrientValue(double value) {
+  final rounded = value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 1);
+  return rounded.replaceAll('.', ',');
 }
 
 String _priceLabel(TenantCatalogProduct product) {

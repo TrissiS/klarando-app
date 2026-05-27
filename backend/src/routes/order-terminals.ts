@@ -118,6 +118,8 @@ function mapTerminalProduct(product: {
     createdAt: Date
   } | null
   ingredients: Array<{
+    displayNameOverride: string | null
+    showInOrderDesk: boolean
     ingredient: {
       name: string
       allergens: string | null
@@ -141,13 +143,14 @@ function mapTerminalProduct(product: {
 }) {
   const allergenSet = new Set<string>()
   const ingredients = product.ingredients
+    .filter((entry) => entry.showInOrderDesk !== false)
     .filter((entry) => !isPackagingCategory(entry.ingredient.category))
     .map((entry) => {
       const allergens = parseAllergenCodes(entry.ingredient.allergens)
       allergens.forEach((code) => allergenSet.add(code))
 
       return {
-        name: entry.ingredient.name,
+        name: (entry.displayNameOverride || '').trim() || entry.ingredient.name,
         allergens,
       }
     })
@@ -788,7 +791,9 @@ router.get('/public/:terminalCode/config', async (req, res) => {
       include: {
         category: true,
         ingredients: {
-          include: {
+          select: {
+            displayNameOverride: true,
+            showInOrderDesk: true,
             ingredient: {
               select: {
                 name: true,

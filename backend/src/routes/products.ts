@@ -145,6 +145,7 @@ function mapProductOutput(
     articleInfo?: string | null
     foodBusinessOperator?: string | null
     nutritionInfo?: string | null
+    nutrition?: Prisma.JsonValue | null
     ingredients?: Array<{ ingredient: { allergens: string | null } }>
   } & Record<string, unknown>
 ) {
@@ -156,6 +157,10 @@ function mapProductOutput(
     articleInfo: normalizeText(product.articleInfo) ?? null,
     foodBusinessOperator: normalizeText(product.foodBusinessOperator) ?? null,
     nutritionInfo: normalizeText(product.nutritionInfo) ?? null,
+    nutrition:
+      product.nutrition && typeof product.nutrition === 'object' && !Array.isArray(product.nutrition)
+        ? product.nutrition
+        : null,
     allergens: collectAllergens(product),
   }
 }
@@ -175,7 +180,9 @@ function isMissingProductColumnsError(error: unknown) {
     error.message.includes('Product.foodBusinessOperator') ||
     error.message.includes('"foodBusinessOperator"') ||
     error.message.includes('Product.nutritionInfo') ||
-    error.message.includes('"nutritionInfo"')
+    error.message.includes('"nutritionInfo"') ||
+    error.message.includes('Product.nutrition') ||
+    error.message.includes('"nutrition"')
   )
 }
 
@@ -213,6 +220,11 @@ async function ensureProductColumns() {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Product"
     ADD COLUMN IF NOT EXISTS "nutritionInfo" TEXT;
+  `)
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Product"
+    ADD COLUMN IF NOT EXISTS "nutrition" JSONB;
   `)
 }
 
@@ -297,6 +309,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       articleInfo,
       foodBusinessOperator,
       nutritionInfo,
+      nutrition,
       price,
       vatRate,
       available,
@@ -313,6 +326,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       articleInfo?: string | null
       foodBusinessOperator?: string | null
       nutritionInfo?: string | null
+      nutrition?: unknown
       price?: number
       vatRate?: number
       available?: boolean
@@ -374,6 +388,10 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
           articleInfo: normalizeText(articleInfo),
           foodBusinessOperator: normalizeText(foodBusinessOperator),
           nutritionInfo: normalizeText(nutritionInfo),
+          nutrition:
+            nutrition && typeof nutrition === 'object' && !Array.isArray(nutrition)
+              ? (nutrition as Prisma.InputJsonValue)
+              : Prisma.JsonNull,
           price: Number(price),
           vatRate: vatRate === undefined ? 19.0 : Number(vatRate),
           available: targetAvailable,
@@ -443,6 +461,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       articleInfo,
       foodBusinessOperator,
       nutritionInfo,
+      nutrition,
       price,
       vatRate,
       categoryId,
@@ -457,6 +476,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       articleInfo?: string | null
       foodBusinessOperator?: string | null
       nutritionInfo?: string | null
+      nutrition?: unknown
       price?: number
       vatRate?: number
       categoryId?: string | null
@@ -553,6 +573,12 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
           foodBusinessOperator:
             foodBusinessOperator === undefined ? undefined : normalizeText(foodBusinessOperator),
           nutritionInfo: nutritionInfo === undefined ? undefined : normalizeText(nutritionInfo),
+          nutrition:
+            nutrition === undefined
+              ? undefined
+              : nutrition && typeof nutrition === 'object' && !Array.isArray(nutrition)
+                ? (nutrition as Prisma.InputJsonValue)
+                : Prisma.JsonNull,
           productNumber:
             productNumber === undefined ? undefined : (normalizedProductNumber ?? null),
           price: price === undefined ? undefined : Number(price),

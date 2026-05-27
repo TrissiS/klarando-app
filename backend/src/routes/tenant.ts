@@ -284,7 +284,7 @@ async function copyTenantBaseData(
           articleInfo: product.articleInfo,
           foodBusinessOperator: product.foodBusinessOperator,
           nutritionInfo: product.nutritionInfo,
-          nutrition: product.nutrition ?? null,
+          nutrition: product.nutrition ?? Prisma.JsonNull,
           price: product.price,
           vatRate: product.vatRate,
           available: product.available,

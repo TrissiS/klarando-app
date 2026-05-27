@@ -580,6 +580,7 @@ class TenantCatalogProduct {
     required this.articleInfo,
     required this.foodBusinessOperator,
     required this.nutritionInfo,
+    required this.nutrition,
     required this.price,
     required this.originalPrice,
     required this.offerLabel,
@@ -600,6 +601,7 @@ class TenantCatalogProduct {
   final String? articleInfo;
   final String? foodBusinessOperator;
   final String? nutritionInfo;
+  final TenantProductNutrition? nutrition;
   final double price;
   final double? originalPrice;
   final String? offerLabel;
@@ -633,6 +635,7 @@ class TenantCatalogProduct {
       articleInfo: _readNullableString(json['articleInfo']),
       foodBusinessOperator: _readNullableString(json['foodBusinessOperator']),
       nutritionInfo: _readNullableString(json['nutritionInfo']),
+      nutrition: TenantProductNutrition.fromJson(json['nutrition']),
       price: _readDouble(json['price']),
       originalPrice: _readNullableDouble(json['originalPrice']),
       offerLabel: _readNullableString(json['offerLabel']),
@@ -657,6 +660,70 @@ class TenantCatalogProduct {
                 .map(TenantCatalogModifier.fromJson)
                 .toList(growable: false)
           : const [],
+    );
+  }
+}
+
+class TenantProductNutrition {
+  const TenantProductNutrition({
+    required this.referenceAmount,
+    required this.referenceUnit,
+    required this.energyKj,
+    required this.energyKcal,
+    required this.fat,
+    required this.saturatedFat,
+    required this.carbohydrates,
+    required this.sugar,
+    required this.protein,
+    required this.salt,
+    required this.fiber,
+    required this.portionSize,
+    required this.portionUnit,
+  });
+
+  final String? referenceAmount;
+  final String? referenceUnit;
+  final double? energyKj;
+  final double? energyKcal;
+  final double? fat;
+  final double? saturatedFat;
+  final double? carbohydrates;
+  final double? sugar;
+  final double? protein;
+  final double? salt;
+  final double? fiber;
+  final double? portionSize;
+  final String? portionUnit;
+
+  bool get hasValues =>
+      energyKj != null ||
+      energyKcal != null ||
+      fat != null ||
+      saturatedFat != null ||
+      carbohydrates != null ||
+      sugar != null ||
+      protein != null ||
+      salt != null ||
+      fiber != null;
+
+  static TenantProductNutrition? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) {
+      return null;
+    }
+    return TenantProductNutrition(
+      referenceAmount: _readNullableString(json['referenceAmount']),
+      referenceUnit: _readNullableString(json['referenceUnit']),
+      energyKj: _readNullableDouble(json['energyKj']),
+      energyKcal: _readNullableDouble(json['energyKcal']),
+      fat: _readNullableDouble(json['fat']),
+      saturatedFat: _readNullableDouble(json['saturatedFat']),
+      carbohydrates: _readNullableDouble(json['carbohydrates']),
+      sugar: _readNullableDouble(json['sugar']),
+      protein: _readNullableDouble(json['protein']),
+      salt: _readNullableDouble(json['salt']),
+      fiber: _readNullableDouble(json['fiber']),
+      portionSize: _readNullableDouble(json['portionSize']),
+      portionUnit: _readNullableString(json['portionUnit']),
     );
   }
 }
