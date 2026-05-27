@@ -1,13 +1,10 @@
 'use client'
 
 import AdminLayout from '@/app/Components/admin/AdminLayout'
-import { FeatureUnavailableNotice } from '@/app/Components/admin/FeatureUnavailableNotice'
 import {
-  WorkspaceActions,
   WorkspaceHeader,
   WorkspaceStats,
   WorkspaceTabs,
-  WorkspaceWarnings,
 } from '@/app/Components/admin/WorkspaceComponents'
 
 const tabs = [
@@ -30,25 +27,11 @@ export default function MenuWorkspacePage() {
         <WorkspaceTabs tabs={tabs} />
         <WorkspaceStats
           stats={[
-            { label: 'Struktur', value: 'Aktiv' },
-            { label: 'Import', value: 'LIMITED' },
-            { label: 'Konfliktlösung', value: 'In Vorbereitung' },
-            { label: 'Warnungen', value: 1 },
+            { label: 'Produkte', value: 'Verfügbar' },
+            { label: 'Kategorien', value: 'Verfügbar' },
+            { label: 'Preise', value: 'Verfügbar' },
+            { label: 'Menüpflege', value: 'Aktiv' },
           ]}
-        />
-        <WorkspaceActions
-          actions={[
-            { href: '/admin/products', label: 'Produkte öffnen' },
-            { href: '/admin/categories', label: 'Kategorien prüfen' },
-            { label: 'Produktnummern-Konflikte', disabled: true, hint: 'Konfliktverwaltung wird als nächster Schritt angebunden.' },
-            { label: 'Import-Warnungen', disabled: true, hint: 'Warnungs-Center wird vorbereitet.' },
-          ]}
-        />
-        <WorkspaceWarnings warnings={['Produktnummern-Konflikte und Import-Warnungen sind noch in Vorbereitung.']} />
-        <FeatureUnavailableNotice
-          title="Hinweis zur Produktionsreife"
-          message="Konfliktaufloesung fuer Produktnummern ist vorbereitet und wird als naechster stabiler Schritt angebunden."
-          tone="warn"
         />
       </div>
     </AdminLayout>

@@ -60,6 +60,16 @@ export default function BackofficeLayout({
   const [sessionCountdown, setSessionCountdown] = useState(60)
   const normalizedRole = sessionRole.trim().toLowerCase()
   const canSwitchToAdmin = normalizedRole === 'superadmin' || normalizedRole === 'chainadmin'
+  const isInternalRole =
+    normalizedRole === 'superadmin' ||
+    normalizedRole === 'developer' ||
+    normalizedRole === 'support'
+  const uiVisibilityMode =
+    normalizedRole === 'superadmin'
+      ? 'superadmin'
+      : normalizedRole === 'chainadmin'
+        ? 'power-user'
+        : 'operator'
   const lowerBrand = brand.trim().toLowerCase()
   const sourceItems = navItems || []
   function pickItemsByHref(candidates: string[]) {
@@ -398,6 +408,7 @@ export default function BackofficeLayout({
         isTouchMode ? 'klarando-touch-mode' : 'klarando-compact-mode'
       }`}
       data-admin-ui-mode={uiMode}
+      data-ui-visibility-mode={uiVisibilityMode}
     >
       <div className="relative isolate min-h-screen min-w-0">
         <aside className={`brand-sidebar pointer-events-auto fixed inset-y-0 left-0 z-[120] hidden border-r border-white/10 md:flex md:flex-col ${sidebarWidthClass}`}>
@@ -494,8 +505,8 @@ export default function BackofficeLayout({
                 <p>{releaseName}</p>
                 <p>Build: {formatBuildDateForUi(buildDateIso)}</p>
                 <p>{environment.toUpperCase()}</p>
-                {commitSha ? <p>Commit: {commitSha.slice(0, 8)}</p> : null}
-                {backendCommitSha ? <p>Backend: {backendCommitSha.slice(0, 8)}</p> : null}
+                {isInternalRole && commitSha ? <p>Commit: {commitSha.slice(0, 8)}</p> : null}
+                {isInternalRole && backendCommitSha ? <p>Backend: {backendCommitSha.slice(0, 8)}</p> : null}
               </div>
             </div>
           </div>
@@ -630,7 +641,7 @@ export default function BackofficeLayout({
               </div>
             </div>
           ) : null}
-          <div className={`relative z-10 ${pageSpacingClass} pb-20`}>
+          <div className={`relative z-10 ${pageSpacingClass}`}>
             {!authChecked ? (
               <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
                 Sitzung wird geprüft...
@@ -643,7 +654,7 @@ export default function BackofficeLayout({
               children
             )}
           </div>
-          <footer className="fixed bottom-0 left-0 right-0 z-40 border-t border-[var(--brand-border)] bg-white/95 px-4 py-3 backdrop-blur">
+          <footer className="border-t border-[var(--brand-border)] bg-white/95 px-4 py-3 backdrop-blur">
             <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 text-xs text-rose-900/70">
               <Link href="/impressum" className="hover:text-rose-900">Impressum</Link>
               <Link href="/datenschutz" className="hover:text-rose-900">Datenschutz</Link>

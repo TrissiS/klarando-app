@@ -1,13 +1,10 @@
 'use client'
 
 import AdminLayout from '@/app/Components/admin/AdminLayout'
-import { ApiMissingNotice } from '@/app/Components/admin/FeatureUnavailableNotice'
 import {
-  WorkspaceActions,
   WorkspaceHeader,
   WorkspaceStats,
   WorkspaceTabs,
-  WorkspaceWarnings,
 } from '@/app/Components/admin/WorkspaceComponents'
 
 const tabs = [
@@ -29,22 +26,12 @@ export default function DevicesWorkspacePage() {
         <WorkspaceStats
           stats={[
             { label: 'Geräteübersicht', value: 'Aktiv' },
-            { label: 'Pairing', value: 'LIMITED' },
-            { label: 'Bulk-Aktionen', value: 'In Vorbereitung' },
+            { label: 'Pairing', value: 'Aktiv' },
+            { label: 'Gerätestatus', value: 'Aktiv' },
             { label: 'Offline-Fokus', value: 'Aktiv' },
+            { label: 'Zuweisung', value: 'Aktiv' },
           ]}
         />
-        <WorkspaceActions
-          actions={[
-            { href: '/admin/display-devices', label: 'Displays öffnen' },
-            { href: '/admin/screen-studio', label: 'Design-Zuweisung' },
-            { label: 'TV-Sticks Detaildiagnose', disabled: true, hint: 'API für TV-Stick Diagnosedaten fehlt noch.' },
-            { label: 'Neu koppeln (Bulk)', disabled: true },
-            { label: 'Gerät löschen/sperren (Bulk)', disabled: true },
-          ]}
-        />
-        <WorkspaceWarnings warnings={['Bulk-Aktionen sind absichtlich deaktiviert, bis die einheitliche Geräte-API angebunden ist.']} />
-        <ApiMissingNotice apiName="einheitliche TV-Stick Diagnose API" />
       </div>
     </AdminLayout>
   )

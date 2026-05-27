@@ -2,10 +2,8 @@
 
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
-  WorkspaceActions,
   WorkspaceHeader,
   WorkspaceStats,
-  WorkspaceWarnings,
 } from '@/app/Components/admin/WorkspaceComponents'
 
 export default function DeliveryWorkspacePage() {
@@ -18,22 +16,12 @@ export default function DeliveryWorkspacePage() {
         />
         <WorkspaceStats
           stats={[
-            { label: 'Polygon', value: 'READY' },
+            { label: 'Liefergebiet', value: 'Aktiv' },
             { label: 'Fahrerbereich', value: 'Aktiv' },
-            { label: 'Touren', value: 'LIMITED' },
-            { label: 'Geo-Testpunkt', value: 'In Vorbereitung' },
+            { label: 'Touren', value: 'Verfügbar' },
+            { label: 'Zonenregeln', value: 'Aktiv' },
           ]}
         />
-        <WorkspaceActions
-          actions={[
-            { href: '/admin/app-settings?section=delivery-area', label: 'Liefergebiet Polygon' },
-            { href: '/admin/app-settings?section=delivery-area', label: 'Lieferzonen' },
-            { href: '/admin/drivers', label: 'Fahrer' },
-            { href: '/admin/app-settings?section=delivery-priority', label: 'Touren' },
-            { label: 'Testpunkt innen/außen', disabled: true, hint: 'Geo-Testpunkt folgt mit dedizierter Prüf-API.' },
-          ]}
-        />
-        <WorkspaceWarnings warnings={['Der Testpunkt innen/außen ist vorbereitet, aber noch nicht live angeschlossen.']} />
       </div>
     </AdminLayout>
   )
