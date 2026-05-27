@@ -185,8 +185,12 @@ export default function AdminOrdersPage() {
       setData(response)
       return response
     } catch (loadError) {
-      const message =
+      const messageRaw =
         loadError instanceof Error ? loadError.message : 'Bestellungen konnten nicht geladen werden'
+      const message =
+        messageRaw === 'Bestelluebersicht konnte nicht geladen werden'
+          ? 'Bestellübersicht konnte nicht geladen werden. Bitte Filter prüfen oder erneut laden.'
+          : messageRaw
       setError(message)
       return null
     } finally {

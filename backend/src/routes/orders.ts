@@ -51,6 +51,48 @@ const MAX_COMPLAINT_TEXT_LENGTH = 2000
 const MAX_COMPLAINT_IMAGE_PAYLOAD = 2_500_000
 const MAX_SIGNATURE_IMAGE_PAYLOAD = 3_000_000
 const DRIVER_DEVICE_ONLINE_HEARTBEAT_MS = 90_000
+const ORDER_MANAGEMENT_SOURCE_FILTERS = new Set([
+  'ALL',
+  'APP_ONLY',
+  'TERMINAL_ONLY',
+  ...SOURCE_CHANNELS,
+])
+const ORDER_MANAGEMENT_STATUS_FILTERS = new Set(['all', ...ORDER_STATUSES])
+const ORDER_PAYMENT_STATUSES = new Set(['PAID', 'UNPAID', 'FAILED', 'REFUNDED'])
+const ORDER_SERVICE_TYPES = new Set(['DELIVERY', 'PICKUP', 'DINE_IN'])
+
+function sanitizeOrderManagementSource(value: string | null) {
+  if (!value) return 'ALL'
+  const normalized = value.toUpperCase()
+  return ORDER_MANAGEMENT_SOURCE_FILTERS.has(normalized) ? normalized : 'ALL'
+}
+
+function sanitizeOrderManagementStatus(value: string | null) {
+  if (!value) return 'all'
+  const normalized = value.toLowerCase()
+  return ORDER_MANAGEMENT_STATUS_FILTERS.has(normalized) ? normalized : 'all'
+}
+
+function sanitizeOrderPaymentStatus(value: string | null) {
+  if (!value) return null
+  const normalized = value.toUpperCase()
+  if (normalized === 'ALL') return null
+  return ORDER_PAYMENT_STATUSES.has(normalized) ? normalized : null
+}
+
+function sanitizeOrderServiceType(value: string | null) {
+  if (!value) return null
+  const normalized = value.toUpperCase()
+  if (normalized === 'ALL') return null
+  return ORDER_SERVICE_TYPES.has(normalized) ? normalized : null
+}
+
+function toErrorMessage(error: unknown) {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message
+  }
+  return String(error)
+}
 
 type DriverActor =
   | {
@@ -1448,7 +1490,15 @@ async function collectPendingRatingStatsLast72h(tenantIds: string[]) {
 router.get('/', async (req, res) => {
   try {
     const tenantId = parseTenantIdQuery(req.query.tenantId)
-    const channel = normalizeText(req.query.channel as string | undefined)?.toUpperCase() ?? null
+    const channel = sanitizeOrderManagementSource(
+      normalizeText(req.query.channel as string | undefined)
+    )
+    const paymentStatus = sanitizeOrderPaymentStatus(
+      normalizeText(req.query.paymentStatus as string | undefined)
+    )
+    const serviceType = sanitizeOrderServiceType(
+      normalizeText(req.query.serviceType as string | undefined)
+    )
     const appOnly = channel === 'APP_ONLY'
     const authUser = req.authUser
     const appAccount = await resolveAppAccountFromAuthorizationHeader(
@@ -1511,7 +1561,16 @@ router.get('/', async (req, res) => {
         where.sourceChannel = {
           in: ['APP', 'DELIVERY'],
         }
+      } else if (channel !== 'ALL') {
+        where.sourceChannel = channel
       }
+    }
+
+    if (paymentStatus) {
+      where.paymentStatus = paymentStatus
+    }
+    if (serviceType) {
+      where.serviceType = serviceType
     }
 
     const orders = await prisma.order.findMany({
@@ -1574,7 +1633,16 @@ router.get('/', async (req, res) => {
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
-    console.error('GET ORDERS ERROR:', error)
+    const prismaCode =
+      error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : null
+    console.error('ORDERS_API_ERROR', {
+      route: '/api/orders',
+      tenantId: parseTenantIdQuery(req.query.tenantId),
+      branchId: parseTenantIdQuery(req.query.branchId),
+      query: req.query,
+      message: toErrorMessage(error),
+      prismaCode,
+    })
     return res.status(500).json({ error: 'Fehler beim Laden der Bestellungen' })
   }
 })
@@ -1587,8 +1655,16 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
 
     const requestedTenantId = parseTenantIdQuery(req.query.tenantId)
     const requestedChainId = parseTenantIdQuery(req.query.chainId)
-    const source = normalizeText(req.query.source as string | undefined)?.toUpperCase() ?? 'ALL'
-    const status = normalizeText(req.query.status as string | undefined)?.toLowerCase() ?? 'all'
+    const source = sanitizeOrderManagementSource(
+      normalizeText((req.query.source as string | undefined) ?? (req.query.channel as string | undefined))
+    )
+    const status = sanitizeOrderManagementStatus(normalizeText(req.query.status as string | undefined))
+    const paymentStatus = sanitizeOrderPaymentStatus(
+      normalizeText(req.query.paymentStatus as string | undefined)
+    )
+    const serviceType = sanitizeOrderServiceType(
+      normalizeText(req.query.serviceType as string | undefined)
+    )
     const limitRaw = Number(req.query.limit)
     const limit = Number.isFinite(limitRaw) ? Math.max(20, Math.min(500, Math.trunc(limitRaw))) : 200
     if (requestedTenantId) {
@@ -1632,6 +1708,12 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
 
     if (status !== 'all') {
       where.status = status
+    }
+    if (paymentStatus) {
+      where.paymentStatus = paymentStatus
+    }
+    if (serviceType) {
+      where.serviceType = serviceType
     }
 
     const orders = await prisma.order.findMany({
@@ -1711,7 +1793,16 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
-    console.error('GET ORDER MANAGEMENT ERROR:', error)
+    const prismaCode =
+      error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : null
+    console.error('ORDERS_API_ERROR', {
+      route: '/api/orders/management',
+      tenantId: parseTenantIdQuery(req.query.tenantId),
+      branchId: parseTenantIdQuery(req.query.branchId),
+      query: req.query,
+      message: toErrorMessage(error),
+      prismaCode,
+    })
     return res.status(500).json({ error: 'Bestelluebersicht konnte nicht geladen werden' })
   }
 })

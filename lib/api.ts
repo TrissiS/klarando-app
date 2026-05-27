@@ -3586,8 +3586,12 @@ export async function deleteProductIngredient(id: string): Promise<void> {
 export async function getOrders(): Promise<Order[]> {
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
+  const query = new URLSearchParams()
+  if (tenantId) {
+    query.set('tenantId', tenantId)
+  }
   return apiJson<Order[]>(
-    buildApiUrl(`/api/orders?tenantId=${tenantId}`),
+    buildApiUrl(`/api/orders${query.toString() ? `?${query.toString()}` : ''}`),
     { headers: token ? { Authorization: `Bearer ${token}` } : undefined },
     'Bestellungen konnten nicht geladen werden'
   )
@@ -3651,10 +3655,16 @@ export async function getOrderManagementList(params?: {
     query.set('chainId', params.chainId)
   }
   if (params?.source) {
-    query.set('source', params.source)
+    const normalizedSource = params.source.toUpperCase()
+    if (normalizedSource !== 'ALL') {
+      query.set('source', normalizedSource)
+    }
   }
   if (params?.status) {
-    query.set('status', params.status)
+    const normalizedStatus = params.status.toLowerCase()
+    if (normalizedStatus !== 'all') {
+      query.set('status', normalizedStatus)
+    }
   }
   if (typeof params?.limit === 'number' && Number.isFinite(params.limit)) {
     query.set('limit', String(Math.trunc(params.limit)))
