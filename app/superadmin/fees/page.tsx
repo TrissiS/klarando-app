@@ -64,7 +64,7 @@ function centsToEuro(value: number) {
 export default function SuperadminFeesPage() {
   const [token, setToken] = useState('')
   const [tab, setTab] = useState<FeesTab>('OVERVIEW')
-  const [month, setMonth] = useState(currentMonth())
+  const [month, setMonth] = useState('2026-01')
   const [tenantRows, setTenantRows] = useState<BillingTenantRow[]>([])
   const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [summary, setSummary] = useState<Awaited<ReturnType<typeof getBillingSummary>> | null>(null)
@@ -153,13 +153,22 @@ export default function SuperadminFeesPage() {
   })
 
   useEffect(() => {
-    const raw = localStorage.getItem('sessionUser')
-    const parsed = raw ? (JSON.parse(raw) as SessionUser) : null
+    let parsed: SessionUser | null = null
+    try {
+      const raw = localStorage.getItem('sessionUser')
+      parsed = raw ? (JSON.parse(raw) as SessionUser) : null
+    } catch {
+      parsed = null
+    }
     if (!parsed || parsed.role !== 'superadmin') {
       window.location.href = '/'
       return
     }
     setToken(parsed.accessToken || localStorage.getItem('accessToken') || '')
+  }, [])
+
+  useEffect(() => {
+    setMonth(currentMonth())
   }, [])
 
   useEffect(() => {

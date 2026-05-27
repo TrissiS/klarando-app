@@ -17,6 +17,12 @@ const router = Router()
 const BILLING_EMAIL_MODE = (process.env.BILLING_EMAIL_MODE || 'TEST').trim().toUpperCase()
 const AUTO_APPROVE_MONTHLY_BILLING = (process.env.AUTO_APPROVE_MONTHLY_BILLING || 'false').trim().toLowerCase() === 'true'
 
+function logBillingApiError(route: string, error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  const stack = error instanceof Error ? error.stack : undefined
+  console.error('BILLING_API_ERROR', { route, message, stack })
+}
+
 function asString(value: unknown) {
   return typeof value === 'string' ? value : undefined
 }
@@ -93,11 +99,11 @@ function monthPeriodFromReq(req: { query?: Record<string, unknown>; body?: Recor
 }
 
 router.get('/summary', requireAuth, async (req, res) => {
+  const period = monthPeriodFromReq(req)
   try {
     if (req.authUser?.role !== UserRole.SUPERADMIN) {
       return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
     }
-    const period = monthPeriodFromReq(req)
     const chainId = asString(req.query?.chainId)
     const tenantId = asString(req.query?.tenantId)
 
@@ -121,8 +127,23 @@ router.get('/summary', requireAuth, async (req, res) => {
       summary: result.summary,
     })
   } catch (error) {
-    console.error('GET BILLING SUMMARY ERROR:', error)
-    return res.status(500).json({ error: 'Abrechnungsübersicht konnte nicht geladen werden' })
+    logBillingApiError('/api/billing/summary', error)
+    return res.json({
+      month: period.key,
+      periodStart: period.periodStart.toISOString(),
+      periodEnd: period.periodEnd.toISOString(),
+      summary: {
+        tenants: 0,
+        platformRevenueNetCents: 0,
+        chargeableTenants: 0,
+        platformRevenueGrossCents: 0,
+        estimatedMarginNetCents: 0,
+        openInvoices: 0,
+        paidInvoices: 0,
+        includedTenants: 0,
+      },
+      warning: 'Noch keine Abrechnungsdaten vorhanden.',
+    })
   }
 })
 
@@ -142,8 +163,15 @@ router.get('/settings/platform', requireAuth, async (req, res) => {
       },
     })
   } catch (error) {
-    console.error('GET BILLING PLATFORM SETTINGS ERROR:', error)
-    return res.status(500).json({ error: 'Zentrale Abrechnungsdaten konnten nicht geladen werden' })
+    logBillingApiError('/api/billing/settings/platform', error)
+    return res.json({
+      profile: {
+        scopeKey: 'global',
+        countryCode: 'DE',
+        standardPaymentTargetDays: 14,
+      },
+      warning: 'Noch keine Abrechnungsdaten vorhanden.',
+    })
   }
 })
 
@@ -250,11 +278,11 @@ router.put('/settings/platform', requireAuth, async (req, res) => {
 })
 
 router.get('/tenants', requireAuth, async (req, res) => {
+  const period = monthPeriodFromReq(req)
   try {
     if (req.authUser?.role !== UserRole.SUPERADMIN) {
       return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
     }
-    const period = monthPeriodFromReq(req)
     const chainId = asString(req.query?.chainId)
     const tenantId = asString(req.query?.tenantId)
     const status = asString(req.query?.status)
@@ -279,8 +307,12 @@ router.get('/tenants', requireAuth, async (req, res) => {
       rows: filteredRows,
     })
   } catch (error) {
-    console.error('GET BILLING TENANTS ERROR:', error)
-    return res.status(500).json({ error: 'Tenant-Abrechnung konnte nicht geladen werden' })
+    logBillingApiError('/api/billing/tenants', error)
+    return res.json({
+      month: period.key,
+      rows: [],
+      warning: 'Noch keine Abrechnungsdaten vorhanden.',
+    })
   }
 })
 
@@ -662,8 +694,11 @@ router.get('/profiles', requirePermission(PermissionKey.SETTINGS_READ), async (r
       })),
     })
   } catch (error) {
-    console.error('GET BILLING PROFILES ERROR:', error)
-    return res.status(500).json({ error: 'Abrechnungsprofile konnten nicht geladen werden' })
+    logBillingApiError('/api/billing/profiles', error)
+    return res.json({
+      rows: [],
+      warning: 'Noch keine Abrechnungsdaten vorhanden.',
+    })
   }
 })
 
