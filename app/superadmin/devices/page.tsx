@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
@@ -13,20 +13,39 @@ import {
   resetOrderDeskDevicePairing,
   type AccessContext,
   type DisplayDeviceOverviewRow,
-  type DisplayDeviceStatus,
   type OrderDeskDeviceBinding,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
 type DeviceTab = 'ALL' | 'DISPLAYS' | 'ORDERDESK' | 'DRIVER' | 'OFFLINE'
+type StatusKind = 'online' | 'instabil' | 'offline' | 'inactive'
 
-function normalizedStatus(lastSeenAt: string | null, isActive = true): 'online' | 'instabil' | 'offline' | 'inactive' {
+function normalizedStatus(lastSeenAt: string | null, isActive = true): StatusKind {
   if (!isActive) return 'inactive'
   if (!lastSeenAt) return 'offline'
   const diffSec = Math.max(0, Math.floor((Date.now() - new Date(lastSeenAt).getTime()) / 1000))
   if (diffSec < 30) return 'online'
   if (diffSec <= 120) return 'instabil'
   return 'offline'
+}
+
+function statusStyle(status: StatusKind) {
+  if (status === 'online') return 'bg-emerald-100 text-emerald-800 border-emerald-200'
+  if (status === 'instabil') return 'bg-amber-100 text-amber-800 border-amber-200'
+  if (status === 'inactive') return 'bg-slate-100 text-slate-700 border-slate-200'
+  return 'bg-rose-100 text-rose-800 border-rose-200'
+}
+
+function statusLabel(status: StatusKind) {
+  if (status === 'online') return 'Online'
+  if (status === 'instabil') return 'Instabil'
+  if (status === 'inactive') return 'Inaktiv'
+  return 'Offline'
+}
+
+function toDeDate(value: string | null) {
+  if (!value) return '—'
+  return new Date(value).toLocaleString('de-DE')
 }
 
 export default function SuperadminDevicesPage() {
@@ -42,10 +61,16 @@ export default function SuperadminDevicesPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+  const [showInactiveSection, setShowInactiveSection] = useState(false)
 
   useEffect(() => {
-    const raw = localStorage.getItem('sessionUser')
-    const parsed = raw ? (JSON.parse(raw) as SessionUser) : null
+    let parsed: SessionUser | null = null
+    try {
+      const raw = localStorage.getItem('sessionUser')
+      parsed = raw ? (JSON.parse(raw) as SessionUser) : null
+    } catch {
+      parsed = null
+    }
     if (!parsed || parsed.role !== 'superadmin') {
       window.location.href = '/'
       return
@@ -128,6 +153,14 @@ export default function SuperadminDevicesPage() {
     }
   }, [displayRows, orderdeskRows, driverRows])
 
+  const inactiveCount = useMemo(() => {
+    return (
+      displayRows.filter((row) => normalizedStatus(row.lastSeenAt, row.isActive) === 'inactive').length +
+      orderdeskRows.filter((row) => normalizedStatus(row.lastSeenAt, row.isActive) === 'inactive').length +
+      driverRows.filter((row) => normalizedStatus(row.lastSeenAt, row.isActive) === 'inactive').length
+    )
+  }, [displayRows, orderdeskRows, driverRows])
+
   async function disconnectOrderdesk(bindingId: string, hardDelete: boolean) {
     if (!window.confirm('OrderDesk-Gerät wirklich entkoppeln? Dieses Gerät muss danach neu gekoppelt werden.')) return
     if (!window.confirm('Zweite Bestätigung: Aktion wirklich durchführen?')) return
@@ -154,125 +187,342 @@ export default function SuperadminDevicesPage() {
   }
 
   return (
-    <BackofficeLayout brand="Superadmin" title="Geräte" subtitle="Zentrale Übersicht für Displays, OrderDesk, Fahrergeräte und Status" navItems={SUPERADMIN_NAV_ITEMS}>
-      <div className="space-y-4">
-        {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
-        {info ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{info}</div> : null}
+    <BackofficeLayout
+      brand="Superadmin"
+      title="Geräte"
+      subtitle="Displays, OrderDesk, Fahrergeräte und Status zentral verwalten"
+      navItems={SUPERADMIN_NAV_ITEMS}
+    >
+      <div className="space-y-5">
+        {error ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            <div className="font-semibold">Geräte konnten nicht geladen werden</div>
+            <div className="mt-1">{error}</div>
+            <button type="button" onClick={() => void loadData()} className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white">
+              Erneut laden
+            </button>
+          </div>
+        ) : null}
+        {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{info}</div> : null}
 
-        <div className="grid gap-3 md:grid-cols-5">
-          <div className="rounded-xl border bg-white p-3"><div className="text-xs text-slate-500">Geräte gesamt</div><div className="text-2xl font-bold">{summary.total}</div></div>
-          <div className="rounded-xl border bg-white p-3"><div className="text-xs text-slate-500">Online</div><div className="text-2xl font-bold text-emerald-600">{summary.online}</div></div>
-          <div className="rounded-xl border bg-white p-3"><div className="text-xs text-slate-500">Instabil</div><div className="text-2xl font-bold text-amber-600">{summary.unstable}</div></div>
-          <div className="rounded-xl border bg-white p-3"><div className="text-xs text-slate-500">Offline</div><div className="text-2xl font-bold text-rose-600">{summary.offline}</div></div>
-          <div className="rounded-xl border bg-white p-3"><div className="text-xs text-slate-500">Inaktiv</div><div className="text-2xl font-bold text-slate-500">{summary.inactive}</div></div>
-        </div>
+        <section className="grid gap-3 md:grid-cols-5">
+          <StatCard title="Geräte gesamt" value={summary.total} hint="Alle verbundenen und inaktiven Geräte" tone="slate" />
+          <StatCard title="Online" value={summary.online} hint="Stabil verbunden" tone="emerald" />
+          <StatCard title="Instabil" value={summary.unstable} hint="Heartbeat unregelmäßig" tone="amber" />
+          <StatCard title="Offline" value={summary.offline} hint="Nicht erreichbar" tone="rose" />
+          <StatCard title="Inaktiv" value={summary.inactive} hint="Entkoppelt oder deaktiviert" tone="zinc" />
+        </section>
 
-        <div className="rounded-2xl border bg-white p-4">
+        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
           <div className="grid gap-3 md:grid-cols-4">
-            <select className="rounded-xl border px-3 py-2" value={chainId} onChange={(event) => setChainId(event.target.value)}>
-              <option value="">Alle Ketten</option>
-              {(context?.chains || []).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+            <select className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5" value={chainId} onChange={(event) => setChainId(event.target.value)}>
+              <option value="">Alle Unternehmen</option>
+              {(context?.chains || []).map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
             </select>
-            <select className="rounded-xl border px-3 py-2" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
+            <select className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
               <option value="">Alle Filialen</option>
-              {(context?.tenants || []).filter((entry) => !chainId || entry.chainId === chainId).map((entry) => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
+              {(context?.tenants || []).filter((entry) => !chainId || entry.chainId === chainId).map((entry) => (
+                <option key={entry.id} value={entry.id}>{entry.name}</option>
+              ))}
             </select>
-            <input className="rounded-xl border px-3 py-2" placeholder="Suchen (Name, Code, Plattform ...)" value={search} onChange={(event) => setSearch(event.target.value)} />
-            <button type="button" className="rounded-xl border bg-slate-900 px-3 py-2 text-white" onClick={() => void loadData()} disabled={loading}>
-              {loading ? 'Lädt...' : 'Aktualisieren'}
+            <input className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5" placeholder="Suche nach Name, Code, Plattform ..." value={search} onChange={(event) => setSearch(event.target.value)} />
+            <button type="button" className="rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60" onClick={() => void loadData()} disabled={loading}>
+              {loading ? 'Geräte werden geladen …' : 'Aktualisieren'}
             </button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {(['ALL', 'DISPLAYS', 'ORDERDESK', 'DRIVER', 'OFFLINE'] as DeviceTab[]).map((entry) => (
-              <button key={entry} type="button" onClick={() => setTab(entry)} className={`rounded-xl px-3 py-1.5 text-sm ${tab === entry ? 'bg-slate-900 text-white' : 'border bg-white'}`}>
+              <button
+                key={entry}
+                type="button"
+                onClick={() => setTab(entry)}
+                className={`rounded-xl px-3 py-1.5 text-sm font-medium transition ${tab === entry ? 'bg-slate-900 text-white' : 'border border-[var(--brand-border)] bg-white text-slate-700 hover:bg-slate-50'}`}
+              >
                 {entry === 'ALL' ? 'Alle Geräte' : entry === 'DISPLAYS' ? 'Displays' : entry === 'ORDERDESK' ? 'OrderDesk' : entry === 'DRIVER' ? 'Fahrergeräte' : 'Offline Geräte'}
               </button>
             ))}
           </div>
-        </div>
+        </section>
+
+        {loading ? (
+          <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 text-sm text-slate-600">Geräte werden geladen …</div>
+        ) : null}
 
         {(tab === 'ALL' || tab === 'DISPLAYS' || tab === 'OFFLINE') ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-2 text-sm font-semibold">Displays & Menübildschirme</h3>
-            <div className="overflow-auto">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead><tr className="text-left text-xs text-slate-500"><th>Name</th><th>Typ</th><th>Status</th><th>Filiale</th><th>Kette</th><th>Code</th><th>Plattform</th><th>App-Version</th><th>Zuletzt aktiv</th></tr></thead>
-                <tbody>
-                  {displayFiltered
-                    .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                    .map((row) => (
-                      <tr key={row.id} className="border-t">
-                        <td className="py-2">{row.name}</td>
-                        <td>{row.displayType}</td>
-                        <td>{normalizedStatus(row.lastSeenAt, row.isActive)}</td>
-                        <td>{row.tenantName || '-'}</td>
-                        <td>{row.chainName || '-'}</td>
-                        <td>{row.code}</td>
-                        <td>{row.deviceInfo?.platform || '-'}</td>
-                        <td>{row.deviceInfo?.appVersion || '-'}</td>
-                        <td>{row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString('de-DE') : '-'}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DeviceSection title="Displays & Menübildschirme">
+            <DesktopTable headers={['Name', 'Typ', 'Status', 'Filiale', 'Kette', 'Code', 'Plattform', 'App-Version', 'Zuletzt aktiv']}>
+              {displayFiltered
+                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
+                .map((row) => {
+                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
+                  return (
+                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                      <td className="py-2.5 font-medium text-slate-800">{row.name}</td>
+                      <td>{row.displayType}</td>
+                      <td><StatusBadge status={status} /></td>
+                      <td>{row.tenantName || '—'}</td>
+                      <td>{row.chainName || '—'}</td>
+                      <td className="font-mono text-xs">{row.code}</td>
+                      <td>{row.deviceInfo?.platform || '—'}</td>
+                      <td>{row.deviceInfo?.appVersion || '—'}</td>
+                      <td>{toDeDate(row.lastSeenAt)}</td>
+                    </tr>
+                  )
+                })}
+            </DesktopTable>
+            <MobileCards>
+              {displayFiltered
+                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
+                .map((row) => {
+                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
+                  return (
+                    <DeviceCard
+                      key={row.id}
+                      title={row.name}
+                      subtitle={`${row.displayType} • ${row.code}`}
+                      status={status}
+                      details={[
+                        `Filiale: ${row.tenantName || '—'}`,
+                        `Unternehmen: ${row.chainName || '—'}`,
+                        `Plattform: ${row.deviceInfo?.platform || '—'}`,
+                        `App-Version: ${row.deviceInfo?.appVersion || '—'}`,
+                        `Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`,
+                      ]}
+                    />
+                  )
+                })}
+            </MobileCards>
+          </DeviceSection>
         ) : null}
 
         {(tab === 'ALL' || tab === 'ORDERDESK' || tab === 'OFFLINE') ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-2 text-sm font-semibold">OrderDesk-Geräte</h3>
-            <div className="overflow-auto">
-              <table className="w-full min-w-[1160px] text-sm">
-                <thead><tr className="text-left text-xs text-slate-500"><th>Label</th><th>Display</th><th>Status</th><th>Seriennummer</th><th>Plattform</th><th>App-Version</th><th>Zuletzt aktiv</th><th>Aktionen</th></tr></thead>
-                <tbody>
-                  {orderdeskFiltered
-                    .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                    .map((row) => (
-                      <tr key={row.id} className="border-t">
-                        <td className="py-2">{row.deviceAlias || 'OrderDesk'}</td>
-                        <td>{row.displayCode}</td>
-                        <td>{normalizedStatus(row.lastSeenAt, row.isActive)}</td>
-                        <td>{row.deviceSerial}</td>
-                        <td>{row.devicePlatform || '-'}</td>
-                        <td>{row.appVersion || '-'}</td>
-                        <td>{row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString('de-DE') : '-'}</td>
-                        <td className="space-x-1">
-                          <button className="rounded border px-2 py-1" onClick={() => void refreshOrderdeskPairing(row.id)}>Pairing neu</button>
-                          <button className="rounded border px-2 py-1" onClick={() => void disconnectOrderdesk(row.id, false)}>Entkoppeln</button>
-                          <button className="rounded border border-red-200 px-2 py-1 text-red-700" onClick={() => void disconnectOrderdesk(row.id, true)}>Löschen</button>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DeviceSection title="OrderDesk-Geräte">
+            <DesktopTable headers={['Label', 'Display', 'Status', 'Seriennummer', 'Plattform', 'App-Version', 'Zuletzt aktiv', 'Aktionen']}>
+              {orderdeskFiltered
+                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
+                .map((row) => {
+                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
+                  return (
+                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                      <td className="py-2.5 font-medium text-slate-800">{row.deviceAlias || 'OrderDesk'}</td>
+                      <td className="font-mono text-xs">{row.displayCode}</td>
+                      <td><StatusBadge status={status} /></td>
+                      <td className="font-mono text-xs">{row.deviceSerial}</td>
+                      <td>{row.devicePlatform || '—'}</td>
+                      <td>{row.appVersion || '—'}</td>
+                      <td>{toDeDate(row.lastSeenAt)}</td>
+                      <td>
+                        <div className="flex flex-wrap gap-1.5">
+                          <ActionButton label="Pairing neu" tone="primary" onClick={() => void refreshOrderdeskPairing(row.id)} />
+                          <ActionButton label="Entkoppeln" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
+                          <ActionButton label="Löschen" tone="danger" onClick={() => void disconnectOrderdesk(row.id, true)} />
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+            </DesktopTable>
+            <MobileCards>
+              {orderdeskFiltered
+                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
+                .map((row) => {
+                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
+                  return (
+                    <DeviceCard
+                      key={row.id}
+                      title={row.deviceAlias || 'OrderDesk'}
+                      subtitle={`Display: ${row.displayCode}`}
+                      status={status}
+                      details={[
+                        `Seriennummer: ${row.deviceSerial}`,
+                        `Plattform: ${row.devicePlatform || '—'}`,
+                        `App-Version: ${row.appVersion || '—'}`,
+                        `Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`,
+                      ]}
+                      actions={
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <ActionButton label="Pairing neu" tone="primary" onClick={() => void refreshOrderdeskPairing(row.id)} />
+                          <ActionButton label="Entkoppeln" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
+                          <ActionButton label="Löschen" tone="danger" onClick={() => void disconnectOrderdesk(row.id, true)} />
+                        </div>
+                      }
+                    />
+                  )
+                })}
+            </MobileCards>
+          </DeviceSection>
         ) : null}
 
         {(tab === 'ALL' || tab === 'DRIVER' || tab === 'OFFLINE') ? (
-          <div className="rounded-2xl border bg-white p-4">
-            <h3 className="mb-2 text-sm font-semibold">Fahrergeräte</h3>
-            <div className="overflow-auto">
-              <table className="w-full min-w-[700px] text-sm">
-                <thead><tr className="text-left text-xs text-slate-500"><th>Name</th><th>Filiale</th><th>Status</th><th>Zuletzt aktiv</th></tr></thead>
-                <tbody>
-                  {driverFiltered
-                    .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                    .map((row) => (
-                      <tr key={row.id} className="border-t">
-                        <td className="py-2">{row.name}</td>
-                        <td>{row.tenantName || '-'}</td>
-                        <td>{normalizedStatus(row.lastSeenAt, row.isActive)}</td>
-                        <td>{row.lastSeenAt ? new Date(row.lastSeenAt).toLocaleString('de-DE') : '-'}</td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DeviceSection title="Fahrergeräte">
+            <DesktopTable headers={['Name', 'Filiale', 'Status', 'Zuletzt aktiv']}>
+              {driverFiltered
+                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
+                .map((row) => {
+                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
+                  return (
+                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
+                      <td className="py-2.5 font-medium text-slate-800">{row.name}</td>
+                      <td>{row.tenantName || '—'}</td>
+                      <td><StatusBadge status={status} /></td>
+                      <td>{toDeDate(row.lastSeenAt)}</td>
+                    </tr>
+                  )
+                })}
+            </DesktopTable>
+            <MobileCards>
+              {driverFiltered
+                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
+                .map((row) => {
+                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
+                  return (
+                    <DeviceCard
+                      key={row.id}
+                      title={row.name}
+                      subtitle={row.tenantName || 'Filiale unbekannt'}
+                      status={status}
+                      details={[`Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`]}
+                    />
+                  )
+                })}
+            </MobileCards>
+          </DeviceSection>
+        ) : null}
+
+        {inactiveCount > 0 ? (
+          <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+            <button type="button" onClick={() => setShowInactiveSection((current) => !current)} className="flex w-full items-center justify-between text-left">
+              <span className="text-sm font-semibold text-slate-800">Inaktive Geräte ({inactiveCount})</span>
+              <span className="text-xs text-slate-500">{showInactiveSection ? 'Ausblenden' : 'Einblenden'}</span>
+            </button>
+            {showInactiveSection ? (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Alte oder nicht mehr verbundene Geräte können gelöscht werden.
+              </p>
+            ) : null}
+          </section>
         ) : null}
       </div>
     </BackofficeLayout>
+  )
+}
+
+function StatCard({
+  title,
+  value,
+  hint,
+  tone,
+}: {
+  title: string
+  value: number
+  hint: string
+  tone: 'slate' | 'emerald' | 'amber' | 'rose' | 'zinc'
+}) {
+  const toneClasses =
+    tone === 'emerald'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : tone === 'amber'
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : tone === 'rose'
+          ? 'border-rose-200 bg-rose-50 text-rose-700'
+          : tone === 'zinc'
+            ? 'border-zinc-200 bg-zinc-50 text-zinc-700'
+            : 'border-slate-200 bg-slate-50 text-slate-700'
+  return (
+    <article className={`rounded-2xl border p-3 shadow-sm ${toneClasses}`}>
+      <p className="text-xs font-medium">{title}</p>
+      <p className="mt-1 text-2xl font-semibold">{value}</p>
+      <p className="text-xs opacity-80">{hint}</p>
+    </article>
+  )
+}
+
+function StatusBadge({ status }: { status: StatusKind }) {
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyle(status)}`}>{statusLabel(status)}</span>
+}
+
+function DeviceSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+      <h3 className="mb-3 text-sm font-semibold text-slate-800">{title}</h3>
+      {children}
+    </section>
+  )
+}
+
+function DesktopTable({ headers, children }: { headers: string[]; children: ReactNode }) {
+  return (
+    <div className="hidden overflow-auto lg:block">
+      <table className="w-full min-w-[940px] text-sm text-slate-700">
+        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+          <tr>
+            {headers.map((header) => (
+              <th key={header} className="sticky top-0 px-2 py-2 text-left">{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  )
+}
+
+function MobileCards({ children }: { children: ReactNode }) {
+  return <div className="grid gap-3 lg:hidden">{children}</div>
+}
+
+function DeviceCard({
+  title,
+  subtitle,
+  status,
+  details,
+  actions,
+}: {
+  title: string
+  subtitle: string
+  status: StatusKind
+  details: string[]
+  actions?: ReactNode
+}) {
+  return (
+    <article className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-800">{title}</p>
+          <p className="text-xs text-slate-500">{subtitle}</p>
+        </div>
+        <StatusBadge status={status} />
+      </div>
+      <div className="mt-2 space-y-1">
+        {details.map((entry) => (
+          <p key={entry} className="text-xs text-slate-600">{entry}</p>
+        ))}
+      </div>
+      {actions}
+    </article>
+  )
+}
+
+function ActionButton({
+  label,
+  tone,
+  onClick,
+}: {
+  label: string
+  tone: 'primary' | 'secondary' | 'danger'
+  onClick: () => void
+}) {
+  const classes =
+    tone === 'primary'
+      ? 'bg-slate-900 text-white hover:bg-slate-800'
+      : tone === 'danger'
+        ? 'bg-rose-600 text-white hover:bg-rose-500'
+        : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+  return (
+    <button type="button" onClick={onClick} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${classes}`}>
+      {label}
+    </button>
   )
 }
