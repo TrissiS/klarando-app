@@ -185,7 +185,7 @@ export default function AdminPage() {
         getOrderDisplays(),
         getAdminOrderDashboard(30, sessionTenantId ?? undefined, accessToken ?? undefined),
         getAdminOrderRatingsDashboard(180, sessionTenantId ?? undefined, accessToken ?? undefined),
-        getOrderManagementList({ status: 'all', source: 'ALL', limit: 300 }),
+        getOrderManagementList({ limit: 300 }),
       ])
 
       const failedSections: string[] = []

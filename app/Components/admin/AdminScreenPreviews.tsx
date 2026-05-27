@@ -46,13 +46,23 @@ export default function AdminScreenPreviews({ devices }: Props) {
                 </a>
               </div>
 
-              <div className="relative aspect-video bg-slate-950">
-                <iframe
-                  src={`/screen/${device.deviceCode}`}
-                  title={`Bildschirm ${device.name}`}
-                  className="h-full w-full border-0"
-                  loading="lazy"
-                />
+              <div className="relative flex aspect-video items-center justify-center bg-slate-950 p-4 text-center">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-white/70">
+                    Live-Route wird nicht automatisch geladen
+                  </p>
+                  <p className="mt-2 text-sm text-white/80">
+                    Öffne die TV-Ansicht nur bei Bedarf per Klick.
+                  </p>
+                  <a
+                    href={`/screen/${device.deviceCode}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 transition hover:bg-slate-100"
+                  >
+                    Live-Preview öffnen
+                  </a>
+                </div>
               </div>
             </article>
           ))}
