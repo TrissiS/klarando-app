@@ -154,16 +154,31 @@ async function loadSupportedUserRolesFromDatabase() {
   }
 }
 
+async function loadSupportedPermissionKeysFromDatabase() {
+  try {
+    const rows = await prisma.$queryRawUnsafe<Array<{ permission: string }>>(
+      'SELECT unnest(enum_range(NULL::"PermissionKey"))::text AS permission'
+    )
+    return new Set(rows.map((entry) => entry.permission))
+  } catch (error) {
+    console.warn('LOAD PERMISSION KEY ENUM ERROR:', error)
+    return null
+  }
+}
+
 async function seedRolePermissions() {
   try {
     const supportedRoles = await loadSupportedUserRolesFromDatabase()
+    const supportedPermissions = await loadSupportedPermissionKeysFromDatabase()
     const rows = Object.entries(DEFAULT_ROLE_PERMISSIONS).flatMap(([role, permissions]) =>
       (supportedRoles && !supportedRoles.has(role)
         ? []
-        : permissions.map((permission) => ({
-            role: role as UserRole,
-            permission,
-          })))
+        : permissions
+            .filter((permission) => !supportedPermissions || supportedPermissions.has(permission))
+            .map((permission) => ({
+              role: role as UserRole,
+              permission,
+            })))
     )
 
     if (rows.length === 0) {
