@@ -94,6 +94,34 @@ class DisplayApi {
     );
   }
 
+  Future<Map<String, dynamic>> getDisplayRuntimeConfig(String deviceCode) async {
+    final normalizedCode = deviceCode.trim().toUpperCase();
+    final endpoint = '/api/display-runtime/$normalizedCode/config';
+    final response = await http.get(Uri.parse('$_baseUrl$endpoint'));
+    return _decode(response, endpoint);
+  }
+
+  Future<Map<String, dynamic>> getKitchenDisplayRuntime(String deviceCode) async {
+    final normalizedCode = deviceCode.trim().toUpperCase();
+    final endpoint = '/api/kitchen-display/$normalizedCode/runtime';
+    final response = await http.get(Uri.parse('$_baseUrl$endpoint'));
+    return _decode(response, endpoint);
+  }
+
+  Future<Map<String, dynamic>> getPickupDisplayRuntime(String deviceCode) async {
+    final normalizedCode = deviceCode.trim().toUpperCase();
+    final endpoint = '/api/pickup-display/$normalizedCode/runtime';
+    final response = await http.get(Uri.parse('$_baseUrl$endpoint'));
+    return _decode(response, endpoint);
+  }
+
+  Future<Map<String, dynamic>> getCashierDisplayRuntime(String deviceCode) async {
+    final normalizedCode = deviceCode.trim().toUpperCase();
+    final endpoint = '/api/cashier-display/$normalizedCode/runtime';
+    final response = await http.get(Uri.parse('$_baseUrl$endpoint'));
+    return _decode(response, endpoint);
+  }
+
   Future<void> heartbeat(String deviceCode) async {
     final normalizedCode = deviceCode.trim().toUpperCase();
     final endpoint = '/api/display-runtime/$normalizedCode/heartbeat';

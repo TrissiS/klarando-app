@@ -175,7 +175,14 @@ class _DisplayRootState extends State<_DisplayRoot> {
         await _startPairing();
         return;
       }
-      final hadCachedManifest = await _loadCachedManifestIntoMemory(deviceCode);
+      final currentDeviceCode = _deviceCode;
+      if (currentDeviceCode == null || currentDeviceCode.isEmpty) {
+        _strictManifestFailed = true;
+        _message = 'NO DEVICE CODE AVAILABLE - bitte neu koppeln.';
+        setState(() {});
+        return;
+      }
+      final hadCachedManifest = await _loadCachedManifestIntoMemory(currentDeviceCode);
       if (hadCachedManifest) {
         _strictManifestFailed = false;
         _message = 'Offline-Stand geladen. Synchronisierung läuft …';
@@ -645,6 +652,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
           readPriceField(product, 'calculatedPrice') ??
           readPriceField(product, 'variantPrice');
       final finalPrice = fallbackPrice ?? 0;
+      final depositAmount = readPriceField(product, 'depositAmount') ?? 0;
+      final depositIncludedInPrice = product['depositIncludedInPrice'] == true;
+      final displayPrice = readPriceField(product, 'displayPrice') ?? finalPrice;
+      final depositNotice = '${product['depositNotice'] ?? ''}'.trim();
       debugPrint(
         'DISPLAY PRICE RESOLUTION productId=${product['id'] ?? '-'} '
         'sellingPrice=${product['sellingPrice']} salePrice=${product['salePrice']} '
@@ -658,6 +669,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'categoryId': product['categoryId'],
         'categoryName': product['categoryName'],
         'price': finalPrice,
+        'depositAmount': depositAmount,
+        'depositIncludedInPrice': depositIncludedInPrice,
+        'displayPrice': displayPrice,
+        'depositNotice': depositNotice,
         'isHero': product['isHero'] == true,
         'isBestseller': product['isBestseller'] == true,
         'isNew': product['isNew'] == true,
@@ -708,6 +723,12 @@ class _DisplayRootState extends State<_DisplayRoot> {
         ? 0
         : (startProductNumber + mappedProducts.length - 1).clamp(0, totalProducts);
     final syncMode = '${displayManifest['syncMode'] ?? runtimeConfig['syncMode'] ?? ''}'.toUpperCase();
+    final rotationEnabled = runtimeConfig['rotationEnabled'] != false;
+    final targetProductsPerScreenRaw = runtimeConfig['targetProductsPerScreen'];
+    final targetProductsPerScreen =
+        targetProductsPerScreenRaw is num ? targetProductsPerScreenRaw.toInt() : null;
+    final layoutMode = '${runtimeConfig['layoutMode'] ?? 'AUTO'}'.toUpperCase();
+    final depositDisplayMode = '${runtimeConfig['depositDisplayMode'] ?? 'INCLUDED'}'.toUpperCase();
 
     return <String, dynamic>{
       'screen': <String, dynamic>{
@@ -715,6 +736,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'accentColor': accentColor,
       },
       'screenConfig': <String, dynamic>{
+        'rotationEnabled': rotationEnabled,
+        'targetProductsPerScreen': targetProductsPerScreen,
+        'layoutMode': layoutMode,
+        'depositDisplayMode': depositDisplayMode,
         'showPrices': runtimeConfig['showPrices'] ?? true,
         'showCategoryOnCard': runtimeConfig['showCategoryOnCard'] ?? showCategories,
         'showCategoryHeaders': runtimeConfig['showCategoryHeaders'] ?? false,
@@ -744,7 +769,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'cardOpacity': cardOpacity,
         'backgroundMediaUrl': runtimeConfig['backgroundMediaUrl'],
       },
-      'items': slidesRaw.isNotEmpty
+      'items': rotationEnabled && slidesRaw.isNotEmpty
           ? slidesRaw
               .map((entry) => (entry as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{})
               .toList(growable: false)

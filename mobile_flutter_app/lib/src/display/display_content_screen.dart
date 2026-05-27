@@ -90,6 +90,9 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final showCategory = showCategories && ((screenConfig['showCategoryOnCard'] as bool?) ?? true);
     final showCategoryHeaders = (screenConfig['showCategoryHeaders'] as bool?) ?? false;
     final showIngredients = (screenConfig['showIngredients'] as bool?) ?? (screenConfig['showAllergens'] as bool?) ?? true;
+    final rotationEnabled = (screenConfig['rotationEnabled'] as bool?) ?? true;
+    final layoutMode = '${screenConfig['layoutMode'] ?? 'AUTO'}'.toUpperCase();
+    final targetProductsPerScreen = (screenConfig['targetProductsPerScreen'] as num?)?.toInt();
     final autoHighlightTopSellers = (screenConfig['autoHighlightTopSellers'] as bool?) ?? true;
     final hideSoldOutProducts = (screenConfig['hideSoldOutProducts'] as bool?) ?? false;
     final markLowStockProducts = (screenConfig['markLowStockProducts'] as bool?) ?? true;
@@ -161,7 +164,12 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
               'name': '${entry['name'] ?? '-'}',
               'category': '${entry['categoryName'] ?? 'Weitere'}',
               'price': showPrices ? _formatPrice(entry['price']) : '',
+              'displayPrice': showPrices ? _formatPrice(entry['displayPrice'] ?? entry['price']) : '',
               'priceValue': entry['price'],
+              'displayPriceValue': entry['displayPrice'],
+              'depositAmount': entry['depositAmount'],
+              'depositIncludedInPrice': entry['depositIncludedInPrice'] == true,
+              'depositNotice': '${entry['depositNotice'] ?? ''}'.trim(),
               'promoPriceValue': entry['promoPrice'],
               'originalPriceValue': entry['originalPrice'],
               'badgeLabel': '${entry['badgeLabel'] ?? ''}'.trim(),
@@ -186,12 +194,15 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                   '',
             })
         .toList(growable: false);
+    final constrainedRows = targetProductsPerScreen != null && targetProductsPerScreen > 0
+        ? menuRows.take(targetProductsPerScreen).toList(growable: false)
+        : menuRows;
 
     final liveStats = (widget.content['liveStats'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final avgWaitTime = (liveStats['averageWaitTimeMinutes'] as num?)?.toInt();
     final effectiveMenuRows = hideSoldOutProducts
-        ? menuRows.where((row) => row['isSoldOut'] != true).toList(growable: false)
-        : menuRows;
+        ? constrainedRows.where((row) => row['isSoldOut'] != true).toList(growable: false)
+        : constrainedRows;
 
     return Scaffold(
       body: LayoutBuilder(
@@ -201,9 +212,10 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
           final isLandscape = size.width >= size.height;
           final horizontalPadding = (constraints.maxWidth * 0.055).clamp(28.0, 110.0);
           final verticalPadding = (constraints.maxHeight * 0.055).clamp(24.0, 80.0);
+          final compactFactor = layoutMode == 'ULTRA_COMPACT' ? 0.72 : layoutMode == 'COMPACT' ? 0.84 : 1.0;
           final cardHeight = isLandscape
-              ? (constraints.maxHeight * 0.2).clamp(110.0, 280.0)
-              : (constraints.maxHeight * 0.15).clamp(90.0, 230.0);
+              ? (constraints.maxHeight * 0.2 * compactFactor).clamp(90.0, 280.0)
+              : (constraints.maxHeight * 0.15 * compactFactor).clamp(78.0, 230.0);
           final gap = (constraints.maxHeight * 0.015).clamp(8.0, 20.0);
           final usableHeight = constraints.maxHeight - (verticalPadding * 2);
           final itemsPerPage = usableHeight <= 0
@@ -290,6 +302,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                     enableAnimations: enableAnimations,
                                     showIngredients: showIngredients,
                                     showCategoryHeaders: showCategoryHeaders,
+                                    layoutMode: layoutMode,
                                     cardStyle: cardStyle,
                                     cardOpacity: cardOpacity,
                                     autoHighlightTopSellers: autoHighlightTopSellers,
@@ -371,7 +384,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         child: Text(
                           currentItemType == 'MENU'
-                              ? 'Display ${((layout['displayIndex'] as num?)?.toInt() ?? 0) + 1}/${(layout['displayCount'] as num?)?.toInt() ?? 1} • Produkte ${(layout['productsRangeStart'] ?? 0)}-${(layout['productsRangeEnd'] ?? 0)}'
+                              ? 'Display ${((layout['displayIndex'] as num?)?.toInt() ?? 0) + 1}/${(layout['displayCount'] as num?)?.toInt() ?? 1} • Produkte ${(layout['productsRangeStart'] ?? 0)}-${(layout['productsRangeEnd'] ?? 0)}${rotationEnabled ? '' : ' • Rotation AUS'}'
                               : '$currentItemType • ${currentDuration}s',
                           style: const TextStyle(color: Colors.white70, fontSize: 12),
                         ),
@@ -666,6 +679,7 @@ class _MenuProductBoard extends StatelessWidget {
     required this.enableAnimations,
     required this.showIngredients,
     required this.showCategoryHeaders,
+    required this.layoutMode,
     required this.cardStyle,
     required this.cardOpacity,
     required this.autoHighlightTopSellers,
@@ -689,6 +703,7 @@ class _MenuProductBoard extends StatelessWidget {
   final bool enableAnimations;
   final bool showIngredients;
   final bool showCategoryHeaders;
+  final String layoutMode;
   final String cardStyle;
   final double cardOpacity;
   final bool autoHighlightTopSellers;
@@ -699,11 +714,13 @@ class _MenuProductBoard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLandscape = maxWidth >= maxHeight;
+    final ultraCompact = layoutMode == 'ULTRA_COMPACT';
+    final compact = ultraCompact || layoutMode == 'COMPACT';
     final requestedColumns = configuredColumns != null && configuredColumns! > 0
         ? configuredColumns!.clamp(1, 5)
         : null;
     final columnCount = requestedColumns ?? (isLandscape ? 3 : 2);
-    final safeColumnCount = columnCount.clamp(1, 5);
+    final safeColumnCount = (compact ? (columnCount + 1) : columnCount).clamp(1, 6);
 
     final showHeaderOnly = showCategoryHeaders && !showCategory;
     final sortedRows = [...rows]
@@ -769,7 +786,7 @@ class _MenuProductBoard extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               padding: EdgeInsets.zero,
               itemCount: nonEmptyColumns[column].length,
-              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              separatorBuilder: (_, __) => SizedBox(height: compact ? 6 : 10),
               itemBuilder: (context, index) {
                 final row = nonEmptyColumns[column][index];
                 if ((row['type'] ?? '') == 'header') {
@@ -803,6 +820,8 @@ class _MenuProductBoard extends StatelessWidget {
                 final badgeColor = _parseColor('${row['badgeColor'] ?? ''}') ?? accentColor;
                 final promoPrice = row['promoPriceValue'] as num?;
                 final originalPrice = row['originalPriceValue'] as num?;
+                final depositNotice = '${row['depositNotice'] ?? ''}'.trim();
+                final displayPrice = '${row['displayPrice'] ?? row['price'] ?? '-'}';
 
                 return TweenAnimationBuilder<double>(
                   tween: Tween<double>(begin: enableAnimations ? 0.98 : 1.0, end: 1.0),
@@ -853,7 +872,7 @@ class _MenuProductBoard extends StatelessWidget {
                                      maxLines: 2,
                                      overflow: TextOverflow.ellipsis,
                                      style: TextStyle(
-                                     fontSize: ((productFontSize * (isHero ? 0.96 : 0.88)).clamp(16, 46)).toDouble(),
+                                     fontSize: ((productFontSize * (isHero ? (compact ? 0.82 : 0.96) : (compact ? 0.74 : 0.88))).clamp(13, 46)).toDouble(),
                                      height: 1.15,
                                      color: Colors.white,
                                      fontWeight: FontWeight.w800,
@@ -895,7 +914,7 @@ class _MenuProductBoard extends StatelessWidget {
                                       fontFamily: fontFamily,
                                     ),
                                   ),
-                                 if (showIngredients && (row['ingredients'] ?? '').isNotEmpty)
+                                if (showIngredients && !ultraCompact && (row['ingredients'] ?? '').isNotEmpty)
                                    Text(
                                      row['ingredients'] ?? '',
                                     maxLines: 1,
@@ -905,7 +924,8 @@ class _MenuProductBoard extends StatelessWidget {
                                       color: ingredientTextColor,
                                       fontFamily: fontFamily,
                                     ),
-                                 if (soldToday > 0)
+                                   ),
+                                 if (!ultraCompact && soldToday > 0)
                                    Text(
                                      'Heute ${soldToday}x bestellt',
                                      maxLines: 1,
@@ -916,14 +936,13 @@ class _MenuProductBoard extends StatelessWidget {
                                        fontFamily: fontFamily,
                                      ),
                                    ),
-                                  ),
                               ],
                             ),
                           ),
                           const SizedBox(width: 14),
-                           if (showPrices && (row['price'] ?? '').isNotEmpty)
+                           if (showPrices && (displayPrice).isNotEmpty)
                              SizedBox(
-                               width: 140,
+                               width: compact ? 112 : 140,
                                child: Column(
                                  mainAxisSize: MainAxisSize.min,
                                  crossAxisAlignment: CrossAxisAlignment.end,
@@ -943,7 +962,7 @@ class _MenuProductBoard extends StatelessWidget {
                                      )
                                    else
                                      Text(
-                                       row['price'] ?? '-',
+                                       displayPrice,
                                        maxLines: 1,
                                        overflow: TextOverflow.ellipsis,
                                        textAlign: TextAlign.right,
@@ -961,6 +980,28 @@ class _MenuProductBoard extends StatelessWidget {
                                          fontSize: ((categoryFontSize).clamp(10, 18)).toDouble(),
                                          color: Colors.white54,
                                          decoration: TextDecoration.lineThrough,
+                                         fontFamily: fontFamily,
+                                       ),
+                                     ),
+                                   if (depositNotice.isNotEmpty && !ultraCompact)
+                                     Text(
+                                       depositNotice,
+                                       maxLines: 1,
+                                       overflow: TextOverflow.ellipsis,
+                                       style: TextStyle(
+                                         fontSize: ((categoryFontSize - 1).clamp(9, 14)).toDouble(),
+                                         color: Colors.white60,
+                                         fontFamily: fontFamily,
+                                       ),
+                                     )
+                                   else if ((row['depositAmount'] as num? ?? 0) > 0 && ultraCompact)
+                                     Text(
+                                       '+Pfand',
+                                       maxLines: 1,
+                                       overflow: TextOverflow.ellipsis,
+                                       style: TextStyle(
+                                         fontSize: ((categoryFontSize - 2).clamp(8, 12)).toDouble(),
+                                         color: Colors.white54,
                                          fontFamily: fontFamily,
                                        ),
                                      ),
