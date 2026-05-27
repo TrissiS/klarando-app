@@ -437,7 +437,9 @@ class _DisplayRootState extends State<_DisplayRoot> {
     final layout = (displayManifest['layout'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final runtimeConfig = (runtime['runtimeConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final productsRaw = (displayManifest['products'] as List?) ?? const [];
-    final slidesRaw = (displayManifest['playlist'] as List?) ?? const [];
+    final slidesRaw = (displayManifest['playlistItems'] as List?) ??
+        (displayManifest['playlist'] as List?) ??
+        const [];
     double? readPriceField(Map<String, dynamic> product, String field) {
       final value = product[field];
       if (value is num) return value.toDouble();
@@ -471,6 +473,19 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'categoryId': product['categoryId'],
         'categoryName': product['categoryName'],
         'price': finalPrice,
+        'isHero': product['isHero'] == true,
+        'isBestseller': product['isBestseller'] == true,
+        'isNew': product['isNew'] == true,
+        'isPromotion': product['isPromotion'] == true,
+        'promotionText': product['promotionText'],
+        'badgeLabel': product['badgeLabel'],
+        'badgeColor': product['badgeColor'],
+        'highlightPriority': (product['highlightPriority'] as num?)?.toInt() ?? 0,
+        'heroImageUrl': product['heroImageUrl'],
+        'originalPrice': readPriceField(product, 'originalPrice'),
+        'promoPrice': readPriceField(product, 'promoPrice'),
+        'validFrom': product['validFrom'],
+        'validUntil': product['validUntil'],
         'ingredients': ingredientsRaw
             .map((ingredient) => <String, dynamic>{'name': '$ingredient'.trim()})
             .where((ingredient) => (ingredient['name'] as String).isNotEmpty)
@@ -493,6 +508,16 @@ class _DisplayRootState extends State<_DisplayRoot> {
     final backgroundColor = (runtimeConfig['backgroundColor'] ?? theme['backgroundColor'] ?? '#111827') as String;
     final accentColor = (runtimeConfig['accentColor'] ?? theme['accentColor'] ?? '#f97316') as String;
     final cardOpacity = runtimeConfig['cardOpacity'] ?? theme['cardOpacity'] ?? 0.72;
+    final distribution = (displayManifest['distribution'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final displayCount = (displayManifest['displayCount'] as num?)?.toInt() ?? (distribution['displayCount'] as num?)?.toInt() ?? 1;
+    final displayIndex1Based = (displayManifest['displayIndex'] as num?)?.toInt() ?? (distribution['currentDisplayIndex'] as num?)?.toInt() ?? 1;
+    final productsPerDisplay = (distribution['productsPerDisplay'] as num?)?.toInt() ?? mappedProducts.length;
+    final totalProducts = (distribution['totalProducts'] as num?)?.toInt() ?? mappedProducts.length;
+    final startProductNumber = totalProducts == 0 ? 0 : (((displayIndex1Based - 1) * productsPerDisplay) + 1).clamp(0, totalProducts);
+    final endProductNumber = totalProducts == 0
+        ? 0
+        : (startProductNumber + mappedProducts.length - 1).clamp(0, totalProducts);
+    final syncMode = '${displayManifest['syncMode'] ?? runtimeConfig['syncMode'] ?? ''}'.toUpperCase();
 
     return <String, dynamic>{
       'screen': <String, dynamic>{
@@ -525,9 +550,13 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'cardOpacity': cardOpacity,
         'backgroundMediaUrl': runtimeConfig['backgroundMediaUrl'],
       },
-      'items': const <Map<String, dynamic>>[
-        <String, dynamic>{'type': 'PRODUCT_GRID'},
-      ],
+      'items': slidesRaw.isNotEmpty
+          ? slidesRaw
+              .map((entry) => (entry as Map?)?.cast<String, dynamic>() ?? const <String, dynamic>{})
+              .toList(growable: false)
+          : const <Map<String, dynamic>>[
+              <String, dynamic>{'type': 'MENU', 'durationSeconds': 12},
+            ],
       'playlist': slidesRaw,
       'products': mappedProducts,
       'sync': <String, dynamic>{
@@ -535,8 +564,15 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'serverTimeMs': DateTime.now().millisecondsSinceEpoch,
       },
       'layout': <String, dynamic>{
-        'displayIndex': (((displayManifest['distribution'] as Map<String, dynamic>?)?['currentDisplayIndex'] as num?) ?? 1) - 1,
-        'displayCount': ((displayManifest['distribution'] as Map<String, dynamic>?)?['displayCount'] as num?) ?? 1,
+        'displayIndex': (displayIndex1Based - 1).clamp(0, 1000),
+        'displayCount': displayCount,
+        'displayGroupId': displayManifest['displayGroupId'] ?? distribution['displayGroupId'] ?? 'tenant-default',
+        'displayGroupName': displayManifest['displayGroupName'] ?? displayManifest['displayGroupId'] ?? 'Displaygruppe',
+        'syncMode': syncMode.isEmpty ? 'SPLIT_PRODUCTS' : syncMode,
+        'productsPerDisplay': productsPerDisplay,
+        'productsRangeStart': startProductNumber,
+        'productsRangeEnd': endProductNumber,
+        'totalProducts': totalProducts,
       },
       'manifestDebug': <String, dynamic>{
         'rendererVersion': _rendererVersion,
@@ -546,6 +582,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'template': layout['template'] ?? '-',
         'showCategories': runtimeConfig['showCategoryOnCard'] ?? false,
         'showIngredients': showIngredients,
+        'displayGroupId': displayManifest['displayGroupId'] ?? distribution['displayGroupId'] ?? 'tenant-default',
+        'displayIndex': displayIndex1Based,
+        'displayCount': displayCount,
+        'syncMode': syncMode.isEmpty ? 'SPLIT_PRODUCTS' : syncMode,
         'debugAlways': runtimeConfig['debug'] == true,
         'debugEnabled': runtimeConfig['debug'] == true,
       },
@@ -614,6 +654,8 @@ class _DisplayRootState extends State<_DisplayRoot> {
       'manifestBody: $_lastManifestBodyPreview',
       'manifestVersion: $_lastContentVersion',
       'products: $_lastContentProductCount',
+      'heroProducts: ${((_content?['products'] as List?) ?? const []).where((p) => (p as Map<String, dynamic>)['isHero'] == true).length}',
+      'promoProducts: ${((_content?['products'] as List?) ?? const []).where((p) => (p as Map<String, dynamic>)['isPromotion'] == true).length}',
       'pairingSession: $_lastPairingSessionId',
       'pairingToken: $_lastPairingTokenPreview',
       'deviceToken: ${(_deviceToken ?? '').isEmpty ? '-' : '${_deviceToken!.substring(0, _deviceToken!.length > 10 ? 10 : _deviceToken!.length)}...'}',

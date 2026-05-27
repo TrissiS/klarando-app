@@ -25,14 +25,24 @@ type DisplayManifestAsset = {
 
 type DisplayManifestPlaylistItem = {
   id: string
-  type: 'menuBoard' | 'image' | 'video' | 'promo'
+  type: 'MENU' | 'IMAGE' | 'VIDEO' | 'PROMO' | 'HERO_PRODUCT' | 'INFO'
+  title: string | null
   durationSeconds: number
   order: number
+  active: boolean
   validFrom: string | null
   validUntil: string | null
   daysOfWeek: number[]
   timeWindows: Array<{ from: string; until: string }>
-  refId: string | null
+  priority: number
+  fallbackItem: boolean
+  scheduleName: string | null
+  assetUrl: string | null
+  assetType: 'IMAGE' | 'VIDEO' | null
+  backgroundColor: string | null
+  transition: string | null
+  productIds: string[]
+  categoryIds: string[]
 }
 
 export type DisplayManifest = {
@@ -41,8 +51,14 @@ export type DisplayManifest = {
   branchId: string | null
   displayId: string
   deviceCode: string
+  displayGroupId: string
+  displayGroupName: string
+  displayIndex: number
+  displayCount: number
+  syncMode: 'DUPLICATE_ALL' | 'SPLIT_PRODUCTS' | 'CATEGORY_BASED' | 'PLAYLIST_SYNC' | 'CUSTOM_ASSIGNMENT'
   layout: Record<string, unknown>
   theme: Record<string, unknown>
+  playlistItems: DisplayManifestPlaylistItem[]
   playlist: DisplayManifestPlaylistItem[]
   assets: DisplayManifestAsset[]
   products: Array<{
@@ -53,6 +69,19 @@ export type DisplayManifest = {
     categoryName: string | null
     ingredients: string[]
     allergens: string[]
+    isHero: boolean
+    isBestseller: boolean
+    isNew: boolean
+    isPromotion: boolean
+    promotionText: string | null
+    badgeLabel: string | null
+    badgeColor: string | null
+    highlightPriority: number
+    heroImageUrl: string | null
+    originalPrice: number | null
+    promoPrice: number | null
+    validFrom: string | null
+    validUntil: string | null
   }>
   distribution: {
     displayCount: number
@@ -67,6 +96,13 @@ export type DisplayManifest = {
   schedule: {
     timezone: string
     generatedAt: string
+    currentTime: string
+    presets: Array<{
+      key: string
+      name: string
+      daysOfWeek: number[]
+      timeWindows: Array<{ from: string; until: string }>
+    }>
   }
   generatedAt: string
   expiresAt: string
@@ -110,10 +146,12 @@ function buildAsset(type: DisplayAssetType, url: string, updatedAt: string): Dis
 
 function normalizePlaylistType(type: string): DisplayManifestPlaylistItem['type'] {
   const normalized = type.toUpperCase()
-  if (normalized.includes('VIDEO')) return 'video'
-  if (normalized.includes('IMAGE')) return 'image'
-  if (normalized.includes('PROMO')) return 'promo'
-  return 'menuBoard'
+  if (normalized.includes('HERO')) return 'HERO_PRODUCT'
+  if (normalized.includes('INFO') || normalized.includes('TEXT')) return 'INFO'
+  if (normalized.includes('VIDEO')) return 'VIDEO'
+  if (normalized.includes('IMAGE')) return 'IMAGE'
+  if (normalized.includes('PROMO')) return 'PROMO'
+  return 'MENU'
 }
 
 export async function buildDisplayManifestForDevice(deviceCode: string) {
@@ -144,32 +182,55 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
     .filter((entry) => typeof entry.url === 'string' && entry.url.trim().length > 0)
     .map((entry) => buildAsset(entry.type, (entry.url || '').trim(), generatedAt))
 
-  const playlist: DisplayManifestPlaylistItem[] =
+  const playlistItems: DisplayManifestPlaylistItem[] =
     runtime.slides.length > 0
       ? runtime.slides
           .filter((slide) => slide.active)
-          .map((slide) => ({
+          .map((slide) => {
+            const assetUrl = slide.mediaUrl && slide.mediaUrl.trim().length > 0 ? slide.mediaUrl.trim() : null
+            const assetType = assetUrl ? (isLikelyVideo(assetUrl) ? 'VIDEO' : 'IMAGE') : null
+            return {
             id: slide.id,
             type: normalizePlaylistType(slide.type),
+            title: slide.title ?? null,
             durationSeconds: Math.max(5, slide.durationSeconds || 10),
             order: slide.sortOrder,
-            validFrom: null,
-            validUntil: null,
-            daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
-            timeWindows: [],
-            refId: slide.mediaUrl,
-          }))
+            active: slide.active,
+            validFrom: slide.validFrom ?? null,
+            validUntil: slide.validUntil ?? null,
+            daysOfWeek: slide.daysOfWeek?.length ? slide.daysOfWeek : [1, 2, 3, 4, 5, 6, 7],
+            timeWindows: slide.timeWindows || [],
+            priority: Number(slide.priority || 100),
+            fallbackItem: slide.fallbackItem === true,
+            scheduleName: slide.scheduleName ?? null,
+            assetUrl,
+            assetType,
+            backgroundColor: slide.background ?? null,
+            transition: slide.animation ?? 'FADE',
+            productIds: slide.productIds || [],
+            categoryIds: slide.categoryIds || [],
+          }})
       : [
           {
             id: 'menu-default',
-            type: 'menuBoard',
+            type: 'MENU',
+            title: 'Menü',
             durationSeconds: Number(runtime.contentSettings?.offerMediaRotateSec) || 12,
             order: 1,
+            active: true,
             validFrom: null,
             validUntil: null,
             daysOfWeek: [1, 2, 3, 4, 5, 6, 7],
             timeWindows: [],
-            refId: null,
+            priority: 1,
+            fallbackItem: true,
+            scheduleName: 'Fallback Menü',
+            assetUrl: null,
+            assetType: null,
+            backgroundColor: null,
+            transition: 'FADE',
+            productIds: [],
+            categoryIds: [],
           },
         ]
 
@@ -182,6 +243,19 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
     ...runtime.brandingSettings,
     ...runtime.runtimeConfig,
   }
+  const requestedSyncMode = String(runtime.runtimeConfig?.syncMode || '').toUpperCase()
+  const resolvedSyncMode: DisplayManifest['syncMode'] =
+    requestedSyncMode === 'DUPLICATE_ALL' ||
+    requestedSyncMode === 'SPLIT_PRODUCTS' ||
+    requestedSyncMode === 'CATEGORY_BASED' ||
+    requestedSyncMode === 'PLAYLIST_SYNC' ||
+    requestedSyncMode === 'CUSTOM_ASSIGNMENT'
+      ? (requestedSyncMode as DisplayManifest['syncMode'])
+      : runtime.distribution.strategy === 'duplicate-all'
+        ? 'DUPLICATE_ALL'
+        : runtime.distribution.strategy === 'category-based'
+          ? 'CATEGORY_BASED'
+          : 'SPLIT_PRODUCTS'
 
   const manifestCore: Omit<DisplayManifest, 'checksum' | 'hash'> = {
     manifestVersion: runtime.publishedVersion || runtime.cacheVersion || generatedAt,
@@ -189,11 +263,32 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
     branchId: runtime.device.branchId,
     displayId: runtime.displayId,
     deviceCode: runtime.deviceCode,
+    displayGroupId: runtime.distribution.displayGroupId,
+    displayGroupName: runtime.distribution.displayGroupId,
+    displayIndex: runtime.distribution.currentDisplayIndex,
+    displayCount: runtime.distribution.displayCount,
+    syncMode: resolvedSyncMode,
     layout,
     theme,
-    playlist,
+    playlistItems,
+    playlist: playlistItems,
     assets,
-    products: runtime.products,
+    products: runtime.products.map((product) => ({
+      ...product,
+      isHero: Boolean(product.isHero),
+      isBestseller: Boolean(product.isBestseller),
+      isNew: Boolean(product.isNew),
+      isPromotion: Boolean(product.isPromotion),
+      promotionText: product.promotionText ?? null,
+      badgeLabel: product.badgeLabel ?? null,
+      badgeColor: product.badgeColor ?? null,
+      highlightPriority: Number(product.highlightPriority ?? 0),
+      heroImageUrl: product.heroImageUrl ?? null,
+      originalPrice: product.originalPrice ?? null,
+      promoPrice: product.promoPrice ?? null,
+      validFrom: product.validFrom ?? null,
+      validUntil: product.validUntil ?? null,
+    })),
     categories: runtime.categories,
     distribution: {
       displayCount: runtime.distribution.displayCount,
@@ -207,6 +302,16 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
     schedule: {
       timezone: 'Europe/Berlin',
       generatedAt,
+      currentTime: generatedAt,
+      presets: [
+        { key: 'BREAKFAST', name: 'Frühstück', daysOfWeek: [1, 2, 3, 4, 5, 6, 7], timeWindows: [{ from: '06:00', until: '10:59' }] },
+        { key: 'LUNCH', name: 'Mittag', daysOfWeek: [1, 2, 3, 4, 5], timeWindows: [{ from: '11:00', until: '14:59' }] },
+        { key: 'DINNER', name: 'Abend', daysOfWeek: [1, 2, 3, 4, 5, 6, 7], timeWindows: [{ from: '17:00', until: '22:59' }] },
+        { key: 'HAPPY_HOUR', name: 'Happy Hour', daysOfWeek: [1, 2, 3, 4, 5], timeWindows: [{ from: '15:00', until: '17:00' }] },
+        { key: 'WEEKEND', name: 'Wochenende', daysOfWeek: [6, 7], timeWindows: [{ from: '00:00', until: '23:59' }] },
+        { key: 'HOLIDAY', name: 'Feiertag', daysOfWeek: [1, 2, 3, 4, 5, 6, 7], timeWindows: [{ from: '00:00', until: '23:59' }] },
+        { key: 'EVENT', name: 'Eventmodus', daysOfWeek: [1, 2, 3, 4, 5, 6, 7], timeWindows: [{ from: '00:00', until: '23:59' }] },
+      ],
     },
     generatedAt,
     expiresAt,

@@ -149,10 +149,22 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     }
     _syncBackgroundVideo(backgroundMediaUrl, backgroundMode);
     final menuRows = products
-        .map((entry) => <String, String>{
+        .map((entry) => <String, dynamic>{
               'name': '${entry['name'] ?? '-'}',
               'category': '${entry['categoryName'] ?? 'Weitere'}',
               'price': showPrices ? _formatPrice(entry['price']) : '',
+              'priceValue': entry['price'],
+              'promoPriceValue': entry['promoPrice'],
+              'originalPriceValue': entry['originalPrice'],
+              'badgeLabel': '${entry['badgeLabel'] ?? ''}'.trim(),
+              'badgeColor': '${entry['badgeColor'] ?? ''}'.trim(),
+              'promotionText': '${entry['promotionText'] ?? ''}'.trim(),
+              'isHero': entry['isHero'] == true,
+              'isBestseller': entry['isBestseller'] == true,
+              'isNew': entry['isNew'] == true,
+              'isPromotion': entry['isPromotion'] == true,
+              'highlightPriority': (entry['highlightPriority'] as num?)?.toInt() ?? 0,
+              'heroImageUrl': '${entry['heroImageUrl'] ?? ''}'.trim(),
               'ingredients': (entry['ingredients'] as List?)
                       ?.cast<Map<String, dynamic>>()
                       .map((ingredient) => '${ingredient['name'] ?? ''}'.trim())
@@ -188,17 +200,21 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
           final displayIndex = (layout['displayIndex'] as num?)?.toInt() ?? 0;
           final nowMs = DateTime.now().millisecondsSinceEpoch;
           final elapsedSec = ((nowMs - serverTimeMs) ~/ 1000).clamp(0, 864000);
+          final scheduleEval = _evaluateSchedule(items, DateTime.now());
+          final playlistItems = scheduleEval.activeItems;
+          final syncMode = '${layout['syncMode'] ?? 'SPLIT_PRODUCTS'}'.toUpperCase();
+          final playlistTick = syncMode == 'PLAYLIST_SYNC' ? elapsedSec : (elapsedSec + displayIndex);
+          final currentPlaylist = _resolveCurrentPlaylistItem(playlistItems, playlistTick);
+          final currentDuration = ((currentPlaylist?['durationSeconds'] as num?)?.toInt() ?? pageDurationSec).clamp(5, 90);
           final calculatedPageIndex = pages.isEmpty || pageDurationSec <= 0
               ? 0
               : ((elapsedSec ~/ pageDurationSec) + displayIndex) % pages.length;
           final safePageIndex = pages.isEmpty ? 0 : calculatedPageIndex;
-          _syncPageTimer(pages.length);
+          _syncPageTimer(pages.length > 1 ? pages.length : (playlistItems.isEmpty ? 1 : playlistItems.length));
           final scaleFactor = (constraints.maxWidth / 1920).clamp(0.72, 1.35);
 
-          final hasPlaylistItems = pages.isNotEmpty;
-          final currentItem =
-              hasPlaylistItems ? pages[safePageIndex].isNotEmpty ? pages[safePageIndex][0] : null : null;
-          final currentItemType = '${currentItem?['type'] ?? ''}'.toUpperCase();
+          final hasPlaylistItems = playlistItems.isNotEmpty;
+          final currentItemType = '${currentPlaylist?['type'] ?? 'MENU'}'.toUpperCase();
 
           return Container(
             decoration: BoxDecoration(
@@ -237,8 +253,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                               textAlign: TextAlign.center,
                             ),
                           )
-                        : hasPlaylistItems
-                            ? (currentItemType == 'PRODUCT_GRID' || menuRows.isNotEmpty)
+                        : (!hasPlaylistItems || currentItemType == 'MENU' || currentItemType == 'PRODUCT_GRID')
                                 ? _MenuProductBoard(
                                     rows: menuRows,
                                     maxHeight: usableHeight,
@@ -260,39 +275,12 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                     cardStyle: cardStyle,
                                     cardOpacity: cardOpacity,
                                   )
-                                : Column(
-                                    children: <Widget>[
-                                      for (int i = 0; i < pages[safePageIndex].length; i++) ...<Widget>[
-                                        _ItemCard(
-                                          item: pages[safePageIndex][i],
-                                          scaleFactor: scaleFactor,
-                                          fixedHeight: cardHeight,
-                                        ),
-                                        if (i < pages[safePageIndex].length - 1) SizedBox(height: gap),
-                                      ],
-                                    ],
-                                  )
-                            : _MenuProductBoard(
-                                rows: menuRows,
-                                maxHeight: usableHeight,
-                                maxWidth: constraints.maxWidth - (horizontalPadding * 2),
-                                showCategory: showCategory,
-                                configuredColumns: configuredColumns,
-                                accentColor: accentResolved,
-                                showPrices: showPrices,
-                                fontFamily: fontFamily,
-                                cardPadding: cardPadding,
-                                productFontSize: productFontSize,
-                                categoryFontSize: categoryFontSize,
-                                priceFontSize: priceFontSize,
-                                ingredientFontSize: ingredientFontSize,
-                                ingredientTextColor: ingredientTextColor,
-                                enableAnimations: enableAnimations,
-                                showIngredients: showIngredients,
-                                showCategoryHeaders: showCategoryHeaders,
-                                cardStyle: cardStyle,
-                                cardOpacity: cardOpacity,
-                              ),
+                                : _PlaylistSlide(
+                                    item: currentPlaylist ?? const <String, dynamic>{'type': 'INFO'},
+                                    accentColor: accentResolved,
+                                    scaleFactor: scaleFactor,
+                                    fixedHeight: cardHeight,
+                                  ),
                   ),
                 ),
                 if (showLogo)
@@ -329,7 +317,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                       ),
                     ),
                   ),
-                if (pages.length > 1)
+                if ((playlistItems.length > 1 && currentItemType != 'MENU') || pages.length > 1)
                   Positioned(
                     right: 16,
                     top: 16,
@@ -341,7 +329,9 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                       child: Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                         child: Text(
-                          'Seite ${safePageIndex + 1}/${pages.length}',
+                          currentItemType == 'MENU'
+                              ? 'Display ${((layout['displayIndex'] as num?)?.toInt() ?? 0) + 1}/${(layout['displayCount'] as num?)?.toInt() ?? 1} • Produkte ${(layout['productsRangeStart'] ?? 0)}-${(layout['productsRangeEnd'] ?? 0)}'
+                              : '$currentItemType • ${currentDuration}s',
                           style: const TextStyle(color: Colors.white70, fontSize: 12),
                         ),
                       ),
@@ -384,7 +374,18 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            for (final line in widget.debugLines)
+                                            for (final line in widget.debugLines.followedBy(<String>[
+                                              'scheduleActive: ${playlistItems.length}',
+                                              'scheduleSkipped: ${scheduleEval.skippedReasons.take(2).join(' | ')}',
+                                              'currentSchedule: ${currentPlaylist?['scheduleName'] ?? '-'}',
+                                              'group: ${layout['displayGroupId'] ?? '-'}',
+                                              'display: ${((layout['displayIndex'] as num?)?.toInt() ?? 0) + 1}/${(layout['displayCount'] as num?)?.toInt() ?? 1}',
+                                              'syncMode: $syncMode',
+                                              'productsOnThisDisplay: ${(layout['productsRangeStart'] ?? 0)}-${(layout['productsRangeEnd'] ?? 0)}/${(layout['totalProducts'] ?? 0)}',
+                                              'playlistItemIndex: ${playlistItems.isEmpty ? 0 : (playlistTick % playlistItems.length)}',
+                                              'currentItemType: $currentItemType',
+                                              'nextSwitchSec: $currentDuration',
+                                            ]))
                                               Text(
                                                 line,
                                                 style: const TextStyle(color: Colors.white, fontSize: 10),
@@ -473,6 +474,103 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     return result;
   }
 
+  _ScheduleEvaluation _evaluateSchedule(
+    List<Map<String, dynamic>> input,
+    DateTime now,
+  ) {
+    if (input.isEmpty) {
+      return const _ScheduleEvaluation(activeItems: <Map<String, dynamic>>[], skippedReasons: <String>[]);
+    }
+    final weekday = now.weekday; // 1..7
+    final hhmmNow = now.hour * 60 + now.minute;
+    final skipped = <String>[];
+    final activeItems = input.where((item) {
+      final label = '${item['scheduleName'] ?? item['title'] ?? item['id'] ?? 'item'}';
+      final active = item['active'] as bool?;
+      if (active == false) {
+        skipped.add('$label: inactive');
+        return false;
+      }
+      final validFrom = _tryParseDate(item['validFrom']);
+      final validUntil = _tryParseDate(item['validUntil']);
+      if (validFrom != null && now.isBefore(validFrom)) {
+        skipped.add('$label: before validFrom');
+        return false;
+      }
+      if (validUntil != null && now.isAfter(validUntil)) {
+        skipped.add('$label: after validUntil');
+        return false;
+      }
+
+      final days = (item['daysOfWeek'] as List?)?.map((v) => int.tryParse('$v')).whereType<int>().toSet();
+      if (days != null && days.isNotEmpty && !days.contains(weekday)) {
+        skipped.add('$label: weekday mismatch');
+        return false;
+      }
+
+      final timeWindows = (item['timeWindows'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
+      if (timeWindows.isNotEmpty) {
+        final matchWindow = timeWindows.any((window) {
+          final start = _toMinutes(window['start'] ?? window['from']);
+          final end = _toMinutes(window['end'] ?? window['until']);
+          if (start == null || end == null) return false;
+          if (start <= end) return hhmmNow >= start && hhmmNow <= end;
+          return hhmmNow >= start || hhmmNow <= end; // overnight
+        });
+        if (!matchWindow) {
+          skipped.add('$label: outside time window');
+          return false;
+        }
+      }
+      return true;
+    }).toList(growable: false);
+
+    final sorted = [...activeItems]
+      ..sort((a, b) {
+        final aFallback = a['fallbackItem'] == true ? 1 : 0;
+        final bFallback = b['fallbackItem'] == true ? 1 : 0;
+        if (aFallback != bFallback) return aFallback.compareTo(bFallback);
+        final aPriority = (a['priority'] as num?)?.toInt() ?? 100;
+        final bPriority = (b['priority'] as num?)?.toInt() ?? 100;
+        if (aPriority != bPriority) return bPriority.compareTo(aPriority);
+        final aOrder = (a['order'] as num?)?.toInt() ?? 0;
+        final bOrder = (b['order'] as num?)?.toInt() ?? 0;
+        return aOrder.compareTo(bOrder);
+      });
+
+    final hasRegularItem = sorted.any((item) => item['fallbackItem'] != true);
+    final filtered = hasRegularItem
+        ? sorted.where((item) => item['fallbackItem'] != true).toList(growable: false)
+        : sorted;
+
+    return _ScheduleEvaluation(activeItems: filtered, skippedReasons: skipped);
+  }
+
+  Map<String, dynamic>? _resolveCurrentPlaylistItem(List<Map<String, dynamic>> items, int tick) {
+    if (items.isEmpty) return null;
+    final sorted = [...items]
+      ..sort((a, b) => ((a['order'] as num?)?.toInt() ?? 0).compareTo((b['order'] as num?)?.toInt() ?? 0));
+    final index = tick % sorted.length;
+    return sorted[index];
+  }
+
+  DateTime? _tryParseDate(dynamic value) {
+    final raw = '$value'.trim();
+    if (raw.isEmpty || raw == 'null') return null;
+    return DateTime.tryParse(raw);
+  }
+
+  int? _toMinutes(dynamic value) {
+    final raw = '$value'.trim();
+    final parts = raw.split(':');
+    if (parts.length < 2) return null;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return null;
+    if (h < 0 || h > 23 || m < 0 || m > 59) return null;
+    return h * 60 + m;
+  }
+
   Color? _parseColor(String? value) {
     if (value == null || value.isEmpty) return null;
     final normalized = value.replaceAll('#', '');
@@ -506,7 +604,7 @@ class _MenuProductBoard extends StatelessWidget {
     this.fontFamily,
   });
 
-  final List<Map<String, String>> rows;
+  final List<Map<String, dynamic>> rows;
   final double maxHeight;
   final double maxWidth;
   final bool showCategory;
@@ -536,24 +634,43 @@ class _MenuProductBoard extends StatelessWidget {
     final safeColumnCount = columnCount.clamp(1, 5);
 
     final showHeaderOnly = showCategoryHeaders && !showCategory;
-    final flattened = <Map<String, String>>[];
+    final sortedRows = [...rows]
+      ..sort((a, b) {
+        final aHero = a['isHero'] == true ? 1 : 0;
+        final bHero = b['isHero'] == true ? 1 : 0;
+        if (aHero != bHero) return bHero.compareTo(aHero);
+        final aPrio = (a['highlightPriority'] as num?)?.toInt() ?? 0;
+        final bPrio = (b['highlightPriority'] as num?)?.toInt() ?? 0;
+        if (aPrio != bPrio) return bPrio.compareTo(aPrio);
+        return ('${a['name'] ?? ''}').compareTo('${b['name'] ?? ''}');
+      });
+
+    final flattened = <Map<String, dynamic>>[];
     String? lastCategory;
-    for (final row in rows) {
+    int heroCount = 0;
+    for (final row in sortedRows) {
+      final isHeroCandidate = row['isHero'] == true && heroCount < 3;
+      if (isHeroCandidate) {
+        row['isHero'] = true;
+        heroCount += 1;
+      } else {
+        row['isHero'] = false;
+      }
       final category = row['category'] ?? '';
       if (showHeaderOnly && category.isNotEmpty && category != lastCategory) {
-        flattened.add(<String, String>{
+        flattened.add(<String, dynamic>{
           'type': 'header',
           'category': category,
         });
         lastCategory = category;
       }
-      flattened.add(<String, String>{
+      flattened.add(<String, dynamic>{
         ...row,
         'type': 'product',
       });
     }
 
-    final columns = List.generate(safeColumnCount, (_) => <Map<String, String>>[]);
+    final columns = List.generate(safeColumnCount, (_) => <Map<String, dynamic>>[]);
     final columnWeights = List.generate(safeColumnCount, (_) => 0.0);
     for (final row in flattened) {
       final minIndex = columnWeights.indexOf(columnWeights.reduce((a, b) => a < b ? a : b));
@@ -563,7 +680,10 @@ class _MenuProductBoard extends StatelessWidget {
       final ingredient = row['ingredients'] ?? '';
       final estimate = type == 'header'
           ? 0.95
-          : 1.3 + (name.length > 28 ? 0.45 : 0) + (ingredient.isNotEmpty ? 0.25 : 0);
+          : 1.3 +
+              (name.length > 28 ? 0.45 : 0) +
+              (ingredient.isNotEmpty ? 0.25 : 0) +
+              (row['isHero'] == true ? 0.8 : 0);
       columnWeights[minIndex] += estimate;
     }
     final nonEmptyColumns = columns.where((c) => c.isNotEmpty).toList(growable: false);
@@ -597,6 +717,12 @@ class _MenuProductBoard extends StatelessWidget {
                   );
                 }
 
+                final isHero = row['isHero'] == true;
+                final badgeLabel = '${row['badgeLabel'] ?? ''}'.trim();
+                final badgeColor = _parseColor('${row['badgeColor'] ?? ''}') ?? accentColor;
+                final promoPrice = row['promoPriceValue'] as num?;
+                final originalPrice = row['originalPriceValue'] as num?;
+
                 return TweenAnimationBuilder<double>(
                   tween: Tween<double>(begin: enableAnimations ? 0.98 : 1.0, end: 1.0),
                   duration: Duration(milliseconds: enableAnimations ? 350 : 1),
@@ -609,9 +735,11 @@ class _MenuProductBoard extends StatelessWidget {
                           : cardStyle == 'GLASS'
                               ? Colors.white.withOpacity((cardOpacity * 0.22).clamp(0.08, 0.32))
                               : Colors.black.withOpacity((cardOpacity * 0.4).clamp(0.18, 0.48)),
-                      border: cardStyle == 'BORDER'
-                          ? Border.all(color: accentColor.withOpacity(0.75))
-                          : null,
+                      border: isHero
+                          ? Border.all(color: badgeColor.withOpacity(0.95), width: 1.7)
+                          : (cardStyle == 'BORDER'
+                              ? Border.all(color: accentColor.withOpacity(0.75))
+                              : null),
                       boxShadow: cardStyle == 'NONE'
                           ? null
                           : [
@@ -636,19 +764,45 @@ class _MenuProductBoard extends StatelessWidget {
                               mainAxisSize: MainAxisSize.min,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  row['name'] ?? '-',
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: ((productFontSize * 0.88).clamp(16, 44)).toDouble(),
-                                    height: 1.15,
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800,
-                                    fontFamily: fontFamily,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
+                                 Row(
+                                   children: [
+                                     Expanded(
+                                       child: Text(
+                                     row['name'] ?? '-',
+                                     maxLines: 2,
+                                     overflow: TextOverflow.ellipsis,
+                                     style: TextStyle(
+                                     fontSize: ((productFontSize * (isHero ? 0.96 : 0.88)).clamp(16, 46)).toDouble(),
+                                     height: 1.15,
+                                     color: Colors.white,
+                                     fontWeight: FontWeight.w800,
+                                     fontFamily: fontFamily,
+                                     ),
+                                       ),
+                                     ),
+                                     if (badgeLabel.isNotEmpty || isHero)
+                                       Container(
+                                         margin: const EdgeInsets.only(left: 8),
+                                         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                         decoration: BoxDecoration(
+                                           color: badgeColor.withOpacity(0.2),
+                                           borderRadius: BorderRadius.circular(999),
+                                           border: Border.all(color: badgeColor.withOpacity(0.9)),
+                                         ),
+                                         child: Text(
+                                           badgeLabel.isNotEmpty ? badgeLabel : 'HERO',
+                                           maxLines: 1,
+                                           overflow: TextOverflow.ellipsis,
+                                           style: TextStyle(
+                                             color: badgeColor,
+                                             fontSize: (categoryFontSize.clamp(9, 14)).toDouble(),
+                                             fontWeight: FontWeight.w800,
+                                           ),
+                                         ),
+                                       ),
+                                   ],
+                                 ),
+                                 const SizedBox(height: 2),
                                 if (showCategory)
                                   Text(
                                     row['category'] ?? '',
@@ -675,22 +829,52 @@ class _MenuProductBoard extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 14),
-                          if (showPrices && (row['price'] ?? '').isNotEmpty)
-                            SizedBox(
-                              width: 140,
-                              child: Text(
-                                row['price'] ?? '-',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                textAlign: TextAlign.right,
-                                style: TextStyle(
-                                  fontSize: ((priceFontSize * 0.8).clamp(14, 38)).toDouble(),
-                                  color: accentColor.withOpacity(0.95),
-                                  fontWeight: FontWeight.w900,
-                                  fontFamily: fontFamily,
-                                ),
-                              ),
-                            ),
+                           if (showPrices && (row['price'] ?? '').isNotEmpty)
+                             SizedBox(
+                               width: 140,
+                               child: Column(
+                                 mainAxisSize: MainAxisSize.min,
+                                 crossAxisAlignment: CrossAxisAlignment.end,
+                                 children: [
+                                   if (promoPrice != null)
+                                     Text(
+                                       '${promoPrice.toStringAsFixed(2).replaceAll('.', ',')} €',
+                                       maxLines: 1,
+                                       overflow: TextOverflow.ellipsis,
+                                       textAlign: TextAlign.right,
+                                       style: TextStyle(
+                                         fontSize: ((priceFontSize * 0.86).clamp(14, 40)).toDouble(),
+                                         color: badgeColor.withOpacity(0.97),
+                                         fontWeight: FontWeight.w900,
+                                         fontFamily: fontFamily,
+                                       ),
+                                     )
+                                   else
+                                     Text(
+                                       row['price'] ?? '-',
+                                       maxLines: 1,
+                                       overflow: TextOverflow.ellipsis,
+                                       textAlign: TextAlign.right,
+                                       style: TextStyle(
+                                         fontSize: ((priceFontSize * 0.8).clamp(14, 38)).toDouble(),
+                                         color: accentColor.withOpacity(0.95),
+                                         fontWeight: FontWeight.w900,
+                                         fontFamily: fontFamily,
+                                       ),
+                                     ),
+                                   if (promoPrice != null && originalPrice != null)
+                                     Text(
+                                       '${originalPrice.toStringAsFixed(2).replaceAll('.', ',')} €',
+                                       style: TextStyle(
+                                         fontSize: ((categoryFontSize).clamp(10, 18)).toDouble(),
+                                         color: Colors.white54,
+                                         decoration: TextDecoration.lineThrough,
+                                         fontFamily: fontFamily,
+                                       ),
+                                     ),
+                                 ],
+                               ),
+                             ),
                         ],
                       ),
                     ),
@@ -703,6 +887,15 @@ class _MenuProductBoard extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  Color? _parseColor(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final normalized = value.replaceAll('#', '');
+    if (normalized.length != 6) return null;
+    final parsed = int.tryParse('FF$normalized', radix: 16);
+    if (parsed == null) return null;
+    return Color(parsed);
   }
 }
 
@@ -771,4 +964,113 @@ class _ItemCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PlaylistSlide extends StatelessWidget {
+  const _PlaylistSlide({
+    required this.item,
+    required this.accentColor,
+    required this.scaleFactor,
+    required this.fixedHeight,
+  });
+
+  final Map<String, dynamic> item;
+  final Color accentColor;
+  final double scaleFactor;
+  final double fixedHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final itemType = '${item['type'] ?? 'INFO'}'.toUpperCase();
+    final title = '${item['title'] ?? itemType}'.trim();
+    final assetUrl = '${item['assetUrl'] ?? ''}'.trim();
+    final hasAsset = assetUrl.startsWith('http://') || assetUrl.startsWith('https://');
+    final backgroundColor = _parseSlideColor(item['backgroundColor']) ?? Colors.black.withOpacity(0.26);
+
+    if (itemType == 'IMAGE' && hasAsset) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: SizedBox(
+          height: fixedHeight,
+          width: double.infinity,
+          child: Image.network(
+            assetUrl,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => _fallbackCard(title, itemType, backgroundColor),
+          ),
+        ),
+      );
+    }
+
+    if (itemType == 'VIDEO') {
+      return _fallbackCard(
+        title.isNotEmpty ? title : 'Video-Slide',
+        'VIDEO (coming soon)',
+        backgroundColor,
+      );
+    }
+
+    return _fallbackCard(title, itemType, backgroundColor);
+  }
+
+  Widget _fallbackCard(String title, String subtitle, Color backgroundColor) {
+    return SizedBox(
+      height: fixedHeight,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: accentColor.withOpacity(0.55)),
+        ),
+        child: Padding(
+          padding: EdgeInsets.all((16 * scaleFactor).clamp(10, 24).toDouble()),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                subtitle,
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontSize: (12 * scaleFactor).clamp(10, 16).toDouble(),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                title.isEmpty ? 'Display-Inhalt' : title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: (30 * scaleFactor).clamp(18, 44).toDouble(),
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color? _parseSlideColor(dynamic raw) {
+    final value = '$raw'.trim();
+    if (value.isEmpty || value == 'null') return null;
+    final normalized = value.replaceAll('#', '');
+    if (normalized.length != 6) return null;
+    final parsed = int.tryParse('FF$normalized', radix: 16);
+    if (parsed == null) return null;
+    return Color(parsed);
+  }
+}
+
+class _ScheduleEvaluation {
+  const _ScheduleEvaluation({
+    required this.activeItems,
+    required this.skippedReasons,
+  });
+
+  final List<Map<String, dynamic>> activeItems;
+  final List<String> skippedReasons;
 }

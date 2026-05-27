@@ -52,14 +52,22 @@ type RuntimeShape = {
     id: string
     type: string
     title: string | null
+    scheduleName: string | null
     durationSeconds: number
     background: string | null
     mediaUrl: string | null
     productIds: string[]
+    categoryIds: string[]
     textBlocks: string[]
     animation: string | null
     sortOrder: number
     active: boolean
+    validFrom: string | null
+    validUntil: string | null
+    daysOfWeek: number[]
+    timeWindows: Array<{ from: string; until: string }>
+    priority: number
+    fallbackItem: boolean
   }>
   categories: Array<{ id: string; name: string }>
   products: Array<{
@@ -70,6 +78,19 @@ type RuntimeShape = {
     categoryName: string | null
     ingredients: string[]
     allergens: string[]
+    isHero: boolean
+    isBestseller: boolean
+    isNew: boolean
+    isPromotion: boolean
+    promotionText: string | null
+    badgeLabel: string | null
+    badgeColor: string | null
+    highlightPriority: number
+    heroImageUrl: string | null
+    originalPrice: number | null
+    promoPrice: number | null
+    validFrom: string | null
+    validUntil: string | null
   }>
   distribution: {
     displayGroupId: string
@@ -259,6 +280,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
             select: {
               id: true,
               name: true,
+              imageUrl: true,
               categoryId: true,
               price: true,
               category: { select: { name: true } },
@@ -283,6 +305,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
             select: {
               id: true,
               name: true,
+              imageUrl: true,
               categoryId: true,
               price: true,
               category: { select: { id: true, name: true } },
@@ -315,6 +338,17 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       }),
     ])
     const screenSetting = readScreenSettingJson(screenSettingRaw)
+    const productSettingsMap = new Map(
+      productsByVisibility.map((entry) => [
+        entry.product.id,
+        {
+          isFeatured: Boolean(entry.isFeatured),
+          badgeText: entry.badgeText ?? null,
+          highlightColor: entry.highlightColor ?? null,
+          sortOrder: entry.sortOrder ?? 0,
+        },
+      ])
+    )
     const visibleProductsFromSettings = productsByVisibility.map((entry) => entry.product)
     const products = productsBySelection.length > 0 ? productsBySelection : visibleProductsFromSettings
     const categoryMap = new Map<string, { id: string; name: string }>()
@@ -363,18 +397,50 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     }
     const slides = (activePlaylist?.items || []).map((item) => {
       const config = item.config && typeof item.config === 'object' ? (item.config as Record<string, unknown>) : {}
+      const weekdaysRaw = Array.isArray(item.weekdays) ? item.weekdays : Array.isArray(config.daysOfWeek) ? config.daysOfWeek : []
+      const daysOfWeek = weekdaysRaw
+        .map((entry) => Number(entry))
+        .filter((day) => Number.isInteger(day) && day >= 1 && day <= 7)
+      const validFrom = item.activeFrom ? item.activeFrom.toISOString() : null
+      const validUntil = item.activeUntil ? item.activeUntil.toISOString() : null
+      const scheduleName = typeof config.scheduleName === 'string' ? config.scheduleName : null
+      const fallbackItem = config.fallbackItem === true
+      const priority =
+        Number.isFinite(Number(config.priority)) && Number(config.priority) > 0 ? Number(config.priority) : 100
       return {
         id: item.id,
         type: item.type,
         title: typeof config.title === 'string' ? config.title : null,
+        scheduleName,
         durationSeconds: item.durationSeconds,
         background: typeof config.background === 'string' ? config.background : null,
         mediaUrl: typeof config.mediaUrl === 'string' ? config.mediaUrl : null,
         productIds: Array.isArray(config.productIds) ? config.productIds.filter((entry): entry is string => typeof entry === 'string') : [],
+        categoryIds: Array.isArray(config.categoryIds) ? config.categoryIds.filter((entry): entry is string => typeof entry === 'string') : [],
         textBlocks: Array.isArray(config.textBlocks) ? config.textBlocks.filter((entry): entry is string => typeof entry === 'string') : [],
         animation: typeof config.animation === 'string' ? config.animation : null,
         sortOrder: item.sortOrder,
         active: true,
+        validFrom,
+        validUntil,
+        daysOfWeek: daysOfWeek.length > 0 ? daysOfWeek : [1, 2, 3, 4, 5, 6, 7],
+        timeWindows:
+          item.timeStart && item.timeEnd
+            ? [{ from: item.timeStart, until: item.timeEnd }]
+            : Array.isArray(config.timeWindows)
+              ? config.timeWindows
+                  .map((entry) =>
+                    entry && typeof entry === 'object'
+                      ? {
+                          from: String((entry as Record<string, unknown>).from || (entry as Record<string, unknown>).start || ''),
+                          until: String((entry as Record<string, unknown>).until || (entry as Record<string, unknown>).end || ''),
+                        }
+                      : null
+                  )
+                  .filter((entry): entry is { from: string; until: string } => !!entry && entry.from.length > 0 && entry.until.length > 0)
+              : [],
+        priority,
+        fallbackItem,
       }
     })
     const distributionMeta = meta.distribution || null
@@ -506,6 +572,31 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
       slides,
       categories: categoriesFinal,
       products: distributedProducts.map((product) => ({
+        ...(() => {
+          const setting = productSettingsMap.get(product.id)
+          const badgeLabel = setting?.badgeText ?? null
+          const isHero = Boolean(setting?.isFeatured)
+          const isPromotion =
+            isHero || (badgeLabel ? /(aktion|deal|promo|angebot)/i.test(badgeLabel) : false)
+          const isNew = badgeLabel ? /\bneu\b/i.test(badgeLabel) : false
+          const isBestseller =
+            isHero || (badgeLabel ? /(bestseller|top|hit|beliebt)/i.test(badgeLabel) : false)
+          return {
+            isHero,
+            isBestseller,
+            isNew,
+            isPromotion,
+            promotionText: isPromotion ? badgeLabel : null,
+            badgeLabel,
+            badgeColor: setting?.highlightColor ?? null,
+            highlightPriority: isHero ? 1000 - Math.min(setting?.sortOrder ?? 0, 999) : 0,
+            heroImageUrl: product.imageUrl ?? null,
+            originalPrice: null as number | null,
+            promoPrice: null as number | null,
+            validFrom: null as string | null,
+            validUntil: null as string | null,
+          }
+        })(),
         id: product.id,
         name: product.name,
         price: Number(product.price),
