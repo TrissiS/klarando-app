@@ -2642,6 +2642,69 @@ router.post('/features/tenant/:tenantId/apply-package', requirePermission(Permis
 })
 
 router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  function buildBillingTenantFallback(input: {
+    tenantId: string
+    tenantName?: string | null
+    chainId?: string | null
+    chainName?: string | null
+  }) {
+    const now = new Date()
+    return {
+      tenantId: input.tenantId,
+      billingEnabled: false,
+      profile: null,
+      includedOrders: 0,
+      commissionPercent: 0,
+      fixedFeePerOrder: 0,
+      message: 'Für diesen Betrieb ist noch keine Abrechnung eingerichtet.',
+      tenant: {
+        id: input.tenantId,
+        name: input.tenantName || 'Unbekannter Betrieb',
+        chainId: input.chainId ?? null,
+        chainName: input.chainName ?? null,
+      },
+      plan: {
+        tenantId: input.tenantId,
+        chainId: input.chainId ?? null,
+        planType: BillingPlanType.REVENUE_SHARE,
+        monthlyFeeCents: 0,
+        includedOrders: 0,
+        commissionPercent: 0,
+        commissionAfterIncludedOrdersPercent: null,
+        fixedFeePerOrderCents: 0,
+        billingPeriod: BillingPeriodType.MONTHLY,
+        activeFrom: now.toISOString(),
+        activeUntil: null,
+        isActive: false,
+        notes: null,
+        updatedBy: null,
+      },
+      settings: {
+        tenantId: input.tenantId,
+        chainId: input.chainId ?? null,
+        paymentFeeBearer: FeeBearer.TENANT,
+        countOnlyPaidOrders: true,
+        countOnlyCompletedOrders: true,
+        excludeCanceledOrders: true,
+        revenueMode: 'GROSS',
+        currency: 'EUR',
+        timezone: 'Europe/Berlin',
+        notes: null,
+        isActive: false,
+        updatedBy: null,
+      },
+      billingProfile: null,
+      usage: {
+        ordersTotal: 0,
+        ordersCounted: 0,
+        ordersCanceled: 0,
+        revenueGrossCents: 0,
+        revenueCountedCents: 0,
+      },
+      commissionRules: [],
+    }
+  }
+
   try {
     const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
     await resolveTenantScope(req, tenantId)
@@ -2808,7 +2871,7 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     const message = error instanceof Error ? error.message : String(error)
     const tenantId = Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId
     console.error('ACCESS_BILLING_TENANT_ERROR', { tenantId, message })
-    return res.status(500).json({ error: 'Abrechnung konnte nicht geladen werden' })
+    return res.json(buildBillingTenantFallback({ tenantId }))
   }
 })
 
