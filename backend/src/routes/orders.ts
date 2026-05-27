@@ -1796,9 +1796,6 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
         take: limit,
       })
     } catch (queryError) {
-      if (!isPrismaMissingColumnOrRelationError(queryError)) {
-        throw queryError
-      }
       console.error('ORDERS_MANAGEMENT_INCLUDE_FALLBACK', {
         route: '/api/orders/management',
         message: toErrorMessage(queryError),
@@ -1837,9 +1834,6 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
           take: limit,
         })
       } catch (fallbackError) {
-        if (!isPrismaMissingColumnOrRelationError(fallbackError)) {
-          throw fallbackError
-        }
         console.error('ORDERS_MANAGEMENT_MINIMAL_FALLBACK', {
           route: '/api/orders/management',
           message: toErrorMessage(fallbackError),
