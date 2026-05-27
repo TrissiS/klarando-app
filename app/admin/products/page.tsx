@@ -35,6 +35,7 @@ import {
   type BusinessTemplateDetail,
   type BusinessTemplateOverview,
   type ProductCalculation,
+  type ProductNutrition,
 } from '@/lib/api'
 
 type ProductTab = 'products' | 'categories' | 'ingredients' | 'modifiers' | 'pricing'
@@ -75,6 +76,122 @@ function toPriceDraftMap(products: Product[]) {
 }
 
 const INTEGER_ONLY_INGREDIENT_UNITS = new Set(['Stueck', 'Dose'])
+
+type NutritionDraft = {
+  referenceUnit: 'g' | 'ml' | 'portion'
+  customReferenceLabel: string
+  energyKj: string
+  energyKcal: string
+  fat: string
+  saturatedFat: string
+  carbohydrates: string
+  sugar: string
+  protein: string
+  salt: string
+  fiber: string
+  portionSize: string
+  portionUnit: string
+}
+
+const DEFAULT_NUTRITION_DRAFT: NutritionDraft = {
+  referenceUnit: 'g',
+  customReferenceLabel: '',
+  energyKj: '',
+  energyKcal: '',
+  fat: '',
+  saturatedFat: '',
+  carbohydrates: '',
+  sugar: '',
+  protein: '',
+  salt: '',
+  fiber: '',
+  portionSize: '',
+  portionUnit: '',
+}
+
+function parseNutritionNumber(value: string): number | null {
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  const normalized = trimmed.replace(',', '.')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function nutritionDraftFromProduct(nutrition: ProductNutrition | null | undefined): NutritionDraft {
+  if (!nutrition) {
+    return { ...DEFAULT_NUTRITION_DRAFT }
+  }
+
+  return {
+    referenceUnit:
+      nutrition.referenceUnit === 'ml' || nutrition.referenceUnit === 'portion'
+        ? nutrition.referenceUnit
+        : 'g',
+    customReferenceLabel: nutrition.customReferenceLabel || '',
+    energyKj: nutrition.energyKj != null ? String(nutrition.energyKj) : '',
+    energyKcal: nutrition.energyKcal != null ? String(nutrition.energyKcal) : '',
+    fat: nutrition.fat != null ? String(nutrition.fat) : '',
+    saturatedFat: nutrition.saturatedFat != null ? String(nutrition.saturatedFat) : '',
+    carbohydrates: nutrition.carbohydrates != null ? String(nutrition.carbohydrates) : '',
+    sugar: nutrition.sugar != null ? String(nutrition.sugar) : '',
+    protein: nutrition.protein != null ? String(nutrition.protein) : '',
+    salt: nutrition.salt != null ? String(nutrition.salt) : '',
+    fiber: nutrition.fiber != null ? String(nutrition.fiber) : '',
+    portionSize: nutrition.portionSize != null ? String(nutrition.portionSize) : '',
+    portionUnit: nutrition.portionUnit || '',
+  }
+}
+
+function nutritionPayloadFromDraft(draft: NutritionDraft): ProductNutrition | null {
+  const energyKj = parseNutritionNumber(draft.energyKj)
+  const energyKcal = parseNutritionNumber(draft.energyKcal)
+  const fat = parseNutritionNumber(draft.fat)
+  const saturatedFat = parseNutritionNumber(draft.saturatedFat)
+  const carbohydrates = parseNutritionNumber(draft.carbohydrates)
+  const sugar = parseNutritionNumber(draft.sugar)
+  const protein = parseNutritionNumber(draft.protein)
+  const salt = parseNutritionNumber(draft.salt)
+  const fiber = parseNutritionNumber(draft.fiber)
+  const portionSize = parseNutritionNumber(draft.portionSize)
+  const portionUnit = draft.portionUnit.trim()
+  const customReferenceLabel = draft.customReferenceLabel.trim()
+
+  const hasValues =
+    energyKj != null ||
+    energyKcal != null ||
+    fat != null ||
+    saturatedFat != null ||
+    carbohydrates != null ||
+    sugar != null ||
+    protein != null ||
+    salt != null ||
+    fiber != null ||
+    portionSize != null ||
+    portionUnit.length > 0 ||
+    customReferenceLabel.length > 0
+
+  if (!hasValues) {
+    return null
+  }
+
+  const referenceAmount = draft.referenceUnit === 'portion' ? '1' : '100'
+  return {
+    referenceAmount,
+    referenceUnit: draft.referenceUnit,
+    customReferenceLabel: customReferenceLabel || null,
+    energyKj,
+    energyKcal,
+    fat,
+    saturatedFat,
+    carbohydrates,
+    sugar,
+    protein,
+    salt,
+    fiber,
+    portionSize,
+    portionUnit: portionUnit || null,
+  }
+}
 
 function isIntegerOnlyIngredientUnit(unit?: string | null) {
   return Boolean(unit && INTEGER_ONLY_INGREDIENT_UNITS.has(unit))
@@ -141,6 +258,9 @@ function AdminProductsPageContent() {
   const [articleInfo, setArticleInfo] = useState('')
   const [foodBusinessOperator, setFoodBusinessOperator] = useState('')
   const [nutritionInfo, setNutritionInfo] = useState('')
+  const [nutritionDraft, setNutritionDraft] = useState<NutritionDraft>({
+    ...DEFAULT_NUTRITION_DRAFT,
+  })
   const [price, setPrice] = useState('')
   const [vatRate, setVatRate] = useState('19')
   const [categoryId, setCategoryId] = useState('')
@@ -362,6 +482,7 @@ function AdminProductsPageContent() {
     setArticleInfo('')
     setFoodBusinessOperator('')
     setNutritionInfo('')
+    setNutritionDraft({ ...DEFAULT_NUTRITION_DRAFT })
     setPrice('')
     setVatRate('19')
     setCategoryId('')
@@ -462,6 +583,7 @@ function AdminProductsPageContent() {
         articleInfo: articleInfo.trim() || null,
         foodBusinessOperator: foodBusinessOperator.trim() || null,
         nutritionInfo: nutritionInfo.trim() || null,
+        nutrition: nutritionPayloadFromDraft(nutritionDraft),
         price: Number(price),
         vatRate: Number(vatRate),
         available: available === 'true',
@@ -486,6 +608,7 @@ function AdminProductsPageContent() {
           articleInfo: payload.articleInfo,
           foodBusinessOperator: payload.foodBusinessOperator,
           nutritionInfo: payload.nutritionInfo,
+          nutrition: payload.nutrition,
           price: payload.price,
           vatRate: payload.vatRate,
           categoryId: payload.categoryId,
@@ -580,6 +703,7 @@ function AdminProductsPageContent() {
         articleInfo: null,
         foodBusinessOperator: null,
         nutritionInfo: null,
+        nutrition: null,
         price: Number(importPrice || selectedProduct.price),
         vatRate: Number(selectedProduct.vatRate || 7),
         available: shouldBeAvailable,
@@ -684,6 +808,7 @@ function AdminProductsPageContent() {
         articleInfo: product.articleInfo || null,
         foodBusinessOperator: product.foodBusinessOperator || null,
         nutritionInfo: product.nutritionInfo || null,
+        nutrition: product.nutrition || null,
         price: Number(product.price),
         vatRate: Number(product.vatRate),
         available: product.available,
@@ -1038,6 +1163,8 @@ function AdminProductsPageContent() {
             setFoodBusinessOperator={setFoodBusinessOperator}
             nutritionInfo={nutritionInfo}
             setNutritionInfo={setNutritionInfo}
+            nutritionDraft={nutritionDraft}
+            setNutritionDraft={setNutritionDraft}
             onProductImageFileChange={(file) => void handleProductImageFile(file)}
             price={price}
             setPrice={setPrice}
@@ -1068,6 +1195,7 @@ function AdminProductsPageContent() {
               setArticleInfo(product.articleInfo || '')
               setFoodBusinessOperator(product.foodBusinessOperator || '')
               setNutritionInfo(product.nutritionInfo || '')
+              setNutritionDraft(nutritionDraftFromProduct(product.nutrition))
               setPrice(product.price)
               setVatRate(product.vatRate)
               setCategoryId(product.categoryId ?? '')
