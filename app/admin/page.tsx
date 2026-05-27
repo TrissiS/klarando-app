@@ -29,6 +29,12 @@ import {
   getSuppliers,
 } from '@/lib/api'
 import { isModuleEnabled } from '@/lib/admin-module-visibility'
+import {
+  collectComplaintAlerts,
+  getComplaintReadState,
+  markComplaintAlertRead,
+  type ComplaintAlertItem,
+} from '@/lib/complaint-notifications'
 
 export default function AdminPage() {
   const [sessionReady, setSessionReady] = useState(false)
@@ -52,6 +58,7 @@ export default function AdminPage() {
   const [salesDashboard, setSalesDashboard] = useState<AdminOrderDashboard | null>(null)
   const [ratingsDashboard, setRatingsDashboard] = useState<AdminOrderRatingsDashboard | null>(null)
   const [openComplaintsCount, setOpenComplaintsCount] = useState(0)
+  const [complaintAlerts, setComplaintAlerts] = useState<ComplaintAlertItem[]>([])
   const [loadWarning, setLoadWarning] = useState<string | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [autoRefreshEnabled] = useState(false)
@@ -116,6 +123,10 @@ export default function AdminPage() {
     ...(ordersModuleEnabled ? ['checkout-ready'] : []),
   ]
   const canLoadTenantDashboard = Boolean(accessToken) && Boolean(sessionTenantId)
+  const canViewComplaints = Boolean(
+    grantedPermissions?.has('ORDERS_READ') &&
+      (grantedPermissions?.has('COMPLAINTS_READ') ?? true)
+  )
 
   useEffect(() => {
     try {
@@ -271,13 +282,16 @@ export default function AdminPage() {
       setScreenDevices(screenDevices)
       setSalesDashboard(dashboardSales)
       setRatingsDashboard(dashboardRatings)
-      setOpenComplaintsCount(
-        managementOrders
-          ? managementOrders.orders.filter(
-              (entry) => (entry.complaintOpen ?? false) || (entry.complaintCount ?? 0) > 0
-            ).length
-          : 0
-      )
+      if (managementOrders) {
+        const alerts = collectComplaintAlerts(managementOrders.orders).filter((entry) => !entry.isResolved)
+        const readState = getComplaintReadState()
+        const newAlerts = alerts.filter((entry) => !readState[entry.id])
+        setOpenComplaintsCount(newAlerts.length)
+        setComplaintAlerts(newAlerts)
+      } else {
+        setOpenComplaintsCount(0)
+        setComplaintAlerts([])
+      }
       setLastUpdatedAt(new Date())
 
       if (failedSections.length > 0) {
@@ -795,6 +809,65 @@ export default function AdminPage() {
           </button>
         </div>
       </section>
+      {canViewComplaints && complaintAlerts.length > 0 ? (
+        <section className="mb-4 rounded-3xl border border-rose-300 bg-rose-50 px-4 py-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-700">
+                {complaintAlerts.length === 1
+                  ? 'Neue Reklamation eingegangen'
+                  : `${complaintAlerts.length} neue Reklamationen eingegangen`}
+              </p>
+              <p className="mt-1 text-sm text-rose-900/85">
+                Neue Fälle bitte priorisiert prüfen.
+              </p>
+            </div>
+            <Link
+              href="/admin/orders"
+              className="rounded-xl bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-800"
+            >
+              Reklamationen öffnen
+            </Link>
+          </div>
+          <div className="mt-3 space-y-2">
+            {complaintAlerts.slice(0, 3).map((alert) => (
+              <article
+                key={alert.id}
+                className="flex flex-wrap items-start justify-between gap-2 rounded-2xl border border-rose-200 bg-white px-3 py-2"
+              >
+                <div className="min-w-[220px] flex-1">
+                  <p className="text-sm font-semibold text-rose-900">
+                    {alert.customerName} · Bestellung {alert.orderId.slice(0, 8).toUpperCase()}
+                  </p>
+                  <p className="text-xs text-rose-900/75">
+                    {alert.branchLabel} · {new Date(alert.createdAt).toLocaleString('de-DE')}
+                  </p>
+                  <p className="mt-1 text-xs text-rose-900/80">{alert.message}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/admin/orders"
+                    className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-semibold text-rose-800 transition hover:bg-rose-100"
+                  >
+                    Reklamation öffnen
+                  </Link>
+                  <button
+                    type="button"
+                    className="rounded-lg bg-rose-700 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-rose-800"
+                    onClick={() => {
+                      markComplaintAlertRead(alert.id)
+                      setComplaintAlerts((current) => current.filter((entry) => entry.id !== alert.id))
+                      setOpenComplaintsCount((current) => Math.max(0, current - 1))
+                    }}
+                  >
+                    Als gelesen markieren
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
       {availableSectionIds.length === 0 ? (
         <div className="mb-4 rounded-2xl border border-dashed border-[var(--brand-border)] bg-rose-50/70 px-4 py-4 text-sm text-rose-900/80">
           Keine Daten vorhanden.

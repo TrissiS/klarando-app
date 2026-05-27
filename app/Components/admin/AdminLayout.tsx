@@ -6,6 +6,7 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import PlatformBranding from '@/app/Components/admin/PlatformBranding'
 import {
   getBusinessSettings,
+  getOrderManagementList,
   getMyEffectiveFeatureModules,
   getStoredAccessToken,
   getStoredTenantId,
@@ -15,6 +16,12 @@ import {
   type EffectiveFeatureSetResponse,
   type PlatformBrandingSettings,
 } from '@/lib/api'
+import {
+  collectComplaintAlerts,
+  getComplaintReadState,
+  markComplaintAlertsRead,
+  type ComplaintAlertItem,
+} from '@/lib/complaint-notifications'
 import { isModuleEnabled, type AdminModuleKey } from '@/lib/admin-module-visibility'
 import {
   clearSuperadminTenantContext,
@@ -56,6 +63,8 @@ type HeaderInboxItem = {
   title: string
   href?: string
   unread: boolean
+  meta?: string
+  status?: 'NEW' | 'IN_PROGRESS' | 'RESOLVED' | 'REJECTED'
 }
 
 const sectionNavSections: NavSection[] = [
@@ -254,8 +263,68 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     if (!authChecked || !hasValidSession) {
       return
     }
-    // TODO: Sobald Backend-Endpunkte verfügbar sind, hier echte Daten laden.
-    setNotificationItems([])
+    const canReadOrders = permissions?.has('ORDERS_READ') ?? false
+    const hasComplaintsPermission =
+      permissions?.has('COMPLAINTS_READ') ?? true
+    if (!canReadOrders || !hasComplaintsPermission) {
+      setNotificationItems([])
+      return
+    }
+
+    let cancelled = false
+
+    const applyNotificationItems = (alerts: ComplaintAlertItem[]) => {
+      const readState = getComplaintReadState()
+      const mapped = alerts
+        .slice(0, 8)
+        .map((alert): HeaderInboxItem => {
+          const isRead = Boolean(readState[alert.id])
+          let status: HeaderInboxItem['status'] = 'IN_PROGRESS'
+          if (alert.isResolved) {
+            status = 'RESOLVED'
+          } else if (!isRead) {
+            status = 'NEW'
+          }
+          return {
+            id: alert.id,
+            title: `${alert.customerName} · Bestellung ${alert.orderId.slice(0, 8).toUpperCase()}`,
+            href: '/admin/orders',
+            unread: !isRead && !alert.isResolved,
+            meta: `${alert.branchLabel} · ${new Date(alert.createdAt).toLocaleString('de-DE')}`,
+            status,
+          }
+        })
+
+      setNotificationItems(mapped)
+    }
+
+    const loadComplaintNotifications = async () => {
+      try {
+        const management = await getOrderManagementList({ limit: 100 })
+        if (cancelled) return
+        const alerts = collectComplaintAlerts(management.orders).filter((entry) => !entry.isResolved)
+        applyNotificationItems(alerts)
+      } catch {
+        if (cancelled) return
+        setNotificationItems([])
+      }
+    }
+
+    void loadComplaintNotifications()
+    const intervalId = window.setInterval(() => {
+      void loadComplaintNotifications()
+    }, 30000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [authChecked, hasValidSession, permissions, pathname])
+
+  useEffect(() => {
+    if (!authChecked || !hasValidSession) {
+      return
+    }
     setMailboxItems([])
   }, [authChecked, hasValidSession])
 
@@ -870,9 +939,11 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                           <button
                             type="button"
                             onClick={() =>
-                              setNotificationItems((current) =>
-                                current.map((entry) => ({ ...entry, unread: false }))
-                              )
+                              setNotificationItems((current) => {
+                                const unreadIds = current.filter((entry) => entry.unread).map((entry) => entry.id)
+                                markComplaintAlertsRead(unreadIds)
+                                return current.map((entry) => ({ ...entry, unread: false, status: entry.status === 'RESOLVED' ? 'RESOLVED' : 'IN_PROGRESS' }))
+                              })
                             }
                             className="text-[11px] font-semibold text-rose-700 hover:text-rose-900"
                           >
@@ -885,7 +956,27 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                           <ul className="space-y-1">
                             {notificationItems.map((entry) => (
                               <li key={entry.id} className="rounded-lg border border-rose-100 px-2 py-1 text-xs">
-                                {entry.title}
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    {entry.href ? (
+                                      <Link href={entry.href} className="font-semibold text-rose-900 underline-offset-2 hover:underline">
+                                        {entry.title}
+                                      </Link>
+                                    ) : (
+                                      <p className="font-semibold text-rose-900">{entry.title}</p>
+                                    )}
+                                    {entry.meta ? <p className="text-[11px] text-rose-900/70">{entry.meta}</p> : null}
+                                  </div>
+                                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                                    entry.status === 'NEW'
+                                      ? 'bg-rose-600 text-white'
+                                      : entry.status === 'RESOLVED'
+                                        ? 'bg-emerald-100 text-emerald-700'
+                                        : 'bg-amber-100 text-amber-700'
+                                  }`}>
+                                    {entry.status === 'NEW' ? 'NEW' : entry.status === 'RESOLVED' ? 'RESOLVED' : 'IN_PROGRESS'}
+                                  </span>
+                                </div>
                               </li>
                             ))}
                           </ul>
