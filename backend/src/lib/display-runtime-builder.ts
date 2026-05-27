@@ -12,6 +12,20 @@ export type RuntimeDeviceMode =
   | 'ORDER_DESK'
 
 type RuntimeSettingsMap = Record<string, unknown>
+type LiveStatsSummary = {
+  topProductsToday: Array<{ productId: string; quantity: number }>
+  topProductsWeek: Array<{ productId: string; quantity: number }>
+  currentKitchenLoad: number
+  averageWaitTimeMinutes: number | null
+  soldOutProductIds: string[]
+  lowStockProductIds: string[]
+  activeOrderCount: number
+  completedOrdersToday: number
+  statsUpdatedAt: string
+}
+
+const LIVE_STATS_CACHE_TTL_MS = 30_000
+const liveStatsCache = new Map<string, { expiresAt: number; value: LiveStatsSummary }>()
 
 type RuntimeShape = {
   device: {
@@ -91,7 +105,14 @@ type RuntimeShape = {
     promoPrice: number | null
     validFrom: string | null
     validUntil: string | null
+    soldToday: number
+    isTopSeller: boolean
+    isLowStock: boolean
+    isSoldOut: boolean
+    estimatedPrepTime: number | null
+    popularityRank: number | null
   }>
+  liveStats: LiveStatsSummary
   distribution: {
     displayGroupId: string
     displayCount: number
@@ -151,6 +172,100 @@ type RuntimeShape = {
   lastSyncAt: string | null
   updatedAt: string
   serverTime: string
+}
+
+async function loadLiveStats(tenantId: string, branchId: string | null): Promise<LiveStatsSummary> {
+  const cacheKey = `${tenantId}:${branchId ?? 'all'}`
+  const nowMs = Date.now()
+  const cached = liveStatsCache.get(cacheKey)
+  if (cached && cached.expiresAt > nowMs) return cached.value
+
+  const now = new Date()
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfWeek = new Date(startOfDay)
+  const mondayOffset = (startOfDay.getDay() + 6) % 7
+  startOfWeek.setDate(startOfWeek.getDate() - mondayOffset)
+
+  const orderWhere = { tenantId }
+
+  const [todayItems, weekItems, openOrders, todayCompleted, todayOrdersWithEstimate, soldOutProducts] = await Promise.all([
+    prisma.orderItem.findMany({
+      where: {
+        order: {
+          ...orderWhere,
+          createdAt: { gte: startOfDay },
+        },
+      },
+      select: { productId: true, quantity: true },
+    }),
+    prisma.orderItem.findMany({
+      where: {
+        order: {
+          ...orderWhere,
+          createdAt: { gte: startOfWeek },
+        },
+      },
+      select: { productId: true, quantity: true },
+    }),
+    prisma.order.count({
+      where: {
+        ...orderWhere,
+        status: { in: ['OPEN', 'PREPARING', 'READY', 'ON_THE_WAY'] },
+      },
+    }),
+    prisma.order.count({
+      where: {
+        ...orderWhere,
+        createdAt: { gte: startOfDay },
+        status: { in: ['DONE', 'COMPLETED', 'DELIVERED', 'PICKED_UP'] },
+      },
+    }),
+    prisma.order.findMany({
+      where: {
+        ...orderWhere,
+        createdAt: { gte: startOfDay },
+        estimatedMinutes: { not: null },
+      },
+      select: { estimatedMinutes: true },
+      take: 200,
+      orderBy: { createdAt: 'desc' },
+    }),
+    prisma.product.findMany({
+      where: { tenantId, available: false },
+      select: { id: true },
+    }),
+  ])
+
+  const aggregate = (rows: Array<{ productId: string; quantity: number }>) => {
+    const map = new Map<string, number>()
+    for (const row of rows) map.set(row.productId, (map.get(row.productId) ?? 0) + row.quantity)
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([productId, quantity]) => ({ productId, quantity }))
+  }
+
+  const avgWait =
+    todayOrdersWithEstimate.length > 0
+      ? Math.round(
+          todayOrdersWithEstimate.reduce((sum, order) => sum + (order.estimatedMinutes ?? 0), 0) /
+            todayOrdersWithEstimate.length
+        )
+      : null
+
+  const summary: LiveStatsSummary = {
+    topProductsToday: aggregate(todayItems).slice(0, 10),
+    topProductsWeek: aggregate(weekItems).slice(0, 10),
+    currentKitchenLoad: openOrders,
+    averageWaitTimeMinutes: avgWait,
+    soldOutProductIds: soldOutProducts.map((p) => p.id),
+    lowStockProductIds: [],
+    activeOrderCount: openOrders,
+    completedOrdersToday: todayCompleted,
+    statsUpdatedAt: new Date().toISOString(),
+  }
+
+  liveStatsCache.set(cacheKey, { expiresAt: nowMs + LIVE_STATS_CACHE_TTL_MS, value: summary })
+  return summary
 }
 
 function deriveRecommendedResolution(width: number | null | undefined, height: number | null | undefined) {
@@ -465,6 +580,10 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         : products.slice((pageNumber - 1) * productsPerDisplay, pageNumber * productsPerDisplay)
 
     const diagnosticsMeta = meta.diagnostics || null
+    const liveStats = await loadLiveStats(screenDevice.tenantId, null)
+    const topTodayMap = new Map(liveStats.topProductsToday.map((entry, index) => [entry.productId, { qty: entry.quantity, rank: index + 1 }]))
+    const soldOutSet = new Set(liveStats.soldOutProductIds)
+    const lowStockSet = new Set(liveStats.lowStockProductIds)
     const effectiveWidth = diagnosticsMeta?.viewportWidth ?? screenDevice.resolutionWidth
     const effectiveHeight = diagnosticsMeta?.viewportHeight ?? screenDevice.resolutionHeight
 
@@ -595,6 +714,12 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
             promoPrice: null as number | null,
             validFrom: null as string | null,
             validUntil: null as string | null,
+            soldToday: topTodayMap.get(product.id)?.qty ?? 0,
+            isTopSeller: topTodayMap.has(product.id),
+            isLowStock: lowStockSet.has(product.id),
+            isSoldOut: soldOutSet.has(product.id),
+            estimatedPrepTime: liveStats.averageWaitTimeMinutes,
+            popularityRank: topTodayMap.get(product.id)?.rank ?? null,
           }
         })(),
         id: product.id,
@@ -613,6 +738,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
             )
             .filter((value, index, array) => array.indexOf(value) === index) || [],
       })),
+      liveStats,
       distribution: {
         displayGroupId,
         displayCount,
@@ -765,6 +891,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
   const mode = toModeFromDisplayType(displayType)
   const cacheVersion = orderDisplay.updatedAt.toISOString()
   const refreshIntervalMs = Math.max(3000, orderDisplay.refreshIntervalSec * 1000)
+  const liveStats = await loadLiveStats(orderDisplay.tenantId, null)
 
   return {
     device: {
@@ -835,6 +962,7 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     slides: [],
     categories: [],
     products: [],
+    liveStats,
     distribution: {
       displayGroupId: `order-display-${orderDisplay.tenantId}`,
       displayCount: 1,

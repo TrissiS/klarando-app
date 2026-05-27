@@ -86,6 +86,10 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
     final showCategory = showCategories && ((screenConfig['showCategoryOnCard'] as bool?) ?? true);
     final showCategoryHeaders = (screenConfig['showCategoryHeaders'] as bool?) ?? false;
     final showIngredients = (screenConfig['showIngredients'] as bool?) ?? (screenConfig['showAllergens'] as bool?) ?? true;
+    final autoHighlightTopSellers = (screenConfig['autoHighlightTopSellers'] as bool?) ?? true;
+    final hideSoldOutProducts = (screenConfig['hideSoldOutProducts'] as bool?) ?? false;
+    final markLowStockProducts = (screenConfig['markLowStockProducts'] as bool?) ?? true;
+    final showKitchenWaitTime = (screenConfig['showKitchenWaitTime'] as bool?) ?? true;
     final showLogo = ((screenConfig['logoUrl'] as String?) ?? '').trim().isNotEmpty;
     final logoUrl = (screenConfig['logoUrl'] as String?) ?? '';
     final logoSize = (((screenConfig['logoSize'] as num?)?.toDouble() ?? 120).clamp(60, 220)).toDouble();
@@ -163,6 +167,10 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
               'isBestseller': entry['isBestseller'] == true,
               'isNew': entry['isNew'] == true,
               'isPromotion': entry['isPromotion'] == true,
+              'isTopSeller': entry['isTopSeller'] == true,
+              'isLowStock': entry['isLowStock'] == true,
+              'isSoldOut': entry['isSoldOut'] == true,
+              'soldToday': (entry['soldToday'] as num?)?.toInt() ?? 0,
               'highlightPriority': (entry['highlightPriority'] as num?)?.toInt() ?? 0,
               'heroImageUrl': '${entry['heroImageUrl'] ?? ''}'.trim(),
               'ingredients': (entry['ingredients'] as List?)
@@ -174,6 +182,12 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                   '',
             })
         .toList(growable: false);
+
+    final liveStats = (widget.content['liveStats'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final avgWaitTime = (liveStats['averageWaitTimeMinutes'] as num?)?.toInt();
+    final effectiveMenuRows = hideSoldOutProducts
+        ? menuRows.where((row) => row['isSoldOut'] != true).toList(growable: false)
+        : menuRows;
 
     return Scaffold(
       body: LayoutBuilder(
@@ -245,7 +259,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                 Positioned.fill(
                   child: Padding(
                     padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
-                    child: pages.isEmpty && menuRows.isEmpty
+                    child: pages.isEmpty && effectiveMenuRows.isEmpty
                         ? const Center(
                             child: Text(
                               'Keine Produkte für diesen Bildschirm freigegeben.',
@@ -255,7 +269,7 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                           )
                         : (!hasPlaylistItems || currentItemType == 'MENU' || currentItemType == 'PRODUCT_GRID')
                                 ? _MenuProductBoard(
-                                    rows: menuRows,
+                                    rows: effectiveMenuRows,
                                     maxHeight: usableHeight,
                                     maxWidth: constraints.maxWidth - (horizontalPadding * 2),
                                     showCategory: showCategory,
@@ -274,6 +288,8 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                     showCategoryHeaders: showCategoryHeaders,
                                     cardStyle: cardStyle,
                                     cardOpacity: cardOpacity,
+                                    autoHighlightTopSellers: autoHighlightTopSellers,
+                                    markLowStockProducts: markLowStockProducts,
                                   )
                                 : _PlaylistSlide(
                                     item: currentPlaylist ?? const <String, dynamic>{'type': 'INFO'},
@@ -313,6 +329,27 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                           widget.connectionMessage!,
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                      ),
+                    ),
+                  ),
+                if (showKitchenWaitTime && avgWaitTime != null && currentItemType == 'MENU')
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    top: showLogo ? (logoSize * 0.36 + 30) : 16,
+                    child: Center(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(0.55),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                          child: Text(
+                            'Aktuelle Küchenwartezeit: ca. $avgWaitTime Min.',
+                            style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w700),
+                          ),
                         ),
                       ),
                     ),
@@ -600,6 +637,8 @@ class _MenuProductBoard extends StatelessWidget {
     required this.showCategoryHeaders,
     required this.cardStyle,
     required this.cardOpacity,
+    required this.autoHighlightTopSellers,
+    required this.markLowStockProducts,
     this.configuredColumns,
     this.fontFamily,
   });
@@ -621,6 +660,8 @@ class _MenuProductBoard extends StatelessWidget {
   final bool showCategoryHeaders;
   final String cardStyle;
   final double cardOpacity;
+  final bool autoHighlightTopSellers;
+  final bool markLowStockProducts;
   final int? configuredColumns;
   final String? fontFamily;
 
@@ -718,7 +759,16 @@ class _MenuProductBoard extends StatelessWidget {
                 }
 
                 final isHero = row['isHero'] == true;
-                final badgeLabel = '${row['badgeLabel'] ?? ''}'.trim();
+                final isTopSeller = row['isTopSeller'] == true;
+                final isLowStock = row['isLowStock'] == true;
+                final isSoldOut = row['isSoldOut'] == true;
+                final soldToday = (row['soldToday'] as num?)?.toInt() ?? 0;
+                final configuredBadge = '${row['badgeLabel'] ?? ''}'.trim();
+                final badgeLabel = isSoldOut
+                    ? 'AUSVERKAUFT'
+                    : configuredBadge.isNotEmpty
+                        ? configuredBadge
+                        : (autoHighlightTopSellers && isTopSeller ? 'Beliebt' : (markLowStockProducts && isLowStock ? 'Wenig Bestand' : ''));
                 final badgeColor = _parseColor('${row['badgeColor'] ?? ''}') ?? accentColor;
                 final promoPrice = row['promoPriceValue'] as num?;
                 final originalPrice = row['originalPriceValue'] as num?;
@@ -785,16 +835,16 @@ class _MenuProductBoard extends StatelessWidget {
                                          margin: const EdgeInsets.only(left: 8),
                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                          decoration: BoxDecoration(
-                                           color: badgeColor.withOpacity(0.2),
+                                           color: isSoldOut ? Colors.redAccent.withOpacity(0.2) : badgeColor.withOpacity(0.2),
                                            borderRadius: BorderRadius.circular(999),
-                                           border: Border.all(color: badgeColor.withOpacity(0.9)),
+                                           border: Border.all(color: (isSoldOut ? Colors.redAccent : badgeColor).withOpacity(0.9)),
                                          ),
                                          child: Text(
                                            badgeLabel.isNotEmpty ? badgeLabel : 'HERO',
                                            maxLines: 1,
                                            overflow: TextOverflow.ellipsis,
                                            style: TextStyle(
-                                             color: badgeColor,
+                                             color: isSoldOut ? Colors.redAccent : badgeColor,
                                              fontSize: (categoryFontSize.clamp(9, 14)).toDouble(),
                                              fontWeight: FontWeight.w800,
                                            ),
@@ -814,9 +864,9 @@ class _MenuProductBoard extends StatelessWidget {
                                       fontFamily: fontFamily,
                                     ),
                                   ),
-                                if (showIngredients && (row['ingredients'] ?? '').isNotEmpty)
-                                  Text(
-                                    row['ingredients'] ?? '',
+                                 if (showIngredients && (row['ingredients'] ?? '').isNotEmpty)
+                                   Text(
+                                     row['ingredients'] ?? '',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
@@ -824,6 +874,17 @@ class _MenuProductBoard extends StatelessWidget {
                                       color: ingredientTextColor,
                                       fontFamily: fontFamily,
                                     ),
+                                 if (soldToday > 0)
+                                   Text(
+                                     'Heute ${soldToday}x bestellt',
+                                     maxLines: 1,
+                                     overflow: TextOverflow.ellipsis,
+                                     style: TextStyle(
+                                       fontSize: (ingredientFontSize.clamp(10, 18)).toDouble(),
+                                       color: Colors.white60,
+                                       fontFamily: fontFamily,
+                                     ),
+                                   ),
                                   ),
                               ],
                             ),

@@ -436,6 +436,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
     final theme = (displayManifest['theme'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final layout = (displayManifest['layout'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final runtimeConfig = (runtime['runtimeConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final liveStats = (displayManifest['liveStats'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
     final productsRaw = (displayManifest['products'] as List?) ?? const [];
     final slidesRaw = (displayManifest['playlistItems'] as List?) ??
         (displayManifest['playlist'] as List?) ??
@@ -486,12 +487,17 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'promoPrice': readPriceField(product, 'promoPrice'),
         'validFrom': product['validFrom'],
         'validUntil': product['validUntil'],
+        'soldToday': (product['soldToday'] as num?)?.toInt() ?? 0,
+        'isTopSeller': product['isTopSeller'] == true,
+        'isLowStock': product['isLowStock'] == true,
+        'isSoldOut': product['isSoldOut'] == true,
+        'estimatedPrepTime': (product['estimatedPrepTime'] as num?)?.toInt(),
+        'popularityRank': (product['popularityRank'] as num?)?.toInt(),
         'ingredients': ingredientsRaw
             .map((ingredient) => <String, dynamic>{'name': '$ingredient'.trim()})
             .where((ingredient) => (ingredient['name'] as String).isNotEmpty)
             .toList(growable: false),
         'allergens': (product['allergens'] as List?) ?? const [],
-        'isHero': product['isHero'] == true,
         'isPromo': product['isPromo'] == true,
       };
     }).toList(growable: false);
@@ -531,6 +537,10 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'showCategories': showCategories,
         'showIngredients': showIngredients,
         'showAllergens': showIngredients,
+        'autoHighlightTopSellers': runtimeConfig['autoHighlightTopSellers'] ?? true,
+        'hideSoldOutProducts': runtimeConfig['hideSoldOutProducts'] ?? false,
+        'markLowStockProducts': runtimeConfig['markLowStockProducts'] ?? true,
+        'showKitchenWaitTime': runtimeConfig['showKitchenWaitTime'] ?? true,
         'logoUrl': runtimeConfig['logoUrl'],
         'logoSize': runtimeConfig['logoSize'] ?? 120,
         'fontFamily': runtimeConfig['fontFamily'],
@@ -559,6 +569,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
             ],
       'playlist': slidesRaw,
       'products': mappedProducts,
+      'liveStats': liveStats,
       'sync': <String, dynamic>{
         'pageDurationSec': runtimeConfig['offerMediaRotateSec'] ?? 10,
         'serverTimeMs': DateTime.now().millisecondsSinceEpoch,
@@ -582,6 +593,11 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'template': layout['template'] ?? '-',
         'showCategories': runtimeConfig['showCategoryOnCard'] ?? false,
         'showIngredients': showIngredients,
+        'liveStatsLoaded': liveStats.isNotEmpty,
+        'topProductsCount': ((liveStats['topProductsToday'] as List?) ?? const []).length,
+        'soldOutCount': ((liveStats['soldOutProductIds'] as List?) ?? const []).length,
+        'averageWaitTime': liveStats['averageWaitTimeMinutes'],
+        'statsUpdatedAt': liveStats['statsUpdatedAt'],
         'displayGroupId': displayManifest['displayGroupId'] ?? distribution['displayGroupId'] ?? 'tenant-default',
         'displayIndex': displayIndex1Based,
         'displayCount': displayCount,
@@ -654,6 +670,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
       'manifestBody: $_lastManifestBodyPreview',
       'manifestVersion: $_lastContentVersion',
       'products: $_lastContentProductCount',
+      'liveStats: ${((_content?['liveStats'] as Map?) ?? const {}).isNotEmpty ? 'loaded' : 'none'}',
       'heroProducts: ${((_content?['products'] as List?) ?? const []).where((p) => (p as Map<String, dynamic>)['isHero'] == true).length}',
       'promoProducts: ${((_content?['products'] as List?) ?? const []).where((p) => (p as Map<String, dynamic>)['isPromotion'] == true).length}',
       'pairingSession: $_lastPairingSessionId',

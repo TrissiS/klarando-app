@@ -82,7 +82,24 @@ export type DisplayManifest = {
     promoPrice: number | null
     validFrom: string | null
     validUntil: string | null
+    soldToday: number
+    isTopSeller: boolean
+    isLowStock: boolean
+    isSoldOut: boolean
+    estimatedPrepTime: number | null
+    popularityRank: number | null
   }>
+  liveStats: {
+    topProductsToday: Array<{ productId: string; quantity: number }>
+    topProductsWeek: Array<{ productId: string; quantity: number }>
+    currentKitchenLoad: number
+    averageWaitTimeMinutes: number | null
+    soldOutProductIds: string[]
+    lowStockProductIds: string[]
+    activeOrderCount: number
+    completedOrdersToday: number
+    statsUpdatedAt: string
+  }
   distribution: {
     displayCount: number
     currentDisplayIndex: number
@@ -288,7 +305,14 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
       promoPrice: product.promoPrice ?? null,
       validFrom: product.validFrom ?? null,
       validUntil: product.validUntil ?? null,
+      soldToday: Number(product.soldToday ?? 0),
+      isTopSeller: Boolean(product.isTopSeller),
+      isLowStock: Boolean(product.isLowStock),
+      isSoldOut: Boolean(product.isSoldOut),
+      estimatedPrepTime: product.estimatedPrepTime ?? null,
+      popularityRank: product.popularityRank ?? null,
     })),
+    liveStats: runtime.liveStats,
     categories: runtime.categories,
     distribution: {
       displayCount: runtime.distribution.displayCount,
