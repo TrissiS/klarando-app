@@ -284,7 +284,10 @@ async function copyTenantBaseData(
           articleInfo: product.articleInfo,
           foodBusinessOperator: product.foodBusinessOperator,
           nutritionInfo: product.nutritionInfo,
-          nutrition: product.nutrition ?? Prisma.JsonNull,
+          nutrition:
+            product.nutrition === null || product.nutrition === undefined
+              ? undefined
+              : (product.nutrition as Prisma.InputJsonValue),
           price: product.price,
           vatRate: product.vatRate,
           available: product.available,
