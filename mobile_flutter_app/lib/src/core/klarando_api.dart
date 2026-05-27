@@ -393,6 +393,7 @@ class TenantDiscoveryTenant {
     required this.distanceKm,
     required this.orderingEnabled,
     required this.guestCheckoutEnabled,
+    required this.orderIntake,
     required this.ratingAverage,
     required this.ratingCount,
   });
@@ -418,6 +419,7 @@ class TenantDiscoveryTenant {
   final double? distanceKm;
   final bool orderingEnabled;
   final bool guestCheckoutEnabled;
+  final TenantOrderIntakeInfo orderIntake;
   final double? ratingAverage;
   final int ratingCount;
 
@@ -430,6 +432,7 @@ class TenantDiscoveryTenant {
     final customerApp = _readNullableMap(json['customerApp']);
     final delivery = _readNullableMap(services['delivery']);
     final pickup = _readNullableMap(services['pickup']);
+    final orderIntake = _readNullableMap(json['orderIntake']);
     final contact = _readNullableMap(json['contact']);
     final address = _readNullableMap(json['address']);
 
@@ -476,8 +479,44 @@ class TenantDiscoveryTenant {
       guestCheckoutEnabled: customerApp == null
           ? false
           : _readBool(customerApp['guestCheckoutEnabled']),
+      orderIntake: TenantOrderIntakeInfo.fromJson(orderIntake),
       ratingAverage: _readNullableDouble(json['ratingAverage']),
       ratingCount: _readInt(json['ratingCount']),
+    );
+  }
+}
+
+class TenantOrderIntakeInfo {
+  const TenantOrderIntakeInfo({
+    required this.enabled,
+    required this.reason,
+    required this.pausedUntil,
+    required this.customerMessage,
+    required this.deliveryEnabled,
+    required this.pickupEnabled,
+    required this.tableOrderingEnabled,
+  });
+
+  final bool enabled;
+  final String? reason;
+  final DateTime? pausedUntil;
+  final String? customerMessage;
+  final bool deliveryEnabled;
+  final bool pickupEnabled;
+  final bool tableOrderingEnabled;
+
+  factory TenantOrderIntakeInfo.fromJson(Map<String, dynamic>? json) {
+    final source = json ?? const <String, dynamic>{};
+    final services = _readNullableMap(source['services']);
+    return TenantOrderIntakeInfo(
+      enabled: source['enabled'] is bool ? _readBool(source['enabled']) : true,
+      reason: _readNullableString(source['reason']),
+      pausedUntil: _readNullableDateTime(source['pausedUntil']),
+      customerMessage: _readNullableString(source['customerMessage']),
+      deliveryEnabled: services?['delivery'] is bool ? _readBool(services?['delivery']) : true,
+      pickupEnabled: services?['pickup'] is bool ? _readBool(services?['pickup']) : true,
+      tableOrderingEnabled:
+          services?['tableOrdering'] is bool ? _readBool(services?['tableOrdering']) : true,
     );
   }
 }
@@ -549,6 +588,7 @@ class TenantCatalogProduct {
     required this.depositAmount,
     required this.imageUrl,
     required this.allergens,
+    required this.additives,
     required this.ingredients,
     required this.modifiers,
   });
@@ -568,6 +608,7 @@ class TenantCatalogProduct {
   final double depositAmount;
   final String? imageUrl;
   final List<String> allergens;
+  final List<String> additives;
   final List<TenantCatalogIngredient> ingredients;
   final List<TenantCatalogModifier> modifiers;
 
@@ -603,6 +644,7 @@ class TenantCatalogProduct {
         _readNullableString(json['imageUrl']),
       ),
       allergens: _readStringList(json['allergens']),
+      additives: _readStringList(json['additives']),
       ingredients: ingredientsRaw is List
           ? ingredientsRaw
                 .whereType<Map<String, dynamic>>()
@@ -632,6 +674,7 @@ class TenantCatalog {
     required this.addressLine,
     required this.minOrderValue,
     required this.deliveryFeeNote,
+    required this.orderIntake,
     required this.products,
   });
 
@@ -646,6 +689,7 @@ class TenantCatalog {
   final String? addressLine;
   final String? minOrderValue;
   final String? deliveryFeeNote;
+  final TenantOrderIntakeInfo orderIntake;
   final List<TenantCatalogProduct> products;
 
   factory TenantCatalog.fromJson(
@@ -654,6 +698,7 @@ class TenantCatalog {
   }) {
     final tenant = _readMap(json['tenant']);
     final customerApp = _readNullableMap(json['customerApp']);
+    final orderIntake = _readNullableMap(json['orderIntake']);
     final contact = _readNullableMap(tenant['contact']);
     final address = _readNullableMap(tenant['address']);
     final productsRaw = json['products'];
@@ -683,6 +728,7 @@ class TenantCatalog {
       addressLine: _buildAddressLine(address),
       minOrderValue: _readNullableString(tenant['minOrderValue']),
       deliveryFeeNote: _readNullableString(tenant['deliveryFeeNote']),
+      orderIntake: TenantOrderIntakeInfo.fromJson(orderIntake),
       products: productsRaw is List
           ? productsRaw
                 .whereType<Map<String, dynamic>>()

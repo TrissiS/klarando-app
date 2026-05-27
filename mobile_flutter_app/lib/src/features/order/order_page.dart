@@ -165,7 +165,6 @@ class _OrderPageState extends State<OrderPage> {
       children: [
         _MenuHeader(
           tenantName: tenant.tenantName,
-          itemCount: filtered.length,
           logoUrl: logoUrl,
           titleImageUrl: titleImageUrl,
           compact: _headerCompact,
@@ -278,7 +277,6 @@ class _OrderPageState extends State<OrderPage> {
 class _MenuHeader extends StatelessWidget {
   const _MenuHeader({
     required this.tenantName,
-    required this.itemCount,
     required this.logoUrl,
     required this.titleImageUrl,
     required this.compact,
@@ -287,7 +285,6 @@ class _MenuHeader extends StatelessWidget {
   });
 
   final String tenantName;
-  final int itemCount;
   final String? logoUrl;
   final String? titleImageUrl;
   final bool compact;
@@ -297,8 +294,7 @@ class _MenuHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final titleImageHeight = compact ? 88.0 : 132.0;
-    final headerPadding = compact ? 10.0 : 12.0;
-    final logoSize = compact ? 38.0 : 44.0;
+    final logoSize = compact ? 34.0 : 40.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -331,7 +327,7 @@ class _MenuHeader extends StatelessWidget {
                     ),
                     Positioned(
                       left: 10,
-                      right: 10,
+                      right: hasInfo ? 56 : 10,
                       bottom: 8,
                       child: Text(
                         tenantName,
@@ -351,6 +347,19 @@ class _MenuHeader extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (hasInfo)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: IconButton(
+                          tooltip: 'Infos zum Lokal',
+                          onPressed: onOpenInfo,
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0x55000000),
+                          ),
+                          icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -358,66 +367,44 @@ class _MenuHeader extends StatelessWidget {
           ),
           const SizedBox(height: 8),
         ],
-        Container(
-          width: double.infinity,
-          padding: EdgeInsets.all(headerPadding),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFFFF5A1F), Color(0xFFFFBC00)],
+        if (titleImageUrl == null || titleImageUrl!.trim().isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(14),
+              color: Colors.white,
+              border: Border.all(color: const Color(0xFFE5E7EB)),
             ),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: logoSize,
-                height: logoSize,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.22),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(5),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: logoSize,
+                  height: logoSize,
                   child: _RemoteOrAssetImage(imageUrl: logoUrl),
                 ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      tenantName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: compact ? 15 : 16,
-                      ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    tenantName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: const Color(0xFF111827),
+                      fontWeight: FontWeight.w800,
+                      fontSize: compact ? 15 : 16,
                     ),
-                    Text(
-                      '$itemCount Artikel verfügbar',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: compact ? 12 : 14,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              if (hasInfo)
-                IconButton(
-                  tooltip: 'Infos zum Lokal',
-                  onPressed: onOpenInfo,
-                  icon: const Icon(Icons.info_outline_rounded, color: Colors.white),
-                ),
-            ],
+                if (hasInfo)
+                  IconButton(
+                    tooltip: 'Infos zum Lokal',
+                    onPressed: onOpenInfo,
+                    icon: const Icon(Icons.info_outline_rounded),
+                  ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }
@@ -440,7 +427,8 @@ class _ProductCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final sizeCount = product.modifiers.where((entry) => entry.isSize).length;
     final optionCount = product.modifiers.length - sizeCount;
-    final ingredientPreview = _ingredientPreview(product);
+    final disclosure = _buildDisclosureData(product);
+    final ingredientPreview = _ingredientPreview(product, disclosure);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -456,15 +444,7 @@ class _ProductCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    product.name,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                  _buildProductName(product.name, disclosure.superscriptSuffix),
                   if (ingredientPreview != null) ...[
                     const SizedBox(height: 4),
                     Text(
@@ -497,7 +477,7 @@ class _ProductCard extends StatelessWidget {
                       ),
                     ),
                   ],
-                  if (product.ingredients.isNotEmpty) ...[
+                  if (disclosure.hasDetails) ...[
                     const SizedBox(height: 4),
                     ExpansionTile(
                       tilePadding: EdgeInsets.zero,
@@ -506,32 +486,7 @@ class _ProductCard extends StatelessWidget {
                         'Zutaten & Allergene',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                       ),
-                      children: product.ingredients
-                          .map(
-                            (entry) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Icon(
-                                    Icons.fiber_manual_record,
-                                    size: 10,
-                                    color: Color(0xFF9CA3AF),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      entry.allergens.isEmpty
-                                          ? entry.name
-                                          : '${entry.name} (Allergene: ${entry.allergens.join(', ')})',
-                                      style: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                          .toList(growable: false),
+                      children: _buildDisclosureRows(disclosure),
                     ),
                   ],
                   if (_hasArticleDetails(product)) ...[
@@ -705,7 +660,154 @@ class _InfoRow extends StatelessWidget {
   }
 }
 
-String? _ingredientPreview(TenantCatalogProduct product) {
+class _DisclosureData {
+  const _DisclosureData({
+    required this.ingredientLines,
+    required this.allergenLegend,
+    required this.additiveLegend,
+    required this.superscriptSuffix,
+  });
+
+  final List<String> ingredientLines;
+  final Map<String, String> allergenLegend;
+  final Map<String, String> additiveLegend;
+  final String superscriptSuffix;
+
+  bool get hasDetails =>
+      ingredientLines.isNotEmpty || allergenLegend.isNotEmpty || additiveLegend.isNotEmpty;
+}
+
+_DisclosureData _buildDisclosureData(TenantCatalogProduct product) {
+  final allergenValues = <String>{};
+  allergenValues.addAll(product.allergens.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty));
+  for (final ingredient in product.ingredients) {
+    allergenValues.addAll(
+      ingredient.allergens.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty),
+    );
+  }
+  final sortedAllergens = allergenValues.toList(growable: false)..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  final allergenCodes = <String, String>{};
+  for (var i = 0; i < sortedAllergens.length; i += 1) {
+    allergenCodes[String.fromCharCode(65 + i)] = sortedAllergens[i];
+  }
+
+  final additiveValues = product.additives.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty).toList(growable: false);
+  final additiveCodes = <String, String>{};
+  for (var i = 0; i < additiveValues.length; i += 1) {
+    additiveCodes[(i + 1).toString()] = additiveValues[i];
+  }
+
+  String allergenCodesFor(Iterable<String> values) {
+    final normalized = values.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty).toSet();
+    if (normalized.isEmpty) {
+      return '';
+    }
+    final result = <String>[];
+    for (final entry in allergenCodes.entries) {
+      if (normalized.contains(entry.value)) {
+        result.add(entry.key);
+      }
+    }
+    return result.join('');
+  }
+
+  final ingredientLines = product.ingredients
+      .map((entry) {
+        final suffix = allergenCodesFor(entry.allergens);
+        if (suffix.isEmpty) {
+          return entry.name;
+        }
+        return '${entry.name} $suffix';
+      })
+      .toList(growable: false);
+
+  final summaryParts = <String>[
+    ...allergenCodes.keys,
+    ...additiveCodes.keys,
+  ];
+
+  return _DisclosureData(
+    ingredientLines: ingredientLines,
+    allergenLegend: allergenCodes,
+    additiveLegend: additiveCodes,
+    superscriptSuffix: summaryParts.join(' '),
+  );
+}
+
+Widget _buildProductName(String name, String suffix) {
+  if (suffix.trim().isEmpty) {
+    return Text(
+      name,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w800,
+      ),
+    );
+  }
+  return RichText(
+    maxLines: 2,
+    overflow: TextOverflow.ellipsis,
+    text: TextSpan(
+      text: name,
+      style: const TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF111827),
+      ),
+      children: [
+        WidgetSpan(
+          alignment: PlaceholderAlignment.top,
+          child: Transform.translate(
+            offset: const Offset(2, -3),
+            child: Text(
+              suffix,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF374151),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+List<Widget> _buildDisclosureRows(_DisclosureData disclosure) {
+  final rows = <Widget>[];
+  for (final line in disclosure.ingredientLines) {
+    rows.add(_disclosureBullet(line));
+  }
+  for (final entry in disclosure.allergenLegend.entries) {
+    rows.add(_disclosureBullet('${entry.key} = ${entry.value}'));
+  }
+  for (final entry in disclosure.additiveLegend.entries) {
+    rows.add(_disclosureBullet('${entry.key} = ${entry.value}'));
+  }
+  return rows;
+}
+
+Widget _disclosureBullet(String label) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.fiber_manual_record, size: 10, color: Color(0xFF9CA3AF)),
+        const SizedBox(width: 8),
+        Expanded(child: Text(label, style: const TextStyle(fontSize: 12))),
+      ],
+    ),
+  );
+}
+
+String? _ingredientPreview(TenantCatalogProduct product, _DisclosureData disclosure) {
+  if (disclosure.ingredientLines.isNotEmpty) {
+    return disclosure.ingredientLines.join(', ');
+  }
   if (product.ingredients.isEmpty) {
     if (product.allergens.isEmpty) {
       return null;

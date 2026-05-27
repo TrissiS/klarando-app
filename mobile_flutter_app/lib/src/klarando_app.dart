@@ -935,6 +935,7 @@ class _HomeShellState extends State<HomeShell> {
   String? _appAuthToken;
   bool _appAuthBusy = false;
   Timer? _ordersSyncTimer;
+  Timer? _tenantStatusSyncTimer;
   Timer? _checkoutBarCollapseTimer;
   bool _checkoutBarCollapsed = false;
   bool _ordersSyncInFlight = false;
@@ -948,12 +949,14 @@ class _HomeShellState extends State<HomeShell> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _searchTenants(_activeZipCode, DiscoveryMode.delivery);
       unawaited(_checkForCustomerAppUpdate(silentWhenCurrent: true));
+      _startTenantStatusSyncTicker();
     });
   }
 
   @override
   void dispose() {
     _stopOrdersSyncTicker();
+    _tenantStatusSyncTimer?.cancel();
     _checkoutBarCollapseTimer?.cancel();
     super.dispose();
   }
@@ -1438,6 +1441,77 @@ class _HomeShellState extends State<HomeShell> {
         });
       }
     }
+  }
+
+  void _startTenantStatusSyncTicker() {
+    _tenantStatusSyncTimer?.cancel();
+    _tenantStatusSyncTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (!mounted || _discoveryLoading || _activeZipCode.trim().isEmpty) {
+        return;
+      }
+      unawaited(_refreshTenantStatuses());
+    });
+  }
+
+  Future<void> _refreshTenantStatuses() async {
+    try {
+      final rows = await _api.discoverTenants(
+        baseUrl: _baseUrl,
+        zipCode: _activeZipCode,
+        mode: DiscoveryMode.all,
+        includeOutOfArea: true,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _tenantResults = rows;
+        if (_selectedTenant != null) {
+          for (final tenant in rows) {
+            if (tenant.tenantId == _selectedTenant!.tenantId) {
+              _selectedTenant = tenant;
+              break;
+            }
+          }
+        }
+      });
+    } catch (_) {
+      // Silent polling failure to avoid noisy UX.
+    }
+  }
+
+  Future<void> _selectUnavailableTenant(TenantDiscoveryTenant tenant) async {
+    final proceed = await _showOrderIntakePausedDialog(tenant);
+    if (proceed != true) {
+      return;
+    }
+    await _selectTenant(tenant);
+  }
+
+  Future<bool?> _showOrderIntakePausedDialog(TenantDiscoveryTenant tenant) {
+    final defaultMessage =
+        'Dieses Lokal nimmt aktuell aufgrund hoher Auslastung keine neuen Online-Bestellungen an. Du kannst dir die Speisekarte ansehen, aber eine Bestellung ist derzeit eventuell nicht möglich.';
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Bestellannahme aktuell pausiert'),
+          content: Text(tenant.orderIntake.customerMessage?.trim().isNotEmpty == true
+              ? tenant.orderIntake.customerMessage!.trim()
+              : defaultMessage),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('OK'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Speisekarte trotzdem ansehen'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _selectTenant(TenantDiscoveryTenant tenant) async {
@@ -2169,6 +2243,7 @@ class _HomeShellState extends State<HomeShell> {
     if (_cart.isEmpty || _selectedTenant == null) {
       return;
     }
+    await _refreshTenantStatuses();
     if (_appAuthToken == null || _appCustomer == null) {
       if (!mounted) {
         return;
@@ -2222,6 +2297,8 @@ class _HomeShellState extends State<HomeShell> {
           appCustomerPhone: _appCustomer?.phone,
           requireCustomerLogin: true,
           customerLoggedIn: _appAuthToken != null,
+          orderIntakeEnabled: tenant.orderIntake.enabled && (_selectedCatalog?.orderIntake.enabled ?? true),
+          orderIntakeMessage: _selectedCatalog?.orderIntake.customerMessage ?? tenant.orderIntake.customerMessage,
           submitOrder: _submitOrder,
         ),
       ),
@@ -2498,6 +2575,7 @@ class _HomeShellState extends State<HomeShell> {
                 tenantRatings: _tenantRatings,
                 onSearchByZip: _searchTenants,
                 onSelectTenant: _selectTenant,
+                onSelectUnavailableTenant: _selectUnavailableTenant,
                 onToggleFavorite: _toggleFavorite,
               ),
               OrderPage(
@@ -3083,6 +3161,8 @@ class _CheckoutFlowPage extends StatefulWidget {
     required this.appCustomerPhone,
     required this.requireCustomerLogin,
     required this.customerLoggedIn,
+    required this.orderIntakeEnabled,
+    required this.orderIntakeMessage,
     required this.submitOrder,
   });
 
@@ -3099,6 +3179,8 @@ class _CheckoutFlowPage extends StatefulWidget {
   final String? appCustomerPhone;
   final bool requireCustomerLogin;
   final bool customerLoggedIn;
+  final bool orderIntakeEnabled;
+  final String? orderIntakeMessage;
   final Future<PublicOrderSummary> Function({
     required List<_CartLine> lines,
     required _CheckoutServiceType serviceType,
@@ -3232,6 +3314,13 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     if (_lines.isEmpty) {
       return;
     }
+    final mustConfirmHighLoad = !widget.orderIntakeEnabled || (widget.orderIntakeMessage?.trim().isNotEmpty ?? false);
+    if (mustConfirmHighLoad) {
+      final shouldContinue = await _confirmHighLoadCheckout();
+      if (shouldContinue != true) {
+        return;
+      }
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -3286,6 +3375,31 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
         });
       }
     }
+  }
+
+  Future<bool?> _confirmHighLoadCheckout() {
+    final message = widget.orderIntakeMessage?.trim().isNotEmpty == true
+        ? widget.orderIntakeMessage!.trim()
+        : 'Bitte beachte: Aufgrund hoher Auslastung kann es zu deutlich längeren Liefer- oder Abholzeiten kommen. Es kann außerdem sein, dass deine Bestellung nicht angenommen wird.';
+    return showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Wichtiger Hinweis'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Trotzdem versuchen'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -3815,6 +3929,8 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
   bool _trackingBusy = false;
   String? _trackingError;
   bool _followDriver = true;
+  bool _mapLoadFailed = false;
+  int _mapRefreshSeed = 0;
 
   @override
   void initState() {
@@ -3897,6 +4013,7 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
       setState(() {
         _order = resolvedOrder;
         _trackingError = null;
+        _mapLoadFailed = false;
       });
     } on ApiException catch (error) {
       if (!mounted) return;
@@ -3974,6 +4091,12 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
         location == null ? null : _buildDriverMapImageUrl(location);
     final mapPreviewFallbackUrl =
         location == null ? null : _buildDriverMapFallbackImageUrl(location);
+    final mapPreviewUrlWithSeed = mapPreviewUrl == null
+        ? null
+        : '$mapPreviewUrl&retry=$_mapRefreshSeed';
+    final mapFallbackUrlWithSeed = mapPreviewFallbackUrl == null
+        ? null
+        : '$mapPreviewFallbackUrl&retry=$_mapRefreshSeed';
 
     return SafeArea(
       child: Padding(
@@ -4010,31 +4133,34 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
-              if (order.status == 'out_for_delivery' && mapPreviewUrl != null)
+              if (order.status == 'out_for_delivery' && mapPreviewUrlWithSeed != null && !_mapLoadFailed)
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.network(
-                    mapPreviewUrl,
+                    mapPreviewUrlWithSeed,
                     height: 190,
                     width: double.infinity,
                     fit: BoxFit.cover,
                     errorBuilder: (_, __, ___) => Image.network(
-                      mapPreviewFallbackUrl!,
+                      mapFallbackUrlWithSeed!,
                       height: 190,
                       width: double.infinity,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        height: 190,
-                        alignment: Alignment.center,
-                        color: const Color(0xFFF4F4F5),
-                        child: const Text(
-                          'Karte konnte nicht geladen werden.',
-                          style: TextStyle(color: Color(0xFF71717A)),
-                        ),
-                      ),
+                      errorBuilder: (_, __, ___) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (mounted && !_mapLoadFailed) {
+                            setState(() {
+                              _mapLoadFailed = true;
+                            });
+                          }
+                        });
+                        return _buildMapFallbackCard();
+                      },
                     ),
                   ),
                 )
+              else if (order.status == 'out_for_delivery' && _mapLoadFailed)
+                _buildMapFallbackCard()
               else
                 Container(
                   height: 120,
@@ -4183,6 +4309,40 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
           Text('Lieferadresse: ${address.isEmpty ? '-' : address}'),
           Text(
             'Fahrerstatus: ${order.assignedDriverName?.trim().isNotEmpty == true ? 'zugewiesen (${order.assignedDriverName})' : 'noch nicht zugewiesen'}',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapFallbackCard() {
+    return Container(
+      height: 190,
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFFF4F4F5),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text(
+            'Die Karte konnte nicht geladen werden. Du kannst Restaurants weiterhin in der Liste auswählen.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Color(0xFF52525B)),
+          ),
+          const SizedBox(height: 10),
+          OutlinedButton.icon(
+            onPressed: () {
+              setState(() {
+                _mapLoadFailed = false;
+                _mapRefreshSeed += 1;
+              });
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Karte erneut laden'),
           ),
         ],
       ),

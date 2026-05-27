@@ -29,6 +29,7 @@ class StartPage extends StatefulWidget {
     required this.tenantRatings,
     required this.onSearchByZip,
     required this.onSelectTenant,
+    required this.onSelectUnavailableTenant,
     required this.onToggleFavorite,
     super.key,
   });
@@ -44,6 +45,7 @@ class StartPage extends StatefulWidget {
   final Map<String, TenantRatingInfo> tenantRatings;
   final Future<void> Function(String zipCode, DiscoveryMode mode) onSearchByZip;
   final void Function(TenantDiscoveryTenant tenant) onSelectTenant;
+  final void Function(TenantDiscoveryTenant tenant) onSelectUnavailableTenant;
   final void Function(String tenantId) onToggleFavorite;
 
   @override
@@ -157,6 +159,7 @@ class _StartPageState extends State<StartPage> {
                     rating: widget.tenantRatings[item.tenantId],
                     onToggleFavorite: () => widget.onToggleFavorite(item.tenantId),
                     onOpen: () => widget.onSelectTenant(item),
+                    onUnavailableTap: () => widget.onSelectUnavailableTenant(item),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -176,6 +179,7 @@ class _StartPageState extends State<StartPage> {
                     rating: widget.tenantRatings[item.tenantId],
                     onToggleFavorite: () => widget.onToggleFavorite(item.tenantId),
                     onOpen: () => widget.onSelectTenant(item),
+                    onUnavailableTap: () => widget.onSelectUnavailableTenant(item),
                   ),
                 ),
             ]),
@@ -510,6 +514,7 @@ class _TenantCard extends StatelessWidget {
     required this.rating,
     required this.onToggleFavorite,
     required this.onOpen,
+    required this.onUnavailableTap,
   });
 
   final TenantDiscoveryTenant item;
@@ -520,6 +525,7 @@ class _TenantCard extends StatelessWidget {
   final TenantRatingInfo? rating;
   final VoidCallback onToggleFavorite;
   final VoidCallback onOpen;
+  final VoidCallback onUnavailableTap;
 
   @override
   Widget build(BuildContext context) {
@@ -530,7 +536,8 @@ class _TenantCard extends StatelessWidget {
     final isConfigPending = mode == DiscoveryMode.delivery
         ? item.deliveryConfigPending
         : item.pickupConfigPending;
-    final isOpen = (serviceAvailable || isConfigPending) && item.orderingEnabled;
+    final isOrderIntakePaused = !item.orderIntake.enabled;
+    final isOpen = (serviceAvailable || isConfigPending) && item.orderingEnabled && !isOrderIntakePaused;
     final baseRatingAverage = item.ratingAverage ?? 0;
     final baseRatingCount = item.ratingCount;
     final localRatingAverage = rating?.average ?? 0;
@@ -550,7 +557,7 @@ class _TenantCard extends StatelessWidget {
           color: isSelected ? const Color(0xFFFF5A1F) : const Color(0xFFE7E5E4),
           width: isSelected ? 1.6 : 1,
         ),
-        color: Colors.white,
+        color: isOpen ? Colors.white : const Color(0xFFF8FAFC),
         boxShadow: const [
           BoxShadow(
             color: Color(0x12000000),
@@ -561,7 +568,7 @@ class _TenantCard extends StatelessWidget {
       ),
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
-        onTap: isOpen ? onOpen : null,
+        onTap: isOpen ? onOpen : onUnavailableTap,
         child: Stack(
           children: [
             Padding(
@@ -650,14 +657,14 @@ class _TenantCard extends StatelessWidget {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            _StatusTag(
-                              label: _t(languageCode, 'delivery'),
-                              active: item.deliveryAvailable,
-                            ),
-                            _StatusTag(
-                              label: _t(languageCode, 'pickup'),
-                              active: item.pickupAvailable,
-                            ),
+                            _StatusTag(label: _t(languageCode, 'delivery'), active: item.deliveryAvailable),
+                            _StatusTag(label: _t(languageCode, 'pickup'), active: item.pickupAvailable),
+                            if (isOrderIntakePaused)
+                              const _StatusTag(
+                                label: 'Bestellannahme pausiert',
+                                active: true,
+                                activeColor: Color(0xFFB91C1C),
+                              ),
                           ],
                         ),
                         const SizedBox(height: 8),
@@ -682,11 +689,16 @@ class _TenantCard extends StatelessWidget {
                               backgroundColor:
                                   isOpen ? const Color(0xFFFF5A1F) : const Color(0xFF9CA3AF),
                             ),
-                            onPressed: isOpen ? onOpen : null,
+                            onPressed: isOpen ? onOpen : onUnavailableTap,
                             child: Text(
                               isOpen
                                   ? _t(languageCode, 'open_menu')
-                                  : _unavailableLabel(languageCode, serviceStatus, isConfigPending),
+                                  : _unavailableLabel(
+                                      languageCode,
+                                      serviceStatus,
+                                      isConfigPending,
+                                      isOrderIntakePaused,
+                                    ),
                             ),
                           ),
                         ),
@@ -705,7 +717,12 @@ class _TenantCard extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    _overlayLabel(languageCode, serviceStatus, isConfigPending),
+                    _overlayLabel(
+                      languageCode,
+                      serviceStatus,
+                      isConfigPending,
+                      isOrderIntakePaused,
+                    ),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                       color: Colors.white,
@@ -720,7 +737,15 @@ class _TenantCard extends StatelessWidget {
     );
   }
 
-  String _unavailableLabel(String languageCode, String serviceStatus, bool isConfigPending) {
+  String _unavailableLabel(
+    String languageCode,
+    String serviceStatus,
+    bool isConfigPending,
+    bool isOrderIntakePaused,
+  ) {
+    if (isOrderIntakePaused) {
+      return 'Bestellannahme pausiert';
+    }
     if (isConfigPending || serviceStatus == 'CONFIG_PENDING') {
       return _t(languageCode, 'area_checking');
     }
@@ -730,7 +755,15 @@ class _TenantCard extends StatelessWidget {
     return _t(languageCode, 'not_available');
   }
 
-  String _overlayLabel(String languageCode, String serviceStatus, bool isConfigPending) {
+  String _overlayLabel(
+    String languageCode,
+    String serviceStatus,
+    bool isConfigPending,
+    bool isOrderIntakePaused,
+  ) {
+    if (isOrderIntakePaused) {
+      return 'Aktuell nimmt dieses Lokal keine neuen Online-Bestellungen an.';
+    }
     if (isConfigPending || serviceStatus == 'CONFIG_PENDING') {
       return _t(languageCode, 'area_checking_overlay');
     }
@@ -862,27 +895,30 @@ class _StatusTag extends StatelessWidget {
   const _StatusTag({
     required this.label,
     required this.active,
+    this.activeColor,
   });
 
   final String label;
   final bool active;
+  final Color? activeColor;
 
   @override
   Widget build(BuildContext context) {
+    final tone = activeColor ?? const Color(0xFFFF5A1F);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(999),
-        color: active ? const Color(0xFFFFEFE8) : const Color(0xFFF3F4F6),
+        color: active ? tone.withOpacity(0.12) : const Color(0xFFF3F4F6),
         border: Border.all(
-          color: active ? const Color(0xFFFF5A1F) : const Color(0xFFD1D5DB),
+          color: active ? tone : const Color(0xFFD1D5DB),
         ),
       ),
       child: Text(
         label,
         style: TextStyle(
           fontSize: 11,
-          color: active ? const Color(0xFF9A3412) : const Color(0xFF6B7280),
+          color: active ? tone : const Color(0xFF6B7280),
           fontWeight: FontWeight.w700,
         ),
       ),
