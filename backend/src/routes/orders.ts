@@ -94,6 +94,25 @@ function toErrorMessage(error: unknown) {
   return String(error)
 }
 
+function extractPrismaErrorDetails(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return { code: null as string | null, meta: null as unknown, stack: null as string | null }
+  }
+  const withCode = error as { code?: string; meta?: unknown; stack?: string }
+  return {
+    code: typeof withCode.code === 'string' ? withCode.code : null,
+    meta: withCode.meta ?? null,
+    stack: typeof withCode.stack === 'string' ? withCode.stack : null,
+  }
+}
+
+function isPrismaMissingColumnOrRelationError(error: unknown) {
+  const details = extractPrismaErrorDetails(error)
+  if (details.code === 'P2022') return true
+  const message = toErrorMessage(error).toLowerCase()
+  return message.includes('column') && message.includes('does not exist')
+}
+
 type DriverActor =
   | {
       actorType: 'USER'
@@ -1655,10 +1674,12 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
 
     const requestedTenantId = parseTenantIdQuery(req.query.tenantId)
     const requestedChainId = parseTenantIdQuery(req.query.chainId)
-    const source = sanitizeOrderManagementSource(
-      normalizeText((req.query.source as string | undefined) ?? (req.query.channel as string | undefined))
+    const rawSource = normalizeText(
+      (req.query.source as string | undefined) ?? (req.query.channel as string | undefined)
     )
-    const status = sanitizeOrderManagementStatus(normalizeText(req.query.status as string | undefined))
+    const rawStatus = normalizeText(req.query.status as string | undefined)
+    const source = sanitizeOrderManagementSource(rawSource)
+    const status = sanitizeOrderManagementStatus(rawStatus)
     const paymentStatus = sanitizeOrderPaymentStatus(
       normalizeText(req.query.paymentStatus as string | undefined)
     )
@@ -1667,6 +1688,18 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
     )
     const limitRaw = Number(req.query.limit)
     const limit = Number.isFinite(limitRaw) ? Math.max(20, Math.min(500, Math.trunc(limitRaw))) : 200
+    if (rawSource && source === 'ALL' && rawSource.toUpperCase() !== 'ALL') {
+      return res.status(400).json({ error: `Ungültiger source/channel Filter: ${rawSource}` })
+    }
+    if (rawStatus && status === 'all' && rawStatus.toLowerCase() !== 'all') {
+      return res.status(400).json({ error: `Ungültiger status Filter: ${rawStatus}` })
+    }
+    if (req.query.paymentStatus && !paymentStatus && String(req.query.paymentStatus).toUpperCase() !== 'ALL') {
+      return res.status(400).json({ error: `Ungültiger paymentStatus Filter: ${String(req.query.paymentStatus)}` })
+    }
+    if (req.query.serviceType && !serviceType && String(req.query.serviceType).toUpperCase() !== 'ALL') {
+      return res.status(400).json({ error: `Ungültiger serviceType Filter: ${String(req.query.serviceType)}` })
+    }
     if (requestedTenantId) {
       await resolveTenantScope(req, requestedTenantId)
     }
@@ -1716,50 +1749,99 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
       where.serviceType = serviceType
     }
 
-    const orders = await prisma.order.findMany({
-      where,
-      include: {
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-            chain: {
-              select: {
-                id: true,
-                name: true,
+    let orders: Awaited<ReturnType<typeof prisma.order.findMany>> = []
+    try {
+      orders = await prisma.order.findMany({
+        where,
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              chain: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
+          },
+          terminal: {
+            select: {
+              id: true,
+              name: true,
+              terminalCode: true,
+              location: true,
+            },
+          },
+          appCustomerAccount: {
+            select: {
+              id: true,
+              email: true,
+              fullName: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                },
               },
             },
           },
         },
-        terminal: {
-          select: {
-            id: true,
-            name: true,
-            terminalCode: true,
-            location: true,
+        orderBy: [{ createdAt: 'desc' }],
+        take: limit,
+      })
+    } catch (queryError) {
+      if (!isPrismaMissingColumnOrRelationError(queryError)) {
+        throw queryError
+      }
+      console.error('ORDERS_MANAGEMENT_INCLUDE_FALLBACK', {
+        route: '/api/orders/management',
+        message: toErrorMessage(queryError),
+        ...extractPrismaErrorDetails(queryError),
+      })
+      orders = await prisma.order.findMany({
+        where,
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              chain: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
+            },
           },
-        },
-        appCustomerAccount: {
-          select: {
-            id: true,
-            email: true,
-            fullName: true,
+          terminal: {
+            select: {
+              id: true,
+              name: true,
+              terminalCode: true,
+              location: true,
+            },
           },
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                },
               },
             },
           },
         },
-      },
-      orderBy: [{ createdAt: 'desc' }],
-      take: limit,
-    })
+        orderBy: [{ createdAt: 'desc' }],
+        take: limit,
+      })
+    }
 
     const byStatus: Record<string, number> = {}
     const bySource: Record<string, number> = {}
@@ -1793,15 +1875,26 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
-    const prismaCode =
-      error && typeof error === 'object' && 'code' in error ? (error as { code?: string }).code : null
+    const prismaDetails = extractPrismaErrorDetails(error)
     console.error('ORDERS_API_ERROR', {
       route: '/api/orders/management',
       tenantId: parseTenantIdQuery(req.query.tenantId),
       branchId: parseTenantIdQuery(req.query.branchId),
+      resolvedTenantId: req.authUser?.tenantId ?? null,
+      resolvedChainId: req.authUser?.chainId ?? null,
+      resolvedRole: req.authUser?.role ?? null,
       query: req.query,
+      prismaWhere: {
+        source: req.query.source ?? req.query.channel ?? null,
+        status: req.query.status ?? null,
+        paymentStatus: req.query.paymentStatus ?? null,
+        serviceType: req.query.serviceType ?? null,
+        limit: req.query.limit ?? null,
+      },
       message: toErrorMessage(error),
-      prismaCode,
+      prismaCode: prismaDetails.code,
+      prismaMeta: prismaDetails.meta,
+      stack: prismaDetails.stack,
     })
     return res.status(500).json({ error: 'Bestelluebersicht konnte nicht geladen werden' })
   }
