@@ -35,10 +35,16 @@ import {
   type BusinessTemplateOverview,
 } from '@/lib/api'
 
-type ProductTab = 'products' | 'categories' | 'ingredients' | 'pricing'
+type ProductTab = 'products' | 'categories' | 'ingredients' | 'modifiers' | 'pricing'
 
 function isProductTab(value: string | null): value is ProductTab {
-  return value === 'products' || value === 'categories' || value === 'ingredients' || value === 'pricing'
+  return (
+    value === 'products' ||
+    value === 'categories' ||
+    value === 'ingredients' ||
+    value === 'modifiers' ||
+    value === 'pricing'
+  )
 }
 
 function suggestUniqueProductNameForCopy(products: Product[], sourceName: string) {
@@ -175,6 +181,7 @@ function AdminProductsPageContent() {
   const [pricingCategoryFilter, setPricingCategoryFilter] = useState('ALL')
   const [draftPrices, setDraftPrices] = useState<Record<string, string>>({})
   const [savingPriceIds, setSavingPriceIds] = useState<Set<string>>(new Set())
+  const [modifierWorkspaceProductId, setModifierWorkspaceProductId] = useState('')
 
   const [loadingCore, setLoadingCore] = useState(true)
   const [loadingIngredients, setLoadingIngredients] = useState(false)
@@ -295,6 +302,22 @@ function AdminProductsPageContent() {
       void loadIngredientsData()
     }
   }, [activeTab])
+
+  useEffect(() => {
+    if (products.length === 0) {
+      setModifierWorkspaceProductId('')
+      return
+    }
+
+    if (
+      modifierWorkspaceProductId &&
+      products.some((entry) => entry.id === modifierWorkspaceProductId)
+    ) {
+      return
+    }
+
+    setModifierWorkspaceProductId(products[0].id)
+  }, [products, modifierWorkspaceProductId])
 
   function setTab(tab: ProductTab) {
     setActiveTab(tab)
@@ -951,7 +974,7 @@ function AdminProductsPageContent() {
     <Suspense fallback={<div className="p-4 text-sm text-rose-900/75">Lade Ansicht...</div>}>
       <AdminLayout
         title="Produkte"
-        subtitle="Produkte, Kategorien, Zutaten und Schnellpreise zentral in einem Bereich verwalten"
+        subtitle="Produkte, Kategorien, Zutaten, Extras und Preise zentral in einem Bereich verwalten"
       >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1267,6 +1290,37 @@ function AdminProductsPageContent() {
           onDelete={(ingredient) => void handleDeleteIngredient(ingredient)}
           onCancelEdit={resetIngredientForm}
         />
+      ) : null}
+
+      {activeTab === 'modifiers' ? (
+        <section className="min-w-0 space-y-4 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+          <div>
+            <h2 className="text-lg font-semibold text-[var(--brand-ink)]">Extras & Optionen</h2>
+            <p className="mt-1 text-sm text-rose-900/70">
+              Verwalte Optionsgruppen, Aufpreise und Pflicht-/Mehrfachauswahl je Produkt.
+            </p>
+          </div>
+          <label className="block max-w-md">
+            <span className="mb-1 block text-sm font-medium text-rose-900/85">Produkt auswählen</span>
+            <select
+              value={modifierWorkspaceProductId}
+              onChange={(event) => setModifierWorkspaceProductId(event.target.value)}
+              className="input-ui w-full"
+            >
+              {products.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.productNumber ? `${product.productNumber} - ` : ''}
+                  {product.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <ProductIngredientsManager
+            productId={modifierWorkspaceProductId || null}
+            productName={products.find((entry) => entry.id === modifierWorkspaceProductId)?.name || ''}
+            products={products}
+          />
+        </section>
       ) : null}
 
       {activeTab === 'pricing' ? (

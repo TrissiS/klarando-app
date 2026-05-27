@@ -8,11 +8,11 @@ import {
 } from '@/app/Components/admin/WorkspaceComponents'
 
 const tabs = [
-  { href: '/admin/products', label: 'Produkte' },
-  { href: '/admin/categories', label: 'Kategorien' },
-  { href: '/admin/ingredients', label: 'Zutaten & Allergene' },
+  { href: '/admin/products?tab=products', label: 'Produkte' },
+  { href: '/admin/products?tab=categories', label: 'Kategorien' },
+  { href: '/admin/products?tab=ingredients', label: 'Zutaten & Allergene' },
   { href: '/admin/products?tab=modifiers', label: 'Extras / Optionen' },
-  { href: '/admin/products/pricing', label: 'Preise & Kalkulation' },
+  { href: '/admin/products?tab=pricing', label: 'Preise & Kalkulation' },
   { href: '/superadmin/menu-import', label: 'Menü-Import' },
 ]
 

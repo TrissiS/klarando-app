@@ -93,9 +93,9 @@ const sectionNavSections: NavSection[] = [
     items: [
       { href: '/admin/menu', label: 'Workspace', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       { href: '/admin/products', label: 'Produkte', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
-      { href: '/admin/categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
+      { href: '/admin/products?tab=categories', label: 'Kategorien', moduleKey: 'products', requiredPermission: 'PRODUCTS_READ' },
       {
-        href: '/admin/ingredients',
+        href: '/admin/products?tab=ingredients',
         label: 'Zutaten & Allergene',
         moduleKey: 'products',
         requiredPermission: 'PRODUCTS_READ',
@@ -113,7 +113,7 @@ const sectionNavSections: NavSection[] = [
         requiredPermission: 'PRODUCTS_WRITE',
       },
       {
-        href: '/admin/products/pricing',
+        href: '/admin/products?tab=pricing',
         label: 'Preise & Kalkulation',
         moduleKey: 'products',
         requiredPermission: 'PRODUCTS_READ',
