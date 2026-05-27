@@ -56,6 +56,9 @@ export type DisplayManifest = {
   displayIndex: number
   displayCount: number
   syncMode: 'DUPLICATE_ALL' | 'SPLIT_PRODUCTS' | 'CATEGORY_BASED' | 'PLAYLIST_SYNC' | 'CUSTOM_ASSIGNMENT'
+  tableOrderingEnabled: boolean
+  qrOrderingEnabled: boolean
+  callWaiterEnabled: boolean
   layout: Record<string, unknown>
   theme: Record<string, unknown>
   playlistItems: DisplayManifestPlaylistItem[]
@@ -285,6 +288,9 @@ export async function buildDisplayManifestForDevice(deviceCode: string) {
     displayIndex: runtime.distribution.currentDisplayIndex,
     displayCount: runtime.distribution.displayCount,
     syncMode: resolvedSyncMode,
+    tableOrderingEnabled: Boolean(runtime.runtimeConfig?.tableOrderingEnabled),
+    qrOrderingEnabled: Boolean(runtime.runtimeConfig?.qrOrderingEnabled),
+    callWaiterEnabled: Boolean(runtime.runtimeConfig?.callWaiterEnabled),
     layout,
     theme,
     playlistItems,

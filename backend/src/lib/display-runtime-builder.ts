@@ -787,6 +787,9 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
         logoSize: asNumber(screenSetting?.logoSize, 120),
         offerMediaRotateSec: asNumber(screenSetting?.offerMediaRotateSec, 10),
         themePreset: asString((screenSetting as Record<string, unknown> | null)?.themePreset, 'PREMIUM_DARK'),
+        tableOrderingEnabled: false,
+        qrOrderingEnabled: false,
+        callWaiterEnabled: false,
       },
       debug: {
         source: 'screenDevice',
@@ -976,12 +979,15 @@ export async function buildDisplayRuntimeForDevice(deviceCode: string): Promise<
     },
     publishedVersion: cacheVersion,
     cachedVersion: cacheVersion,
-    runtimeConfig: {
-      refreshIntervalMs,
-      performanceMode,
-      displayType,
-      source: 'orderDisplay',
-    },
+      runtimeConfig: {
+        refreshIntervalMs,
+        performanceMode,
+        displayType,
+        source: 'orderDisplay',
+        tableOrderingEnabled: false,
+        qrOrderingEnabled: false,
+        callWaiterEnabled: false,
+      },
     debug: {
       source: 'orderDisplay',
       builtAt: nowIso,

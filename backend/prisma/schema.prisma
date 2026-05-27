@@ -29,6 +29,12 @@ enum PermissionKey {
   SETTINGS_READ
   SETTINGS_WRITE
   AUDIT_READ
+  TABLES_READ
+  TABLES_MANAGE
+  TABLE_ORDERS_READ
+  TABLE_ORDERS_MANAGE
+  SERVICE_CALLS_READ
+  SERVICE_CALLS_MANAGE
 }
 
 enum StockMovementType {
@@ -170,6 +176,36 @@ enum FeatureModuleKey {
   ANALYTICS
   CASH_CLOSING
   PLATFORM_BRANDING
+  TABLE_ORDERING
+}
+
+enum RestaurantTableStatus {
+  FREE
+  OCCUPIED
+  WAITING_SERVICE
+  WAITING_PAYMENT
+}
+
+enum TableSessionStatus {
+  OPEN
+  ORDERING
+  SERVED
+  PAYMENT_REQUESTED
+  CLOSED
+}
+
+enum ServiceCallType {
+  WAITER
+  PAYMENT
+  HELP
+  CUTLERY
+  CUSTOM
+}
+
+enum ServiceCallStatus {
+  OPEN
+  ACKNOWLEDGED
+  DONE
 }
 
 enum BillingPlanType {
@@ -448,6 +484,10 @@ model Chain {
   mailboxMessages KlarandoMailboxMessage[]
   promotionTargetings PromotionTargeting[]
   promotionClickLogs PromotionClickLog[]
+  restaurantAreas RestaurantArea[]
+  restaurantTables RestaurantTable[]
+  tableSessions TableSession[]
+  serviceCalls ServiceCall[]
   createdAt DateTime @default(now())
 }
 
@@ -830,6 +870,8 @@ model Order {
   cashDisplayId        String?
   kitchenDisplayId     String?
   pickupDisplayId      String?
+  tableId              String?
+  tableSessionId       String?
   pickupNumber         Int?
   pickupAnnouncedAt    DateTime?
   pickupAnnounceUntil  DateTime?
@@ -855,6 +897,8 @@ model Order {
   cashDisplay          OrderDisplay? @relation("CashDisplayOrders", fields: [cashDisplayId], references: [id], onDelete: SetNull)
   kitchenDisplay       OrderDisplay? @relation("KitchenDisplayOrders", fields: [kitchenDisplayId], references: [id], onDelete: SetNull)
   pickupDisplay        OrderDisplay? @relation("PickupDisplayOrders", fields: [pickupDisplayId], references: [id], onDelete: SetNull)
+  restaurantTable      RestaurantTable? @relation("OrderToRestaurantTable", fields: [tableId], references: [id], onDelete: SetNull)
+  tableSession         TableSession? @relation("OrderToTableSession", fields: [tableSessionId], references: [id], onDelete: SetNull)
   items                OrderItem[]
   paymentTransactions  PaymentTransaction[]
   paymentRefunds       PaymentRefund[]
@@ -877,6 +921,8 @@ model Order {
   @@index([acceptedAt, estimatedReadyAt])
   @@index([tenantId, pickupNumber, createdAt])
   @@index([tenantId, pickupAnnounceUntil])
+  @@index([tableId, createdAt])
+  @@index([tableSessionId, createdAt])
 }
 
 model TenantPaymentConfig {
@@ -1932,6 +1978,85 @@ model DisplayHeartbeatLog {
 
   @@index([deviceId, createdAt])
   @@index([tenantId, createdAt])
+}
+
+model RestaurantArea {
+  id        String   @id @default(uuid())
+  tenantId  String
+  branchId  String?
+  name      String
+  sortOrder Int      @default(0)
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tables    RestaurantTable[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tenantId, branchId, sortOrder])
+}
+
+model RestaurantTable {
+  id          String              @id @default(uuid())
+  tenantId    String
+  branchId    String?
+  areaId      String?
+  tableNumber String
+  name        String?
+  seats       Int                 @default(2)
+  qrCodeToken String              @unique
+  active      Boolean             @default(true)
+  status      RestaurantTableStatus @default(FREE)
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  area        RestaurantArea?     @relation(fields: [areaId], references: [id], onDelete: SetNull)
+  sessions    TableSession[]
+  serviceCalls ServiceCall[]
+  orders      Order[]             @relation("OrderToRestaurantTable")
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@unique([tenantId, branchId, tableNumber])
+  @@index([tenantId, branchId, status, active])
+}
+
+model TableSession {
+  id                String            @id @default(uuid())
+  tenantId          String
+  branchId          String?
+  tableId           String
+  status            TableSessionStatus @default(OPEN)
+  openedAt          DateTime          @default(now())
+  closedAt          DateTime?
+  lastActivityAt    DateTime          @default(now())
+  guestCount        Int?
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table             RestaurantTable   @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  serviceCalls      ServiceCall[]
+  orders            Order[]           @relation("OrderToTableSession")
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@index([tenantId, branchId, status, openedAt])
+  @@index([tableId, status, openedAt])
+}
+
+model ServiceCall {
+  id          String           @id @default(uuid())
+  tenantId    String
+  branchId    String?
+  tableId     String
+  sessionId   String?
+  type        ServiceCallType
+  status      ServiceCallStatus @default(OPEN)
+  message     String?
+  resolvedAt  DateTime?
+  acknowledgedAt DateTime?
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  table       RestaurantTable  @relation(fields: [tableId], references: [id], onDelete: Cascade)
+  session     TableSession?    @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([tenantId, branchId, status, createdAt])
+  @@index([tableId, status, createdAt])
 }
 
 model ProductModifier {
