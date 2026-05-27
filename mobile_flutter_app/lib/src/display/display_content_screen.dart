@@ -9,11 +9,15 @@ class DisplayContentScreen extends StatefulWidget {
     required this.content,
     required this.connectionMessage,
     this.debugLines = const <String>[],
+    this.onClearCache,
+    this.onReloadManifest,
   });
 
   final Map<String, dynamic> content;
   final String? connectionMessage;
   final List<String> debugLines;
+  final Future<void> Function()? onClearCache;
+  final Future<void> Function()? onReloadManifest;
 
   @override
   State<DisplayContentScreen> createState() => _DisplayContentScreenState();
@@ -404,6 +408,33 @@ class _DisplayContentScreenState extends State<DisplayContentScreen> {
                                     ),
                                   ),
                                   if (_debugExpanded) ...[
+                                    const SizedBox(height: 4),
+                                    Wrap(
+                                      spacing: 6,
+                                      runSpacing: 6,
+                                      children: [
+                                        OutlinedButton(
+                                          onPressed: widget.onReloadManifest == null
+                                              ? null
+                                              : () => unawaited(widget.onReloadManifest!.call()),
+                                          style: OutlinedButton.styleFrom(
+                                            minimumSize: const Size(0, 28),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                          ),
+                                          child: const Text('Manifest neu laden', style: TextStyle(fontSize: 10)),
+                                        ),
+                                        OutlinedButton(
+                                          onPressed: widget.onClearCache == null
+                                              ? null
+                                              : () => unawaited(widget.onClearCache!.call()),
+                                          style: OutlinedButton.styleFrom(
+                                            minimumSize: const Size(0, 28),
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                                          ),
+                                          child: const Text('Cache löschen', style: TextStyle(fontSize: 10)),
+                                        ),
+                                      ],
+                                    ),
                                     const SizedBox(height: 4),
                                     ConstrainedBox(
                                       constraints: const BoxConstraints(maxHeight: 180),

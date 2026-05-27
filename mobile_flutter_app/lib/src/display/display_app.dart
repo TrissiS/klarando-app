@@ -18,6 +18,7 @@ const _prefsTenantId = 'klarando_display_tenant_id';
 const _prefsDeviceCode = 'klarando_display_device_code';
 const _prefsPairingToken = 'klarando_display_pairing_token';
 const _prefsPairingSessionId = 'klarando_display_pairing_session_id';
+const _prefsManifestCache = 'klarando_display_manifest_cache_v1';
 
 class KlarandoDisplayApp extends StatelessWidget {
   const KlarandoDisplayApp({super.key});
@@ -82,6 +83,12 @@ class _DisplayRootState extends State<_DisplayRoot> {
   String _lastPairingTokenPreview = '-';
   String _lastPairingSessionId = '-';
   bool _strictManifestFailed = false;
+  bool _isOfflineMode = false;
+  String _cacheStatus = 'none';
+  String _lastSuccessfulSyncAt = '-';
+  int _assetErrorCount = 0;
+  int _assetCacheHitCount = 0;
+  int _videoAssetPreparedCount = 0;
   static const String _pairingEndpoint = '/api/display/pairing/session';
 
   @override
@@ -113,6 +120,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
     await prefs.remove(_prefsTenantId);
     await prefs.remove(_prefsPairingToken);
     await prefs.remove(_prefsPairingSessionId);
+    await prefs.remove(_prefsManifestCache);
   }
 
   Future<void> _restartPairingFlow() async {
@@ -134,6 +142,12 @@ class _DisplayRootState extends State<_DisplayRoot> {
     _contentEtag = null;
     _content = null;
     _strictManifestFailed = false;
+    _isOfflineMode = false;
+    _cacheStatus = 'none';
+    _lastSuccessfulSyncAt = '-';
+    _assetErrorCount = 0;
+    _assetCacheHitCount = 0;
+    _videoAssetPreparedCount = 0;
     _message = 'Neuer Pairing-Code wird erstellt …';
     if (mounted) {
       setState(() {});
@@ -161,10 +175,25 @@ class _DisplayRootState extends State<_DisplayRoot> {
         await _startPairing();
         return;
       }
+      final hadCachedManifest = await _loadCachedManifestIntoMemory(deviceCode);
+      if (hadCachedManifest) {
+        _strictManifestFailed = false;
+        _message = 'Offline-Stand geladen. Synchronisierung läuft …';
+        setState(() {});
+      }
+
       final ok = await _loadContent();
       if (ok) {
         _strictManifestFailed = false;
         _startBackgroundJobs();
+        return;
+      }
+      if (hadCachedManifest && _content != null) {
+        _strictManifestFailed = false;
+        _isOfflineMode = true;
+        _message = 'Offline-Modus: letzter gültiger Stand aktiv.';
+        _startBackgroundJobs();
+        setState(() {});
         return;
       }
       _strictManifestFailed = true;
@@ -360,6 +389,141 @@ class _DisplayRootState extends State<_DisplayRoot> {
     }
   }
 
+  Future<void> _clearManifestCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsManifestCache);
+    _cacheStatus = 'cleared';
+    _lastSuccessfulSyncAt = '-';
+    _assetCacheHitCount = 0;
+    _videoAssetPreparedCount = 0;
+    _assetErrorCount = 0;
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  Future<bool> _loadCachedManifestIntoMemory(String deviceCode) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_prefsManifestCache);
+    if (raw == null || raw.trim().isEmpty) {
+      return false;
+    }
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map<String, dynamic>) {
+        return false;
+      }
+      final cachedDeviceCode = '${decoded['deviceCode'] ?? ''}'.trim().toUpperCase();
+      if (cachedDeviceCode.isNotEmpty && cachedDeviceCode != deviceCode.trim().toUpperCase()) {
+        return false;
+      }
+      final payload = decoded['payload'];
+      if (payload is! Map<String, dynamic>) {
+        return false;
+      }
+      final mapped = _mapManifestPayloadToDisplayContent(deviceCode, payload);
+      if (!_isMappedContentValid(mapped)) {
+        return false;
+      }
+      _content = mapped;
+      _lastContentVersion = '${decoded['version'] ?? '-'}';
+      _contentEtag = '${decoded['etag'] ?? ''}'.trim().isEmpty ? _contentEtag : '${decoded['etag']}';
+      _lastSuccessfulSyncAt = '${decoded['syncedAt'] ?? '-'}';
+      _lastContentProductCount = ((mapped['products'] as List?) ?? const []).length;
+      _cacheStatus = 'loaded';
+      _isOfflineMode = true;
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _persistManifestCache({
+    required String deviceCode,
+    required Map<String, dynamic> payload,
+    required String? etag,
+    required String version,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final wrapped = <String, dynamic>{
+      'deviceCode': deviceCode.trim().toUpperCase(),
+      'etag': etag,
+      'version': version,
+      'syncedAt': DateTime.now().toIso8601String(),
+      'payload': payload,
+    };
+    await prefs.setString(_prefsManifestCache, jsonEncode(wrapped));
+    _cacheStatus = 'fresh';
+    _lastSuccessfulSyncAt = wrapped['syncedAt'] as String;
+  }
+
+  bool _isMappedContentValid(Map<String, dynamic> mapped) {
+    final products = mapped['products'];
+    final items = mapped['items'];
+    final screenConfig = mapped['screenConfig'];
+    return products is List && items is List && screenConfig is Map<String, dynamic>;
+  }
+
+  Future<void> _warmAssetCache(Map<String, dynamic> mappedContent) async {
+    if (!mounted) return;
+    final urls = <String>{};
+    final screenConfig = (mappedContent['screenConfig'] as Map<String, dynamic>?) ?? const <String, dynamic>{};
+    final backgroundMediaUrl = '${screenConfig['backgroundMediaUrl'] ?? ''}'.trim();
+    if (_looksLikeImageUrl(backgroundMediaUrl)) {
+      urls.add(backgroundMediaUrl);
+    }
+
+    final products = (mappedContent['products'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
+    for (final product in products) {
+      final heroImageUrl = '${product['heroImageUrl'] ?? ''}'.trim();
+      if (_looksLikeImageUrl(heroImageUrl)) {
+        urls.add(heroImageUrl);
+      }
+    }
+
+    final playlist = (mappedContent['playlist'] as List?)?.cast<Map<String, dynamic>>() ?? const <Map<String, dynamic>>[];
+    var preparedVideoCount = 0;
+    for (final item in playlist) {
+      final assetUrl = '${item['assetUrl'] ?? ''}'.trim();
+      if (_looksLikeImageUrl(assetUrl)) {
+        urls.add(assetUrl);
+      } else if (_looksLikeVideoUrl(assetUrl)) {
+        preparedVideoCount += 1;
+      }
+    }
+
+    var hits = 0;
+    var errors = 0;
+    for (final url in urls) {
+      try {
+        await precacheImage(NetworkImage(url), context);
+        hits += 1;
+      } catch (_) {
+        errors += 1;
+      }
+    }
+    _assetCacheHitCount = hits;
+    _assetErrorCount = errors;
+    _videoAssetPreparedCount = preparedVideoCount;
+  }
+
+  bool _looksLikeImageUrl(String url) {
+    if (!(url.startsWith('http://') || url.startsWith('https://'))) return false;
+    final lower = url.toLowerCase();
+    return lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.webp') ||
+        lower.endsWith('.gif') ||
+        lower.contains('image');
+  }
+
+  bool _looksLikeVideoUrl(String url) {
+    if (!(url.startsWith('http://') || url.startsWith('https://'))) return false;
+    final lower = url.toLowerCase();
+    return lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || lower.contains('video');
+  }
+
   Future<bool> _loadContent() async {
     final token = _deviceToken;
     final deviceCode = (_deviceCode ?? '').trim().toUpperCase();
@@ -382,19 +546,31 @@ class _DisplayRootState extends State<_DisplayRoot> {
       _lastManifestBodyPreview = response.responsePreview ?? '-';
       if (response.notModified) {
         _lastContentError = '-';
+        _isOfflineMode = false;
         _message = null;
         setState(() {});
         return true;
       }
       final payload = response.content ?? const <String, dynamic>{};
       final mapped = _mapManifestPayloadToDisplayContent(deviceCode, payload);
+      if (!_isMappedContentValid(mapped)) {
+        throw Exception('Manifest unvollständig oder ungültig.');
+      }
       _contentEtag = response.etag ?? _contentEtag;
       _lastContentVersion = _contentEtag ?? '-';
       final products = (mapped['products'] as List?) ?? const [];
       _lastContentProductCount = products.length;
       _lastContentError = '-';
+      _isOfflineMode = false;
       debugPrint('DISPLAY MANIFEST PRODUCTS COUNT: $_lastContentProductCount');
       _content = mapped;
+      await _persistManifestCache(
+        deviceCode: deviceCode,
+        payload: payload,
+        etag: _contentEtag,
+        version: _lastContentVersion,
+      );
+      unawaited(_warmAssetCache(mapped));
       if (_lastContentProductCount == 0) {
         _message = 'Keine Produkte für diesen Bildschirm freigegeben.';
       } else {
@@ -416,6 +592,14 @@ class _DisplayRootState extends State<_DisplayRoot> {
       }
       if (error is DisplayApiException) {
         _lastManifestBodyPreview = error.responsePreview ?? '-';
+      }
+      final hasCachedRuntime = _content != null;
+      if (hasCachedRuntime) {
+        _isOfflineMode = true;
+        _cacheStatus = _cacheStatus == 'none' ? 'fallback-active' : _cacheStatus;
+        _message = 'Offline-Modus: letzter gültiger Stand wird verwendet.';
+        setState(() {});
+        return true;
       }
       _message = 'STRICT MANIFEST FAILED: $_lastContentError';
       _strictManifestFailed = true;
@@ -588,7 +772,7 @@ class _DisplayRootState extends State<_DisplayRoot> {
       'manifestDebug': <String, dynamic>{
         'rendererVersion': _rendererVersion,
         'runtimeRoute': payload['route'] ?? '/api/display-runtime/:deviceCode/manifest',
-        'manifestVersion': displayManifest['manifestVersion'] ?? '-',
+      'manifestVersion': displayManifest['manifestVersion'] ?? '-',
         'deviceCode': deviceCode,
         'template': layout['template'] ?? '-',
         'showCategories': runtimeConfig['showCategoryOnCard'] ?? false,
@@ -602,11 +786,17 @@ class _DisplayRootState extends State<_DisplayRoot> {
         'displayIndex': displayIndex1Based,
         'displayCount': displayCount,
         'syncMode': syncMode.isEmpty ? 'SPLIT_PRODUCTS' : syncMode,
-        'debugAlways': runtimeConfig['debug'] == true,
-        'debugEnabled': runtimeConfig['debug'] == true,
-      },
-    };
-  }
+      'debugAlways': runtimeConfig['debug'] == true,
+      'debugEnabled': runtimeConfig['debug'] == true,
+      'offlineMode': _isOfflineMode,
+      'lastSuccessfulSyncAt': _lastSuccessfulSyncAt,
+      'cacheStatus': _cacheStatus,
+      'assetErrors': _assetErrorCount,
+      'cachedImages': _assetCacheHitCount,
+      'preparedVideos': _videoAssetPreparedCount,
+    },
+  };
+}
 
   String _toFriendlyError(Object error) {
     if (error is DisplayApiException) {
@@ -669,6 +859,12 @@ class _DisplayRootState extends State<_DisplayRoot> {
       'manifestHttp: ${_lastContentHttpStatus?.toString() ?? '-'}',
       'manifestBody: $_lastManifestBodyPreview',
       'manifestVersion: $_lastContentVersion',
+      'offlineMode: ${_isOfflineMode ? 'yes' : 'no'}',
+      'lastSync: $_lastSuccessfulSyncAt',
+      'cacheStatus: $_cacheStatus',
+      'assetCacheImages: $_assetCacheHitCount',
+      'videoCachePrepared: $_videoAssetPreparedCount',
+      'assetErrors: $_assetErrorCount',
       'products: $_lastContentProductCount',
       'liveStats: ${((_content?['liveStats'] as Map?) ?? const {}).isNotEmpty ? 'loaded' : 'none'}',
       'heroProducts: ${((_content?['products'] as List?) ?? const []).where((p) => (p as Map<String, dynamic>)['isHero'] == true).length}',
@@ -685,6 +881,17 @@ class _DisplayRootState extends State<_DisplayRoot> {
         content: _content!,
         connectionMessage: _message,
         debugLines: diagnostics,
+        onClearCache: _clearManifestCache,
+        onReloadManifest: () async {
+          final ok = await _loadContent();
+          if (ok) {
+            _strictManifestFailed = false;
+            _startBackgroundJobs();
+          }
+          if (mounted) {
+            setState(() {});
+          }
+        },
       );
     }
 
@@ -744,6 +951,11 @@ class _DisplayRootState extends State<_DisplayRoot> {
                         }
                       },
                       child: const Text('Manifest neu laden'),
+                    ),
+                    const SizedBox(width: 10),
+                    OutlinedButton(
+                      onPressed: _clearManifestCache,
+                      child: const Text('Cache löschen'),
                     ),
                     const SizedBox(width: 10),
                     OutlinedButton(
