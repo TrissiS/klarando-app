@@ -1,13 +1,17 @@
-# Ingredient Visibility Flags TODO
+# Ingredient Visibility Renderer Wiring
 
-Implemented dataflow:
-- Customer App: `showInCustomerApp` is applied in `backend/src/routes/tenant.ts`.
-- TV/MenuBoard: `showInMenuBoard` is applied in `backend/src/lib/display-runtime-builder.ts`.
+Connected now:
+- Customer App: `showInCustomerApp` + `displayNameOverride` + structured nutrition table
+  - backend/src/routes/tenant.ts
+  - mobile_flutter_app/lib/src/core/klarando_api.dart
+  - mobile_flutter_app/lib/src/features/order/order_page.dart
+- TV/MenuBoard: `showInMenuBoard` + `displayNameOverride`
+  - backend/src/lib/display-runtime-builder.ts
+  - backend/src/routes/screen.ts
+- OrderDesk/Kitchen catalog feed: `showInOrderDesk` + `displayNameOverride`
+  - backend/src/routes/order-terminals.ts
 
-Prepared but not yet fully wired in renderers:
-- `showInOrderDisplay`
-- `showInOrderDesk`
-- `showInCashierDisplay`
-
-These flags are already persisted in `ProductIngredient` and editable in Admin.
-Next step is to thread the flags into the specific Order Display / OrderDesk / Cashier runtime payloads and render filters.
+Open follow-up:
+- Order/Pickup/Cashier Display ingredient visibility (`showInOrderDisplay`, `showInCashierDisplay`)
+  Currently those displays render order queues/modifier snapshots, not product ingredient lists in the same pipeline.
+  Needs dedicated mapping in the display/order runtime where ingredient lines are shown.
