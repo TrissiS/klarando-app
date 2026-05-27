@@ -491,7 +491,20 @@ router.get('/', requirePermission(PermissionKey.SETTINGS_READ), async (req, res)
 router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
   try {
     const tenantIdInput = req.body.tenantId as string | undefined
-    const settingsInputRaw = req.body.settings as unknown
+    const bodyAsRecord =
+      req.body && typeof req.body === 'object' ? (req.body as Record<string, unknown>) : null
+    const looksLikeDirectSettingsPayload =
+      Boolean(bodyAsRecord) &&
+      (Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'deliveryArea') ||
+        Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'customerApp') ||
+        Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'ordering') ||
+        Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'deliveryHours'))
+    const settingsInputRaw =
+      req.body.settings !== undefined
+        ? (req.body.settings as unknown)
+        : looksLikeDirectSettingsPayload
+          ? req.body
+          : null
     const settingsInput =
       settingsInputRaw && typeof settingsInputRaw === 'object'
         ? { ...(settingsInputRaw as Record<string, unknown>) }
@@ -665,6 +678,10 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       })
       return res.status(400).json({
         error: improvedError,
+        field: 'settings.deliveryArea.polygonPath',
+        receivedPolygonPathLength: rawPolygonPathLength,
+        receivedPolygonPointsLength: rawPolygonPointsLength,
+        normalizedPolygonLength,
       })
     }
 
