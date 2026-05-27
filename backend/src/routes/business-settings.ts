@@ -487,6 +487,34 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
   try {
     const tenantIdInput = req.body.tenantId as string | undefined
     const settingsInput = req.body.settings as unknown
+    const deliveryAreaInput =
+      settingsInput && typeof settingsInput === 'object'
+        ? (settingsInput as { deliveryArea?: unknown }).deliveryArea
+        : null
+    console.info('BUSINESS_SETTINGS_SAVE_PAYLOAD', {
+      tenantIdInput: tenantIdInput ?? null,
+      hasSettings: Boolean(settingsInput && typeof settingsInput === 'object'),
+      deliveryAreaKeys:
+        deliveryAreaInput && typeof deliveryAreaInput === 'object'
+          ? Object.keys(deliveryAreaInput as Record<string, unknown>)
+          : [],
+      strategy:
+        deliveryAreaInput && typeof deliveryAreaInput === 'object'
+          ? ((deliveryAreaInput as { strategy?: unknown }).strategy ?? null)
+          : null,
+      polygonPathPoints:
+        deliveryAreaInput &&
+        typeof deliveryAreaInput === 'object' &&
+        Array.isArray((deliveryAreaInput as { polygonPath?: unknown }).polygonPath)
+          ? (deliveryAreaInput as { polygonPath: unknown[] }).polygonPath.length
+          : null,
+      polygonPoints:
+        deliveryAreaInput &&
+        typeof deliveryAreaInput === 'object' &&
+        Array.isArray((deliveryAreaInput as { polygonPoints?: unknown }).polygonPoints)
+          ? (deliveryAreaInput as { polygonPoints: unknown[] }).polygonPoints.length
+          : null,
+    })
 
     const scope = await resolveTenantScope(req, tenantIdInput)
     const tenantId = scope.tenantId as string

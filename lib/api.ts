@@ -1925,6 +1925,20 @@ export async function updateBusinessSettings(
 ): Promise<BusinessSettings> {
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
+  if (typeof window !== 'undefined') {
+    console.info('BUSINESS_SETTINGS_SAVE_PAYLOAD', {
+      tenantId,
+      strategy: settings.deliveryArea?.strategy ?? null,
+      deliveryAreaEnabled: settings.deliveryArea?.enabled ?? null,
+      polygonPoints: Array.isArray(settings.deliveryArea?.polygonPath)
+        ? settings.deliveryArea.polygonPath.length
+        : null,
+      deliveryAreaKeys:
+        settings.deliveryArea && typeof settings.deliveryArea === 'object'
+          ? Object.keys(settings.deliveryArea as Record<string, unknown>)
+          : [],
+    })
+  }
   const res = await fetch(`${API_BASE_URL}/api/business-settings`, {
     method: 'PUT',
     headers: {

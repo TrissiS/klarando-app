@@ -759,8 +759,11 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
   const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   const polygonInput =
     source.polygonPath ??
+    source.polygonPoints ??
     source.polygon ??
+    source.deliveryZone ??
     source.geoJson ??
+    source.geojson ??
     source.geoJSON ??
     source.coordinates ??
     null
