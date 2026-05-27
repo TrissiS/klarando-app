@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Category, Product, UnitEanEntry } from '@/lib/api'
+import ProductIngredientsManager from '@/app/Components/admin/ProductIngredientsManager'
 
 type NutritionDraft = {
   referenceUnit: 'g' | 'ml' | 'portion'
@@ -526,126 +527,6 @@ export default function AdminProductsSection({
                     className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
                   />
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Nährwerte</span>
-                  <div className="space-y-3 rounded-xl border border-[var(--brand-border)] bg-white p-3">
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-medium text-rose-900/85">Bezugsgröße</span>
-                      <select
-                        value={nutritionDraft.referenceUnit}
-                        onChange={(event) =>
-                          updateNutritionField(
-                            'referenceUnit',
-                            event.target.value as NutritionDraft['referenceUnit']
-                          )
-                        }
-                        className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                      >
-                        <option value="g">pro 100 g</option>
-                        <option value="ml">pro 100 ml</option>
-                        <option value="portion">pro Portion</option>
-                      </select>
-                    </label>
-
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Energie kJ</span>
-                        <input
-                          value={nutritionDraft.energyKj}
-                          onChange={(event) => updateNutritionField('energyKj', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Energie kcal</span>
-                        <input
-                          value={nutritionDraft.energyKcal}
-                          onChange={(event) => updateNutritionField('energyKcal', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Fett (g)</span>
-                        <input
-                          value={nutritionDraft.fat}
-                          onChange={(event) => updateNutritionField('fat', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">
-                          davon gesättigte Fettsäuren (g)
-                        </span>
-                        <input
-                          value={nutritionDraft.saturatedFat}
-                          onChange={(event) => updateNutritionField('saturatedFat', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Kohlenhydrate (g)</span>
-                        <input
-                          value={nutritionDraft.carbohydrates}
-                          onChange={(event) => updateNutritionField('carbohydrates', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">davon Zucker (g)</span>
-                        <input
-                          value={nutritionDraft.sugar}
-                          onChange={(event) => updateNutritionField('sugar', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Eiweiß (g)</span>
-                        <input
-                          value={nutritionDraft.protein}
-                          onChange={(event) => updateNutritionField('protein', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Salz (g)</span>
-                        <input
-                          value={nutritionDraft.salt}
-                          onChange={(event) => updateNutritionField('salt', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                    </div>
-
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Ballaststoffe (optional)</span>
-                        <input
-                          value={nutritionDraft.fiber}
-                          onChange={(event) => updateNutritionField('fiber', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Portionsgröße (optional)</span>
-                        <input
-                          value={nutritionDraft.portionSize}
-                          onChange={(event) => updateNutritionField('portionSize', event.target.value)}
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                      <label className="block">
-                        <span className="mb-1 block text-xs font-medium text-rose-900/85">Portionseinheit (optional)</span>
-                        <input
-                          value={nutritionDraft.portionUnit}
-                          onChange={(event) => updateNutritionField('portionUnit', event.target.value)}
-                          placeholder="z. B. g, ml, Stück"
-                          className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                        />
-                      </label>
-                    </div>
-                  </div>
-                </label>
-
                 <div className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-3">
                   <button
                     type="button"
@@ -672,6 +553,149 @@ export default function AdminProductsSection({
             ) : null}
           </div>
 
+          <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-3">
+            <span className="mb-2 block text-sm font-medium text-rose-900/85">Nährwerte</span>
+            <div className="space-y-3 rounded-xl border border-[var(--brand-border)] bg-white p-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-rose-900/85">Bezugsgröße</span>
+                <select
+                  value={nutritionDraft.referenceUnit}
+                  onChange={(event) =>
+                    updateNutritionField(
+                      'referenceUnit',
+                      event.target.value as NutritionDraft['referenceUnit']
+                    )
+                  }
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                >
+                  <option value="g">pro 100 g</option>
+                  <option value="ml">pro 100 ml</option>
+                  <option value="portion">pro Portion</option>
+                </select>
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Energie kJ</span>
+                  <input
+                    value={nutritionDraft.energyKj}
+                    onChange={(event) => updateNutritionField('energyKj', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Energie kcal</span>
+                  <input
+                    value={nutritionDraft.energyKcal}
+                    onChange={(event) => updateNutritionField('energyKcal', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Fett (g)</span>
+                  <input
+                    value={nutritionDraft.fat}
+                    onChange={(event) => updateNutritionField('fat', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">
+                    davon gesättigte Fettsäuren (g)
+                  </span>
+                  <input
+                    value={nutritionDraft.saturatedFat}
+                    onChange={(event) => updateNutritionField('saturatedFat', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Kohlenhydrate (g)</span>
+                  <input
+                    value={nutritionDraft.carbohydrates}
+                    onChange={(event) => updateNutritionField('carbohydrates', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">davon Zucker (g)</span>
+                  <input
+                    value={nutritionDraft.sugar}
+                    onChange={(event) => updateNutritionField('sugar', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Eiweiß (g)</span>
+                  <input
+                    value={nutritionDraft.protein}
+                    onChange={(event) => updateNutritionField('protein', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Salz (g)</span>
+                  <input
+                    value={nutritionDraft.salt}
+                    onChange={(event) => updateNutritionField('salt', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Ballaststoffe (optional)</span>
+                  <input
+                    value={nutritionDraft.fiber}
+                    onChange={(event) => updateNutritionField('fiber', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Portionsgröße (optional)</span>
+                  <input
+                    value={nutritionDraft.portionSize}
+                    onChange={(event) => updateNutritionField('portionSize', event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-rose-900/85">Portionseinheit (optional)</span>
+                  <input
+                    value={nutritionDraft.portionUnit}
+                    onChange={(event) => updateNutritionField('portionUnit', event.target.value)}
+                    placeholder="z. B. g, ml, Stück"
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+              </div>
+
+              <div className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-3">
+                <button
+                  type="button"
+                  onClick={() => setShowLegacyNutritionText((current) => !current)}
+                  className="flex w-full items-center justify-between text-left text-sm font-medium text-rose-900/85"
+                >
+                  <span>Freitext / Etikettentext (Legacy, optional)</span>
+                  <span>{showLegacyNutritionText ? 'Ausblenden' : 'Einblenden'}</span>
+                </button>
+                {showLegacyNutritionText ? (
+                  <label className="mt-3 block">
+                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Nährwertangaben (Freitext)</span>
+                    <textarea
+                      rows={4}
+                      value={nutritionInfo}
+                      onChange={(event) => setNutritionInfo(event.target.value)}
+                      placeholder="z. B. pro 100 g: Brennwert, Fett, KH, Zucker, Eiweiß, Salz"
+                      className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                    />
+                  </label>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
           <button
             type="submit"
             disabled={savingProduct}
@@ -695,6 +719,20 @@ export default function AdminProductsSection({
           ) : null}
         </form>
       </section>
+
+      {editingProductId ? (
+        <section className="xl:col-span-2">
+          <ProductIngredientsManager
+            productId={editingProductId}
+            productName={productName}
+            products={products.map((product) => ({
+              id: product.id,
+              name: product.name,
+              productNumber: product.productNumber ?? null,
+            }))}
+          />
+        </section>
+      ) : null}
 
       <section className="min-w-0 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
         <div className="grid gap-3 md:grid-cols-3">
