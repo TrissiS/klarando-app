@@ -26,6 +26,24 @@ export type UnitEanEntry = {
   unitLabel: string | null
 }
 
+export type ProductNutrition = {
+  referenceAmount: string
+  referenceUnit: 'g' | 'ml' | 'portion' | 'custom'
+  customReferenceLabel?: string | null
+  energyKj?: number | null
+  energyKcal?: number | null
+  fat?: number | null
+  saturatedFat?: number | null
+  carbohydrates?: number | null
+  sugar?: number | null
+  protein?: number | null
+  salt?: number | null
+  fiber?: number | null
+  portionSize?: number | null
+  portionUnit?: string | null
+  rawText?: string | null
+}
+
 export type Product = {
   id: string
   tenantId: string
@@ -40,6 +58,7 @@ export type Product = {
   articleInfo: string | null
   foodBusinessOperator: string | null
   nutritionInfo: string | null
+  nutrition: ProductNutrition | null
   price: string
   vatRate: string
   available: boolean
@@ -793,6 +812,7 @@ export type ProductIngredient = {
   productId: string
   ingredientId: string
   quantity: string
+  displayNameOverride: string | null
   createdAt: string
   ingredient: Ingredient
 }
@@ -1709,6 +1729,7 @@ export async function createProduct(data: {
   articleInfo?: string | null
   foodBusinessOperator?: string | null
   nutritionInfo?: string | null
+  nutrition?: ProductNutrition | null
   price: number
   vatRate: number
   available: boolean
@@ -1737,6 +1758,7 @@ export async function createProduct(data: {
       articleInfo: data.articleInfo ?? null,
       foodBusinessOperator: data.foodBusinessOperator ?? null,
       nutritionInfo: data.nutritionInfo ?? null,
+      nutrition: data.nutrition ?? null,
       price: data.price,
       vatRate: data.vatRate,
       available: data.available,
@@ -1764,6 +1786,7 @@ export async function updateProduct(
     articleInfo?: string | null
     foodBusinessOperator?: string | null
     nutritionInfo?: string | null
+    nutrition?: ProductNutrition | null
     price: number
     vatRate: number
     categoryId: string | null
@@ -3554,6 +3577,7 @@ export async function createProductIngredient(data: {
   productId: string
   ingredientId: string
   quantity: number
+  displayNameOverride?: string | null
 }): Promise<ProductIngredient> {
   const token = readBrowserAccessToken()
   const res = await fetch(`${API_BASE_URL}/api/product-ingredients`, {
@@ -3566,6 +3590,7 @@ export async function createProductIngredient(data: {
       productId: data.productId,
       ingredientId: data.ingredientId,
       quantity: data.quantity,
+      displayNameOverride: data.displayNameOverride ?? null,
     }),
   })
 
@@ -3594,7 +3619,8 @@ export async function getCalculation(productId: string) {
 export async function updateProductIngredient(
   id: string,
   data: {
-    quantity: number
+    quantity?: number
+    displayNameOverride?: string | null
   }
 ): Promise<ProductIngredient> {
   const token = readBrowserAccessToken()
@@ -3605,7 +3631,10 @@ export async function updateProductIngredient(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: JSON.stringify({
-      quantity: data.quantity,
+      ...(data.quantity !== undefined ? { quantity: data.quantity } : {}),
+      ...(data.displayNameOverride !== undefined
+        ? { displayNameOverride: data.displayNameOverride }
+        : {}),
     }),
   })
 

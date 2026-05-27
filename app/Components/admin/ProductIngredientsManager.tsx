@@ -57,7 +57,11 @@ export default function ProductIngredientsManager({ productId, productName, prod
   const [selectedProductId, setSelectedProductId] = useState(productId ?? '')
   const [ingredientId, setIngredientId] = useState('')
   const [quantity, setQuantity] = useState('')
+  const [displayNameOverride, setDisplayNameOverride] = useState('')
   const [quantityDrafts, setQuantityDrafts] = useState<Record<string, string>>({})
+  const [displayNameOverrideDrafts, setDisplayNameOverrideDrafts] = useState<Record<string, string>>(
+    {}
+  )
   const [modifierName, setModifierName] = useState('')
   const [modifierKind, setModifierKind] = useState<'OPTION' | 'SIZE'>('OPTION')
   const [modifierIngredientId, setModifierIngredientId] = useState('')
@@ -115,6 +119,7 @@ export default function ProductIngredientsManager({ productId, productName, prod
         setProductIngredients([])
         setModifiers([])
         setQuantityDrafts({})
+        setDisplayNameOverrideDrafts({})
         setError('')
         return
       }
@@ -128,6 +133,11 @@ export default function ProductIngredientsManager({ productId, productName, prod
       setModifiers(modifierData)
       setQuantityDrafts(
         Object.fromEntries(productIngredientData.map((entry) => [entry.id, String(entry.quantity)]))
+      )
+      setDisplayNameOverrideDrafts(
+        Object.fromEntries(
+          productIngredientData.map((entry) => [entry.id, entry.displayNameOverride || ''])
+        )
       )
       setError('')
     } catch (loadError) {
@@ -166,9 +176,11 @@ export default function ProductIngredientsManager({ productId, productName, prod
         productId: resolvedProductId,
         ingredientId,
         quantity: parsedQuantity,
+        displayNameOverride: displayNameOverride.trim() || null,
       })
 
       setQuantity('')
+      setDisplayNameOverride('')
       await loadData()
     } catch (submitError) {
       setError(
@@ -183,6 +195,8 @@ export default function ProductIngredientsManager({ productId, productName, prod
 
   async function handleSaveProductIngredientQuantity(productIngredient: ProductIngredient) {
     const draftValue = quantityDrafts[productIngredient.id] ?? String(productIngredient.quantity)
+    const displayNameOverrideDraft =
+      displayNameOverrideDrafts[productIngredient.id] ?? productIngredient.displayNameOverride ?? ''
     const parsedQuantity = Number(draftValue.replace(',', '.'))
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
       setError('Bitte eine gueltige Menge groesser 0 eintragen.')
@@ -202,6 +216,7 @@ export default function ProductIngredientsManager({ productId, productName, prod
       setSavingProductIngredientId(productIngredient.id)
       await updateProductIngredient(productIngredient.id, {
         quantity: parsedQuantity,
+        displayNameOverride: displayNameOverrideDraft.trim() || null,
       })
       await loadData()
     } catch (updateError) {
@@ -391,6 +406,14 @@ export default function ProductIngredientsManager({ productId, productName, prod
                   </p>
                 ) : null}
               </div>
+              <div>
+                <FieldLabel>Alternativer Anzeigetext (optional)</FieldLabel>
+                <TextInput
+                  value={displayNameOverride}
+                  onChange={setDisplayNameOverride}
+                  placeholder="leer = normaler Zutatenname"
+                />
+              </div>
               <PrimaryButton
                 type="submit"
                 disabled={savingIngredient || !ingredientId || !resolvedProductId}
@@ -436,6 +459,9 @@ export default function ProductIngredientsManager({ productId, productName, prod
                 Menge / Rezept
               </th>
               <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
+                Alternativer Anzeigetext
+              </th>
+              <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
                 Einkauf / Pfand
               </th>
               <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">
@@ -449,13 +475,13 @@ export default function ProductIngredientsManager({ productId, productName, prod
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={6}>
+                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={7}>
                   Lade Produkt-Zutaten...
                 </td>
               </tr>
             ) : productIngredients.length === 0 ? (
               <tr>
-                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={6}>
+                <td className="px-3 py-3 text-sm text-rose-900/70" colSpan={7}>
                   Noch keine Zutaten zugeordnet.
                 </td>
               </tr>
@@ -502,6 +528,20 @@ export default function ProductIngredientsManager({ productId, productName, prod
                           {item.ingredient.recipeUnit || item.ingredient.unit}
                         </span>
                       </div>
+                    </td>
+                    <td className="px-3 py-3">
+                      <TextInput
+                        value={
+                          displayNameOverrideDrafts[item.id] ?? item.displayNameOverride ?? ''
+                        }
+                        onChange={(value) =>
+                          setDisplayNameOverrideDrafts((current) => ({
+                            ...current,
+                            [item.id]: value,
+                          }))
+                        }
+                        placeholder="leer = normaler Zutatenname"
+                      />
                     </td>
                     <td className="px-3 py-3 text-sm text-rose-900/85">
                       <p>EK {item.ingredient.purchasePrice} EUR</p>

@@ -653,6 +653,7 @@ model Product {
   articleInfo           String?
   foodBusinessOperator  String?
   nutritionInfo         String?
+  nutrition             Json?
   price                 Decimal               @db.Decimal(10, 2)
   vatRate               Decimal               @default(19.00) @db.Decimal(5, 2)
   available             Boolean               @default(true)
@@ -846,6 +847,7 @@ model ProductIngredient {
   productId    String
   ingredientId String
   quantity     Decimal @db.Decimal(10, 2)
+  displayNameOverride String?
 
   product    Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)

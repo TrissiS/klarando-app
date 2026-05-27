@@ -152,7 +152,9 @@ function isMissingProductColumnsError(error: unknown) {
     error.message.includes('Product.foodBusinessOperator') ||
     error.message.includes('"foodBusinessOperator"') ||
     error.message.includes('Product.nutritionInfo') ||
-    error.message.includes('"nutritionInfo"')
+    error.message.includes('"nutritionInfo"') ||
+    error.message.includes('Product.nutrition') ||
+    error.message.includes('"nutrition"')
   )
 }
 
@@ -190,6 +192,11 @@ async function ensureProductColumns() {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Product"
     ADD COLUMN IF NOT EXISTS "nutritionInfo" TEXT;
+  `)
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Product"
+    ADD COLUMN IF NOT EXISTS "nutrition" JSONB;
   `)
 }
 
@@ -277,6 +284,7 @@ async function copyTenantBaseData(
           articleInfo: product.articleInfo,
           foodBusinessOperator: product.foodBusinessOperator,
           nutritionInfo: product.nutritionInfo,
+          nutrition: product.nutrition ?? null,
           price: product.price,
           vatRate: product.vatRate,
           available: product.available,
@@ -725,6 +733,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           articleInfo: true,
           foodBusinessOperator: true,
           nutritionInfo: true,
+          nutrition: true,
           price: true,
           vatRate: true,
           available: true,
@@ -740,6 +749,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           ingredients: {
             select: {
               quantity: true,
+              displayNameOverride: true,
               ingredient: {
                 select: {
                   id: true,
@@ -824,7 +834,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
 
             return {
               id: entry.ingredient.id,
-              name: entry.ingredient.name,
+              name: (entry.displayNameOverride || '').trim() || entry.ingredient.name,
               allergens,
             }
           })
@@ -854,6 +864,10 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           articleInfo: normalizeText(product.articleInfo),
           foodBusinessOperator: normalizeText(product.foodBusinessOperator),
           nutritionInfo: normalizeText(product.nutritionInfo),
+          nutrition:
+            product.nutrition && typeof product.nutrition === 'object' && !Array.isArray(product.nutrition)
+              ? product.nutrition
+              : null,
           price: effectivePrice.toFixed(2),
           originalPrice:
             offer && offer.hasOffer ? originalPrice.toFixed(2) : null,

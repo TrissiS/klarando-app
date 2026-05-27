@@ -50,7 +50,7 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { productId, ingredientId, quantity } = req.body
+    const { productId, ingredientId, quantity, displayNameOverride } = req.body
 
     if (!productId || !ingredientId || quantity === undefined) {
       return res.status(400).json({ error: 'Pflichtfelder fehlen' })
@@ -60,6 +60,10 @@ router.post('/', async (req, res) => {
     if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
       return res.status(400).json({ error: 'Menge ist ungueltig' })
     }
+    const normalizedDisplayNameOverride =
+      typeof displayNameOverride === 'string' && displayNameOverride.trim().length > 0
+        ? displayNameOverride.trim()
+        : null
 
     const ingredient = await prisma.ingredient.findUnique({
       where: { id: ingredientId },
@@ -102,6 +106,7 @@ router.post('/', async (req, res) => {
           where: { id: existingEntry.id },
           data: {
             quantity: normalizedQuantity.value,
+            displayNameOverride: normalizedDisplayNameOverride,
           },
           include: {
             ingredient: true,
@@ -112,6 +117,7 @@ router.post('/', async (req, res) => {
             productId,
             ingredientId,
             quantity: normalizedQuantity.value,
+            displayNameOverride: normalizedDisplayNameOverride,
           },
           include: {
             ingredient: true,
@@ -128,18 +134,24 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
-    const { quantity } = req.body as { quantity?: number | string }
+    const { quantity, displayNameOverride } = req.body as {
+      quantity?: number | string
+      displayNameOverride?: string | null
+    }
 
     if (!id) {
       return res.status(400).json({ error: 'id fehlt' })
     }
-    if (quantity === undefined) {
-      return res.status(400).json({ error: 'Menge fehlt' })
+    if (quantity === undefined && displayNameOverride === undefined) {
+      return res.status(400).json({ error: 'Keine Aenderung uebergeben' })
     }
 
-    const parsedQuantity = Number(quantity)
-    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
-      return res.status(400).json({ error: 'Menge ist ungueltig' })
+    let parsedQuantity: number | null = null
+    if (quantity !== undefined) {
+      parsedQuantity = Number(quantity)
+      if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+        return res.status(400).json({ error: 'Menge ist ungueltig' })
+      }
     }
 
     const existing = await prisma.productIngredient.findUnique({
@@ -158,21 +170,33 @@ router.patch('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Produkt-Zutat nicht gefunden' })
     }
 
-    const normalizedQuantity = normalizeRecipeQuantity(
-      parsedQuantity,
-      existing.ingredient.unit,
-      existing.ingredient.recipeUnit
-    )
-    if (!normalizedQuantity.ok) {
-      return res.status(400).json({
-        error: 'Bei Rezept-Einheit Stueck oder Dose sind nur ganze Zahlen erlaubt',
-      })
+    let normalizedQuantity: number | undefined
+    if (parsedQuantity !== null) {
+      const quantityCheck = normalizeRecipeQuantity(
+        parsedQuantity,
+        existing.ingredient.unit,
+        existing.ingredient.recipeUnit
+      )
+      if (!quantityCheck.ok) {
+        return res.status(400).json({
+          error: 'Bei Rezept-Einheit Stueck oder Dose sind nur ganze Zahlen erlaubt',
+        })
+      }
+      normalizedQuantity = quantityCheck.value
     }
+
+    const normalizedDisplayNameOverride =
+      typeof displayNameOverride === 'string' && displayNameOverride.trim().length > 0
+        ? displayNameOverride.trim()
+        : displayNameOverride === null || displayNameOverride === ''
+        ? null
+        : undefined
 
     const updated = await prisma.productIngredient.update({
       where: { id },
       data: {
-        quantity: normalizedQuantity.value,
+        quantity: normalizedQuantity,
+        displayNameOverride: normalizedDisplayNameOverride,
       },
       include: {
         ingredient: true,
@@ -214,3 +238,4 @@ router.delete('/:id', async (req, res) => {
 })
 
 export default router
+
