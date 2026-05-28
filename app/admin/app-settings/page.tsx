@@ -78,6 +78,19 @@ export default function AdminAppSettingsPage() {
     tenantId: string | null
     zoneId: string | null
   } | null>(null)
+  const [isSuperadminView, setIsSuperadminView] = useState(false)
+
+  useEffect(() => {
+    try {
+      const rawUser = typeof window !== 'undefined' ? localStorage.getItem('sessionUser') : null
+      if (rawUser) {
+        const parsed = JSON.parse(rawUser) as { role?: string }
+        setIsSuperadminView((parsed.role || '').toLowerCase() === 'superadmin')
+      }
+    } catch {
+      setIsSuperadminView(false)
+    }
+  }, [])
 
   useEffect(() => {
     async function loadData() {
@@ -194,10 +207,16 @@ export default function AdminAppSettingsPage() {
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             App-Freigaben werden zentral im Superadmin verwaltet.
           </div>
+          {isSuperadminView ? (
+            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              Lieferzonen werden vom Betreiber/Admin der Filiale gepflegt.
+            </div>
+          ) : null}
           <AppSettingsFields
             settings={settings}
             onChange={setSettings}
             showAppReleaseControls={false}
+            showServiceAreaEditor={!isSuperadminView}
           />
           <div className="mt-5 flex justify-end">
             <button

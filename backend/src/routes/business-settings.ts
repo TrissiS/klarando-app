@@ -580,11 +580,13 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
 
     if (deliveryAreaInput && typeof deliveryAreaInput === 'object') {
       const deliveryAreaRecord = deliveryAreaInput as Record<string, unknown>
-      const rawPolygonInput = Array.isArray(deliveryAreaRecord.polygonPath)
-        ? deliveryAreaRecord.polygonPath
-        : Array.isArray(deliveryAreaRecord.polygonPoints)
-          ? deliveryAreaRecord.polygonPoints
-          : []
+      const rawPolygonInput =
+        Array.isArray(deliveryAreaRecord.polygonPath) &&
+        deliveryAreaRecord.polygonPath.length > 0
+          ? deliveryAreaRecord.polygonPath
+          : Array.isArray(deliveryAreaRecord.polygonPoints)
+            ? deliveryAreaRecord.polygonPoints
+            : []
 
       const normalizedPolygon = rawPolygonInput
         .map((point: any) => {
@@ -696,9 +698,12 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       settingsInput && typeof settingsInput === 'object'
         ? ((settingsInput as { deliveryArea?: unknown }).deliveryArea as Record<string, unknown> | undefined)
         : undefined
-    const incomingNormalizedPolygon = normalizePolygonInput(
-      finalInputDeliveryArea?.polygonPath ?? finalInputDeliveryArea?.polygonPoints
-    )
+    const incomingPolygonSource =
+      Array.isArray(finalInputDeliveryArea?.polygonPath) &&
+      finalInputDeliveryArea.polygonPath.length > 0
+        ? finalInputDeliveryArea.polygonPath
+        : finalInputDeliveryArea?.polygonPoints
+    const incomingNormalizedPolygon = normalizePolygonInput(incomingPolygonSource)
     if (incomingNormalizedPolygon.length >= 3) {
       normalizedSettings.deliveryArea = {
         ...normalizedSettings.deliveryArea,
