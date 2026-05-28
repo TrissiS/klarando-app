@@ -751,16 +751,6 @@ export default function AdminPage() {
       title="Dashboard"
       subtitle="Zentraler Einstieg in deinen Admin-Bereich"
     >
-      <section className="mb-4 rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-rose-900/70">Betriebsdashboard</p>
-            <p className="mt-1 text-sm text-rose-900/75">
-              Fokus auf Umsatz, Bestellungen, Geräte-Status und Warnungen.
-            </p>
-          </div>
-        </div>
-      </section>
       {canViewComplaints && complaintAlerts.length > 0 ? (
         <section className="mb-4 rounded-3xl border border-rose-300 bg-rose-50 px-4 py-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">

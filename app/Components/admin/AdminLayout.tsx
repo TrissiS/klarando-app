@@ -440,7 +440,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       return
     }
 
-    if (!(permissions?.has('ORDER_INTAKE_READ') ?? false)) {
+    const canReadOrderIntake =
+      (permissions?.has('ORDER_INTAKE_READ') ?? false) ||
+      (permissions?.has('ORDER_INTAKE_MANAGE') ?? false)
+    if (!canReadOrderIntake) {
       setOrderIntakeStatus(null)
       return
     }
