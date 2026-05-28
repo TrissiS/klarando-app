@@ -217,7 +217,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [hasValidSession, setHasValidSession] = useState(false)
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
   const [orderIntakeStatus, setOrderIntakeStatus] = useState<BranchOrderIntakeStatus | null>(null)
-  const [orderIntakeStatusLoaded, setOrderIntakeStatusLoaded] = useState(false)
   const [orderIntakeBusy, setOrderIntakeBusy] = useState(false)
   const [sessionActiveTenantName, setSessionActiveTenantName] = useState<string | null>(null)
   const [allowSuperadminTenantView, setAllowSuperadminTenantView] = useState(false)
@@ -239,14 +238,12 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const unreadNotifications = notificationItems.filter((entry) => entry.unread).length
   const unreadMailboxItems = mailboxItems.filter((entry) => entry.unread).length
   const canReadOrderIntake =
-    (permissions?.has('ORDER_INTAKE_READ') ?? false) ||
-    (permissions?.has('ORDER_INTAKE_MANAGE') ?? false)
-  const canManageOrderIntake = permissions?.has('ORDER_INTAKE_MANAGE') ?? false
+    normalizedRole === 'admin' ||
+    normalizedRole === 'superadmin'
+  const canManageOrderIntake = canReadOrderIntake
   const headerIntakeLabel = !sessionTenantId
     ? 'Bestellannahme: keine Filiale gefunden'
-    : !canReadOrderIntake
-      ? 'Bestellannahme: keine Leserechte'
-      : orderIntakeStatus?.orderIntakeEnabled
+    : orderIntakeStatus?.orderIntakeEnabled
         ? 'Bestellannahme aktiv'
         : 'Bestellannahme pausiert'
   const switchTarget =
@@ -452,13 +449,11 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   useEffect(() => {
     if (!authChecked || !hasValidSession || !sessionTenantId) {
       setOrderIntakeStatus(null)
-      setOrderIntakeStatusLoaded(false)
       return
     }
 
     if (!canReadOrderIntake) {
       setOrderIntakeStatus(null)
-      setOrderIntakeStatusLoaded(false)
       return
     }
 
@@ -466,18 +461,13 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
     const loadStatus = async () => {
       try {
-        if (!cancelled) {
-          setOrderIntakeStatusLoaded(false)
-        }
         const status = await getBranchOrderIntakeStatus(sessionTenantId)
         if (!cancelled) {
           setOrderIntakeStatus(status)
-          setOrderIntakeStatusLoaded(true)
         }
       } catch {
         if (!cancelled) {
           setOrderIntakeStatus(null)
-          setOrderIntakeStatusLoaded(false)
         }
       }
     }
@@ -510,26 +500,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       setOrderIntakeBusy(false)
     }
   }
-
-  useEffect(() => {
-    if (!authChecked || !hasValidSession) {
-      return
-    }
-    console.log('ORDER_INTAKE_HEADER_CONTEXT', {
-      tenantId: sessionTenantId,
-      branchId: sessionTenantId,
-      canRead: canReadOrderIntake,
-      canManage: canManageOrderIntake,
-      status: orderIntakeStatus?.orderIntakeEnabled ?? null,
-    })
-  }, [
-    authChecked,
-    hasValidSession,
-    sessionTenantId,
-    canReadOrderIntake,
-    canManageOrderIntake,
-    orderIntakeStatus?.orderIntakeEnabled,
-  ])
 
   useEffect(() => {
     if (!authChecked || !hasValidSession || !sessionTenantId) {
@@ -987,10 +957,6 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                         {orderIntakeStatus.orderIntakeEnabled ? 'Pausieren' : 'Aktivieren'}
                       </button>
                     ) : null}
-                    <span className="text-[10px] font-medium opacity-80">
-                      intake branchId: {sessionTenantId ?? 'none'} · intake status loaded:{' '}
-                      {orderIntakeStatusLoaded ? 'true' : 'false'}
-                    </span>
                   </div>
                   <div className="relative hidden sm:block">
                     <input

@@ -1,9 +1,8 @@
-import { PermissionKey, Prisma } from '@prisma/client'
+import { Prisma, UserRole } from '@prisma/client'
 import { Router } from 'express'
 import { parseSettings } from '../lib/business-settings'
 import { prisma } from '../lib/prisma'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
-import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 
 const router = Router()
@@ -87,9 +86,16 @@ router.get('/:branchId/order-intake-status', async (req, res) => {
 
 router.patch(
   '/:branchId/order-intake-status',
-  requirePermission(PermissionKey.SETTINGS_WRITE),
   async (req, res) => {
     try {
+      const role = req.authUser?.role ?? null
+      const canManage =
+        role === UserRole.ADMIN ||
+        role === UserRole.SUPERADMIN
+      if (!canManage) {
+        return res.status(403).json({ error: 'Keine Berechtigung für Bestellannahme-Steuerung' })
+      }
+
       const branchId = readBranchId(req.params.branchId)
       if (!branchId) {
         return res.status(400).json({ error: 'branchId fehlt' })
