@@ -3006,7 +3006,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           requiresPolygonCoordinates &&
           (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null)
         ) {
-          return res.status(400).json({
+          return res.status(422).json({
             error:
               'Für Lieferungen im Polygon-Modus werden Koordinaten benötigt. Bitte Adresse erneut auswählen oder Standort freigeben.',
             code: 'DELIVERY_COORDINATES_REQUIRED',
@@ -3019,19 +3019,37 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           latitude: normalizedCustomerLatitude,
           longitude: normalizedCustomerLongitude,
         })
-        console.info('DELIVERY_AREA_CHECK', {
+        const usedCheck =
+          settings.deliveryArea.strategy === 'POLYGON'
+            ? 'POLYGON'
+            : settings.deliveryArea.strategy === 'RADIUS'
+              ? 'RADIUS'
+              : settings.deliveryArea.strategy === 'ZIP_LIST'
+                ? 'POSTAL_CODES'
+                : settings.deliveryArea.strategy === 'ZIP_OR_RADIUS' ||
+                    settings.deliveryArea.strategy === 'ZIP_AND_RADIUS'
+                  ? deliveryAreaCheck.matchedByRadius
+                    ? 'RADIUS'
+                    : 'POSTAL_CODES'
+                  : 'UNKNOWN'
+        const strictPolygonResult =
+          settings.deliveryArea.strategy === 'POLYGON'
+            ? deliveryAreaCheck.matchedByPolygon
+            : deliveryAreaCheck.matched
+        console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
+          route: 'POST /api/orders',
+          sourceFile: 'backend/src/routes/orders.ts',
           strategy: settings.deliveryArea.strategy,
-          hasPolygon: settings.deliveryArea.polygonPath.length >= 3,
-          polygonPoints: settings.deliveryArea.polygonPath.length,
+          zipCodesCount: settings.deliveryArea.zipCodes.length,
+          polygonPointsCount: settings.deliveryArea.polygonPath.length,
+          customerPostalCode: normalizedCustomerZipCode,
           customerLat: normalizedCustomerLatitude,
           customerLng: normalizedCustomerLongitude,
-          result: deliveryAreaCheck.matched,
-          matchedByPolygon: deliveryAreaCheck.matchedByPolygon,
-          matchedByZip: deliveryAreaCheck.matchedByZip,
-          matchedByRadius: deliveryAreaCheck.matchedByRadius,
+          usedCheck,
+          result: strictPolygonResult,
         })
 
-        if (!deliveryAreaCheck.matched) {
+        if (!strictPolygonResult) {
           return res.status(409).json({
             error:
               'Die Lieferadresse liegt außerhalb des Liefergebiets. Bitte andere Adresse wählen oder Abholung nutzen.',
