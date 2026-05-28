@@ -21,11 +21,8 @@ import {
   getProducts,
   getScreenDevices,
   getScreenProducts,
-  getBranchOrderIntakeStatus,
-  updateBranchOrderIntakeStatus,
   getStoredAccessToken,
   getStoredTenantId,
-  type BranchOrderIntakeStatus,
   type OrderDisplay,
   type OrderTerminal,
   type ScreenDevice,
@@ -66,7 +63,6 @@ export default function AdminPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [autoRefreshEnabled] = useState(false)
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
-  const [orderIntakeStatus, setOrderIntakeStatus] = useState<BranchOrderIntakeStatus | null>(null)
   const [dashboardStorageScope, setDashboardStorageScope] = useState('default')
   const [grantedPermissions, setGrantedPermissions] = useState<Set<string> | null>(null)
   const [featureScope, setFeatureScope] = useState<EffectiveFeatureSetResponse | null>(null)
@@ -76,7 +72,6 @@ export default function AdminPage() {
     'liveLinks',
     'previews',
   ])
-  const [refreshTick, setRefreshTick] = useState(0)
   const [draggingSection, setDraggingSection] = useState<string | null>(null)
   const [reorderModeEnabled, setReorderModeEnabled] = useState(false)
   const [sectionOrder, setSectionOrder] = useState<string[]>([
@@ -204,7 +199,6 @@ export default function AdminPage() {
         getAdminOrderDashboard(30, sessionTenantId ?? undefined, accessToken ?? undefined),
         getAdminOrderRatingsDashboard(180, sessionTenantId ?? undefined, accessToken ?? undefined),
         getOrderManagementList({ limit: 300 }),
-        getBranchOrderIntakeStatus(sessionTenantId ?? undefined),
       ])
 
       const failedSections: string[] = []
@@ -266,11 +260,6 @@ export default function AdminPage() {
         null as Awaited<ReturnType<typeof getOrderManagementList>> | null,
         'Reklamationen'
       )
-      const intakeStatus = fromResult(
-        result[12],
-        null as Awaited<ReturnType<typeof getBranchOrderIntakeStatus>> | null,
-        'Bestellannahme'
-      )
 
       if (cancelled) {
         return
@@ -295,7 +284,6 @@ export default function AdminPage() {
       setScreenDevices(screenDevices)
       setSalesDashboard(dashboardSales)
       setRatingsDashboard(dashboardRatings)
-      setOrderIntakeStatus(intakeStatus)
       if (managementOrders) {
         const alerts = collectComplaintAlerts(managementOrders.orders).filter((entry) => !entry.isResolved)
         const readState = getComplaintReadState()
@@ -339,7 +327,7 @@ export default function AdminPage() {
       cancelled = true
       window.clearInterval(intervalId)
     }
-  }, [refreshTick, autoRefreshEnabled, canLoadTenantDashboard, sessionReady, accessToken, sessionTenantId, hasAccessToken, sessionRole, isInternalViewer])
+  }, [autoRefreshEnabled, canLoadTenantDashboard, sessionReady, accessToken, sessionTenantId, hasAccessToken, sessionRole, isInternalViewer])
 
   useEffect(() => {
     try {
@@ -474,38 +462,6 @@ export default function AdminPage() {
       next.splice(targetIndex, 0, moved)
       return next
     })
-  }
-
-  function triggerRefresh() {
-    setRefreshTick((current) => current + 1)
-  }
-
-  async function toggleOrderIntake(nextEnabled: boolean) {
-    if (!sessionTenantId) {
-      return
-    }
-    try {
-      const updated = await updateBranchOrderIntakeStatus(
-        {
-          orderIntakeEnabled: nextEnabled,
-          reason: nextEnabled ? null : 'Aktuell sehr hohes Bestellaufkommen',
-          services: {
-            delivery: nextEnabled,
-            pickup: nextEnabled,
-            tableOrdering: nextEnabled,
-          },
-        },
-        sessionTenantId
-      )
-      setOrderIntakeStatus(updated)
-      setLoadWarning(null)
-    } catch (error) {
-      setLoadWarning(
-        error instanceof Error
-          ? error.message
-          : 'Bestellannahme konnte nicht umgeschaltet werden.'
-      )
-    }
   }
 
   function toggleSectionVisibility(sectionId: string, enabled: boolean) {
@@ -803,56 +759,8 @@ export default function AdminPage() {
               Fokus auf Umsatz, Bestellungen, Geräte-Status und Warnungen.
             </p>
           </div>
-          <button
-            type="button"
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-            onClick={triggerRefresh}
-            disabled={isRefreshing}
-          >
-            {isRefreshing ? 'Aktualisiere...' : 'Aktualisieren'}
-          </button>
         </div>
       </section>
-      {orderIntakeStatus ? (
-        <section
-          className={`mb-4 rounded-3xl border px-4 py-4 shadow-sm ${
-            orderIntakeStatus.orderIntakeEnabled
-              ? 'border-emerald-200 bg-emerald-50'
-              : 'border-rose-300 bg-rose-50'
-          }`}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-700">
-                Bestellannahme
-              </p>
-              <p
-                className={`mt-1 text-sm font-semibold ${
-                  orderIntakeStatus.orderIntakeEnabled ? 'text-emerald-800' : 'text-rose-800'
-                }`}
-              >
-                {orderIntakeStatus.orderIntakeEnabled
-                  ? 'Bestellannahme aktiv'
-                  : 'Bestellannahme pausiert'}
-              </p>
-              {!orderIntakeStatus.orderIntakeEnabled && orderIntakeStatus.reason ? (
-                <p className="mt-1 text-xs text-rose-900/85">{orderIntakeStatus.reason}</p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => void toggleOrderIntake(!orderIntakeStatus.orderIntakeEnabled)}
-              className={`rounded-xl px-3 py-2 text-sm font-semibold text-white transition ${
-                orderIntakeStatus.orderIntakeEnabled
-                  ? 'bg-rose-700 hover:bg-rose-800'
-                  : 'bg-emerald-700 hover:bg-emerald-800'
-              }`}
-            >
-              {orderIntakeStatus.orderIntakeEnabled ? 'Pausieren' : 'Wieder aktivieren'}
-            </button>
-          </div>
-        </section>
-      ) : null}
       {canViewComplaints && complaintAlerts.length > 0 ? (
         <section className="mb-4 rounded-3xl border border-rose-300 bg-rose-50 px-4 py-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">

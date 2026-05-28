@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Category, Product, UnitEanEntry } from '@/lib/api'
-import ProductIngredientsManager from '@/app/Components/admin/ProductIngredientsManager'
 
 type NutritionDraft = {
   referenceUnit: 'g' | 'ml' | 'portion'
@@ -719,20 +718,6 @@ export default function AdminProductsSection({
           ) : null}
         </form>
       </section>
-
-      {editingProductId ? (
-        <section className="xl:col-span-2">
-          <ProductIngredientsManager
-            productId={editingProductId}
-            productName={productName}
-            products={products.map((product) => ({
-              id: product.id,
-              name: product.name,
-              productNumber: product.productNumber ?? null,
-            }))}
-          />
-        </section>
-      ) : null}
 
       <section className="min-w-0 rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
         <div className="grid gap-3 md:grid-cols-3">

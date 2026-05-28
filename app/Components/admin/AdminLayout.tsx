@@ -6,11 +6,14 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import PlatformBranding from '@/app/Components/admin/PlatformBranding'
 import {
   getBusinessSettings,
+  getBranchOrderIntakeStatus,
   getOrderManagementList,
   getMyEffectiveFeatureModules,
   getStoredAccessToken,
   getStoredTenantId,
   getPlatformBrandingSettings,
+  updateBranchOrderIntakeStatus,
+  type BranchOrderIntakeStatus,
   type AccessPermission,
   type BusinessSettings,
   type EffectiveFeatureSetResponse,
@@ -210,6 +213,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [authChecked, setAuthChecked] = useState(false)
   const [hasValidSession, setHasValidSession] = useState(false)
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
+  const [orderIntakeStatus, setOrderIntakeStatus] = useState<BranchOrderIntakeStatus | null>(null)
+  const [orderIntakeBusy, setOrderIntakeBusy] = useState(false)
   const [sessionActiveTenantName, setSessionActiveTenantName] = useState<string | null>(null)
   const [allowSuperadminTenantView, setAllowSuperadminTenantView] = useState(false)
   const [uiMode, setUiMode] = useState<AdminUiMode>('compact')
@@ -428,6 +433,61 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
       cancelled = true
     }
   }, [authChecked, hasValidSession, sessionTenantId])
+
+  useEffect(() => {
+    if (!authChecked || !hasValidSession || !sessionTenantId) {
+      setOrderIntakeStatus(null)
+      return
+    }
+
+    if (!(permissions?.has('ORDER_INTAKE_READ') ?? false)) {
+      setOrderIntakeStatus(null)
+      return
+    }
+
+    let cancelled = false
+
+    const loadStatus = async () => {
+      try {
+        const status = await getBranchOrderIntakeStatus(sessionTenantId)
+        if (!cancelled) {
+          setOrderIntakeStatus(status)
+        }
+      } catch {
+        if (!cancelled) {
+          setOrderIntakeStatus(null)
+        }
+      }
+    }
+
+    void loadStatus()
+    const intervalId = window.setInterval(() => {
+      void loadStatus()
+    }, 15000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [authChecked, hasValidSession, sessionTenantId, permissions])
+
+  async function toggleGlobalOrderIntake(nextEnabled: boolean) {
+    if (!sessionTenantId || !(permissions?.has('ORDER_INTAKE_MANAGE') ?? false)) {
+      return
+    }
+    try {
+      setOrderIntakeBusy(true)
+      const updated = await updateBranchOrderIntakeStatus(
+        {
+          orderIntakeEnabled: nextEnabled,
+        },
+        sessionTenantId
+      )
+      setOrderIntakeStatus(updated)
+    } finally {
+      setOrderIntakeBusy(false)
+    }
+  }
 
   useEffect(() => {
     if (!authChecked || !hasValidSession || !sessionTenantId) {
@@ -1072,7 +1132,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
               ) : null}
 
-              {contextualTabs.length > 0 ? (
+              {pathname !== '/admin' && contextualTabs.length > 0 ? (
                 <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/90 px-3 py-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-rose-900/70">
                     {activeSection?.label || 'Bereich'}
@@ -1188,6 +1248,37 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
           ) : null}
 
           <div className={`relative z-10 ${pageSpacingClass} pb-8`}>
+            {orderIntakeStatus ? (
+              <div className="mb-3">
+                <div
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                    orderIntakeStatus.orderIntakeEnabled
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                      : 'border-rose-300 bg-rose-50 text-rose-800'
+                  }`}
+                >
+                  <span>
+                    {orderIntakeStatus.orderIntakeEnabled
+                      ? 'Bestellannahme aktiv'
+                      : 'Bestellannahme pausiert'}
+                  </span>
+                  {permissions?.has('ORDER_INTAKE_MANAGE') ? (
+                    <button
+                      type="button"
+                      onClick={() => void toggleGlobalOrderIntake(!orderIntakeStatus.orderIntakeEnabled)}
+                      disabled={orderIntakeBusy}
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${
+                        orderIntakeStatus.orderIntakeEnabled
+                          ? 'bg-rose-700 hover:bg-rose-800'
+                          : 'bg-emerald-700 hover:bg-emerald-800'
+                      } disabled:opacity-60`}
+                    >
+                      {orderIntakeStatus.orderIntakeEnabled ? 'Pausieren' : 'Aktivieren'}
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
             {!authChecked ? (
               <section className="rounded-3xl border border-rose-200 bg-rose-50 px-5 py-6 text-sm text-rose-900">
                 Sitzung wird geprüft...
