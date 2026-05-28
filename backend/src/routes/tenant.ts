@@ -58,6 +58,49 @@ function parseCoordinate(value: unknown) {
   return null
 }
 
+async function geocodeSearchLocation(input: { zipCode: string; street?: string | null }) {
+  const street = normalizeText(input.street)
+  if (!street) {
+    return null
+  }
+
+  const query = `${street}, ${input.zipCode}, Germany`
+  const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 4500)
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Klarando/1.0 (public-discovery geocoding)',
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    })
+    if (!response.ok) {
+      return null
+    }
+    const payload = (await response.json()) as Array<{ lat?: string; lon?: string }>
+    const first = Array.isArray(payload) ? payload[0] : null
+    if (!first) {
+      return null
+    }
+
+    const latitude = parseCoordinate(first.lat ?? null)
+    const longitude = parseCoordinate(first.lon ?? null)
+    if (latitude === null || longitude === null) {
+      return null
+    }
+
+    return { latitude, longitude }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 function parseAllergenCodes(raw: string | null) {
   if (!raw) {
     return [] as string[]
@@ -444,6 +487,12 @@ router.get('/public/discovery', async (req, res) => {
     const street = normalizeText(req.query.street)
     const latitude = parseCoordinate(req.query.latitude)
     const longitude = parseCoordinate(req.query.longitude)
+    const geocodedLocation =
+      latitude === null || longitude === null
+        ? await geocodeSearchLocation({ zipCode, street })
+        : null
+    const effectiveLatitude = latitude ?? geocodedLocation?.latitude ?? null
+    const effectiveLongitude = longitude ?? geocodedLocation?.longitude ?? null
 
     const tenants = await prisma.tenant.findMany({
       where: {
@@ -522,21 +571,37 @@ router.get('/public/discovery', async (req, res) => {
           ? matchServiceArea(settings.deliveryArea, {
               zipCode,
               street,
-              latitude,
-              longitude,
+              latitude: effectiveLatitude,
+              longitude: effectiveLongitude,
             })
           : null
         const pickupMatch = includePickup
           ? matchServiceArea(settings.pickupArea, {
               zipCode,
               street,
-              latitude,
-              longitude,
+              latitude: effectiveLatitude,
+              longitude: effectiveLongitude,
             })
           : null
 
-        const matchesDelivery = Boolean(deliveryMatch?.matched)
-        const matchesPickup = Boolean(pickupMatch?.matched)
+        const strictDeliveryMatch =
+          settings.deliveryArea.strategy === 'POLYGON'
+            ? settings.deliveryArea.polygonPath.length >= 3 &&
+              effectiveLatitude !== null &&
+              effectiveLongitude !== null &&
+              Boolean(deliveryMatch?.matchedByPolygon)
+            : Boolean(deliveryMatch?.matched)
+
+        const strictPickupMatch =
+          settings.pickupArea.strategy === 'POLYGON'
+            ? settings.pickupArea.polygonPath.length >= 3 &&
+              effectiveLatitude !== null &&
+              effectiveLongitude !== null &&
+              Boolean(pickupMatch?.matchedByPolygon)
+            : Boolean(pickupMatch?.matched)
+
+        const matchesDelivery = strictDeliveryMatch
+        const matchesPickup = strictPickupMatch
         const outOfArea = !matchesDelivery && !matchesPickup
         const deliveryStatus = matchesDelivery
           ? 'AVAILABLE'
@@ -556,6 +621,33 @@ router.get('/public/discovery', async (req, res) => {
         if (!matchesDelivery && !matchesPickup && !includeOutOfArea) {
           return null
         }
+
+        console.info('PUBLIC_BRANCH_SEARCH_DELIVERY_CHECK', {
+          route: 'GET /api/tenants/public/discovery',
+          tenantId: tenant.id,
+          branchId: tenant.id,
+          strategy: settings.deliveryArea.strategy,
+          zipCode,
+          street,
+          hasPolygon: settings.deliveryArea.polygonPath.length >= 3,
+          polygonPoints: settings.deliveryArea.polygonPath.length,
+          customerLat: effectiveLatitude,
+          customerLng: effectiveLongitude,
+          usedCheck:
+            settings.deliveryArea.strategy === 'POLYGON'
+              ? 'POLYGON'
+              : settings.deliveryArea.strategy === 'RADIUS'
+                ? 'RADIUS'
+                : settings.deliveryArea.strategy === 'ZIP_LIST'
+                  ? 'POSTAL_CODES'
+                  : settings.deliveryArea.strategy === 'ZIP_OR_RADIUS' ||
+                      settings.deliveryArea.strategy === 'ZIP_AND_RADIUS'
+                    ? deliveryMatch?.matchedByRadius
+                      ? 'RADIUS'
+                      : 'POSTAL_CODES'
+                    : 'UNKNOWN',
+          result: matchesDelivery,
+        })
 
         return {
           tenantId: tenant.id,
@@ -671,6 +763,8 @@ router.get('/public/discovery', async (req, res) => {
         includeOutOfArea,
         latitude,
         longitude,
+        effectiveLatitude,
+        effectiveLongitude,
       },
       total: sortedRows.length,
       tenants: sortedRows,
