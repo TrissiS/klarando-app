@@ -268,6 +268,11 @@ async function copyTenantBaseData(
     }
 
     for (const product of products) {
+      const nutritionInput =
+        product.nutrition == null
+          ? undefined
+          : (product.nutrition as Prisma.InputJsonValue)
+
       const createdProduct = await tx.product.create({
         data: {
           tenantId: targetTenantId,
@@ -284,10 +289,7 @@ async function copyTenantBaseData(
           articleInfo: product.articleInfo,
           foodBusinessOperator: product.foodBusinessOperator,
           nutritionInfo: product.nutritionInfo,
-          nutrition:
-            product.nutrition === null || product.nutrition === undefined
-              ? undefined
-              : (product.nutrition as Prisma.InputJsonValue),
+          nutrition: nutritionInput,
           price: product.price,
           vatRate: product.vatRate,
           available: product.available,
