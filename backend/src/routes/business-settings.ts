@@ -691,6 +691,20 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
           : requestedSettings
 
     const normalizedSettings = mirrorPickupAreaFromDelivery(settings)
+
+    const finalInputDeliveryArea =
+      settingsInput && typeof settingsInput === 'object'
+        ? ((settingsInput as { deliveryArea?: unknown }).deliveryArea as Record<string, unknown> | undefined)
+        : undefined
+    const incomingNormalizedPolygon = normalizePolygonInput(
+      finalInputDeliveryArea?.polygonPath ?? finalInputDeliveryArea?.polygonPoints
+    )
+    if (incomingNormalizedPolygon.length >= 3) {
+      normalizedSettings.deliveryArea = {
+        ...normalizedSettings.deliveryArea,
+        polygonPath: incomingNormalizedPolygon,
+      }
+    }
     const rawPolygonPathLength =
       deliveryAreaInput &&
       typeof deliveryAreaInput === 'object' &&
@@ -706,10 +720,16 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
     const rawPolygonInputLength = Math.max(rawPolygonPathLength, rawPolygonPointsLength)
     console.info('BUSINESS_SETTINGS_DELIVERY_SAVE_ATTEMPT', {
       tenantId,
+      actorRole: actorRole ?? null,
       strategy: normalizedSettings.deliveryArea.strategy,
       enabled: normalizedSettings.deliveryArea.enabled,
       polygonPoints: normalizedSettings.deliveryArea.polygonPath.length,
+      incomingPolygonPoints: incomingNormalizedPolygon.length,
     })
+    console.log(
+      'FINAL_DELIVERY_AREA_BEFORE_SAVE',
+      JSON.stringify(normalizedSettings.deliveryArea, null, 2)
+    )
     const polygonValidationError = validatePolygonSettings(normalizedSettings.deliveryArea)
     if (polygonValidationError) {
       const normalizedPolygonLength = normalizedSettings.deliveryArea.polygonPath.length
