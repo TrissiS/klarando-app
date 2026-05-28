@@ -133,6 +133,13 @@ export default function ServiceAreaEditor({
   const [testResult, setTestResult] = useState<null | { inside: boolean; message: string }>(null)
 
   const polygonPath = useMemo(() => normalizePolygonPath(value.polygonPath || []), [value.polygonPath])
+  const polygonRenderKey = useMemo(
+    () =>
+      polygonPath.length > 0
+        ? polygonPath.map((point) => `${point.lat}:${point.lng}`).join('|')
+        : 'empty',
+    [polygonPath]
+  )
   const canEditMap = !disabled && value.enabled
   const center = getMapCenter(value, polygonPath)
 
@@ -393,6 +400,7 @@ export default function ServiceAreaEditor({
             <div className="mt-3">
               <div className={`h-[520px] w-full overflow-hidden rounded-xl border border-[var(--brand-border)] ${canEditMap ? '' : 'pointer-events-none opacity-75'}`}>
                 <ServiceAreaPolygonMap
+                  key={`service-area-map-${polygonRenderKey}`}
                   center={center}
                   polygonPath={polygonPath}
                   canEditMap={canEditMap}
@@ -417,6 +425,9 @@ export default function ServiceAreaEditor({
                   testPoint={testPoint}
                 />
               </div>
+              <p className="mt-2 text-xs font-semibold text-slate-700">
+                Map polygon points: {polygonPath.length}
+              </p>
               <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-rose-900/75">
                 <span>Polygonpunkte: {polygonPath.length}</span>
                 <button

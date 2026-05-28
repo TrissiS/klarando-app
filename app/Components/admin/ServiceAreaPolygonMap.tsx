@@ -105,55 +105,64 @@ export default function ServiceAreaPolygonMap({
     [polygonPositions]
   )
 
+  useEffect(() => {
+    console.log('MAP_POLYGON_POINTS_RENDER', polygonPositions.length, polygonPositions)
+  }, [polygonPositions])
+
   return (
-    <MapContainer center={[center.lat, center.lng]} zoom={12} className="h-full w-full" scrollWheelZoom>
-      <TileLayer
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-      />
-      <MapAutoFit points={polygonPath} />
-      <MapClickCapture
-        disabled={disabled}
-        enabled={enabled}
-        mapMode={mapMode}
-        onAddPoint={onAddPoint}
-        onSetTestPoint={onSetTestPoint}
-      />
-      {polygonPositions.length >= 3 ? (
-        <Polygon
-          key={`polygon-${polygonRenderKey}`}
-          positions={polygonPositions}
-          pathOptions={{ color: '#ea580c', fillColor: '#fb923c', fillOpacity: 0.2, weight: 2 }}
+    <div className="relative h-full w-full">
+      <MapContainer center={[center.lat, center.lng]} zoom={12} className="h-full w-full" scrollWheelZoom>
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
-      ) : null}
-      {testPoint ? (
-        <Marker
-          position={[testPoint.lat, testPoint.lng]}
-          icon={divIcon({
-            className: '',
-            html: '<div style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:#0f766e;color:#fff;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:11px;font-weight:700;">T</div>',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12],
-          })}
+        <MapAutoFit points={polygonPath} />
+        <MapClickCapture
+          disabled={disabled}
+          enabled={enabled}
+          mapMode={mapMode}
+          onAddPoint={onAddPoint}
+          onSetTestPoint={onSetTestPoint}
         />
-      ) : null}
-      {polygonPath.map((point, index) => (
-        <Marker
-          key={`polygon-point-${index}`}
-          position={[point.lat, point.lng]}
-          icon={pinIcon(String(index + 1))}
-          draggable={canEditMap}
-          eventHandlers={{
-            dragend: (event) => {
-              const latLng = (event.target as { getLatLng: () => LatLng }).getLatLng()
-              onMovePoint(index, { lat: latLng.lat, lng: latLng.lng })
-            },
-            dblclick: () => {
-              if (canEditMap) onRemovePoint(index)
-            },
-          }}
-        />
-      ))}
-    </MapContainer>
+        {polygonPositions.length >= 3 ? (
+          <Polygon
+            key={`polygon-${polygonRenderKey}`}
+            positions={polygonPositions}
+            pathOptions={{ color: '#ea580c', fillColor: '#fb923c', fillOpacity: 0.28, weight: 3 }}
+          />
+        ) : null}
+        {testPoint ? (
+          <Marker
+            position={[testPoint.lat, testPoint.lng]}
+            icon={divIcon({
+              className: '',
+              html: '<div style="display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:999px;background:#0f766e;color:#fff;border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.25);font-size:11px;font-weight:700;">T</div>',
+              iconSize: [24, 24],
+              iconAnchor: [12, 12],
+            })}
+          />
+        ) : null}
+        {polygonPath.map((point, index) => (
+          <Marker
+            key={`polygon-point-${index}`}
+            position={[point.lat, point.lng]}
+            icon={pinIcon(String(index + 1))}
+            draggable={canEditMap}
+            eventHandlers={{
+              dragend: (event) => {
+                const latLng = (event.target as { getLatLng: () => LatLng }).getLatLng()
+                onMovePoint(index, { lat: latLng.lat, lng: latLng.lng })
+              },
+              dblclick: () => {
+                if (canEditMap) onRemovePoint(index)
+              },
+            }}
+          />
+        ))}
+      </MapContainer>
+      <div className="pointer-events-none absolute left-2 top-2 z-[1200] rounded-md bg-slate-900/80 px-2 py-1 text-[11px] font-semibold text-white">
+        Map polygon points: {polygonPositions.length}
+      </div>
+    </div>
   )
 }
