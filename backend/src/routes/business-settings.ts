@@ -588,21 +588,13 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
 
       const normalizedPolygon = rawPolygonInput
         .map((point: any) => {
-          const lat =
-            typeof point?.lat === 'number'
-              ? point.lat
-              : typeof point?.latitude === 'number'
-                ? point.latitude
-                : null
+          const rawLat = point?.lat ?? point?.latitude
+          const rawLng = point?.lng ?? point?.longitude
 
-          const lng =
-            typeof point?.lng === 'number'
-              ? point.lng
-              : typeof point?.longitude === 'number'
-                ? point.longitude
-                : null
+          const lat = Number(rawLat)
+          const lng = Number(rawLng)
 
-          if (lat == null || lng == null) {
+          if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
             return null
           }
 
@@ -618,6 +610,7 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
             point.lng >= -180 &&
             point.lng <= 180
         )
+      console.log('NORMALIZED_POLYGON_FINAL', normalizedPolygon)
 
       ;(settingsInput as Record<string, unknown>).deliveryArea = {
         ...deliveryAreaRecord,
