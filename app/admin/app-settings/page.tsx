@@ -129,6 +129,7 @@ export default function AdminAppSettingsPage() {
     const points = normalizePolygonPath(settings.deliveryArea?.polygonPath)
     if (points.length >= 3) {
       console.log('LOADED_POLYGON_PATH', points)
+      console.log('POLYGON_POINTS_STATE_AFTER_REHYDRATE', points)
       if (points.length !== settings.deliveryArea.polygonPath.length) {
         setSettings((previous) =>
           previous

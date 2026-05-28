@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { MapContainer, Marker, Polygon, TileLayer, useMap, useMapEvents } from 'react-leaflet'
 import { divIcon, LatLngBounds, type LatLng } from 'leaflet'
 import type { BusinessServiceAreaPolygonPoint } from '@/lib/api'
@@ -32,6 +32,7 @@ function fitMap(map: ReturnType<typeof useMap>, points: BusinessServiceAreaPolyg
 function MapAutoFit({ points }: { points: BusinessServiceAreaPolygonPoint[] }) {
   const map = useMap()
   useEffect(() => {
+    map.invalidateSize()
     fitMap(map, points)
   }, [map, points])
   return null
@@ -89,6 +90,21 @@ export default function ServiceAreaPolygonMap({
   onSetTestPoint,
   testPoint = null,
 }: Props) {
+  const polygonPositions = useMemo(
+    () =>
+      polygonPath
+        .map((point) => [Number(point.lat), Number(point.lng)] as [number, number])
+        .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng)),
+    [polygonPath]
+  )
+  const polygonRenderKey = useMemo(
+    () =>
+      polygonPositions.length > 0
+        ? polygonPositions.map(([lat, lng]) => `${lat}:${lng}`).join('|')
+        : 'empty',
+    [polygonPositions]
+  )
+
   return (
     <MapContainer center={[center.lat, center.lng]} zoom={12} className="h-full w-full" scrollWheelZoom>
       <TileLayer
@@ -103,9 +119,10 @@ export default function ServiceAreaPolygonMap({
         onAddPoint={onAddPoint}
         onSetTestPoint={onSetTestPoint}
       />
-      {polygonPath.length >= 3 ? (
+      {polygonPositions.length >= 3 ? (
         <Polygon
-          positions={polygonPath.map((point) => [point.lat, point.lng] as [number, number])}
+          key={`polygon-${polygonRenderKey}`}
+          positions={polygonPositions}
           pathOptions={{ color: '#ea580c', fillColor: '#fb923c', fillOpacity: 0.2, weight: 2 }}
         />
       ) : null}
