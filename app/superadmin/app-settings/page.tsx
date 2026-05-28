@@ -355,7 +355,15 @@ export default function SuperadminAppSettingsPage() {
               </div>
 
               <div className="mt-4">
-                <AppSettingsFields settings={settings} onChange={setSettings} showComplianceControls />
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Lieferzonen werden vom jeweiligen Betreiber/Admin gepflegt.
+                </div>
+                <AppSettingsFields
+                  settings={settings}
+                  onChange={setSettings}
+                  showComplianceControls
+                  showServiceAreaEditor={false}
+                />
               </div>
               </>
               ) : (

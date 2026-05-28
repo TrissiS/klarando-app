@@ -11,6 +11,7 @@ type Props = {
   disableCustomerApp?: boolean
   showAppReleaseControls?: boolean
   showComplianceControls?: boolean
+  showServiceAreaEditor?: boolean
 }
 
 type ServiceMode = 'DELIVERY' | 'PICKUP' | 'BOTH'
@@ -23,6 +24,7 @@ export default function AppSettingsFields({
   disableCustomerApp = false,
   showAppReleaseControls = true,
   showComplianceControls = false,
+  showServiceAreaEditor = true,
 }: Props) {
   function patchCustomerApp(next: Partial<BusinessSettings['customerApp']>) {
     onChange({
@@ -262,20 +264,22 @@ export default function AppSettingsFields({
         </div>
       </section>
 
-      <div className="mt-4 grid gap-4">
-        <ServiceAreaEditor
-          title="Liefer- und Abholgebiet"
-          subtitle="PLZ, Radius und Straßen-Ausschlüsse (gilt für beide Modi)"
-          value={settings.deliveryArea}
-          disabled={disableDelivery}
-          onChange={(next) =>
-            onChange({
-              ...settings,
-              deliveryArea: next,
-            })
-          }
-        />
-      </div>
+      {showServiceAreaEditor ? (
+        <div className="mt-4 grid gap-4">
+          <ServiceAreaEditor
+            title="Liefer- und Abholgebiet"
+            subtitle="PLZ, Radius und Straßen-Ausschlüsse (gilt für beide Modi)"
+            value={settings.deliveryArea}
+            disabled={disableDelivery}
+            onChange={(next) =>
+              onChange({
+                ...settings,
+                deliveryArea: next,
+              })
+            }
+          />
+        </div>
+      ) : null}
 
       {showComplianceControls ? (
         <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
