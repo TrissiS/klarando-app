@@ -504,12 +504,15 @@ router.get('/', requirePermission(PermissionKey.SETTINGS_READ), async (req, res)
       return res.status(403).json({ error: access.error })
     }
 
-    return res.json(
-      parseSettings(tenant.businessSettings, {
-        name: tenant.name,
-        email: tenant.email,
-      })
+    const parsedSettings = parseSettings(tenant.businessSettings, {
+      name: tenant.name,
+      email: tenant.email,
+    })
+    console.log(
+      'GET_BUSINESS_SETTINGS_DELIVERY_AREA',
+      JSON.stringify(parsedSettings.deliveryArea, null, 2)
     )
+    return res.json(parsedSettings)
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
@@ -799,12 +802,46 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       })
     }
 
+    const finalSettingsForDb: BusinessSettings = {
+      ...normalizedSettings,
+      deliveryArea: {
+        ...normalizedSettings.deliveryArea,
+        polygonPath:
+          incomingNormalizedPolygon.length >= 3
+            ? incomingNormalizedPolygon
+            : normalizedSettings.deliveryArea.polygonPath,
+      },
+    }
+
+    console.log(
+      'FINAL_DELIVERY_AREA_BEFORE_DB_SAVE',
+      JSON.stringify(finalSettingsForDb.deliveryArea, null, 2)
+    )
+
     await prisma.tenant.update({
       where: { id: tenant.id },
       data: {
-        businessSettings: normalizedSettings as unknown as Prisma.InputJsonValue,
+        businessSettings: finalSettingsForDb as unknown as Prisma.InputJsonValue,
       },
     })
+
+    const savedTenant = await prisma.tenant.findUnique({
+      where: { id: tenant.id },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        businessSettings: true,
+      },
+    })
+    const savedParsedSettings = parseSettings(savedTenant?.businessSettings, {
+      name: savedTenant?.name ?? tenant.name,
+      email: savedTenant?.email ?? tenant.email,
+    })
+    console.log(
+      'SAVED_BUSINESS_SETTINGS_DELIVERY_AREA',
+      JSON.stringify(savedParsedSettings.deliveryArea, null, 2)
+    )
 
     await writeAuditLog({
       req,
@@ -818,7 +855,7 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       },
     })
 
-    return res.json(normalizedSettings)
+    return res.json(savedParsedSettings)
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
