@@ -508,6 +508,8 @@ router.get('/', requirePermission(PermissionKey.SETTINGS_READ), async (req, res)
       name: tenant.name,
       email: tenant.email,
     })
+    console.log('GET_BUSINESS_SETTINGS_RAW_TYPE', typeof tenant.businessSettings)
+    console.log('GET_BUSINESS_SETTINGS_RAW_VALUE', tenant.businessSettings)
     console.log(
       'GET_BUSINESS_SETTINGS_DELIVERY_AREA',
       JSON.stringify(parsedSettings.deliveryArea, null, 2)
@@ -838,6 +840,8 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       name: savedTenant?.name ?? tenant.name,
       email: savedTenant?.email ?? tenant.email,
     })
+    console.log('SAVED_BUSINESS_SETTINGS_RAW_TYPE', typeof savedTenant?.businessSettings)
+    console.log('SAVED_BUSINESS_SETTINGS_RAW_VALUE', savedTenant?.businessSettings)
     console.log(
       'SAVED_BUSINESS_SETTINGS_DELIVERY_AREA',
       JSON.stringify(savedParsedSettings.deliveryArea, null, 2)

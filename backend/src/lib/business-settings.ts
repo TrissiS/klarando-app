@@ -1199,7 +1199,19 @@ export function parseSettings(
   raw: unknown,
   tenantDefaults: { name: string; email: string | null }
 ): BusinessSettings {
-  const source = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
+  let source: Record<string, unknown> = {}
+  if (raw && typeof raw === 'object') {
+    source = raw as Record<string, unknown>
+  } else if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      if (parsed && typeof parsed === 'object') {
+        source = parsed as Record<string, unknown>
+      }
+    } catch {
+      source = {}
+    }
+  }
   const defaultHours = defaultDailyHours()
   const defaultArea = defaultServiceArea()
   const defaultCustomerApp = defaultCustomerAppSettings()
