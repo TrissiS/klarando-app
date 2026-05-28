@@ -580,10 +580,44 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
 
     if (deliveryAreaInput && typeof deliveryAreaInput === 'object') {
       const deliveryAreaRecord = deliveryAreaInput as Record<string, unknown>
-      const normalizedFromPath = normalizePolygonInput(deliveryAreaRecord.polygonPath)
-      const normalizedFromPoints = normalizePolygonInput(deliveryAreaRecord.polygonPoints)
-      const normalizedPolygon =
-        normalizedFromPath.length > 0 ? normalizedFromPath : normalizedFromPoints
+      const rawPolygonInput = Array.isArray(deliveryAreaRecord.polygonPath)
+        ? deliveryAreaRecord.polygonPath
+        : Array.isArray(deliveryAreaRecord.polygonPoints)
+          ? deliveryAreaRecord.polygonPoints
+          : []
+
+      const normalizedPolygon = rawPolygonInput
+        .map((point: any) => {
+          const lat =
+            typeof point?.lat === 'number'
+              ? point.lat
+              : typeof point?.latitude === 'number'
+                ? point.latitude
+                : null
+
+          const lng =
+            typeof point?.lng === 'number'
+              ? point.lng
+              : typeof point?.longitude === 'number'
+                ? point.longitude
+                : null
+
+          if (lat == null || lng == null) {
+            return null
+          }
+
+          return { lat, lng }
+        })
+        .filter((point): point is { lat: number; lng: number } => Boolean(point))
+        .filter(
+          (point) =>
+            Number.isFinite(point.lat) &&
+            Number.isFinite(point.lng) &&
+            point.lat >= -90 &&
+            point.lat <= 90 &&
+            point.lng >= -180 &&
+            point.lng <= 180
+        )
 
       ;(settingsInput as Record<string, unknown>).deliveryArea = {
         ...deliveryAreaRecord,
