@@ -155,18 +155,22 @@ export default function AdminAppSettingsPage() {
       return
     }
 
+    const existingPolygonPath = normalizePolygonPath(settings.deliveryArea.polygonPath)
     const normalizedPolygonPath = normalizePolygonPath(settings.deliveryArea.polygonPath)
+    const polygonToSave =
+      normalizedPolygonPath.length >= 3 ? normalizedPolygonPath : existingPolygonPath
     console.log('POLYGON_RAW_POINTS', settings.deliveryArea.polygonPath)
     console.log('POLYGON_NORMALIZED_POINTS', normalizedPolygonPath)
     console.log('NORMALIZED_POLYGON', normalizedPolygonPath)
+    console.log('POLYGON_TO_SAVE', polygonToSave)
     const settingsToSave: BusinessSettings = {
       ...settings,
       deliveryArea: {
         ...settings.deliveryArea,
-        polygonPath: normalizedPolygonPath,
+        polygonPath: polygonToSave,
       },
     }
-    const polygonPoints = normalizedPolygonPath.length
+    const polygonPoints = polygonToSave.length
     if (
       settingsToSave.deliveryArea.enabled &&
       settingsToSave.deliveryArea.strategy === 'POLYGON' &&
@@ -181,11 +185,21 @@ export default function AdminAppSettingsPage() {
       setError('')
       setSuccess('')
       const saved = await updateBusinessSettings(settingsToSave)
-      setSettings(saved)
+      const responsePolygon = normalizePolygonPath(saved?.deliveryArea?.polygonPath)
+      console.log('POLYGON_AFTER_SAVE_RESPONSE', responsePolygon)
+      const effectivePolygonAfterSave =
+        responsePolygon.length >= 3 ? responsePolygon : polygonToSave
+      setSettings({
+        ...saved,
+        deliveryArea: {
+          ...saved.deliveryArea,
+          polygonPath: effectivePolygonAfterSave,
+        },
+      })
       setSuccess('App-Einstellungen gespeichert.')
       setPolygonDebug({
         saved: true,
-        points: saved.deliveryArea.polygonPath.length,
+        points: effectivePolygonAfterSave.length,
         responseStatus: 200,
         tenantId: null,
         zoneId: 'deliveryArea',
