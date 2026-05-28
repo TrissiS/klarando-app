@@ -3006,6 +3006,19 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           requiresPolygonCoordinates &&
           (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null)
         ) {
+          console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
+            route: 'POST /api/orders',
+            sourceFile: 'backend/src/routes/orders.ts',
+            strategy: settings.deliveryArea.strategy,
+            zipCodesCount: settings.deliveryArea.zipCodes.length,
+            polygonPointsCount: settings.deliveryArea.polygonPath.length,
+            customerPostalCode: normalizedCustomerZipCode,
+            customerLat: normalizedCustomerLatitude,
+            customerLng: normalizedCustomerLongitude,
+            usedCheck: 'POLYGON',
+            result: false,
+            reason: 'MISSING_COORDINATES',
+          })
           return res.status(422).json({
             error:
               'Für Lieferungen im Polygon-Modus werden Koordinaten benötigt. Bitte Adresse erneut auswählen oder Standort freigeben.',
