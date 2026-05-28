@@ -1979,25 +1979,30 @@ export async function updateBusinessSettings(
 ): Promise<BusinessSettings> {
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
+  const normalizedPolygon = (Array.isArray(settings.deliveryArea?.polygonPath)
+    ? settings.deliveryArea.polygonPath
+    : []
+  )
+    .map((point) => ({
+      lat: Number(point?.lat),
+      lng: Number(point?.lng),
+    }))
+    .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+  const normalizedSettings: BusinessSettings = {
+    ...settings,
+    deliveryArea: {
+      ...settings.deliveryArea,
+      polygonPath: normalizedPolygon,
+    },
+  }
   if (typeof window !== 'undefined') {
-    const polygonPath = Array.isArray(settings.deliveryArea?.polygonPath)
-      ? settings.deliveryArea.polygonPath
-      : []
-    console.info('BUSINESS_SETTINGS_SAVE_PAYLOAD', {
+    console.log('BUSINESS_SETTINGS_SAVE_PAYLOAD', {
       tenantId,
-      strategy: settings.deliveryArea?.strategy ?? null,
-      deliveryAreaEnabled: settings.deliveryArea?.enabled ?? null,
-      polygonPoints: polygonPath.length,
-      polygonSample: polygonPath.slice(0, 3),
-      polygonAllNumeric: polygonPath.every(
-        (point) => typeof point?.lat === 'number' && typeof point?.lng === 'number'
-      ),
-      hasDeliveryAreaPolygon: false,
-      hasServiceAreaPolygon: false,
-      deliveryAreaKeys:
-        settings.deliveryArea && typeof settings.deliveryArea === 'object'
-          ? Object.keys(settings.deliveryArea as Record<string, unknown>)
-          : [],
+      strategy: normalizedSettings.deliveryArea?.strategy ?? null,
+      deliveryAreaEnabled: normalizedSettings.deliveryArea?.enabled ?? null,
+      polygonPoints: normalizedPolygon.length,
+      polygonSample: normalizedPolygon.slice(0, 3),
+      fullPolygon: normalizedPolygon,
     })
   }
   const res = await fetch(`${API_BASE_URL}/api/business-settings`, {
@@ -2008,7 +2013,7 @@ export async function updateBusinessSettings(
     },
     body: JSON.stringify({
       tenantId,
-      settings,
+      settings: normalizedSettings,
     }),
   })
 
