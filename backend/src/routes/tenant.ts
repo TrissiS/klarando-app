@@ -766,6 +766,7 @@ router.get('/public/discovery', async (req, res) => {
             delivery: {
               available: matchesDelivery,
               strategy: effectiveDeliveryArea.strategy,
+              polygonPoints: effectiveDeliveryArea.polygonPath.length,
               matchedByZip: deliveryMatch?.matchedByZip ?? false,
               matchedByRadius: deliveryMatch?.matchedByRadius ?? false,
               matchedByPolygon: deliveryMatch?.matchedByPolygon ?? false,
@@ -778,6 +779,7 @@ router.get('/public/discovery', async (req, res) => {
             pickup: {
               available: matchesPickup,
               strategy: settings.pickupArea.strategy,
+              polygonPoints: settings.pickupArea.polygonPath.length,
               matchedByZip: pickupMatch?.matchedByZip ?? false,
               matchedByRadius: pickupMatch?.matchedByRadius ?? false,
               matchedByPolygon: pickupMatch?.matchedByPolygon ?? false,

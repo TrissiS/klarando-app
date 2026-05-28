@@ -17,6 +17,7 @@ class DiscoveryPage extends StatefulWidget {
 class _DiscoveryPageState extends State<DiscoveryPage> {
   final _api = const KlarandoApi();
   final _zipController = TextEditingController(text: '45127');
+  final _streetController = TextEditingController();
   DiscoveryMode _mode = DiscoveryMode.all;
   bool _loading = false;
   String _message = 'Suche nach Filialen in deinem Liefer-/Abholgebiet.';
@@ -25,6 +26,7 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
   @override
   void dispose() {
     _zipController.dispose();
+    _streetController.dispose();
     super.dispose();
   }
 
@@ -46,8 +48,21 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
       final rows = await _api.discoverTenants(
         baseUrl: widget.baseUrl,
         zipCode: zipCode,
+        street: _streetController.text.trim(),
         mode: _mode,
       );
+
+      for (final item in rows) {
+        // ignore: avoid_print
+        print('CUSTOMER_APP_DISCOVERY_RESPONSE {'
+            'endpoint: /api/tenants/public/discovery, '
+            'tenantId: ${item.tenantId}, '
+            'deliveryAvailable: ${item.deliveryAvailable}, '
+            'pickupAvailable: ${item.pickupAvailable}, '
+            'strategy: ${item.deliveryStrategy}, '
+            'polygonPoints: ${item.deliveryPolygonPoints}'
+            '}');
+      }
 
       setState(() {
         _results = rows;
@@ -89,6 +104,14 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
                   keyboardType: TextInputType.number,
                   decoration: const InputDecoration(
                     labelText: 'PLZ',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _streetController,
+                  decoration: const InputDecoration(
+                    labelText: 'Straße + Hausnummer (optional)',
                     border: OutlineInputBorder(),
                   ),
                 ),

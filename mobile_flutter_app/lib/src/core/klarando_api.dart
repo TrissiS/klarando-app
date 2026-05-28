@@ -387,6 +387,8 @@ class TenantDiscoveryTenant {
     required this.deliveryAvailable,
     required this.pickupAvailable,
     required this.deliveryStatus,
+    required this.deliveryStrategy,
+    required this.deliveryPolygonPoints,
     required this.pickupStatus,
     required this.deliveryConfigPending,
     required this.pickupConfigPending,
@@ -413,6 +415,8 @@ class TenantDiscoveryTenant {
   final bool deliveryAvailable;
   final bool pickupAvailable;
   final String deliveryStatus;
+  final String deliveryStrategy;
+  final int deliveryPolygonPoints;
   final String pickupStatus;
   final bool deliveryConfigPending;
   final bool pickupConfigPending;
@@ -469,6 +473,8 @@ class TenantDiscoveryTenant {
       deliveryAvailable: _readBool(delivery?['available']),
       pickupAvailable: _readBool(pickup?['available']),
       deliveryStatus: _readNullableString(delivery?['status']) ?? 'OUT_OF_AREA',
+      deliveryStrategy: _readNullableString(delivery?['strategy']) ?? 'UNKNOWN',
+      deliveryPolygonPoints: _readInt(delivery?['polygonPoints']),
       pickupStatus: _readNullableString(pickup?['status']) ?? 'OUT_OF_AREA',
       deliveryConfigPending: _readBool(delivery?['configurationIncomplete']),
       pickupConfigPending: _readBool(pickup?['configurationIncomplete']),
@@ -1728,6 +1734,9 @@ class KlarandoApi {
     required String baseUrl,
     required String zipCode,
     required DiscoveryMode mode,
+    String? street,
+    double? latitude,
+    double? longitude,
     bool includeOutOfArea = false,
   }) async {
     final response = await _request(
@@ -1737,6 +1746,9 @@ class KlarandoApi {
       query: {
         'zipCode': zipCode,
         'mode': mode.name,
+        if (street != null && street.trim().isNotEmpty) 'street': street.trim(),
+        if (latitude != null && latitude.isFinite) 'latitude': latitude.toString(),
+        if (longitude != null && longitude.isFinite) 'longitude': longitude.toString(),
         if (includeOutOfArea) 'includeOutOfArea': 'true',
       },
     );
