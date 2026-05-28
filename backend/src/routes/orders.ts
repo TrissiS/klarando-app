@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import { resolveProductOffers } from '../lib/action-pricing'
-import { parseSettings } from '../lib/business-settings'
+import { matchServiceArea, parseSettings } from '../lib/business-settings'
 import { verifyAppAuthToken } from '../auth/app-token'
 import { hashPassword, needsPasswordRehash, verifyPassword } from '../auth/password'
 import { decodeStoredProductModifierName } from '../lib/product-modifiers'
@@ -2519,6 +2519,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerAddress,
       customerZipCode,
       customerCity,
+      customerLatitude,
+      customerLongitude,
       branchId,
       clientOrderId,
       deviceCode,
@@ -2542,6 +2544,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerAddress?: string | null
       customerZipCode?: string | null
       customerCity?: string | null
+      customerLatitude?: number | string | null
+      customerLongitude?: number | string | null
       branchId?: string | null
       clientOrderId?: string | null
       deviceCode?: string | null
@@ -2565,6 +2569,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     const normalizedCustomerAddress = normalizeText(customerAddress)
     const normalizedCustomerZipCode = normalizeZipCode(customerZipCode)
     const normalizedCustomerCity = normalizeText(customerCity)
+    const normalizedCustomerLatitude = parseFiniteNumber(customerLatitude)
+    const normalizedCustomerLongitude = parseFiniteNumber(customerLongitude)
     const normalizedBranchId = normalizeText(branchId)
     const normalizedClientOrderId = normalizeText(clientOrderId)
     const normalizedTerminalDeviceId =
@@ -2995,6 +3001,45 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       }
 
       if (resolvedServiceType === 'DELIVERY') {
+        const requiresPolygonCoordinates = settings.deliveryArea.strategy === 'POLYGON'
+        if (
+          requiresPolygonCoordinates &&
+          (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null)
+        ) {
+          return res.status(400).json({
+            error:
+              'Für Lieferungen im Polygon-Modus werden Koordinaten benötigt. Bitte Adresse erneut auswählen oder Standort freigeben.',
+            code: 'DELIVERY_COORDINATES_REQUIRED',
+          })
+        }
+
+        const deliveryAreaCheck = matchServiceArea(settings.deliveryArea, {
+          zipCode: normalizedCustomerZipCode,
+          street: normalizedCustomerAddress,
+          latitude: normalizedCustomerLatitude,
+          longitude: normalizedCustomerLongitude,
+        })
+        console.info('DELIVERY_AREA_CHECK', {
+          strategy: settings.deliveryArea.strategy,
+          hasPolygon: settings.deliveryArea.polygonPath.length >= 3,
+          polygonPoints: settings.deliveryArea.polygonPath.length,
+          customerLat: normalizedCustomerLatitude,
+          customerLng: normalizedCustomerLongitude,
+          result: deliveryAreaCheck.matched,
+          matchedByPolygon: deliveryAreaCheck.matchedByPolygon,
+          matchedByZip: deliveryAreaCheck.matchedByZip,
+          matchedByRadius: deliveryAreaCheck.matchedByRadius,
+        })
+
+        if (!deliveryAreaCheck.matched) {
+          return res.status(409).json({
+            error:
+              'Die Lieferadresse liegt außerhalb des Liefergebiets. Bitte andere Adresse wählen oder Abholung nutzen.',
+            code: 'DELIVERY_AREA_MISMATCH',
+            deliveryAreaCheck,
+          })
+        }
+
         const minOrderAmount = parseAmountFromText(settings.minOrderValue)
         if (minOrderAmount !== null && subtotal < minOrderAmount) {
           return res.status(400).json({
