@@ -97,7 +97,16 @@ export default function AdminAppSettingsPage() {
       try {
         setLoading(true)
         const loaded = await getBusinessSettings()
-        setSettings(loaded)
+        const loadedPolygonPath = normalizePolygonPath(loaded?.deliveryArea?.polygonPath)
+        console.log('BUSINESS_SETTINGS_LOADED_DELIVERY_AREA', loaded?.deliveryArea)
+        console.log('LOADED_POLYGON_PATH', loadedPolygonPath)
+        setSettings({
+          ...loaded,
+          deliveryArea: {
+            ...loaded.deliveryArea,
+            polygonPath: loadedPolygonPath,
+          },
+        })
         setError('')
       } catch (loadError) {
         setError(
@@ -112,6 +121,29 @@ export default function AdminAppSettingsPage() {
 
     void loadData()
   }, [])
+
+  useEffect(() => {
+    if (!settings) {
+      return
+    }
+    const points = normalizePolygonPath(settings.deliveryArea?.polygonPath)
+    if (points.length >= 3) {
+      console.log('LOADED_POLYGON_PATH', points)
+      if (points.length !== settings.deliveryArea.polygonPath.length) {
+        setSettings((previous) =>
+          previous
+            ? {
+                ...previous,
+                deliveryArea: {
+                  ...previous.deliveryArea,
+                  polygonPath: points,
+                },
+              }
+            : previous
+        )
+      }
+    }
+  }, [settings])
 
   async function save() {
     if (!settings) {

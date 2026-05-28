@@ -1971,7 +1971,9 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
     throw new Error(errorData?.error || 'Einstellungen konnten nicht geladen werden')
   }
 
-  return res.json()
+  const data = (await res.json()) as BusinessSettings
+  console.log('BUSINESS_SETTINGS_RESPONSE', data?.deliveryArea)
+  return data
 }
 
 export async function updateBusinessSettings(
@@ -8501,3 +8503,6 @@ export async function importSuperadminMenuImport(
     message: string
   }
 }
+
+
+
