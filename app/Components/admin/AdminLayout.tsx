@@ -44,6 +44,7 @@ type NavItem = {
   moduleKey: AdminModuleKey
   requiredPermission?: AccessPermission
   tooltip?: string
+  disabled?: boolean
 }
 
 type NavSection = {
@@ -182,6 +183,8 @@ const sectionNavSections: NavSection[] = [
       { href: '/admin/staff', label: 'Benutzer & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
       { href: '/admin/app-settings?section=business', label: 'Filialdaten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/stock', label: 'Lager', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
+      { href: '#', label: 'Inventur (in Vorbereitung)', moduleKey: 'inventory', disabled: true },
     ],
   },
 ]
@@ -214,6 +217,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [hasValidSession, setHasValidSession] = useState(false)
   const [sessionTenantId, setSessionTenantId] = useState<string | null>(null)
   const [orderIntakeStatus, setOrderIntakeStatus] = useState<BranchOrderIntakeStatus | null>(null)
+  const [orderIntakeStatusLoaded, setOrderIntakeStatusLoaded] = useState(false)
   const [orderIntakeBusy, setOrderIntakeBusy] = useState(false)
   const [sessionActiveTenantName, setSessionActiveTenantName] = useState<string | null>(null)
   const [allowSuperadminTenantView, setAllowSuperadminTenantView] = useState(false)
@@ -238,6 +242,13 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     (permissions?.has('ORDER_INTAKE_READ') ?? false) ||
     (permissions?.has('ORDER_INTAKE_MANAGE') ?? false)
   const canManageOrderIntake = permissions?.has('ORDER_INTAKE_MANAGE') ?? false
+  const headerIntakeLabel = !sessionTenantId
+    ? 'Bestellannahme: keine Filiale gefunden'
+    : !canReadOrderIntake
+      ? 'Bestellannahme: keine Leserechte'
+      : orderIntakeStatus?.orderIntakeEnabled
+        ? 'Bestellannahme aktiv'
+        : 'Bestellannahme pausiert'
   const switchTarget =
     normalizedRole === 'superadmin'
       ? { href: '/superadmin', label: 'Zum Superadminbereich' }
@@ -441,11 +452,13 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   useEffect(() => {
     if (!authChecked || !hasValidSession || !sessionTenantId) {
       setOrderIntakeStatus(null)
+      setOrderIntakeStatusLoaded(false)
       return
     }
 
     if (!canReadOrderIntake) {
       setOrderIntakeStatus(null)
+      setOrderIntakeStatusLoaded(false)
       return
     }
 
@@ -453,13 +466,18 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
     const loadStatus = async () => {
       try {
+        if (!cancelled) {
+          setOrderIntakeStatusLoaded(false)
+        }
         const status = await getBranchOrderIntakeStatus(sessionTenantId)
         if (!cancelled) {
           setOrderIntakeStatus(status)
+          setOrderIntakeStatusLoaded(true)
         }
       } catch {
         if (!cancelled) {
           setOrderIntakeStatus(null)
+          setOrderIntakeStatusLoaded(false)
         }
       }
     }
@@ -675,6 +693,9 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   }, [mobileNavOpen])
 
   function isItemEnabled(item: NavItem) {
+    if (item.disabled) {
+      return true
+    }
     if (
       !isModuleEnabled(item.moduleKey, {
         permissions,
@@ -940,43 +961,37 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {canReadOrderIntake ? (
-                    sessionTenantId && orderIntakeStatus ? (
-                      <div
-                        className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                  <div
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                      !sessionTenantId
+                        ? 'border-rose-300 bg-rose-50 text-rose-800'
+                        : orderIntakeStatus?.orderIntakeEnabled
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                          : 'border-rose-300 bg-rose-50 text-rose-800'
+                    }`}
+                  >
+                    <span>{headerIntakeLabel}</span>
+                    {sessionTenantId && canManageOrderIntake && orderIntakeStatus ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void toggleGlobalOrderIntake(!orderIntakeStatus.orderIntakeEnabled)
+                        }
+                        disabled={orderIntakeBusy}
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${
                           orderIntakeStatus.orderIntakeEnabled
-                            ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                            : 'border-rose-300 bg-rose-50 text-rose-800'
-                        }`}
+                            ? 'bg-rose-700 hover:bg-rose-800'
+                            : 'bg-emerald-700 hover:bg-emerald-800'
+                        } disabled:opacity-60`}
                       >
-                        <span>
-                          {orderIntakeStatus.orderIntakeEnabled
-                            ? 'Bestellannahme aktiv'
-                            : 'Bestellannahme pausiert'}
-                        </span>
-                        {canManageOrderIntake ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void toggleGlobalOrderIntake(!orderIntakeStatus.orderIntakeEnabled)
-                            }
-                            disabled={orderIntakeBusy}
-                            className={`rounded-full px-2 py-0.5 text-[11px] font-semibold text-white ${
-                              orderIntakeStatus.orderIntakeEnabled
-                                ? 'bg-rose-700 hover:bg-rose-800'
-                                : 'bg-emerald-700 hover:bg-emerald-800'
-                            } disabled:opacity-60`}
-                          >
-                            {orderIntakeStatus.orderIntakeEnabled ? 'Pausieren' : 'Aktivieren'}
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : normalizedRole === 'superadmin' ? (
-                      <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">
-                        Bitte zuerst Filiale auswählen
-                      </span>
-                    ) : null
-                  ) : null}
+                        {orderIntakeStatus.orderIntakeEnabled ? 'Pausieren' : 'Aktivieren'}
+                      </button>
+                    ) : null}
+                    <span className="text-[10px] font-medium opacity-80">
+                      intake branchId: {sessionTenantId ?? 'none'} · intake status loaded:{' '}
+                      {orderIntakeStatusLoaded ? 'true' : 'false'}
+                    </span>
+                  </div>
                   <div className="relative hidden sm:block">
                     <input
                       value={globalSearchQuery}
@@ -1202,18 +1217,28 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                     {contextualTabs.map((tab) => {
                       const active = isItemActive(tab)
                       return (
-                        <a
-                          key={tab.href}
-                          href={tab.href}
-                          title={tab.tooltip || tab.label}
-                          className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
-                            active
-                              ? 'brand-button-primary text-white'
-                              : 'border border-[var(--brand-border)] bg-rose-50 text-rose-900 hover:bg-rose-100'
-                          }`}
-                        >
-                          {tab.label}
-                        </a>
+                        tab.disabled ? (
+                          <span
+                            key={`${tab.href}-${tab.label}`}
+                            title={tab.tooltip || tab.label}
+                            className="cursor-not-allowed rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500"
+                          >
+                            {tab.label}
+                          </span>
+                        ) : (
+                          <a
+                            key={tab.href}
+                            href={tab.href}
+                            title={tab.tooltip || tab.label}
+                            className={`rounded-xl px-3 py-2 text-xs font-semibold transition ${
+                              active
+                                ? 'brand-button-primary text-white'
+                                : 'border border-[var(--brand-border)] bg-rose-50 text-rose-900 hover:bg-rose-100'
+                            }`}
+                          >
+                            {tab.label}
+                          </a>
+                        )
                       )
                     })}
                   </div>
@@ -1269,18 +1294,28 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                           {contextualTabs.map((tab) => {
                             const active = isItemActive(tab)
                             return (
-                              <a
-                                key={tab.href}
-                                href={tab.href}
-                                title={tab.tooltip || tab.label}
-                                className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
-                                  active
-                                    ? 'brand-button-primary text-white'
-                                    : 'bg-white text-rose-900 hover:bg-rose-100'
-                                }`}
-                              >
-                                {tab.label}
-                              </a>
+                              tab.disabled ? (
+                                <span
+                                  key={`${tab.href}-${tab.label}`}
+                                  title={tab.tooltip || tab.label}
+                                  className="block cursor-not-allowed rounded-xl bg-slate-100 px-3 py-2 text-sm font-medium text-slate-500"
+                                >
+                                  {tab.label}
+                                </span>
+                              ) : (
+                                <a
+                                  key={tab.href}
+                                  href={tab.href}
+                                  title={tab.tooltip || tab.label}
+                                  className={`block rounded-xl px-3 py-2 text-sm font-medium transition ${
+                                    active
+                                      ? 'brand-button-primary text-white'
+                                      : 'bg-white text-rose-900 hover:bg-rose-100'
+                                  }`}
+                                >
+                                  {tab.label}
+                                </a>
+                              )
                             )
                           })}
                         </div>
