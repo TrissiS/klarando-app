@@ -283,6 +283,38 @@ function countRawPolygonPoints(value: unknown) {
   return value.length
 }
 
+function normalizePolygonInput(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as Array<{ lat: number; lng: number }>
+  }
+
+  return value
+    .map((point) => {
+      const raw = point as
+        | {
+            lat?: unknown
+            lng?: unknown
+            latitude?: unknown
+            longitude?: unknown
+          }
+        | null
+        | undefined
+      return {
+        lat: Number(raw?.lat ?? raw?.latitude),
+        lng: Number(raw?.lng ?? raw?.longitude),
+      }
+    })
+    .filter(
+      (point) =>
+        Number.isFinite(point.lat) &&
+        Number.isFinite(point.lng) &&
+        point.lat >= -90 &&
+        point.lat <= 90 &&
+        point.lng >= -180 &&
+        point.lng <= 180
+    )
+}
+
 router.post(
   '/upload-image',
   requirePermission(PermissionKey.SETTINGS_WRITE),
@@ -544,6 +576,21 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       settingsInput && typeof settingsInput === 'object'
         ? (settingsInput as { deliveryArea?: unknown }).deliveryArea
         : null
+    console.log('BACKEND_POLYGON_INPUT', JSON.stringify(req.body, null, 2))
+
+    if (deliveryAreaInput && typeof deliveryAreaInput === 'object') {
+      const deliveryAreaRecord = deliveryAreaInput as Record<string, unknown>
+      const normalizedFromPath = normalizePolygonInput(deliveryAreaRecord.polygonPath)
+      const normalizedFromPoints = normalizePolygonInput(deliveryAreaRecord.polygonPoints)
+      const normalizedPolygon =
+        normalizedFromPath.length > 0 ? normalizedFromPath : normalizedFromPoints
+
+      ;(settingsInput as Record<string, unknown>).deliveryArea = {
+        ...deliveryAreaRecord,
+        polygonPath: normalizedPolygon,
+      }
+    }
+
     console.info('BUSINESS_SETTINGS_SAVE_PAYLOAD', {
       tenantIdInput: tenantIdInput ?? null,
       hasSettings: Boolean(settingsInput && typeof settingsInput === 'object'),
