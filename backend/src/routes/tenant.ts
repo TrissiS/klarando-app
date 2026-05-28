@@ -58,6 +58,43 @@ function parseCoordinate(value: unknown) {
   return null
 }
 
+function normalizePolygonPointsFromUnknown(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as Array<{ lat: number; lng: number }>
+  }
+  return value
+    .map((point) => {
+      if (!point || typeof point !== 'object') {
+        return null
+      }
+      const source = point as Record<string, unknown>
+      const lat = parseCoordinate(source.lat ?? source.latitude ?? null)
+      const lng = parseCoordinate(source.lng ?? source.longitude ?? null)
+      if (lat === null || lng === null) {
+        return null
+      }
+      return { lat, lng }
+    })
+    .filter((point): point is { lat: number; lng: number } => point !== null)
+}
+
+function readRawDeliveryAreaFromBusinessSettings(raw: unknown) {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const source = raw as Record<string, unknown>
+  if (source.deliveryArea && typeof source.deliveryArea === 'object') {
+    return source.deliveryArea as Record<string, unknown>
+  }
+  if (source.settings && typeof source.settings === 'object') {
+    const nestedSettings = source.settings as Record<string, unknown>
+    if (nestedSettings.deliveryArea && typeof nestedSettings.deliveryArea === 'object') {
+      return nestedSettings.deliveryArea as Record<string, unknown>
+    }
+  }
+  return null
+}
+
 async function geocodeSearchLocation(input: { zipCode: string; street?: string | null }) {
   const street = normalizeText(input.street)
   if (!street) {
@@ -560,6 +597,31 @@ router.get('/public/discovery', async (req, res) => {
           name: tenant.name,
           email: tenant.email,
         })
+        const rawDeliveryArea = readRawDeliveryAreaFromBusinessSettings(tenant.businessSettings)
+        const rawPolygonPath = normalizePolygonPointsFromUnknown(
+          rawDeliveryArea?.polygonPath ?? rawDeliveryArea?.polygonPoints ?? null
+        )
+        const effectiveDeliveryArea =
+          settings.deliveryArea.polygonPath.length >= 3 || rawPolygonPath.length < 3
+            ? settings.deliveryArea
+            : {
+                ...settings.deliveryArea,
+                polygonPath: rawPolygonPath,
+              }
+        console.info('PUBLIC_DISCOVERY_SETTINGS_SOURCE', {
+          route: 'GET /api/tenants/public/discovery',
+          tenantId: tenant.id,
+          queryStreetRaw: req.query.street ?? null,
+          normalizedStreet: street,
+          source: rawDeliveryArea ? 'tenant.businessSettings.deliveryArea' : 'none',
+        })
+        console.info('PUBLIC_DISCOVERY_RAW_DELIVERY_AREA', {
+          tenantId: tenant.id,
+          rawPolygonPathPoints: rawPolygonPath.length,
+          parsedPolygonPathPoints: settings.deliveryArea.polygonPath.length,
+          effectivePolygonPathPoints: effectiveDeliveryArea.polygonPath.length,
+          strategy: effectiveDeliveryArea.strategy,
+        })
         const intake = settings.orderIntake
         const tenantRating = ratingByTenant.get(tenant.id)
 
@@ -568,7 +630,7 @@ router.get('/public/discovery', async (req, res) => {
         }
 
         const deliveryMatch = includeDelivery
-          ? matchServiceArea(settings.deliveryArea, {
+          ? matchServiceArea(effectiveDeliveryArea, {
               zipCode,
               street,
               latitude: effectiveLatitude,
@@ -585,8 +647,8 @@ router.get('/public/discovery', async (req, res) => {
           : null
 
         const strictDeliveryMatch =
-          settings.deliveryArea.strategy === 'POLYGON'
-            ? settings.deliveryArea.polygonPath.length >= 3 &&
+          effectiveDeliveryArea.strategy === 'POLYGON'
+            ? effectiveDeliveryArea.polygonPath.length >= 3 &&
               effectiveLatitude !== null &&
               effectiveLongitude !== null &&
               Boolean(deliveryMatch?.matchedByPolygon)
@@ -626,22 +688,22 @@ router.get('/public/discovery', async (req, res) => {
           route: 'GET /api/tenants/public/discovery',
           tenantId: tenant.id,
           branchId: tenant.id,
-          strategy: settings.deliveryArea.strategy,
+          strategy: effectiveDeliveryArea.strategy,
           zipCode,
           street,
-          hasPolygon: settings.deliveryArea.polygonPath.length >= 3,
-          polygonPoints: settings.deliveryArea.polygonPath.length,
+          hasPolygon: effectiveDeliveryArea.polygonPath.length >= 3,
+          polygonPoints: effectiveDeliveryArea.polygonPath.length,
           customerLat: effectiveLatitude,
           customerLng: effectiveLongitude,
           usedCheck:
-            settings.deliveryArea.strategy === 'POLYGON'
+            effectiveDeliveryArea.strategy === 'POLYGON'
               ? 'POLYGON'
-              : settings.deliveryArea.strategy === 'RADIUS'
+              : effectiveDeliveryArea.strategy === 'RADIUS'
                 ? 'RADIUS'
-                : settings.deliveryArea.strategy === 'ZIP_LIST'
+                : effectiveDeliveryArea.strategy === 'ZIP_LIST'
                   ? 'POSTAL_CODES'
-                  : settings.deliveryArea.strategy === 'ZIP_OR_RADIUS' ||
-                      settings.deliveryArea.strategy === 'ZIP_AND_RADIUS'
+                  : effectiveDeliveryArea.strategy === 'ZIP_OR_RADIUS' ||
+                      effectiveDeliveryArea.strategy === 'ZIP_AND_RADIUS'
                     ? deliveryMatch?.matchedByRadius
                       ? 'RADIUS'
                       : 'POSTAL_CODES'
@@ -703,7 +765,7 @@ router.get('/public/discovery', async (req, res) => {
           services: {
             delivery: {
               available: matchesDelivery,
-              strategy: settings.deliveryArea.strategy,
+              strategy: effectiveDeliveryArea.strategy,
               matchedByZip: deliveryMatch?.matchedByZip ?? false,
               matchedByRadius: deliveryMatch?.matchedByRadius ?? false,
               matchedByPolygon: deliveryMatch?.matchedByPolygon ?? false,
