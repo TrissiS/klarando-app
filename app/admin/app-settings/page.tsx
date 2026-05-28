@@ -13,13 +13,23 @@ function confirmDoubleSave() {
   return window.confirm('Zweite Bestätigung: Änderungen jetzt speichern?')
 }
 
-function normalizePolygonPath(points: Array<{ lat: number; lng: number }> | undefined) {
+function normalizePolygonPath(
+  points: Array<
+    | { lat?: number | string; lng?: number | string; latitude?: number | string; longitude?: number | string }
+    | null
+    | undefined
+  > | undefined
+) {
   const source = Array.isArray(points) ? points : []
   const normalized = source
+    .map((point) => ({
+      lat: Number(point?.lat ?? point?.latitude),
+      lng: Number(point?.lng ?? point?.longitude),
+    }))
     .filter(
       (point) =>
-        Number.isFinite(point?.lat) &&
-        Number.isFinite(point?.lng) &&
+        Number.isFinite(point.lat) &&
+        Number.isFinite(point.lng) &&
         point.lat >= -90 &&
         point.lat <= 90 &&
         point.lng >= -180 &&
@@ -91,6 +101,7 @@ export default function AdminAppSettingsPage() {
     }
 
     const normalizedPolygonPath = normalizePolygonPath(settings.deliveryArea.polygonPath)
+    console.log('NORMALIZED_POLYGON', normalizedPolygonPath)
     const settingsToSave: BusinessSettings = {
       ...settings,
       deliveryArea: {
