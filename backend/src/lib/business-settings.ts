@@ -408,6 +408,15 @@ function normalizeRadius(value: unknown) {
 }
 
 function normalizePolygonPath(value: unknown) {
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      return normalizePolygonPath(parsed)
+    } catch {
+      return [] as ServiceAreaPolygonPoint[]
+    }
+  }
+
   const points: ServiceAreaPolygonPoint[] = []
   const addPoint = (latCandidate: unknown, lngCandidate: unknown) => {
     const lat = normalizeCoordinate(latCandidate, -90, 90)
@@ -814,7 +823,19 @@ function sanitizeHolidayHours(value: unknown) {
 }
 
 function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
-  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  let source: Record<string, unknown> = {}
+  if (value && typeof value === 'object') {
+    source = value as Record<string, unknown>
+  } else if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value)
+      if (parsed && typeof parsed === 'object') {
+        source = parsed as Record<string, unknown>
+      }
+    } catch {
+      source = {}
+    }
+  }
   const polygonInput =
     source.polygonPath ??
     source.polygonPoints ??
