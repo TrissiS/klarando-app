@@ -315,6 +315,36 @@ function normalizePolygonInput(value: unknown) {
     )
 }
 
+function readDeliveryAreaFromRawSettings(raw: unknown): Record<string, unknown> | null {
+  if (!raw) return null
+
+  let source: Record<string, unknown> | null = null
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      source = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null
+    } catch {
+      source = null
+    }
+  } else if (typeof raw === 'object') {
+    source = raw as Record<string, unknown>
+  }
+
+  if (!source) return null
+
+  const direct =
+    source.deliveryArea && typeof source.deliveryArea === 'object'
+      ? (source.deliveryArea as Record<string, unknown>)
+      : null
+  if (direct) return direct
+
+  const nested =
+    source.settings && typeof source.settings === 'object'
+      ? ((source.settings as Record<string, unknown>).deliveryArea as Record<string, unknown> | undefined)
+      : undefined
+  return nested && typeof nested === 'object' ? nested : null
+}
+
 router.post(
   '/upload-image',
   requirePermission(PermissionKey.SETTINGS_WRITE),
@@ -508,13 +538,32 @@ router.get('/', requirePermission(PermissionKey.SETTINGS_READ), async (req, res)
       name: tenant.name,
       email: tenant.email,
     })
-    console.log('GET_BUSINESS_SETTINGS_RAW_TYPE', typeof tenant.businessSettings)
-    console.log('GET_BUSINESS_SETTINGS_RAW_VALUE', tenant.businessSettings)
+    const rawDeliveryArea = readDeliveryAreaFromRawSettings(tenant.businessSettings)
+    console.log('RAW_DB_SETTINGS_DELIVERY_AREA', JSON.stringify(rawDeliveryArea, null, 2))
+
+    const rawPolygonSource =
+      rawDeliveryArea?.polygonPath ??
+      rawDeliveryArea?.polygonPoints ??
+      rawDeliveryArea?.polygon ??
+      rawDeliveryArea?.coordinates ??
+      null
+    const persistedPolygon = normalizePolygonInput(rawPolygonSource)
+    const responseSettings: BusinessSettings =
+      parsedSettings.deliveryArea.polygonPath.length >= 3 || persistedPolygon.length < 3
+        ? parsedSettings
+        : {
+            ...parsedSettings,
+            deliveryArea: {
+              ...parsedSettings.deliveryArea,
+              polygonPath: persistedPolygon,
+            },
+          }
+
     console.log(
-      'GET_BUSINESS_SETTINGS_DELIVERY_AREA',
-      JSON.stringify(parsedSettings.deliveryArea, null, 2)
+      'RESPONSE_SETTINGS_DELIVERY_AREA',
+      JSON.stringify(responseSettings.deliveryArea, null, 2)
     )
-    return res.json(parsedSettings)
+    return res.json(responseSettings)
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
