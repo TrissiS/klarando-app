@@ -161,6 +161,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   DateTime? _lastReconnectAttemptAt;
   String? _lastHeartbeatError;
   String? _lastApiError;
+  String? _lastHeartbeatEndpointUrl;
+  int? _lastHeartbeatHttpStatus;
   bool _hasLoadedInitialFeed = false;
   final List<_OrderDeskLogEntry> _localErrorLog = <_OrderDeskLogEntry>[];
   final Map<String, String> _lastOrderStatusById = <String, String>{};
@@ -300,7 +302,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     _deviceAuthToken = deviceToken;
     _bindingId = bindingId;
-    _bindingLocked = (deviceToken ?? '').trim().isNotEmpty;
+    _bindingLocked =
+        (deviceToken ?? '').trim().isNotEmpty || (bindingId ?? '').trim().isNotEmpty;
     _connectedTenantName = secureTenantName;
     if (secureAdmins != null) {
       final adminEmails = secureAdmins
@@ -353,10 +356,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _prefsCashierDisplayCode,
       _displayCodeController.text.trim(),
     );
+    await prefs.setString(_prefsCashierDeviceToken, (_deviceAuthToken ?? '').trim());
+    await prefs.setString(_prefsCashierBindingId, (_bindingId ?? '').trim());
     await _secureWrite(
       _secureCashierDisplayCode,
       _displayCodeController.text.trim(),
     );
+    await _secureWrite(_secureCashierDeviceToken, _deviceAuthToken);
+    await _secureWrite(_secureCashierBindingId, _bindingId);
     await prefs.setString(
       _prefsCashierDeviceSerial,
       _deviceSerialController.text.trim().toUpperCase(),
@@ -883,6 +890,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return;
     }
     _lastReconnectAttemptAt = DateTime.now();
+    _lastHeartbeatEndpointUrl =
+        '${_normalizeBaseUrl(_baseUrlController.text)}/api/orderdesk-devices/public/heartbeat';
     _heartbeatInFlight = true;
 
     try {
@@ -908,6 +917,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         }
         _lastSuccessfulSyncAt = DateTime.now();
         _lastHeartbeatAt = DateTime.now();
+        _lastHeartbeatHttpStatus = 200;
         _connected = true;
         _isReconnecting = false;
         _consecutiveHeartbeatFailures = 0;
@@ -933,41 +943,18 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _isReconnecting = true;
         _lastHeartbeatError = error.message;
+        _lastHeartbeatHttpStatus = error.statusCode;
         _connected = _lastOrdersLoadAt != null;
       });
       _appendLocalLog('HEARTBEAT', 'failed: ${error.message}');
       _appendStatusSnapshot();
       if (error.statusCode == 403 || error.statusCode == 401) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.remove(_prefsCashierDeviceToken);
-        await prefs.remove(_prefsCashierBindingId);
-        await _secureStorage.delete(key: _secureCashierDeviceToken);
-        await _secureStorage.delete(key: _secureCashierBindingId);
-        await _secureStorage.delete(key: _secureCashierDisplayCode);
-        await _secureStorage.delete(key: _secureCashierTenantName);
-        await _secureStorage.delete(key: _secureCashierAdmins);
-        await _secureStorage.delete(key: _secureCashierChainadmins);
         if (!mounted) {
           return;
         }
         setState(() {
-          _deviceAuthToken = null;
-          _bindingId = null;
-          _bindingLocked = false;
-          _connected = false;
-          _connectedTenantName = null;
-          _connectedAdmins = const [];
-          _connectedChainadmins = const [];
-          _activeDriverDevices = 0;
-          _onlineDriverDevices = 0;
-          _isReconnecting = false;
-          _consecutiveHeartbeatFailures = 0;
-          _lastHeartbeatAt = null;
-          _lastHeartbeatError = error.message;
-          _pollTimer?.cancel();
-          _heartbeatTimer?.cancel();
           _info =
-              'OrderDesk-Bindung ist nicht mehr aktiv. Bitte neuen QR-Code vom Admin anfordern.';
+              'Heartbeat abgelehnt (Session ungültig/abgelaufen). Bindung bleibt gespeichert.';
           _error = error.message;
         });
       }
@@ -979,6 +966,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _isReconnecting = true;
         _lastHeartbeatError = 'Heartbeat-Timeout';
+        _lastHeartbeatHttpStatus = null;
         _connected = _lastOrdersLoadAt != null;
         if (!silent) {
           _error = 'Verbindung zum Klarando-Server hat zu lange gedauert.';
@@ -994,6 +982,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _isReconnecting = true;
         _lastHeartbeatError = error.toString();
+        _lastHeartbeatHttpStatus = null;
         _connected = _lastOrdersLoadAt != null;
         if (!silent) {
           _error = error.toString();
@@ -1575,6 +1564,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final tenantId = _manualTenantIdController.text.trim();
     final apiBase = _normalizeBaseUrl(_baseUrlController.text);
     final displayCode = _displayCodeController.text.trim();
+    final bindingId = (_bindingId ?? '').trim();
 
     await showDialog<void>(
       context: context,
@@ -1592,7 +1582,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   const SizedBox(height: 8),
                   Text('Gerät verbunden: ${_connected ? 'ja' : 'nein'}'),
                   Text('Binding vorhanden: ${hasBinding ? 'ja' : 'nein'}'),
+                  Text('Binding-ID: ${bindingId.isEmpty ? '-' : _truncateMiddle(bindingId)}'),
                   Text('API-URL: $apiBase'),
+                  Text('Heartbeat Endpoint: ${_lastHeartbeatEndpointUrl ?? '-'}'),
+                  Text('Heartbeat HTTP Status: ${_lastHeartbeatHttpStatus?.toString() ?? '-'}'),
                   Text('Tenant-ID: ${tenantId.isEmpty ? '-' : _truncateMiddle(tenantId)}'),
                   Text('Device-Code: ${displayCode.isEmpty ? '-' : displayCode}'),
                   Text('Token: $tokenStatus'),
