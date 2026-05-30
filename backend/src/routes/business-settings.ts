@@ -336,13 +336,63 @@ function readDeliveryAreaFromRawSettings(raw: unknown): Record<string, unknown> 
     source.deliveryArea && typeof source.deliveryArea === 'object'
       ? (source.deliveryArea as Record<string, unknown>)
       : null
-  if (direct) return direct
 
   const nested =
     source.settings && typeof source.settings === 'object'
       ? ((source.settings as Record<string, unknown>).deliveryArea as Record<string, unknown> | undefined)
       : undefined
-  return nested && typeof nested === 'object' ? nested : null
+  const nestedDeliveryArea = nested && typeof nested === 'object' ? nested : null
+
+  if (!direct) {
+    return nestedDeliveryArea
+  }
+
+  const directPolygonLength = normalizePolygonInput(
+    direct.polygonPath ?? direct.polygonPoints ?? direct.polygon ?? direct.coordinates ?? null
+  ).length
+  if (directPolygonLength >= 3) {
+    return direct
+  }
+
+  const nestedPolygonLength = normalizePolygonInput(
+    nestedDeliveryArea?.polygonPath ??
+      nestedDeliveryArea?.polygonPoints ??
+      nestedDeliveryArea?.polygon ??
+      nestedDeliveryArea?.coordinates ??
+      null
+  ).length
+
+  if (nestedPolygonLength >= 3) {
+    return nestedDeliveryArea
+  }
+
+  return direct
+}
+
+function withPersistedDeliveryPolygon(
+  parsedSettings: BusinessSettings,
+  rawBusinessSettings: unknown
+): BusinessSettings {
+  const rawDeliveryArea = readDeliveryAreaFromRawSettings(rawBusinessSettings)
+  const rawPolygonSource =
+    rawDeliveryArea?.polygonPath ??
+    rawDeliveryArea?.polygonPoints ??
+    rawDeliveryArea?.polygon ??
+    rawDeliveryArea?.coordinates ??
+    null
+  const persistedPolygon = normalizePolygonInput(rawPolygonSource)
+
+  if (persistedPolygon.length < 3 || parsedSettings.deliveryArea.polygonPath.length >= 3) {
+    return parsedSettings
+  }
+
+  return {
+    ...parsedSettings,
+    deliveryArea: {
+      ...parsedSettings.deliveryArea,
+      polygonPath: persistedPolygon,
+    },
+  }
 }
 
 router.post(
@@ -540,24 +590,7 @@ router.get('/', requirePermission(PermissionKey.SETTINGS_READ), async (req, res)
     })
     const rawDeliveryArea = readDeliveryAreaFromRawSettings(tenant.businessSettings)
     console.log('RAW_DB_SETTINGS_DELIVERY_AREA', JSON.stringify(rawDeliveryArea, null, 2))
-
-    const rawPolygonSource =
-      rawDeliveryArea?.polygonPath ??
-      rawDeliveryArea?.polygonPoints ??
-      rawDeliveryArea?.polygon ??
-      rawDeliveryArea?.coordinates ??
-      null
-    const persistedPolygon = normalizePolygonInput(rawPolygonSource)
-    const responseSettings: BusinessSettings =
-      parsedSettings.deliveryArea.polygonPath.length >= 3 || persistedPolygon.length < 3
-        ? parsedSettings
-        : {
-            ...parsedSettings,
-            deliveryArea: {
-              ...parsedSettings.deliveryArea,
-              polygonPath: persistedPolygon,
-            },
-          }
+    const responseSettings = withPersistedDeliveryPolygon(parsedSettings, tenant.businessSettings)
 
     console.log(
       'RESPONSE_SETTINGS_DELIVERY_AREA',
@@ -889,11 +922,15 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       name: savedTenant?.name ?? tenant.name,
       email: savedTenant?.email ?? tenant.email,
     })
+    const savedResponseSettings = withPersistedDeliveryPolygon(
+      savedParsedSettings,
+      savedTenant?.businessSettings
+    )
     console.log('SAVED_BUSINESS_SETTINGS_RAW_TYPE', typeof savedTenant?.businessSettings)
     console.log('SAVED_BUSINESS_SETTINGS_RAW_VALUE', savedTenant?.businessSettings)
     console.log(
       'SAVED_BUSINESS_SETTINGS_DELIVERY_AREA',
-      JSON.stringify(savedParsedSettings.deliveryArea, null, 2)
+      JSON.stringify(savedResponseSettings.deliveryArea, null, 2)
     )
 
     await writeAuditLog({
@@ -908,7 +945,7 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       },
     })
 
-    return res.json(savedParsedSettings)
+    return res.json(savedResponseSettings)
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
