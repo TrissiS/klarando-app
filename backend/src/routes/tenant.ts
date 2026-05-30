@@ -1286,16 +1286,11 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
               allergens,
             }
           })
-        const ingredientDepositAmount = product.ingredients.reduce((sum, entry) => {
-          const deposit = Number(entry.ingredient.deposit || 0)
-          const quantity = Number(entry.quantity || 0)
-          if (!Number.isFinite(deposit) || !Number.isFinite(quantity)) {
-            return sum
-          }
-          return sum + deposit * quantity
-        }, 0)
         const productDepositAmount = normalizeMoney(product.deposit, 0)
-        const depositAmount = ingredientDepositAmount + productDepositAmount
+        // Customer-facing deposit is calculated only from the sold product unit.
+        // Ingredient deposit values are internal (purchasing/stock) and must not
+        // be added to checkout/cart totals to avoid double charging.
+        const depositAmount = productDepositAmount
         const offer = productOffers.get(product.id)
         const effectivePrice = offer ? offer.effectivePrice : Number(product.price)
         const originalPrice = offer ? offer.originalPrice : Number(product.price)

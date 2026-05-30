@@ -338,6 +338,9 @@ export default function AdminProductsSection({
               <span className="mb-1 block text-sm font-medium text-rose-900/85">
                 Pfand (Brutto)
               </span>
+              <p className="mb-1 text-[11px] text-rose-900/65">
+                Wird dem Kunden auf die Verkaufseinheit berechnet.
+              </p>
               <input
                 type="number"
                 step="0.01"
