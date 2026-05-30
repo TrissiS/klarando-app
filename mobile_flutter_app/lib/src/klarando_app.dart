@@ -1747,7 +1747,7 @@ class _HomeShellState extends State<HomeShell> {
       });
       for (final tenant in rows) {
         debugPrint(
-          'CUSTOMER_ORDER_INTAKE_STATUS {tenantId: ${tenant.tenantId}, branchId: ${tenant.tenantId}, backendStatus: ${tenant.orderIntake.enabled}, source: discovery}',
+          'CUSTOMER_ORDER_INTAKE_STATUS {tenantId: ${tenant.tenantId}, branchId: ${tenant.tenantId}, backendStatus: ${tenant.orderIntake.enabled}, paused: ${tenant.orderIntake.paused}, source: discovery}',
         );
       }
     } on ApiException catch (error) {
@@ -1816,14 +1816,18 @@ class _HomeShellState extends State<HomeShell> {
   Future<bool?> _showOrderIntakePausedDialog(TenantDiscoveryTenant tenant) {
     final defaultMessage =
         'Dieses Lokal nimmt aktuell aufgrund hoher Auslastung keine neuen Online-Bestellungen an. Du kannst dir die Speisekarte ansehen, aber eine Bestellung ist derzeit eventuell nicht möglich.';
+    final pauseReason = tenant.orderIntake.reason?.trim();
+    final message = (pauseReason != null && pauseReason.isNotEmpty)
+        ? 'Dieses Lokal nimmt aktuell keine neuen Online-Bestellungen an.\n\nGrund: $pauseReason\n\nDu kannst die Speisekarte ansehen, aber derzeit keine Bestellung abschicken.'
+        : (tenant.orderIntake.customerMessage?.trim().isNotEmpty == true
+            ? tenant.orderIntake.customerMessage!.trim()
+            : defaultMessage);
     return showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Bestellannahme aktuell pausiert'),
-          content: Text(tenant.orderIntake.customerMessage?.trim().isNotEmpty == true
-              ? tenant.orderIntake.customerMessage!.trim()
-              : defaultMessage),
+          content: Text(message),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -1841,7 +1845,7 @@ class _HomeShellState extends State<HomeShell> {
 
   Future<void> _selectTenant(TenantDiscoveryTenant tenant) async {
     debugPrint(
-      'CUSTOMER_ORDER_INTAKE_STATUS {tenantId: ${tenant.tenantId}, branchId: ${tenant.tenantId}, backendStatus: ${tenant.orderIntake.enabled}, source: selected-tenant}',
+      'CUSTOMER_ORDER_INTAKE_STATUS {tenantId: ${tenant.tenantId}, branchId: ${tenant.tenantId}, backendStatus: ${tenant.orderIntake.enabled}, paused: ${tenant.orderIntake.paused}, source: selected-tenant}',
     );
     setState(() {
       _selectedTenant = tenant;

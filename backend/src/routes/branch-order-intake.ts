@@ -69,6 +69,9 @@ router.get('/:branchId/order-intake-status', async (req, res) => {
         delivery: settings.orderIntake.services.deliveryEnabledNow,
         pickup: settings.orderIntake.services.pickupEnabledNow,
         tableOrdering: settings.orderIntake.services.tableOrderingEnabledNow,
+        deliveryEnabledNow: settings.orderIntake.services.deliveryEnabledNow,
+        pickupEnabledNow: settings.orderIntake.services.pickupEnabledNow,
+        tableOrderingEnabledNow: settings.orderIntake.services.tableOrderingEnabledNow,
       },
     })
   } catch (error) {
@@ -187,6 +190,9 @@ router.patch(
           delivery: nextOrderIntake.services.deliveryEnabledNow,
           pickup: nextOrderIntake.services.pickupEnabledNow,
           tableOrdering: nextOrderIntake.services.tableOrderingEnabledNow,
+          deliveryEnabledNow: nextOrderIntake.services.deliveryEnabledNow,
+          pickupEnabledNow: nextOrderIntake.services.pickupEnabledNow,
+          tableOrderingEnabledNow: nextOrderIntake.services.tableOrderingEnabledNow,
         },
       })
     } catch (error) {

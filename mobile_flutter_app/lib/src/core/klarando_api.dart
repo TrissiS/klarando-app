@@ -392,6 +392,7 @@ class TenantDiscoveryTenant {
     required this.pickupStatus,
     required this.deliveryConfigPending,
     required this.pickupConfigPending,
+    required this.deliveryNextAvailableAt,
     required this.distanceKm,
     required this.orderingEnabled,
     required this.guestCheckoutEnabled,
@@ -420,6 +421,7 @@ class TenantDiscoveryTenant {
   final String pickupStatus;
   final bool deliveryConfigPending;
   final bool pickupConfigPending;
+  final DateTime? deliveryNextAvailableAt;
   final double? distanceKm;
   final bool orderingEnabled;
   final bool guestCheckoutEnabled;
@@ -478,6 +480,7 @@ class TenantDiscoveryTenant {
       pickupStatus: _readNullableString(pickup?['status']) ?? 'OUT_OF_AREA',
       deliveryConfigPending: _readBool(delivery?['configurationIncomplete']),
       pickupConfigPending: _readBool(pickup?['configurationIncomplete']),
+      deliveryNextAvailableAt: _readNullableDateTime(delivery?['nextAvailableAt']),
       distanceKm: deliveryDistance ?? pickupDistance,
       orderingEnabled: customerApp == null
           ? false
@@ -495,6 +498,7 @@ class TenantDiscoveryTenant {
 class TenantOrderIntakeInfo {
   const TenantOrderIntakeInfo({
     required this.enabled,
+    required this.paused,
     required this.reason,
     required this.pausedUntil,
     required this.customerMessage,
@@ -504,6 +508,7 @@ class TenantOrderIntakeInfo {
   });
 
   final bool enabled;
+  final bool paused;
   final String? reason;
   final DateTime? pausedUntil;
   final String? customerMessage;
@@ -516,13 +521,27 @@ class TenantOrderIntakeInfo {
     final services = _readNullableMap(source['services']);
     return TenantOrderIntakeInfo(
       enabled: source['enabled'] is bool ? _readBool(source['enabled']) : true,
+      paused: source['paused'] is bool
+          ? _readBool(source['paused'])
+          : !(source['enabled'] is bool ? _readBool(source['enabled']) : true),
       reason: _readNullableString(source['reason']),
       pausedUntil: _readNullableDateTime(source['pausedUntil']),
       customerMessage: _readNullableString(source['customerMessage']),
-      deliveryEnabled: services?['delivery'] is bool ? _readBool(services?['delivery']) : true,
-      pickupEnabled: services?['pickup'] is bool ? _readBool(services?['pickup']) : true,
-      tableOrderingEnabled:
-          services?['tableOrdering'] is bool ? _readBool(services?['tableOrdering']) : true,
+      deliveryEnabled: services?['deliveryEnabledNow'] is bool
+          ? _readBool(services?['deliveryEnabledNow'])
+          : services?['delivery'] is bool
+              ? _readBool(services?['delivery'])
+              : true,
+      pickupEnabled: services?['pickupEnabledNow'] is bool
+          ? _readBool(services?['pickupEnabledNow'])
+          : services?['pickup'] is bool
+              ? _readBool(services?['pickup'])
+              : true,
+      tableOrderingEnabled: services?['tableOrderingEnabledNow'] is bool
+          ? _readBool(services?['tableOrderingEnabledNow'])
+          : services?['tableOrdering'] is bool
+              ? _readBool(services?['tableOrdering'])
+              : true,
     );
   }
 }

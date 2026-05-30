@@ -437,6 +437,43 @@ export type BusinessDriverSettings = {
   customerLiveTrackingEnabled: boolean
 }
 
+export type BusinessOrderingSettings = {
+  deliveryEnabled: boolean
+  pickupEnabled: boolean
+  preorderEnabled: boolean
+  deliveryPauseEnabled: boolean
+  deliveryCutoffMinutesBeforeClose: number
+  pickupCutoffMinutesBeforeClose: number
+  preorderEarliestTime: string | null
+  preorderMaxDays: number
+  closingSoonThresholdMinutes: number
+  manualNoticeText: string | null
+}
+
+export type BusinessDeliveryAvailabilityMode =
+  | 'IMMEDIATE'
+  | 'NEXT_DAY'
+  | 'AFTER_DAYS'
+  | 'SLOT_ONLY'
+
+export type BusinessDeliveryTimeSlot = {
+  day: BusinessDayCode
+  start: string
+  end: string
+  maxOrders: number | null
+}
+
+export type BusinessDeliverySchedulingSettings = {
+  deliveryMode: BusinessDeliveryAvailabilityMode
+  immediateDeliveryEnabled: boolean
+  minDaysAhead: number
+  orderCutoffTime: string | null
+  allowedDeliveryDays: BusinessDayCode[]
+  maxPreorderDays: number
+  customerHint: string | null
+  timeSlots: BusinessDeliveryTimeSlot[]
+}
+
 export type BranchOrderIntakeStatus = {
   branchId: string
   tenantId: string
@@ -448,6 +485,9 @@ export type BranchOrderIntakeStatus = {
     delivery: boolean
     pickup: boolean
     tableOrdering: boolean
+    deliveryEnabledNow?: boolean
+    pickupEnabledNow?: boolean
+    tableOrderingEnabledNow?: boolean
   }
 }
 
@@ -489,6 +529,8 @@ export type BusinessSettings = {
   deliveryArea: BusinessServiceArea
   pickupArea: BusinessServiceArea
   driver: BusinessDriverSettings
+  ordering: BusinessOrderingSettings
+  deliveryScheduling: BusinessDeliverySchedulingSettings
   customerApp: BusinessCustomerAppSettings
   compliance: BusinessComplianceSettings
   orderIntake?: {
@@ -584,6 +626,35 @@ export type PublicTenantDiscoveryTenant = {
   deliveryFeeNote: string | null
   minOrderValue: string | null
   customerApp: BusinessCustomerAppSettings
+  orderIntake?: {
+    enabled: boolean
+    paused: boolean
+    reason: string | null
+    pausedUntil: string | null
+    customerMessage: string | null
+    services: {
+      delivery: boolean
+      pickup: boolean
+      tableOrdering: boolean
+      deliveryEnabledNow?: boolean
+      pickupEnabledNow?: boolean
+      tableOrderingEnabledNow?: boolean
+    }
+  }
+  deliveryScheduling?: {
+    deliveryMode: BusinessDeliveryAvailabilityMode
+    immediateDeliveryEnabled: boolean
+    minDaysAhead: number
+    orderCutoffTime: string | null
+    allowedDeliveryDays: BusinessDayCode[]
+    maxPreorderDays: number
+    customerHint: string | null
+    timeSlots: BusinessDeliveryTimeSlot[]
+    availableNow?: boolean
+    nextAvailableAt?: string | null
+    hasSlots?: boolean
+    today?: BusinessDayCode
+  }
   services: {
     delivery: {
       available: boolean
@@ -592,6 +663,7 @@ export type PublicTenantDiscoveryTenant = {
       matchedByRadius: boolean
       matchedByPolygon: boolean
       distanceKm: number | null
+      nextAvailableAt?: string | null
     }
     pickup: {
       available: boolean

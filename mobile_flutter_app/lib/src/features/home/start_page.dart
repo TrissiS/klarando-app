@@ -547,7 +547,10 @@ class _TenantCard extends StatelessWidget {
     final isConfigPending = mode == DiscoveryMode.delivery
         ? item.deliveryConfigPending
         : item.pickupConfigPending;
-    final isOrderIntakePaused = !item.orderIntake.enabled;
+    final isOrderIntakePaused = item.orderIntake.paused;
+    final orderIntakeReason = item.orderIntake.reason?.trim().isNotEmpty == true
+        ? item.orderIntake.reason!.trim()
+        : 'Aufgrund hoher Auslastung nimmt dieses Lokal aktuell keine neuen Online-Bestellungen an.';
     final isOpen = (serviceAvailable || isConfigPending) && item.orderingEnabled && !isOrderIntakePaused;
     final baseRatingAverage = item.ratingAverage ?? 0;
     final baseRatingCount = item.ratingCount;
@@ -678,6 +681,32 @@ class _TenantCard extends StatelessWidget {
                               ),
                           ],
                         ),
+                        if (isOrderIntakePaused)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Text(
+                              orderIntakeReason,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF991B1B),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        if (!serviceAvailable &&
+                            item.deliveryStatus == 'OUTSIDE_SCHEDULE' &&
+                            item.deliveryNextAvailableAt != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Text(
+                              'Lieferung wieder ab ${_formatNextSlot(item.deliveryNextAvailableAt!)} möglich',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF92400E),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
                         const SizedBox(height: 8),
                         if (item.minOrderValue != null)
                           _MetaLine(
@@ -709,6 +738,7 @@ class _TenantCard extends StatelessWidget {
                                       serviceStatus,
                                       isConfigPending,
                                       isOrderIntakePaused,
+                                      orderIntakeReason,
                                     ),
                             ),
                           ),
@@ -733,6 +763,7 @@ class _TenantCard extends StatelessWidget {
                       serviceStatus,
                       isConfigPending,
                       isOrderIntakePaused,
+                      orderIntakeReason,
                     ),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
@@ -753,6 +784,7 @@ class _TenantCard extends StatelessWidget {
     String serviceStatus,
     bool isConfigPending,
     bool isOrderIntakePaused,
+    String orderIntakeReason,
   ) {
     if (isOrderIntakePaused) {
       return 'Bestellannahme pausiert';
@@ -771,9 +803,10 @@ class _TenantCard extends StatelessWidget {
     String serviceStatus,
     bool isConfigPending,
     bool isOrderIntakePaused,
+    String orderIntakeReason,
   ) {
     if (isOrderIntakePaused) {
-      return 'Aktuell nimmt dieses Lokal keine neuen Online-Bestellungen an.';
+      return 'Bestellannahme aktuell pausiert\n$orderIntakeReason';
     }
     if (isConfigPending || serviceStatus == 'CONFIG_PENDING') {
       return _t(languageCode, 'area_checking_overlay');
@@ -785,6 +818,22 @@ class _TenantCard extends StatelessWidget {
       return _t(languageCode, 'out_of_area_overlay');
     }
     return _t(languageCode, 'closed_overlay');
+  }
+
+  String _formatNextSlot(DateTime value) {
+    final local = value.toLocal();
+    final weekday = [
+      'So',
+      'Mo',
+      'Di',
+      'Mi',
+      'Do',
+      'Fr',
+      'Sa',
+    ][local.weekday % 7];
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$weekday $hour:$minute';
   }
 }
 

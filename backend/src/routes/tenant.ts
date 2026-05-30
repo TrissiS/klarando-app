@@ -8,6 +8,7 @@ import {
   normalizeText,
   normalizeZipCode,
   parseSettings,
+  type WeekDay,
 } from '../lib/business-settings'
 import { resolveProductOffers } from '../lib/action-pricing'
 import {
@@ -103,8 +104,8 @@ async function geocodeSearchLocation(input: {
   const street = normalizeText(input.street)
   const city = normalizeText(input.city)
   const query = street
-    ? `${street}, ${input.zipCode}${city != null ? ', $city' : ''}, Germany`
-    : `${input.zipCode}${city != null ? ', $city' : ''}, Germany`
+    ? `${street}, ${input.zipCode}${city != null ? `, ${city}` : ''}, Germany`
+    : `${input.zipCode}${city != null ? `, ${city}` : ''}, Germany`
   const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 4500)
@@ -138,6 +139,121 @@ async function geocodeSearchLocation(input: {
     return null
   } finally {
     clearTimeout(timeout)
+  }
+}
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  SUNDAY: 0,
+  MONDAY: 1,
+  TUESDAY: 2,
+  WEDNESDAY: 3,
+  THURSDAY: 4,
+  FRIDAY: 5,
+  SATURDAY: 6,
+}
+
+function dayKeyFromIndex(value: number): WeekDay {
+  const entry = (Object.entries(WEEKDAY_INDEX) as Array<[WeekDay, number]>).find(
+    ([, index]) => index === value
+  )
+  return entry?.[0] ?? 'MONDAY'
+}
+
+function parseTimeToMinutes(value: string | null) {
+  if (!value || !/^\d{2}:\d{2}$/.test(value)) {
+    return null
+  }
+  const [hourRaw, minuteRaw] = value.split(':')
+  const hour = Number(hourRaw)
+  const minute = Number(minuteRaw)
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return null
+  }
+  return hour * 60 + minute
+}
+
+function resolveDeliveryScheduleState(settings: ReturnType<typeof parseSettings>) {
+  const now = new Date()
+  const schedule = settings.deliveryScheduling
+  const dayIndex = now.getDay()
+  const nowMinutes = now.getHours() * 60 + now.getMinutes()
+  const todayKey = dayKeyFromIndex(dayIndex)
+  const allowedDays = new Set(schedule.allowedDeliveryDays)
+  const dayAllowed = allowedDays.has(todayKey)
+
+  const normalizedSlots = schedule.timeSlots
+    .map((slot) => ({
+      ...slot,
+      dayIndex: WEEKDAY_INDEX[slot.day] ?? -1,
+      startMinutes: parseTimeToMinutes(slot.start),
+      endMinutes: parseTimeToMinutes(slot.end),
+    }))
+    .filter(
+      (slot) =>
+        slot.dayIndex >= 0 &&
+        slot.startMinutes !== null &&
+        slot.endMinutes !== null &&
+        slot.startMinutes < slot.endMinutes
+    )
+
+  const hasSlots = normalizedSlots.length > 0
+  const isWithinTodaySlot = normalizedSlots.some(
+    (slot) =>
+      slot.dayIndex === dayIndex &&
+      nowMinutes >= (slot.startMinutes as number) &&
+      nowMinutes <= (slot.endMinutes as number)
+  )
+
+  const availableNow = dayAllowed && (!hasSlots || isWithinTodaySlot)
+
+  let nextAvailableAt: string | null = null
+  if (!availableNow) {
+    const horizonDays = 21
+    const midnightToday = new Date(now)
+    midnightToday.setHours(0, 0, 0, 0)
+    let bestCandidate: Date | null = null
+    for (let offset = 0; offset <= horizonDays; offset += 1) {
+      const dayDate = new Date(midnightToday)
+      dayDate.setDate(midnightToday.getDate() + offset)
+      const checkDayIndex = dayDate.getDay()
+      const checkDayKey = dayKeyFromIndex(checkDayIndex)
+      if (!checkDayKey || !allowedDays.has(checkDayKey)) {
+        continue
+      }
+
+      const slotsForDay = normalizedSlots
+        .filter((slot) => slot.dayIndex === checkDayIndex)
+        .sort((left, right) => (left.startMinutes as number) - (right.startMinutes as number))
+
+      if (slotsForDay.length === 0) {
+        if (offset > 0) {
+          bestCandidate = dayDate
+          break
+        }
+        continue
+      }
+
+      for (const slot of slotsForDay) {
+        const candidate = new Date(dayDate)
+        candidate.setHours(Math.floor((slot.startMinutes as number) / 60), (slot.startMinutes as number) % 60, 0, 0)
+        if (candidate.getTime() > now.getTime()) {
+          bestCandidate = candidate
+          break
+        }
+      }
+
+      if (bestCandidate) {
+        break
+      }
+    }
+    nextAvailableAt = bestCandidate ? bestCandidate.toISOString() : null
+  }
+
+  return {
+    availableNow,
+    nextAvailableAt,
+    hasSlots,
+    todayKey,
   }
 }
 
@@ -693,11 +809,14 @@ router.get('/public/discovery', async (req, res) => {
               Boolean(pickupMatch?.matchedByPolygon)
             : Boolean(pickupMatch?.matched)
 
-        const matchesDelivery = strictDeliveryMatch
+        const deliveryScheduleState = resolveDeliveryScheduleState(settings)
+        const matchesDelivery = strictDeliveryMatch && deliveryScheduleState.availableNow
         const matchesPickup = strictPickupMatch
         const outOfArea = !matchesDelivery && !matchesPickup
         const deliveryStatus = matchesDelivery
           ? 'AVAILABLE'
+          : !deliveryScheduleState.availableNow
+            ? 'OUTSIDE_SCHEDULE'
           : deliveryMatch?.configurationIncomplete
             ? 'CONFIG_PENDING'
             : deliveryMatch?.requiresLocation
@@ -742,6 +861,20 @@ router.get('/public/discovery', async (req, res) => {
                     : 'UNKNOWN',
           result: matchesDelivery,
         })
+        const paused = !intake.orderIntakeEnabled
+        const resolvedPauseReason =
+          intake.orderIntakePausedReason?.trim() ||
+          'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Online-Bestellungen an.'
+        console.info('ORDER_INTAKE_STATUS_SYNC', {
+          route: 'GET /api/tenants/public/discovery',
+          tenantId: tenant.id,
+          branchId: tenant.id,
+          source: 'tenant.businessSettings.orderIntake',
+          orderIntakeEnabled: intake.orderIntakeEnabled,
+          paused,
+          reason: intake.orderIntakePausedReason,
+          services: intake.services,
+        })
 
         return {
           tenantId: tenant.id,
@@ -782,16 +915,25 @@ router.get('/public/discovery', async (req, res) => {
           customerApp: sanitizePublicCustomerApp(settings.customerApp),
           orderIntake: {
             enabled: intake.orderIntakeEnabled,
+            paused,
             reason: intake.orderIntakePausedReason,
             pausedUntil: intake.orderIntakePausedUntil,
             services: {
               delivery: intake.services.deliveryEnabledNow,
               pickup: intake.services.pickupEnabledNow,
               tableOrdering: intake.services.tableOrderingEnabledNow,
+              deliveryEnabledNow: intake.services.deliveryEnabledNow,
+              pickupEnabledNow: intake.services.pickupEnabledNow,
+              tableOrderingEnabledNow: intake.services.tableOrderingEnabledNow,
             },
-            customerMessage: intake.orderIntakeEnabled
-              ? null
-              : 'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Bestellungen an. Bitte versuche es später erneut.',
+            customerMessage: intake.orderIntakeEnabled ? null : resolvedPauseReason,
+          },
+          deliveryScheduling: {
+            ...settings.deliveryScheduling,
+            availableNow: deliveryScheduleState.availableNow,
+            nextAvailableAt: deliveryScheduleState.nextAvailableAt,
+            hasSlots: deliveryScheduleState.hasSlots,
+            today: deliveryScheduleState.todayKey,
           },
           outOfArea,
           services: {
@@ -807,6 +949,7 @@ router.get('/public/discovery', async (req, res) => {
               requiresLocation: deliveryMatch?.requiresLocation ?? false,
               status: deliveryStatus,
               distanceKm: deliveryMatch?.distanceKm ?? null,
+              nextAvailableAt: deliveryScheduleState.nextAvailableAt,
             },
             pickup: {
               available: matchesPickup,
@@ -1156,16 +1299,21 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       customerApp: sanitizePublicCustomerApp(settings.customerApp),
       orderIntake: {
         enabled: intake.orderIntakeEnabled,
+        paused: !intake.orderIntakeEnabled,
         reason: intake.orderIntakePausedReason,
         pausedUntil: intake.orderIntakePausedUntil,
         services: {
           delivery: intake.services.deliveryEnabledNow,
           pickup: intake.services.pickupEnabledNow,
           tableOrdering: intake.services.tableOrderingEnabledNow,
+          deliveryEnabledNow: intake.services.deliveryEnabledNow,
+          pickupEnabledNow: intake.services.pickupEnabledNow,
+          tableOrderingEnabledNow: intake.services.tableOrderingEnabledNow,
         },
         customerMessage: intake.orderIntakeEnabled
           ? null
-          : 'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Bestellungen an. Bitte versuche es später erneut.',
+          : intake.orderIntakePausedReason?.trim() ||
+            'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Online-Bestellungen an.',
       },
       categories: publicCategories,
       products: mappedProducts,
