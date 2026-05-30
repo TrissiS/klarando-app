@@ -33,6 +33,8 @@ const _secureCashierDisplayCode = 'klarando_cashier_secure_display_code';
 const _secureCashierTenantName = 'klarando_cashier_secure_tenant_name';
 const _secureCashierAdmins = 'klarando_cashier_secure_admins';
 const _secureCashierChainadmins = 'klarando_cashier_secure_chainadmins';
+const _secureCashierManualTenantId = 'klarando_cashier_secure_manual_tenant_id';
+const _secureCashierManualAdminCode = 'klarando_cashier_secure_manual_admin_code';
 const _cashierCurrentVersionName = '1.0.0';
 const _cashierCurrentVersionCode = 1;
 const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
@@ -102,9 +104,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   );
   final _displayCodeController = TextEditingController();
   final _pairingTokenController = TextEditingController();
+  final _manualTokenController = TextEditingController();
   final _pairingTokenFocusNode = FocusNode();
   final _deviceSerialController = TextEditingController();
   final _deviceAliasController = TextEditingController();
+  final _manualTenantIdController = TextEditingController();
+  final _manualAdminCodeController = TextEditingController();
   final _tcpHostController = TextEditingController();
   final _tcpPortController = TextEditingController(text: '9100');
 
@@ -117,6 +122,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _loading = false;
   bool _connected = false;
   bool _bindingLocked = false;
+  bool _showManualConnection = false;
   String? _error;
   String? _info;
   String? _pairingInputDebug;
@@ -184,9 +190,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     _baseUrlController.dispose();
     _displayCodeController.dispose();
     _pairingTokenController.dispose();
+    _manualTokenController.dispose();
     _pairingTokenFocusNode.dispose();
     _deviceSerialController.dispose();
     _deviceAliasController.dispose();
+    _manualTenantIdController.dispose();
+    _manualAdminCodeController.dispose();
     _tcpHostController.dispose();
     _tcpPortController.dispose();
     unawaited(_disposeNewOrderAudioController());
@@ -219,6 +228,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final secureTenantName = await _secureRead(_secureCashierTenantName);
     final secureAdmins = await _secureRead(_secureCashierAdmins);
     final secureChainadmins = await _secureRead(_secureCashierChainadmins);
+    final manualTenantId = await _secureRead(_secureCashierManualTenantId);
+    final manualAdminCode = await _secureRead(_secureCashierManualAdminCode);
     final deviceSerial = prefs.getString(_prefsCashierDeviceSerial);
     final deviceAlias = prefs.getString(_prefsCashierDeviceAlias);
     final printerModeRaw = prefs.getString(_prefsCashierPrinterMode);
@@ -233,6 +244,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     if (deviceAlias != null && deviceAlias.trim().isNotEmpty) {
       _deviceAliasController.text = deviceAlias;
+    }
+    if (manualTenantId != null && manualTenantId.trim().isNotEmpty) {
+      _manualTenantIdController.text = manualTenantId.trim();
+    }
+    if (manualAdminCode != null && manualAdminCode.trim().isNotEmpty) {
+      _manualAdminCodeController.text = manualAdminCode.trim();
     }
     if (deviceSerial != null && deviceSerial.trim().isNotEmpty) {
       _deviceSerialController.text = deviceSerial;
@@ -328,6 +345,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     await prefs.setString(
       _prefsCashierPrinterPort,
       _tcpPortController.text.trim(),
+    );
+    await _secureWrite(
+      _secureCashierManualTenantId,
+      _manualTenantIdController.text.trim(),
+    );
+    await _secureWrite(
+      _secureCashierManualAdminCode,
+      _manualAdminCodeController.text.trim(),
     );
   }
 
@@ -1019,6 +1044,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _activeDriverDevices = 0;
         _onlineDriverDevices = 0;
         _pairingTokenController.clear();
+        _manualTokenController.clear();
+        _showManualConnection = false;
         _info =
             'OrderDesk wurde mit ${response.displayCode} verbunden (${response.binding.deviceSerial}).';
       });
@@ -1047,6 +1074,60 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _error = null;
     });
     await _bindWithPairingToken(token);
+  }
+
+  Future<void> _saveManualConnection() async {
+    if (_loading) {
+      return;
+    }
+    final manualToken = _manualTokenController.text.trim();
+    final manualDisplayCode = _displayCodeController.text.trim();
+    final manualApiBaseUrl = _normalizeBaseUrl(
+      _baseUrlController.text.trim().isEmpty
+          ? defaultApiBaseUrl
+          : _baseUrlController.text,
+    );
+
+    if (manualDisplayCode.isEmpty) {
+      setState(() {
+        _error = 'Bitte DisplayCode/Gerätename eintragen.';
+      });
+      return;
+    }
+    if (manualToken.isEmpty) {
+      setState(() {
+        _error = 'Bitte PairingToken oder manuellen Gerätecode eintragen.';
+      });
+      return;
+    }
+
+    setState(() {
+      _error = null;
+      _info = 'Gerät wird manuell mit Klarando verbunden …';
+      _baseUrlController.text = manualApiBaseUrl;
+    });
+
+    // Try full pairing/bind first. If that fails, treat the manual token as an existing device auth token.
+    await _bindWithPairingToken(manualToken);
+    if (_bindingLocked && _connected) {
+      return;
+    }
+
+    await _runOrderMutation(() async {
+      _deviceAuthToken = manualToken;
+      _bindingLocked = true;
+      await _secureWrite(_secureCashierDeviceToken, manualToken);
+      await _savePrefs();
+      await _sendOrderDeskHeartbeatIfNeeded();
+      await _pollFeed();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _connected = true;
+        _info = 'Manuelle Verbindung gespeichert.';
+      });
+    });
   }
 
   String _pairingParseErrorMessage(PairingPayloadParseFailure? failure) {
@@ -1286,6 +1367,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonalIcon(
+                  onPressed: () {
+                    Navigator.of(context).pop();
+                    if (!mounted) {
+                      return;
+                    }
+                    setState(() {
+                      _showManualConnection = true;
+                      _info = 'Manuelle Verbindung geöffnet.';
+                    });
+                  },
+                  icon: const Icon(Icons.tune_rounded),
+                  label: const Text('Manuelle Verbindung bearbeiten'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
                   onPressed: () async {
                     Navigator.of(context).pop();
                     await _resetLocalBinding();
@@ -1312,6 +1408,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     await _secureStorage.delete(key: _secureCashierTenantName);
     await _secureStorage.delete(key: _secureCashierAdmins);
     await _secureStorage.delete(key: _secureCashierChainadmins);
+    await _secureStorage.delete(key: _secureCashierManualTenantId);
+    await _secureStorage.delete(key: _secureCashierManualAdminCode);
 
     _pollTimer?.cancel();
     _heartbeatTimer?.cancel();
@@ -1328,6 +1426,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _connectedChainadmins = const [];
       _displayCodeController.clear();
       _pairingTokenController.clear();
+      _manualTokenController.clear();
+      _manualTenantIdController.clear();
+      _manualAdminCodeController.clear();
+      _showManualConnection = false;
       _info = 'Gerät wurde zurückgesetzt. Bitte erneut per QR-Code verbinden.';
       _error = null;
       _feed = null;
@@ -1982,6 +2084,20 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 icon: const Icon(Icons.refresh),
                 label: Text(_loading ? 'Bitte warten…' : 'Erneut versuchen'),
               ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _loading
+                    ? null
+                    : () {
+                        setState(() {
+                          _bindingLocked = false;
+                          _showManualConnection = true;
+                          _info = 'Bitte manuelle Verbindung prüfen.';
+                        });
+                      },
+                icon: const Icon(Icons.tune_rounded),
+                label: const Text('Manuelle Verbindung öffnen'),
+              ),
             ],
           ),
         ),
@@ -2037,6 +2153,76 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               Text(
                 _pairingInputDebug!,
                 style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+              ),
+            ],
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: _loading
+                  ? null
+                  : () {
+                      setState(() {
+                        _showManualConnection = !_showManualConnection;
+                        if (_showManualConnection &&
+                            _manualTokenController.text.trim().isEmpty &&
+                            _pairingTokenController.text.trim().isNotEmpty) {
+                          _manualTokenController.text = _pairingTokenController.text.trim();
+                        }
+                      });
+                    },
+              icon: const Icon(Icons.tune_rounded),
+              label: Text(_showManualConnection ? 'Manuell ausblenden' : 'Manuell verbinden'),
+            ),
+            if (_showManualConnection) ...[
+              const SizedBox(height: 10),
+              TextField(
+                controller: _baseUrlController,
+                enabled: !_loading,
+                decoration: const InputDecoration(
+                  labelText: 'API-URL',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _manualTenantIdController,
+                enabled: !_loading,
+                decoration: const InputDecoration(
+                  labelText: 'Tenant-ID',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _manualAdminCodeController,
+                enabled: !_loading,
+                decoration: const InputDecoration(
+                  labelText: 'Admin-ID / Betriebscode',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _displayCodeController,
+                enabled: !_loading,
+                decoration: const InputDecoration(
+                  labelText: 'DisplayCode / Gerätename',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _manualTokenController,
+                enabled: !_loading,
+                decoration: const InputDecoration(
+                  labelText: 'PairingToken / manueller Gerätecode',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _loading ? null : _saveManualConnection,
+                icon: const Icon(Icons.save_rounded),
+                label: Text(_loading ? 'Bitte warten…' : 'Verbindung speichern'),
               ),
             ],
             const SizedBox(height: 10),
