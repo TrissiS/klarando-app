@@ -8,6 +8,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
+import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 
 const router = Router()
 
@@ -193,11 +194,8 @@ async function validateProductScope(tenantId: string, productIds: string[]) {
 
 router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res) => {
   try {
-    const tenantId = req.query.tenantId as string
-
-    if (!tenantId) {
-      return res.status(400).json({ error: 'tenantId fehlt' })
-    }
+    const scope = await resolveTenantScope(req, req.query.tenantId as string | undefined)
+    const tenantId = scope.tenantId as string
 
     const loadActions = () =>
       prisma.action.findMany({
@@ -234,6 +232,10 @@ router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res)
 
     return res.json(actions.map(mapActionOutput))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET ACTIONS ERROR:', error)
     return res.status(500).json({ error: 'Aktionen konnten nicht geladen werden' })
   }
@@ -241,11 +243,8 @@ router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res)
 
 router.get('/active', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res) => {
   try {
-    const tenantId = req.query.tenantId as string
-
-    if (!tenantId) {
-      return res.status(400).json({ error: 'tenantId fehlt' })
-    }
+    const scope = await resolveTenantScope(req, req.query.tenantId as string | undefined)
+    const tenantId = scope.tenantId as string
 
     const loadActions = () =>
       prisma.action.findMany({
@@ -285,6 +284,10 @@ router.get('/active', requirePermission(PermissionKey.PRODUCTS_READ), async (req
 
     return res.json(active.map(mapActionOutput))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET ACTIVE ACTIONS ERROR:', error)
     return res.status(500).json({ error: 'Aktive Aktionen konnten nicht geladen werden' })
   }
@@ -293,7 +296,7 @@ router.get('/active', requirePermission(PermissionKey.PRODUCTS_READ), async (req
 router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, res) => {
   try {
     const {
-      tenantId,
+      tenantId: requestedTenantId,
       name,
       description,
       imageUrl,
@@ -328,9 +331,11 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       productIds?: string[]
     }
 
-    if (!tenantId || !name || !kind || !valueType || value === undefined) {
+    if (!requestedTenantId || !name || !kind || !valueType || value === undefined) {
       return res.status(400).json({ error: 'Pflichtfelder fehlen' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
     if (!Object.values(ActionKind).includes(kind)) {
       return res.status(400).json({ error: 'ungueltiger kind' })
@@ -473,6 +478,10 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
 
     return res.status(201).json(mapActionOutput(action))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2003'
@@ -489,7 +498,7 @@ router.patch('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
     const {
-      tenantId,
+      tenantId: requestedTenantId,
       name,
       description,
       imageUrl,
@@ -524,9 +533,11 @@ router.patch('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req
       productIds?: string[]
     }
 
-    if (!id || !tenantId) {
+    if (!id || !requestedTenantId) {
       return res.status(400).json({ error: 'id und tenantId sind erforderlich' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
     const existing = await prisma.action.findUnique({
       where: { id },
@@ -699,6 +710,10 @@ router.patch('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req
 
     return res.json(mapActionOutput(action))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('UPDATE ACTION ERROR:', error)
     return res.status(500).json({ error: 'Aktion konnte nicht aktualisiert werden' })
   }
@@ -707,11 +722,13 @@ router.patch('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req
 router.delete('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, res) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
-    const tenantId = req.query.tenantId as string
+    const requestedTenantId = req.query.tenantId as string | undefined
 
-    if (!id || !tenantId) {
+    if (!id || !requestedTenantId) {
       return res.status(400).json({ error: 'id und tenantId sind erforderlich' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
     const existing = await prisma.action.findUnique({
       where: { id },
@@ -740,6 +757,10 @@ router.delete('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (re
 
     return res.json({ ok: true })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('DELETE ACTION ERROR:', error)
     return res.status(500).json({ error: 'Aktion konnte nicht geloescht werden' })
   }

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { PermissionKey } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
+import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 
 const router = Router()
 
@@ -204,11 +205,8 @@ function calculateProduct(product: {
 
 router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res) => {
   try {
-    const tenantId = req.query.tenantId as string
-
-    if (!tenantId) {
-      return res.status(400).json({ error: 'tenantId fehlt' })
-    }
+    const scope = await resolveTenantScope(req, req.query.tenantId as string | undefined)
+    const tenantId = scope.tenantId as string
 
     const products = await prisma.product.findMany({
       where: { tenantId },
@@ -224,6 +222,10 @@ router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res)
 
     return res.json(products.map(calculateProduct))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET CALCULATION LIST ERROR:', error)
     return res.status(500).json({ error: 'Kalkulationsliste konnte nicht geladen werden' })
   }
@@ -235,8 +237,14 @@ router.get('/:productId', requirePermission(PermissionKey.PRODUCTS_READ), async 
       ? req.params.productId[0]
       : req.params.productId
 
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
+    const scope = await resolveTenantScope(req, req.query.tenantId as string | undefined)
+    const tenantId = scope.tenantId as string
+
+    const product = await prisma.product.findFirst({
+      where: {
+        id: productId,
+        tenantId,
+      },
       include: {
         ingredients: {
           include: {
@@ -252,6 +260,10 @@ router.get('/:productId', requirePermission(PermissionKey.PRODUCTS_READ), async 
 
     return res.json(calculateProduct(product))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET CALCULATION ERROR:', error)
     return res.status(500).json({ error: 'Fehler bei der Kalkulation' })
   }

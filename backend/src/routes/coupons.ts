@@ -3,6 +3,7 @@ import { Router } from 'express'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
+import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 
 const router = Router()
 
@@ -56,10 +57,8 @@ function mapCouponOutput<T extends { discountPercent: Prisma.Decimal | number | 
 
 router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res) => {
   try {
-    const tenantId = req.query.tenantId as string
-    if (!tenantId) {
-      return res.status(400).json({ error: 'tenantId fehlt' })
-    }
+    const scope = await resolveTenantScope(req, req.query.tenantId as string | undefined)
+    const tenantId = scope.tenantId as string
 
     const coupons = await prisma.coupon.findMany({
       where: { tenantId },
@@ -68,6 +67,10 @@ router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res)
 
     return res.json(coupons.map(mapCouponOutput))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET COUPONS ERROR:', error)
     return res.status(500).json({ error: 'Gutscheine konnten nicht geladen werden' })
   }
@@ -76,7 +79,7 @@ router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res)
 router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, res) => {
   try {
     const {
-      tenantId,
+      tenantId: requestedTenantId,
       code,
       name,
       description,
@@ -93,9 +96,17 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       isActive,
     } = req.body as Record<string, unknown>
 
-    if (!tenantId || typeof tenantId !== 'string' || !code || !name || !discountType) {
+    if (
+      !requestedTenantId ||
+      typeof requestedTenantId !== 'string' ||
+      !code ||
+      !name ||
+      !discountType
+    ) {
       return res.status(400).json({ error: 'Pflichtfelder fehlen' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
     if (!Object.values(CouponDiscountType).includes(discountType as CouponDiscountType)) {
       return res.status(400).json({ error: 'ungueltiger discountType' })
@@ -170,6 +181,10 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
 
     return res.status(201).json(mapCouponOutput(coupon))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({ error: 'Dieser Gutschein-Code existiert bereits' })
     }
@@ -182,11 +197,13 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
 router.patch('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, res) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
-    const { tenantId, ...payload } = req.body as Record<string, unknown>
+    const { tenantId: requestedTenantId, ...payload } = req.body as Record<string, unknown>
 
-    if (!id || !tenantId || typeof tenantId !== 'string') {
+    if (!id || !requestedTenantId || typeof requestedTenantId !== 'string') {
       return res.status(400).json({ error: 'id und tenantId sind erforderlich' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
     const existing = await prisma.coupon.findUnique({ where: { id } })
     if (!existing || existing.tenantId !== tenantId) {
@@ -266,6 +283,10 @@ router.patch('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req
 
     return res.json(mapCouponOutput(coupon))
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({ error: 'Dieser Gutschein-Code existiert bereits' })
     }
@@ -278,11 +299,13 @@ router.patch('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req
 router.delete('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, res) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
-    const tenantId = req.query.tenantId as string
+    const requestedTenantId = req.query.tenantId as string | undefined
 
-    if (!id || !tenantId) {
+    if (!id || !requestedTenantId) {
       return res.status(400).json({ error: 'id und tenantId sind erforderlich' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
     const existing = await prisma.coupon.findUnique({ where: { id } })
     if (!existing || existing.tenantId !== tenantId) {
@@ -303,6 +326,10 @@ router.delete('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (re
 
     return res.json({ ok: true })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('DELETE COUPON ERROR:', error)
     return res.status(500).json({ error: 'Gutschein konnte nicht geloescht werden' })
   }
@@ -310,11 +337,24 @@ router.delete('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (re
 
 router.post('/validate', async (req, res) => {
   try {
-    const { tenantId, code, orderType, subtotalCents, customerOrderCount } = req.body as Record<string, unknown>
+    const {
+      tenantId: requestedTenantId,
+      code,
+      orderType,
+      subtotalCents,
+      customerOrderCount,
+    } = req.body as Record<string, unknown>
 
-    if (!tenantId || typeof tenantId !== 'string' || !code || typeof code !== 'string') {
+    if (
+      !requestedTenantId ||
+      typeof requestedTenantId !== 'string' ||
+      !code ||
+      typeof code !== 'string'
+    ) {
       return res.status(400).json({ error: 'tenantId und code sind erforderlich' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
     const coupon = await prisma.coupon.findFirst({
       where: {
@@ -376,6 +416,10 @@ router.post('/validate', async (req, res) => {
       coupon: mapCouponOutput(coupon),
     })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('VALIDATE COUPON ERROR:', error)
     return res.status(500).json({ error: 'Gutschein konnte nicht validiert werden' })
   }
