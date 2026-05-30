@@ -43,6 +43,7 @@ const _klarandoTermsUrl = 'https://www.klarando.com/agb';
 const _klarandoCookiesUrl = 'https://www.klarando.com/cookies';
 const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
 const _orderDeskNewOrderAudioAsset = 'assets/audio/orderdesk_new_order.mp3';
+const _heartbeatFailureOfflineThreshold = 3;
 
 enum _DeskConnectionHealth { online, unstable, offline }
 
@@ -439,24 +440,57 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _pollFeed({bool silent = false}) async {
-    await _sendOrderDeskHeartbeatIfNeeded(silent: true);
-    final response = await _api.fetchPublicOrderDisplayFeed(
-      baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-      displayCode: _displayCodeController.text.trim(),
-    );
-    if (!mounted) {
-      return;
-    }
-    _handleOrderFeedSignals(response.orders);
-    unawaited(_ensureDeliveryCoordinates(response.orders));
-    setState(() {
-      _feed = response;
-      _now = DateTime.now();
-      _lastSuccessfulSyncAt = DateTime.now();
-      if (!silent) {
-        _error = null;
+    try {
+      final response = await _api.fetchPublicOrderDisplayFeed(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+      );
+      if (!mounted) {
+        return;
       }
-    });
+      _handleOrderFeedSignals(response.orders);
+      unawaited(_ensureDeliveryCoordinates(response.orders));
+      setState(() {
+        _feed = response;
+        _now = DateTime.now();
+        _lastSuccessfulSyncAt = DateTime.now();
+        _connected = true;
+        _isReconnecting = false;
+        _consecutiveHeartbeatFailures = 0;
+        _lastHeartbeatError = null;
+        if (!silent) {
+          _error = null;
+        }
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isReconnecting = true;
+        _lastHeartbeatError = error.message;
+        if (!silent) {
+          _error = error.message;
+        }
+      });
+      if (!silent) {
+        rethrow;
+      }
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _isReconnecting = true;
+        _lastHeartbeatError = error.toString();
+        if (!silent) {
+          _error = error.toString();
+        }
+      });
+      if (!silent) {
+        rethrow;
+      }
+    }
   }
 
   Future<void> _secureWrite(String key, String? value) async {
@@ -800,12 +834,16 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (token == null || token.trim().isEmpty) {
       return;
     }
+    if (_heartbeatInFlight) {
+      return;
+    }
+    _heartbeatInFlight = true;
 
     try {
       final heartbeat = await _api.sendOrderDeskHeartbeat(
         baseUrl: _normalizeBaseUrl(_baseUrlController.text),
         authToken: token,
-      );
+      ).timeout(const Duration(seconds: 12));
       await _secureWrite(_secureCashierTenantName, heartbeat.tenantName);
       await _secureWrite(
         _secureCashierAdmins,
@@ -823,6 +861,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           _error = null;
         }
         _lastSuccessfulSyncAt = DateTime.now();
+        _lastHeartbeatAt = DateTime.now();
+        _connected = true;
+        _isReconnecting = false;
+        _consecutiveHeartbeatFailures = 0;
+        _lastHeartbeatError = null;
         _connectedTenantName = heartbeat.tenantName;
         _connectedAdmins = heartbeat.admins;
         _connectedChainadmins = heartbeat.chainadmins;
@@ -833,11 +876,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       if (!mounted) {
         return;
       }
+      _consecutiveHeartbeatFailures += 1;
       if (!silent) {
         setState(() {
           _error = error.message;
         });
       }
+      setState(() {
+        _isReconnecting = true;
+        _lastHeartbeatError = error.message;
+        if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
+          _connected = false;
+        }
+      });
       if (error.statusCode == 403 || error.statusCode == 401) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_prefsCashierDeviceToken);
@@ -861,6 +912,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           _connectedChainadmins = const [];
           _activeDriverDevices = 0;
           _onlineDriverDevices = 0;
+          _isReconnecting = false;
+          _consecutiveHeartbeatFailures = 0;
+          _lastHeartbeatAt = null;
+          _lastHeartbeatError = error.message;
           _pollTimer?.cancel();
           _heartbeatTimer?.cancel();
           _info =
@@ -868,6 +923,38 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           _error = error.message;
         });
       }
+    } on TimeoutException {
+      if (!mounted) {
+        return;
+      }
+      _consecutiveHeartbeatFailures += 1;
+      setState(() {
+        _isReconnecting = true;
+        _lastHeartbeatError = 'Heartbeat-Timeout';
+        if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
+          _connected = false;
+        }
+        if (!silent) {
+          _error = 'Verbindung zum Klarando-Server hat zu lange gedauert.';
+        }
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      _consecutiveHeartbeatFailures += 1;
+      setState(() {
+        _isReconnecting = true;
+        _lastHeartbeatError = error.toString();
+        if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
+          _connected = false;
+        }
+        if (!silent) {
+          _error = error.toString();
+        }
+      });
+    } finally {
+      _heartbeatInFlight = false;
     }
   }
 
@@ -1088,6 +1175,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _info = fromEnter
           ? 'Scanner-Eingabe erkannt. Gerät wird mit Klarando verbunden …'
           : 'Gerät wird mit Klarando verbunden …';
+      _isReconnecting = true;
       _error = null;
     });
     await _bindWithPairingToken(token);
@@ -1308,20 +1396,32 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   _DeskConnectionHealth _connectionHealth(DateTime now) {
-    if (!_connected || _lastSuccessfulSyncAt == null) {
+    if (!_bindingLocked) {
       return _DeskConnectionHealth.offline;
     }
+    if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
+      return _DeskConnectionHealth.offline;
+    }
+    if (_isReconnecting) {
+      return _DeskConnectionHealth.unstable;
+    }
+    if (!_connected || _lastSuccessfulSyncAt == null) {
+      return _DeskConnectionHealth.unstable;
+    }
     final ageSeconds = now.difference(_lastSuccessfulSyncAt!).inSeconds;
-    if (ageSeconds < 30) {
+    if (ageSeconds < 45) {
       return _DeskConnectionHealth.online;
     }
-    if (ageSeconds <= 120) {
+    if (ageSeconds <= 240) {
       return _DeskConnectionHealth.unstable;
     }
     return _DeskConnectionHealth.offline;
   }
 
   String _connectionStatusLabel(_DeskConnectionHealth health) {
+    if (_isReconnecting) {
+      return 'Verbindung wird wiederhergestellt…';
+    }
     switch (health) {
       case _DeskConnectionHealth.online:
         return 'Online';
@@ -1333,6 +1433,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Color _connectionStatusColor(_DeskConnectionHealth health) {
+    if (_isReconnecting) {
+      return const Color(0xFFEAB308);
+    }
     switch (health) {
       case _DeskConnectionHealth.online:
         return const Color(0xFF16A34A);
@@ -1415,7 +1518,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     }
                     setState(() {
                       _showManualConnection = true;
-                      _bindingLocked = false;
                       _info = 'Manuelle Verbindung geöffnet.';
                     });
                   },
@@ -1705,7 +1807,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Driver-App koppeln'),
         content: Text(
-          'Status: vorbereitet\n\nAPI-URL: $apiUrl\nTenant-ID: ${tenantValue.isEmpty ? '-' : tenantValue}\nDriver-Gerätecode: ${displayValue.isEmpty ? '-' : displayValue}\nPairingToken: im Admin/Superadmin erzeugen.\n\nHinweis: Die Driver-App nutzt bereits die bestehende Device-Login-Route.',
+          'Kopplungscode im Admin/Superadmin erzeugen:\n\nGeräte → Driver-App koppeln\n\nAPI-URL: $apiUrl\nTenant-ID: ${tenantValue.isEmpty ? '-' : tenantValue}\nDriver-Gerätecode: ${displayValue.isEmpty ? '-' : displayValue}\nPairingToken: wird im Kopplungsdialog angezeigt.\n\nHinweis: Driver-App kann QR oder manuellen Code verwenden.',
         ),
         actions: [
           FilledButton(
@@ -2157,7 +2259,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final health = _connectionHealth(now);
     final statusText = _connectionStatusLabel(health);
     final statusColor = _connectionStatusColor(health);
-    final isOperationalView = _bindingLocked && _connected;
+    final isOperationalView = _bindingLocked && !_showManualConnection;
     final showOperationalActions = isOperationalView;
 
     return Scaffold(
@@ -2325,7 +2427,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ],
               const SizedBox(height: 12),
-              if (!_connected)
+              if (!_connected && !_bindingLocked)
                 const Card(
                   child: Padding(
                     padding: EdgeInsets.all(14),
@@ -2334,9 +2436,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     ),
                   ),
                 )
-              else ...[
-                ...visibleOrders.map(_buildOrderCard),
-              ],
+              ...visibleOrders.map(_buildOrderCard),
             ],
           ),
         ),
@@ -2370,7 +2470,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     ? null
                     : () {
                         setState(() {
-                          _bindingLocked = false;
                           _showManualConnection = true;
                           _info = 'Bitte manuelle Verbindung prüfen.';
                         });
@@ -2563,42 +2662,93 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final lastSync = _lastSuccessfulSyncAt == null
         ? 'Noch kein Sync'
         : _formatTimeAgo(_lastSuccessfulSyncAt!);
+    final lastHeartbeatText = _lastHeartbeatAt == null
+        ? 'Noch kein Heartbeat'
+        : _formatTimeAgo(_lastHeartbeatAt!);
+    final offlineDurationText = _lastSuccessfulSyncAt == null
+        ? null
+        : _formatDuration(_now.difference(_lastSuccessfulSyncAt!));
+    final showReconnectHint = _isReconnecting || !_connected;
 
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 10,
-              height: 10,
-              decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
+            Row(
+              children: [
+                Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
                     tenantName.isEmpty ? 'Filiale verbunden' : tenantName,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$statusText • Letzter Sync: $lastSync',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
+                if (showReconnectHint)
+                  OutlinedButton.icon(
+                    onPressed: _loading
+                        ? null
+                        : () => _runOrderMutation(() async {
+                            await _sendOrderDeskHeartbeatIfNeeded();
+                            await _pollFeed(silent: true);
+                          }),
+                    icon: const Icon(Icons.refresh_rounded, size: 16),
+                    label: const Text('Neu verbinden'),
                   ),
-                ],
-              ),
+              ],
             ),
+            const SizedBox(height: 2),
+            Text(
+              '$statusText • Letzter Sync: $lastSync',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+            ),
+            if (_connectionHealth(_now) == _DeskConnectionHealth.offline &&
+                offlineDurationText != null)
+              Text(
+                'Offline seit $offlineDurationText',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFFB45309),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            const SizedBox(height: 2),
+            Text(
+              'Letzter Heartbeat: $lastHeartbeatText',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+            ),
+            if ((_lastHeartbeatError ?? '').trim().isNotEmpty)
+              Text(
+                'Letzter Fehler: ${_lastHeartbeatError!}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: Color(0xFFDC2626)),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  String _formatDuration(Duration duration) {
+    final totalMinutes = duration.inMinutes;
+    if (totalMinutes < 1) {
+      return 'unter 1 Minute';
+    }
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+    if (hours <= 0) {
+      return '$minutes Min.';
+    }
+    return '${hours}h ${minutes}m';
   }
 
   Widget _buildOrderCard(PublicOrderSummary order) {

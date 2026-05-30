@@ -50,6 +50,7 @@ export default function AdminDriversPage() {
   const [loadingDeviceSessions, setLoadingDeviceSessions] = useState(false)
   const [creatingDeviceSession, setCreatingDeviceSession] = useState(false)
   const [revokingDeviceSessionId, setRevokingDeviceSessionId] = useState<string | null>(null)
+  const [copyInfo, setCopyInfo] = useState('')
 
   const [newName, setNewName] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -71,6 +72,18 @@ export default function AdminDriversPage() {
     }
     return grouped
   }, [activeDeviceSessions])
+
+  async function copyManualValue(value: string, label: string) {
+    if (!value.trim()) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopyInfo(`${label} kopiert`)
+      window.setTimeout(() => setCopyInfo(''), 1800)
+    } catch {
+      setCopyInfo(`Kopieren fehlgeschlagen (${label})`)
+      window.setTimeout(() => setCopyInfo(''), 2200)
+    }
+  }
 
   async function loadData() {
     try {
@@ -337,6 +350,11 @@ export default function AdminDriversPage() {
           {success}
         </div>
       ) : null}
+      {copyInfo ? (
+        <div className="mb-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+          {copyInfo}
+        </div>
+      ) : null}
 
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3">
@@ -593,7 +611,7 @@ export default function AdminDriversPage() {
 
             <div className="mt-4 rounded-2xl border border-[var(--brand-border)] p-3">
               {driverDeviceQr?.qrImageUrl ? (
-                <div className="text-center">
+                <div className="space-y-3 text-center">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={driverDeviceQr.qrImageUrl}
@@ -604,6 +622,33 @@ export default function AdminDriversPage() {
                   <p className="text-xs text-rose-900/70">
                     Gültig bis {new Date(driverDeviceQr.expiresAt).toLocaleString('de-DE')}
                   </p>
+                  <div className="space-y-2 text-left">
+                    {[
+                      { label: 'API-URL', value: 'https://api.klarando.com' },
+                      { label: 'Tenant-ID', value: driverDeviceQr.tenantId },
+                      { label: 'Driver-Gerätecode', value: driverDeviceQr.displayCode },
+                      { label: 'PairingToken', value: driverDeviceQr.pairingToken },
+                    ].map((entry) => (
+                      <div
+                        key={entry.label}
+                        className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          {entry.label}
+                        </p>
+                        <div className="mt-1 flex items-center justify-between gap-3">
+                          <p className="truncate font-mono text-xs text-slate-800">{entry.value}</p>
+                          <button
+                            type="button"
+                            className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700"
+                            onClick={() => void copyManualValue(entry.value, entry.label)}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-rose-900/70">Noch kein QR erstellt.</p>
