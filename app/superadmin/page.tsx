@@ -45,34 +45,13 @@ export default function SuperadminPage() {
   const [salesDashboard, setSalesDashboard] = useState<SuperadminSalesDashboard | null>(null)
   const [ratingsDashboard, setRatingsDashboard] = useState<SuperadminOrderRatingsDashboard | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true)
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null)
-  const [dashboardStorageScope, setDashboardStorageScope] = useState('default')
-  const [visibleSectionIds, setVisibleSectionIds] = useState<string[]>([
-    'kpi',
-    'sales',
-    'quick',
-    'activity',
-  ])
   const [connectedDriversCount, setConnectedDriversCount] = useState(0)
   const [activeDriversCount, setActiveDriversCount] = useState(0)
   const [backendHealth, setBackendHealth] = useState<BackendHealthOverview | null>(null)
   const [backendVersion, setBackendVersion] = useState<BackendVersionOverview | null>(null)
   const [error, setError] = useState('')
-  const [draggingSection, setDraggingSection] = useState<string | null>(null)
-  const [sectionOrder, setSectionOrder] = useState<string[]>([
-    'kpi',
-    'sales',
-    'quick',
-    'activity',
-  ])
-  const sectionMeta = [
-    { id: 'kpi', label: 'Kennzahlen' },
-    { id: 'sales', label: 'Umsatz & Bewertungen' },
-    { id: 'quick', label: 'Schnellzugriff' },
-    { id: 'activity', label: 'Letzte Aktivität' },
-  ] as const
+  const sectionOrder = ['kpi', 'sales', 'quick', 'activity'] as const
 
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
@@ -86,8 +65,6 @@ export default function SuperadminPage() {
     const accessToken = parsed.accessToken || localStorage.getItem('accessToken') || ''
     setSession(parsed)
     setToken(accessToken)
-    const userPart = parsed.userId || parsed.email || parsed.role || 'default'
-    setDashboardStorageScope(String(userPart).toLowerCase())
   }, [])
 
   useEffect(() => {
@@ -101,70 +78,6 @@ export default function SuperadminPage() {
 
     void loadDashboardData(token)
   }, [session, token])
-
-  useEffect(() => {
-    if (!session || !token || !autoRefreshEnabled) {
-      return
-    }
-
-    const intervalId = window.setInterval(() => {
-      void loadDashboardData(token, { silent: true })
-    }, 45000)
-
-    return () => {
-      window.clearInterval(intervalId)
-    }
-  }, [session, token, autoRefreshEnabled])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(
-        `klarando.superadmin.dashboard.order.v1:${dashboardStorageScope}`
-      )
-      if (!raw) return
-
-      const parsed = JSON.parse(raw) as string[]
-      const allowed = ['kpi', 'sales', 'quick', 'activity']
-      const filtered = parsed.filter((entry) => allowed.includes(entry))
-      if (filtered.length === allowed.length) {
-        setSectionOrder(filtered)
-      }
-    } catch {
-      // ignore malformed local storage
-    }
-  }, [dashboardStorageScope])
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      `klarando.superadmin.dashboard.order.v1:${dashboardStorageScope}`,
-      JSON.stringify(sectionOrder)
-    )
-  }, [sectionOrder, dashboardStorageScope])
-
-  useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(
-        `klarando.superadmin.dashboard.visible.v1:${dashboardStorageScope}`
-      )
-      if (!raw) return
-      const parsed = JSON.parse(raw) as string[]
-      if (!Array.isArray(parsed)) return
-      const allowed = new Set(['kpi', 'sales', 'quick', 'activity'])
-      const filtered = parsed.filter((entry) => allowed.has(entry))
-      if (filtered.length > 0) {
-        setVisibleSectionIds(filtered)
-      }
-    } catch {
-      // ignore malformed local storage
-    }
-  }, [dashboardStorageScope])
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      `klarando.superadmin.dashboard.visible.v1:${dashboardStorageScope}`,
-      JSON.stringify(visibleSectionIds)
-    )
-  }, [visibleSectionIds, dashboardStorageScope])
 
   async function loadDashboardData(accessToken: string, options: { silent?: boolean } = {}) {
     try {
@@ -214,23 +127,7 @@ export default function SuperadminPage() {
       if (!options.silent) {
         setIsLoading(false)
       }
-      setIsRefreshing(false)
     }
-  }
-
-  function triggerRefresh() {
-    if (!token) return
-    setIsRefreshing(true)
-    void loadDashboardData(token, { silent: true })
-  }
-
-  function toggleSectionVisibility(sectionId: string, enabled: boolean) {
-    setVisibleSectionIds((current) => {
-      if (enabled) {
-        return Array.from(new Set([...current, sectionId]))
-      }
-      return current.filter((entry) => entry !== sectionId)
-    })
   }
 
   const roleCounts = useMemo(() => {
@@ -273,25 +170,6 @@ export default function SuperadminPage() {
         .slice(0, 8),
     [users]
   )
-
-  function moveSection(sourceId: string, targetId: string) {
-    if (!sourceId || !targetId || sourceId === targetId) {
-      return
-    }
-
-    setSectionOrder((current) => {
-      const sourceIndex = current.indexOf(sourceId)
-      const targetIndex = current.indexOf(targetId)
-      if (sourceIndex < 0 || targetIndex < 0) {
-        return current
-      }
-
-      const next = [...current]
-      const [moved] = next.splice(sourceIndex, 1)
-      next.splice(targetIndex, 0, moved)
-      return next
-    })
-  }
 
   function renderSection(sectionId: string) {
     if (sectionId === 'kpi') {
@@ -586,6 +464,14 @@ export default function SuperadminPage() {
 
             <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3">
               <p className="text-xs uppercase tracking-wide text-rose-900/70">Plattform Version</p>
+              {(() => {
+                const resolvedCommit =
+                  (backendVersion?.gitCommit || rootVersion.gitCommit || '').trim() || '-'
+                const shortCommit =
+                  resolvedCommit === '-' ? '-' : resolvedCommit.slice(0, 7)
+                const resolvedBuildTime = backendVersion?.buildTime || rootVersion.buildTime
+
+                return (
               <div className="mt-2 grid gap-2 text-sm text-slate-800 sm:grid-cols-2">
                 <p>
                   Plattform: <span className="font-semibold">{backendVersion?.version || rootVersion.version}</span>
@@ -599,13 +485,18 @@ export default function SuperadminPage() {
                 <p>
                   Buildnummer: <span className="font-semibold">{backendVersion?.buildNumber ?? rootVersion.buildNumber}</span>
                 </p>
+                <p>
+                  Commit: <span className="font-semibold">{shortCommit}</span>
+                </p>
                 <p className="sm:col-span-2">
-                  Build-Datum: <span className="font-semibold">{backendVersion?.buildTime ? new Date(backendVersion.buildTime).toLocaleString('de-DE') : rootVersion.buildTime ? new Date(rootVersion.buildTime).toLocaleString('de-DE') : '-'}</span>
+                  Build-Datum: <span className="font-semibold">{resolvedBuildTime ? new Date(resolvedBuildTime).toLocaleString('de-DE') : '-'}</span>
                 </p>
                 <p className="sm:col-span-2">
                   Backend gestartet: <span className="font-semibold">{backendHealth?.startedAt ? new Date(backendHealth.startedAt).toLocaleString('de-DE') : '-'}</span>
                 </p>
               </div>
+                )
+              })()}
             </div>
           </article>
 
@@ -705,86 +596,18 @@ export default function SuperadminPage() {
       ) : (
         <div className="grid gap-6">
           <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="text-sm text-rose-900/80">
-                Letztes Update:{' '}
-                <span className="font-semibold text-[var(--brand-ink)]">
-                  {lastUpdatedAt ? lastUpdatedAt.toLocaleString('de-DE') : '-'}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <label className="flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-xs font-medium text-rose-900/85">
-                  <input
-                    type="checkbox"
-                    checked={autoRefreshEnabled}
-                    onChange={(event) => setAutoRefreshEnabled(event.target.checked)}
-                  />
-                  Auto-Refresh (45s)
-                </label>
-                <button
-                  type="button"
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:opacity-60"
-                  onClick={triggerRefresh}
-                  disabled={isRefreshing}
-                >
-                  {isRefreshing ? 'Aktualisiere...' : 'Jetzt aktualisieren'}
-                </button>
-              </div>
+            <div className="text-sm text-rose-900/80">
+              Letztes Update:{' '}
+              <span className="font-semibold text-[var(--brand-ink)]">
+                {lastUpdatedAt ? lastUpdatedAt.toLocaleString('de-DE') : '-'}
+              </span>
             </div>
           </section>
-
-          <p className="text-xs uppercase tracking-wide text-rose-900/70">
-            Dashboard per Drag and Drop anpassen
-          </p>
-          <section className="rounded-3xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <p className="text-xs uppercase tracking-wide text-rose-900/70">Widgets ein-/ausblenden</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {sectionMeta.map((section) => {
-                const checked = visibleSectionIds.includes(section.id)
-                return (
-                  <label
-                    key={section.id}
-                    className={`flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs transition ${
-                      checked
-                        ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                        : 'border-[var(--brand-border)] bg-rose-50/60 text-rose-900/80'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(event) => toggleSectionVisibility(section.id, event.target.checked)}
-                    />
-                    {section.label}
-                  </label>
-                )
-              })}
-            </div>
-          </section>
-
-          {sectionOrder.map((sectionId) =>
-            visibleSectionIds.includes(sectionId) ? (
-            <section
-              key={sectionId}
-              draggable
-              onDragStart={() => setDraggingSection(sectionId)}
-              onDragEnd={() => setDraggingSection(null)}
-              onDragOver={(event) => event.preventDefault()}
-              onDrop={() => {
-                if (!draggingSection) return
-                moveSection(draggingSection, sectionId)
-                setDraggingSection(null)
-              }}
-              className={`rounded-3xl border-2 border-dashed bg-transparent p-1 transition ${
-                draggingSection === sectionId
-                  ? 'border-orange-300'
-                  : 'border-transparent hover:border-[var(--brand-border)]'
-              }`}
-            >
+          {sectionOrder.map((sectionId) => (
+            <section key={sectionId} className="rounded-3xl border border-transparent bg-transparent p-1">
               {renderSection(sectionId)}
             </section>
-            ) : null
-          )}
+          ))}
         </div>
       )}
     </BackofficeLayout>
