@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/klarando_api.dart';
 
+String _formatCurrency(double value) {
+  final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
+  return '$normalized €';
+}
+
 class OrdersPage extends StatelessWidget {
   const OrdersPage({
     required this.hasCartItems,
@@ -142,7 +147,7 @@ class _OrderCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        '#${_displayOrderNumber(order)} | ${order.total.toStringAsFixed(2)} EUR',
+                        '#${_displayOrderNumber(order)} | ${_formatCurrency(order.total)}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFF52525B),

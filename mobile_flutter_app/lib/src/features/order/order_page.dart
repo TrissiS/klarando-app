@@ -5,6 +5,11 @@ import 'package:flutter/material.dart';
 
 import '../../core/klarando_api.dart';
 
+String _formatCurrency(double value) {
+  final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
+  return '$normalized €';
+}
+
 class OrderPage extends StatefulWidget {
   const OrderPage({
     required this.tenant,
@@ -556,6 +561,7 @@ class _ProductImage extends StatelessWidget {
         child: _RemoteOrAssetImage(
           imageUrl: imageUrl,
           fit: BoxFit.cover,
+          showLogoFallback: false,
         ),
       ),
     );
@@ -566,16 +572,43 @@ class _RemoteOrAssetImage extends StatelessWidget {
   const _RemoteOrAssetImage({
     required this.imageUrl,
     this.fit = BoxFit.contain,
+    this.showLogoFallback = true,
   });
 
   final String? imageUrl;
   final BoxFit fit;
+  final bool showLogoFallback;
+
+  Widget _buildNeutralPlaceholder() {
+    return Container(
+      color: const Color(0xFFF3F4F6),
+      alignment: Alignment.center,
+      child: const Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.image_not_supported_outlined, color: Color(0xFF9CA3AF), size: 20),
+          SizedBox(height: 4),
+          Text(
+            'Kein Bild vorhanden',
+            style: TextStyle(fontSize: 10, color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFallback() {
+    if (showLogoFallback) {
+      return Image.asset('assets/klarando_icon.png', fit: fit);
+    }
+    return _buildNeutralPlaceholder();
+  }
 
   @override
   Widget build(BuildContext context) {
     final normalizedUrl = (imageUrl ?? '').trim();
     if (normalizedUrl.isEmpty) {
-      return Image.asset('assets/klarando_icon.png', fit: fit);
+      return _buildFallback();
     }
 
     final inlineImage = _decodeInlineImageData(normalizedUrl);
@@ -583,14 +616,14 @@ class _RemoteOrAssetImage extends StatelessWidget {
       return Image.memory(
         inlineImage,
         fit: fit,
-        errorBuilder: (_, __, ___) => Image.asset('assets/klarando_icon.png', fit: fit),
+        errorBuilder: (_, __, ___) => _buildFallback(),
       );
     }
 
     return Image.network(
       normalizedUrl,
       fit: fit,
-      errorBuilder: (_, __, ___) => Image.asset('assets/klarando_icon.png', fit: fit),
+      errorBuilder: (_, __, ___) => _buildFallback(),
     );
   }
 }
@@ -1118,9 +1151,9 @@ String _formatNutrientValue(double value) {
 }
 
 String _priceLabel(TenantCatalogProduct product) {
-  var base = '${product.price.toStringAsFixed(2)} EUR';
+  var base = _formatCurrency(product.price);
   if (product.depositAmount > 0) {
-    base = '$base (inkl. ${product.depositAmount.toStringAsFixed(2)} EUR Pfand)';
+    base = '$base (inkl. ${_formatCurrency(product.depositAmount)} Pfand)';
   }
   final containerLabel = _beverageContainerLabel(product);
   if (containerLabel != null) {
@@ -1265,8 +1298,8 @@ class _ModifierSelectionDialogState extends State<_ModifierSelectionDialog> {
                         title: Text(modifier.name),
                         subtitle: Text(
                           modifier.priceDelta >= 0
-                              ? '+ ${modifier.priceDelta.toStringAsFixed(2)} EUR'
-                              : '- ${modifier.priceDelta.abs().toStringAsFixed(2)} EUR',
+                              ? '+ ${_formatCurrency(modifier.priceDelta)}'
+                              : '- ${_formatCurrency(modifier.priceDelta.abs())}',
                         ),
                         onChanged: (value) {
                           setState(() {

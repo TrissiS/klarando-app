@@ -6,6 +6,27 @@ import 'package:flutter/material.dart';
 
 import '../../core/klarando_api.dart';
 
+double? _parseMoneyValue(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final normalized = raw.replaceAll(',', '.');
+  final match = RegExp(r'-?\d+(?:\.\d+)?').firstMatch(normalized);
+  if (match == null) return null;
+  return double.tryParse(match.group(0) ?? '');
+}
+
+String _formatCurrency(double value) {
+  final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
+  return '$normalized €';
+}
+
+String _formatMoneyLabel(String? raw) {
+  final parsed = _parseMoneyValue(raw);
+  if (parsed == null) {
+    return raw?.trim() ?? '';
+  }
+  return _formatCurrency(parsed);
+}
+
 class TenantRatingInfo {
   const TenantRatingInfo({
     required this.average,
@@ -712,13 +733,13 @@ class _TenantCard extends StatelessWidget {
                           _MetaLine(
                             icon: Icons.shopping_bag_outlined,
                             text:
-                                '${_t(languageCode, 'min_order')}: ${item.minOrderValue}',
+                                '${_t(languageCode, 'min_order')}: ${_formatMoneyLabel(item.minOrderValue)}',
                           ),
                         if (item.deliveryFeeNote != null)
                           _MetaLine(
                             icon: Icons.local_shipping_outlined,
                             text:
-                                '${_t(languageCode, 'delivery_fee')}: ${item.deliveryFeeNote}',
+                                '${_t(languageCode, 'delivery_fee')}: ${_formatMoneyLabel(item.deliveryFeeNote)}',
                           ),
                         const SizedBox(height: 10),
                         SizedBox(

@@ -2548,7 +2548,7 @@ class _HomeShellState extends State<HomeShell> {
           selectedModifiers.fold<double>(0, (sum, entry) => sum + entry.priceDelta);
       if ((unitPriceNow - item.price).abs() >= 0.01) {
         repricedItems.add(
-          '${product.name}: ${item.price.toStringAsFixed(2)} -> ${unitPriceNow.toStringAsFixed(2)} EUR',
+          '${product.name}: ${_formatCurrency(item.price)} -> ${_formatCurrency(unitPriceNow)}',
         );
       }
 
@@ -4230,7 +4230,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Gesamt: ${order.total.toStringAsFixed(2)} EUR'),
+                Text('Gesamt: ${_formatCurrency(order.total)}'),
                 const SizedBox(height: 4),
                 Text('Status: ${_statusLabel(order.status)}'),
                 const SizedBox(height: 4),
@@ -4324,6 +4324,11 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
   bool _followDriver = true;
   bool _mapLoadFailed = false;
   int _mapRefreshSeed = 0;
+
+  String _formatCurrency(double value) {
+    final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
+    return '$normalized €';
+  }
 
   @override
   void initState() {
@@ -4505,7 +4510,7 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
               ),
               const SizedBox(height: 6),
               Text(
-                'Status: ${_statusLabel(order.status)} | Gesamt: ${order.total.toStringAsFixed(2)} EUR',
+                'Status: ${_statusLabel(order.status)} | Gesamt: ${_formatCurrency(order.total)}',
                 style: const TextStyle(color: Color(0xFF52525B)),
               ),
               const SizedBox(height: 6),
@@ -4640,7 +4645,7 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
                           ),
                         ),
                         const SizedBox(width: 8),
-                        Text('${item.price.toStringAsFixed(2)} EUR'),
+                        Text(_formatCurrency(item.price)),
                       ],
                     );
                   },

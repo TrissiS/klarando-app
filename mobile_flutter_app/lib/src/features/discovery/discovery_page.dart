@@ -2,6 +2,27 @@ import 'package:flutter/material.dart';
 
 import '../../core/klarando_api.dart';
 
+double? _parseMoneyValue(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final normalized = raw.replaceAll(',', '.');
+  final match = RegExp(r'-?\d+(?:\.\d+)?').firstMatch(normalized);
+  if (match == null) return null;
+  return double.tryParse(match.group(0) ?? '');
+}
+
+String _formatCurrency(double value) {
+  final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
+  return '$normalized €';
+}
+
+String _formatMoneyLabel(String? raw) {
+  final parsed = _parseMoneyValue(raw);
+  if (parsed == null) {
+    return raw?.trim() ?? '';
+  }
+  return _formatCurrency(parsed);
+}
+
 class DiscoveryPage extends StatefulWidget {
   const DiscoveryPage({
     required this.baseUrl,
@@ -204,9 +225,9 @@ class _DiscoveryPageState extends State<DiscoveryPage> {
                       if (item.minOrderValue != null || item.deliveryFeeNote != null) ...[
                         const SizedBox(height: 8),
                         if (item.minOrderValue != null)
-                          Text('Mindestbestellwert: ${item.minOrderValue}'),
+                          Text('Mindestbestellwert: ${_formatMoneyLabel(item.minOrderValue)}'),
                         if (item.deliveryFeeNote != null)
-                          Text('Liefergebühr: ${item.deliveryFeeNote}'),
+                          Text('Liefergebühr: ${_formatMoneyLabel(item.deliveryFeeNote)}'),
                       ],
                       if (item.distanceKm != null) ...[
                         const SizedBox(height: 8),
