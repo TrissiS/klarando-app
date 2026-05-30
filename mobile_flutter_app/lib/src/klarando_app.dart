@@ -30,6 +30,7 @@ const _prefsKeyAppAuthToken = 'klarando_app_auth_token';
 const _prefsKeyAppCustomer = 'klarando_app_customer';
 const _prefsKeyUserLatitude = 'klarando_user_latitude';
 const _prefsKeyUserLongitude = 'klarando_user_longitude';
+const _prefsKeyLocationPromptCompleted = 'klarando_location_prompt_completed';
 const _googleServerClientId =
     '198427463115-m6u039q4ive21u9gjrg9v61hk4nqkejn.apps.googleusercontent.com';
 const _googleServicesConfigured = bool.fromEnvironment(
@@ -83,6 +84,7 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
   String _baseUrl = _defaultBaseUrl();
   String? _appAuthToken;
   AppCustomerUser? _appCustomer;
+  bool _locationPromptCompleted = false;
 
   @override
   void initState() {
@@ -101,11 +103,72 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
       _userZipCode = prefs.getString(_prefsKeyUserZipCode);
       _userLatitude = prefs.getDouble(_prefsKeyUserLatitude);
       _userLongitude = prefs.getDouble(_prefsKeyUserLongitude);
+      _locationPromptCompleted = prefs.getBool(_prefsKeyLocationPromptCompleted) ?? false;
       _languageCode = _normalizedLanguageCode(prefs.getString(_prefsKeyLanguageCode));
       _baseUrl = _normalizedBaseUrl(defaultApiBaseUrl);
       _loading = false;
     });
     await _restoreAppAuth();
+    await _maybePromptForStartupLocation();
+  }
+
+  Future<void> _maybePromptForStartupLocation() async {
+    if (!mounted || !_legalAccepted || _locationPromptCompleted) {
+      return;
+    }
+    _locationPromptCompleted = true;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_prefsKeyLocationPromptCompleted, true);
+    if (!mounted) {
+      return;
+    }
+    final allow = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Standort verwenden?'),
+        content: const Text(
+          'Darf Klarando deinen Standort verwenden, um passende Betriebe und Liefergebiete anzuzeigen?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Nicht jetzt'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Erlauben'),
+          ),
+        ],
+      ),
+    );
+    if (allow != true || !mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Standort wurde nicht freigegeben. Du kannst PLZ/Straße manuell eingeben.',
+          ),
+        ),
+      );
+      return;
+    }
+    try {
+      final location = await fetchCurrentLocation();
+      await _saveLocationCoordinates(location.latitude, location.longitude);
+      final zip = (location.postalCode ?? '').trim();
+      final address = (location.addressLine ?? '').trim();
+      if (_isValidZipCode(zip) && address.isNotEmpty) {
+        await _saveAddressData(address, zip);
+      }
+    } on CurrentLocationException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      final lower = error.message.toLowerCase();
+      final message = lower.contains('einstellungen') || lower.contains('denied')
+          ? 'Standortberechtigung kann in den Systemeinstellungen aktiviert werden.'
+          : error.message;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
   }
 
   Future<void> _restoreAppAuth() async {
@@ -3598,7 +3661,6 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   final TextEditingController _secondaryAddressController = TextEditingController();
   final TextEditingController _secondaryZipController = TextEditingController();
   final TextEditingController _secondaryCityController = TextEditingController();
-  bool _useSecondaryAddress = false;
 
   int get _itemsCount => _lines.fold<int>(0, (sum, line) => sum + line.quantity);
 
@@ -3663,15 +3725,9 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       return true;
     }
 
-    final address = _useSecondaryAddress
-        ? _secondaryAddressController.text.trim()
-        : _deliveryAddressController.text.trim();
-    final zipCode = _useSecondaryAddress
-        ? _secondaryZipController.text.trim()
-        : _deliveryZipController.text.trim();
-    final city = _useSecondaryAddress
-        ? _secondaryCityController.text.trim()
-        : _deliveryCityController.text.trim();
+    final address = _deliveryAddressController.text.trim();
+    final zipCode = _deliveryZipController.text.trim();
+    final city = _deliveryCityController.text.trim();
 
     return _isCompleteDeliveryAddress(address: address, zipCode: zipCode, city: city);
   }
@@ -3722,19 +3778,13 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
             ? null
             : _customerPhoneController.text.trim(),
         deliveryAddress: _serviceType == _CheckoutServiceType.delivery
-            ? (_useSecondaryAddress
-                ? _secondaryAddressController.text.trim()
-                : _deliveryAddressController.text.trim())
+            ? _deliveryAddressController.text.trim()
             : null,
         deliveryZipCode: _serviceType == _CheckoutServiceType.delivery
-            ? (_useSecondaryAddress
-                ? _secondaryZipController.text.trim()
-                : _deliveryZipController.text.trim())
+            ? _deliveryZipController.text.trim()
             : null,
         deliveryCity: _serviceType == _CheckoutServiceType.delivery
-            ? (_useSecondaryAddress
-                ? _secondaryCityController.text.trim()
-                : _deliveryCityController.text.trim())
+            ? _deliveryCityController.text.trim()
             : null,
       );
       if (!mounted) {
@@ -3750,6 +3800,14 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       }
       setState(() {
         _errorMessage = error.message;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _errorMessage =
+            'Bestellung konnte nicht gesendet werden. Bitte prüfe deine Angaben und versuche es erneut.';
       });
     } finally {
       if (mounted) {
@@ -4049,67 +4107,6 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    SwitchListTile.adaptive(
-                      contentPadding: EdgeInsets.zero,
-                      value: _useSecondaryAddress,
-                      onChanged: (value) {
-                        setState(() {
-                          _useSecondaryAddress = value;
-                        });
-                      },
-                      title: const Text('Einmalige Zweitadresse für diese Bestellung'),
-                      subtitle: const Text(
-                        'Nutze diese Option, wenn du heute an eine andere Adresse liefern lassen möchtest.',
-                      ),
-                    ),
-                    if (_useSecondaryAddress) ...[
-                      const SizedBox(height: 6),
-                      TextField(
-                        controller: _secondaryAddressController,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(
-                          labelText: 'Zweitadresse: Straße und Hausnummer',
-                          hintText: 'z. B. Nebenweg 7',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: TextField(
-                              controller: _secondaryZipController,
-                              onChanged: (_) => setState(() {}),
-                              keyboardType: TextInputType.number,
-                              decoration: const InputDecoration(
-                                labelText: 'Zweitadresse: PLZ',
-                                hintText: '5-stellig',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            flex: 3,
-                            child: TextField(
-                              controller: _secondaryCityController,
-                              onChanged: (_) => setState(() {}),
-                              decoration: const InputDecoration(
-                                labelText: 'Zweitadresse: Ort',
-                                hintText: 'z. B. Siegen',
-                                border: OutlineInputBorder(),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      const Text(
-                        'Die Zweitadresse gilt nur für diese eine Bestellung und wird nicht dauerhaft gespeichert.',
-                        style: TextStyle(fontSize: 12, color: Colors.black54),
-                      ),
-                    ],
                     if (!_deliveryAddressReady) ...[
                       const SizedBox(height: 8),
                       const Text(
@@ -4119,9 +4116,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                     ] else ...[
                       const SizedBox(height: 8),
                       Text(
-                        _useSecondaryAddress
-                            ? 'Aktive Lieferadresse: ${_secondaryAddressController.text.trim()}, ${_secondaryZipController.text.trim()} ${_secondaryCityController.text.trim()}'
-                            : 'Standardlieferadresse: ${_deliveryAddressController.text.trim()}, ${_deliveryZipController.text.trim()} ${_deliveryCityController.text.trim()}',
+                        'Lieferadresse: ${_deliveryAddressController.text.trim()}, ${_deliveryZipController.text.trim()} ${_deliveryCityController.text.trim()}',
                         style: const TextStyle(fontSize: 12, color: Color(0xFF52525B)),
                       ),
                     ],
@@ -4295,7 +4290,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
               ? 'Bestellung wird gesendet...'
               : belowMinOrder
               ? 'Mindestbestellwert nicht erreicht'
-              : 'Bestellung senden',
+              : 'Zahlungspflichtig bestellen',
         ),
       );
     }
