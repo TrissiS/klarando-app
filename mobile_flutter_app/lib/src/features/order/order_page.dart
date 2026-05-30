@@ -549,6 +549,7 @@ class _ProductCard extends StatelessWidget {
           children: [
             Expanded(
               child: Column(
+                mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildProductName(product.name),
@@ -646,7 +647,10 @@ class _ProductCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 10),
-            _ProductImage(imageUrl: product.imageUrl),
+            _ProductImage(
+              imageUrl: product.imageUrl,
+              isBeverage: product.isBeverage,
+            ),
           ],
         ),
       ),
@@ -657,17 +661,19 @@ class _ProductCard extends StatelessWidget {
 class _ProductImage extends StatelessWidget {
   const _ProductImage({
     required this.imageUrl,
+    required this.isBeverage,
   });
 
   final String? imageUrl;
+  final bool isBeverage;
 
   @override
   Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: SizedBox(
-        width: 96,
-        height: 96,
+        width: isBeverage ? 112 : 96,
+        height: isBeverage ? 112 : 96,
         child: _RemoteOrAssetImage(
           imageUrl: imageUrl,
           fit: BoxFit.cover,
@@ -1261,17 +1267,22 @@ String _formatNutrientValue(double value) {
 }
 
 String _priceLabel(TenantCatalogProduct product) {
-  var base = _formatCurrency(product.price);
+  final basePrice = _formatCurrency(product.price);
+  var base = basePrice;
   if (product.depositAmount > 0) {
-    base = '$base (inkl. ${_formatCurrency(product.depositAmount)} Pfand)';
-  }
-  final literPrice = _literPriceLabel(product);
-  if (literPrice != null) {
-    base = '$base • $literPrice';
+    base = '$basePrice zzgl. ${_formatCurrency(product.depositAmount)} Pfand';
   }
   final containerLabel = _beverageContainerLabel(product);
-  if (containerLabel != null) {
-    return '$base • $containerLabel';
+  final literPrice = _literPriceLabel(product);
+  if (containerLabel != null || literPrice != null) {
+    final details = <String>[];
+    if (containerLabel != null) {
+      details.add(containerLabel.replaceAll('(', '').replaceAll(')', ''));
+    }
+    if (literPrice != null) {
+      details.add(literPrice);
+    }
+    return '$base · (${details.join(', ')})';
   }
   return base;
 }

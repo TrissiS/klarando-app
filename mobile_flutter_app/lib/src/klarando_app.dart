@@ -1510,7 +1510,7 @@ class _HomeShellState extends State<HomeShell> {
       child: Text(
         reached
             ? '✓ Mindestbestellwert erreicht'
-            : 'Es fehlen noch ${_formatCurrency(remaining)} bis zum Mindestbestellwert.',
+            : 'Noch ${_formatCurrency(remaining)} bis Mindestbestellwert',
         style: TextStyle(
           color: reached ? const Color(0xFF065F46) : const Color(0xFF92400E),
           fontWeight: FontWeight.w700,
@@ -3146,31 +3146,49 @@ class _HomeShellState extends State<HomeShell> {
                       ),
               ),
             ),
-          NavigationBar(
-            selectedIndex: _currentIndex,
-            onDestinationSelected: _setCurrentIndex,
-            destinations: [
-              NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: labels.start,
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.restaurant_menu_outlined),
-                selectedIcon: Icon(Icons.restaurant_menu),
-                label: labels.order,
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.receipt_long_outlined),
-                selectedIcon: Icon(Icons.receipt_long),
-                label: labels.orders,
-              ),
-              NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                selectedIcon: Icon(Icons.person),
-                label: labels.profile,
-              ),
-            ],
+          NavigationBarTheme(
+            data: NavigationBarThemeData(
+              indicatorColor: const Color(0xFFFFE0D1),
+              labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                final selected = states.contains(WidgetState.selected);
+                return TextStyle(
+                  fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                  color: selected ? const Color(0xFFD9480F) : const Color(0xFF6B7280),
+                );
+              }),
+              iconTheme: WidgetStateProperty.resolveWith((states) {
+                final selected = states.contains(WidgetState.selected);
+                return IconThemeData(
+                  color: selected ? const Color(0xFFD9480F) : const Color(0xFF6B7280),
+                );
+              }),
+            ),
+            child: NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: _setCurrentIndex,
+              destinations: [
+                NavigationDestination(
+                  icon: Icon(Icons.home_outlined),
+                  selectedIcon: Icon(Icons.home),
+                  label: labels.start,
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.restaurant_menu_outlined),
+                  selectedIcon: Icon(Icons.restaurant_menu),
+                  label: labels.order,
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.receipt_long_outlined),
+                  selectedIcon: Icon(Icons.receipt_long),
+                  label: labels.orders,
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  selectedIcon: Icon(Icons.person),
+                  label: labels.profile,
+                ),
+              ],
+            ),
           ),
         ],
       ),
