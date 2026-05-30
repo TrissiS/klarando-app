@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
@@ -111,7 +112,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   Timer? _pollTimer;
   Timer? _uiTicker;
-  VideoPlayerController? _newOrderAudioController;
+  AudioPlayer? _newOrderAudioPlayer;
   bool _newOrderAudioPlaying = false;
   bool _loading = false;
   bool _connected = false;
@@ -470,39 +471,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     _newOrderAudioPlaying = true;
     try {
-      if (_newOrderAudioController == null) {
-        final createdController = VideoPlayerController.asset(
-          _orderDeskNewOrderAudioAsset,
-        );
-        _newOrderAudioController = createdController;
-        await createdController.initialize();
-        await createdController.setLooping(false);
-        createdController.addListener(() {
-          if (!createdController.value.isPlaying) {
-            _newOrderAudioPlaying = false;
-          }
+      if (_newOrderAudioPlayer == null) {
+        final player = AudioPlayer();
+        _newOrderAudioPlayer = player;
+        player.onPlayerComplete.listen((_) {
+          _newOrderAudioPlaying = false;
         });
       }
-      final controller = _newOrderAudioController;
-      if (controller == null) {
+      final player = _newOrderAudioPlayer;
+      if (player == null) {
         _newOrderAudioPlaying = false;
         return;
       }
-      await controller.seekTo(Duration.zero);
-      await controller.play();
+      await player.stop();
+      await player.play(AssetSource('audio/orderdesk_new_order.mp3'));
     } catch (_) {
       _newOrderAudioPlaying = false;
     }
   }
 
   Future<void> _disposeNewOrderAudioController() async {
-    final controller = _newOrderAudioController;
-    _newOrderAudioController = null;
-    if (controller == null) {
+    final player = _newOrderAudioPlayer;
+    _newOrderAudioPlayer = null;
+    if (player == null) {
       return;
     }
     try {
-      await controller.dispose();
+      await player.dispose();
     } catch (_) {
       // Ignore dispose errors to keep app shutdown stable.
     }
