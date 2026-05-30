@@ -37,7 +37,13 @@ export function resolveTenantId(explicitTenantId?: string | null) {
     try {
       const sessionRaw = window.localStorage.getItem('sessionUser')
       if (sessionRaw) {
-        const parsed = JSON.parse(sessionRaw) as { tenantId?: string | null }
+        const parsed = JSON.parse(sessionRaw) as {
+          tenantId?: string | null
+          activeTenantId?: string | null
+        }
+        if (typeof parsed.activeTenantId === 'string' && parsed.activeTenantId.trim().length > 0) {
+          return parsed.activeTenantId.trim()
+        }
         if (typeof parsed.tenantId === 'string' && parsed.tenantId.trim().length > 0) {
           return parsed.tenantId.trim()
         }
@@ -53,7 +59,16 @@ export function resolveTenantId(explicitTenantId?: string | null) {
         if (payload) {
           const normalized = payload.replace(/-/g, '+').replace(/_/g, '/')
           const json = atob(normalized)
-          const decoded = JSON.parse(json) as { tenantId?: string | null }
+          const decoded = JSON.parse(json) as {
+            tenantId?: string | null
+            activeTenantId?: string | null
+          }
+          if (
+            typeof decoded.activeTenantId === 'string' &&
+            decoded.activeTenantId.trim().length > 0
+          ) {
+            return decoded.activeTenantId.trim()
+          }
           if (typeof decoded.tenantId === 'string' && decoded.tenantId.trim().length > 0) {
             return decoded.tenantId.trim()
           }

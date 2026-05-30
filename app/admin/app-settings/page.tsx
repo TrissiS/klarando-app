@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import AppSettingsFields from '@/app/Components/admin/AppSettingsFields'
-import { getBusinessSettings, updateBusinessSettings, type BusinessSettings } from '@/lib/api'
+import {
+  getBusinessSettings,
+  getStoredTenantId,
+  updateBusinessSettings,
+  type BusinessSettings,
+} from '@/lib/api'
 
 function confirmDoubleSave() {
   const firstCheck = window.confirm('App-Einstellungen wirklich ändern?')
@@ -79,6 +84,12 @@ export default function AdminAppSettingsPage() {
     zoneId: string | null
   } | null>(null)
   const [isSuperadminView, setIsSuperadminView] = useState(false)
+  const [rehydrateMeta, setRehydrateMeta] = useState<{
+    tenantId: string | null
+    branchId: string | null
+    loadedPolygonLength: number
+    finalPolygonStateLength: number
+  } | null>(null)
 
   useEffect(() => {
     try {
@@ -98,8 +109,25 @@ export default function AdminAppSettingsPage() {
         setLoading(true)
         const loaded = await getBusinessSettings()
         const loadedPolygonPath = normalizePolygonPath(loaded?.deliveryArea?.polygonPath)
+        const tenantId = getStoredTenantId()
+        const branchId =
+          typeof window !== 'undefined'
+            ? (window.localStorage.getItem('branchId') || window.localStorage.getItem('activeBranchId'))
+            : null
         console.log('BUSINESS_SETTINGS_LOADED_DELIVERY_AREA', loaded?.deliveryArea)
         console.log('LOADED_POLYGON_PATH', loadedPolygonPath)
+        console.log('ADMIN_POLYGON_REHYDRATE_SOURCE', {
+          tenantId: tenantId || null,
+          branchId: branchId || null,
+          loadedPolygonLength: loadedPolygonPath.length,
+          finalPolygonStateLength: loadedPolygonPath.length,
+        })
+        setRehydrateMeta({
+          tenantId: tenantId || null,
+          branchId: branchId || null,
+          loadedPolygonLength: loadedPolygonPath.length,
+          finalPolygonStateLength: loadedPolygonPath.length,
+        })
         setSettings({
           ...loaded,
           deliveryArea: {
@@ -139,6 +167,15 @@ export default function AdminAppSettingsPage() {
                   ...previous.deliveryArea,
                   polygonPath: points,
                 },
+              }
+            : previous
+        )
+      } else {
+        setRehydrateMeta((previous) =>
+          previous
+            ? {
+                ...previous,
+                finalPolygonStateLength: points.length,
               }
             : previous
         )
@@ -242,6 +279,13 @@ export default function AdminAppSettingsPage() {
           Polygon gespeichert: {polygonDebug.saved ? 'ja' : 'nein'} · Punkte: {polygonDebug.points} ·
           API: {polygonDebug.responseStatus ?? '-'} · Zone-ID: {polygonDebug.zoneId ?? '-'} ·
           Tenant: {polygonDebug.tenantId ?? '-'}
+        </div>
+      ) : null}
+      {rehydrateMeta ? (
+        <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-700">
+          Rehydrate Tenant: {rehydrateMeta.tenantId ?? '-'} · Branch: {rehydrateMeta.branchId ?? '-'} ·
+          Loaded Punkte: {rehydrateMeta.loadedPolygonLength} · Final State Punkte:{' '}
+          {rehydrateMeta.finalPolygonStateLength}
         </div>
       ) : null}
 
