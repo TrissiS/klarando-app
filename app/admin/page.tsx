@@ -691,7 +691,7 @@ export default function AdminPage() {
                       {display.name} | {display.displayCode}
                     </span>
                     <a
-                      href={`/order-display/${display.displayCode}`}
+                      href={`/screen/${display.displayCode}`}
                       target="_blank"
                       rel="noreferrer"
                       className="rounded-md bg-slate-900 px-2 py-1 font-semibold text-white hover:bg-slate-800"

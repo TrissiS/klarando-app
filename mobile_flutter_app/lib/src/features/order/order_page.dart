@@ -444,7 +444,7 @@ class _ProductCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildProductName(product.name, disclosure.superscriptSuffix),
+                  _buildProductName(product.name),
                   if (ingredientPreview != null) ...[
                     const SizedBox(height: 4),
                     Text(
@@ -663,115 +663,89 @@ class _InfoRow extends StatelessWidget {
 class _DisclosureData {
   const _DisclosureData({
     required this.ingredientLines,
+    required this.containsAllergenCodes,
+    required this.containsAdditiveCodes,
     required this.allergenLegend,
     required this.additiveLegend,
-    required this.superscriptSuffix,
   });
 
-  final List<String> ingredientLines;
+  final List<_IngredientDisclosureLine> ingredientLines;
+  final List<String> containsAllergenCodes;
+  final List<String> containsAdditiveCodes;
   final Map<String, String> allergenLegend;
   final Map<String, String> additiveLegend;
-  final String superscriptSuffix;
 
   bool get hasDetails =>
-      ingredientLines.isNotEmpty || allergenLegend.isNotEmpty || additiveLegend.isNotEmpty;
+      ingredientLines.isNotEmpty ||
+      containsAllergenCodes.isNotEmpty ||
+      containsAdditiveCodes.isNotEmpty ||
+      allergenLegend.isNotEmpty ||
+      additiveLegend.isNotEmpty;
 }
 
 _DisclosureData _buildDisclosureData(TenantCatalogProduct product) {
-  final allergenValues = <String>{};
-  allergenValues.addAll(product.allergens.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty));
-  for (final ingredient in product.ingredients) {
-    allergenValues.addAll(
-      ingredient.allergens.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty),
-    );
-  }
-  final sortedAllergens = allergenValues.toList(growable: false)..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-  final allergenCodes = <String, String>{};
-  for (var i = 0; i < sortedAllergens.length; i += 1) {
-    allergenCodes[String.fromCharCode(65 + i)] = sortedAllergens[i];
-  }
+  final allergenLegend = <String, String>{};
+  final additiveLegend = <String, String>{};
 
-  final additiveValues = product.additives.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty).toList(growable: false);
-  final additiveCodes = <String, String>{};
-  for (var i = 0; i < additiveValues.length; i += 1) {
-    additiveCodes[(i + 1).toString()] = additiveValues[i];
-  }
-
-  String allergenCodesFor(Iterable<String> values) {
-    final normalized = values.map((entry) => entry.trim()).where((entry) => entry.isNotEmpty).toSet();
-    if (normalized.isEmpty) {
-      return '';
-    }
-    final result = <String>[];
-    for (final entry in allergenCodes.entries) {
-      if (normalized.contains(entry.value)) {
-        result.add(entry.key);
+  List<String> resolveAllergenCodes(Iterable<String> rawValues) {
+    final codes = <String>{};
+    for (final raw in rawValues) {
+      final resolved = _resolveAllergenDescriptor(raw);
+      if (resolved == null) {
+        continue;
       }
+      codes.add(resolved.code);
+      allergenLegend[resolved.code] = resolved.name;
     }
-    return result.join('');
+    final sorted = codes.toList(growable: false)..sort((a, b) => a.compareTo(b));
+    return sorted;
   }
 
-  final ingredientLines = product.ingredients
-      .map((entry) {
-        final suffix = allergenCodesFor(entry.allergens);
-        if (suffix.isEmpty) {
-          return entry.name;
-        }
-        return '${entry.name} $suffix';
-      })
-      .toList(growable: false);
+  List<String> resolveAdditiveCodes(Iterable<String> rawValues) {
+    final codes = <String>{};
+    for (final raw in rawValues) {
+      final resolved = _resolveAdditiveDescriptor(raw);
+      if (resolved == null) {
+        continue;
+      }
+      codes.add(resolved.code);
+      additiveLegend[resolved.code] = resolved.name;
+    }
+    final sorted = codes.toList(growable: false)
+      ..sort((a, b) => int.parse(a).compareTo(int.parse(b)));
+    return sorted;
+  }
 
-  final summaryParts = <String>[
-    ...allergenCodes.keys,
-    ...additiveCodes.keys,
-  ];
+  final ingredientLines = product.ingredients.map((entry) {
+    final allergenCodes = resolveAllergenCodes(entry.allergens);
+    return _IngredientDisclosureLine(
+      name: entry.name,
+      allergenCodes: allergenCodes,
+      additiveCodes: const [],
+    );
+  }).toList(growable: false);
+
+  final containsAllergenCodes = resolveAllergenCodes(product.allergens);
+  final containsAdditiveCodes = resolveAdditiveCodes(product.additives);
 
   return _DisclosureData(
     ingredientLines: ingredientLines,
-    allergenLegend: allergenCodes,
-    additiveLegend: additiveCodes,
-    superscriptSuffix: summaryParts.join(' '),
+    containsAllergenCodes: containsAllergenCodes,
+    containsAdditiveCodes: containsAdditiveCodes,
+    allergenLegend: allergenLegend,
+    additiveLegend: additiveLegend,
   );
 }
 
-Widget _buildProductName(String name, String suffix) {
-  if (suffix.trim().isEmpty) {
-    return Text(
-      name,
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
-      style: const TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w800,
-      ),
-    );
-  }
-  return RichText(
+Widget _buildProductName(String name) {
+  return Text(
+    name,
     maxLines: 2,
     overflow: TextOverflow.ellipsis,
-    text: TextSpan(
-      text: name,
-      style: const TextStyle(
-        fontSize: 16,
-        fontWeight: FontWeight.w800,
-        color: Color(0xFF111827),
-      ),
-      children: [
-        WidgetSpan(
-          alignment: PlaceholderAlignment.top,
-          child: Transform.translate(
-            offset: const Offset(2, -3),
-            child: Text(
-              suffix,
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF374151),
-              ),
-            ),
-          ),
-        ),
-      ],
+    style: const TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w800,
+      color: Color(0xFF111827),
     ),
   );
 }
@@ -779,15 +753,71 @@ Widget _buildProductName(String name, String suffix) {
 List<Widget> _buildDisclosureRows(_DisclosureData disclosure) {
   final rows = <Widget>[];
   for (final line in disclosure.ingredientLines) {
-    rows.add(_disclosureBullet(line));
+    rows.add(_disclosureIngredientBullet(line));
   }
-  for (final entry in disclosure.allergenLegend.entries) {
-    rows.add(_disclosureBullet('${entry.key} = ${entry.value}'));
+  if (disclosure.containsAllergenCodes.isNotEmpty) {
+    rows.add(
+      _disclosureBullet(
+        'Enthält: ${disclosure.containsAllergenCodes.join(', ')}',
+      ),
+    );
   }
-  for (final entry in disclosure.additiveLegend.entries) {
-    rows.add(_disclosureBullet('${entry.key} = ${entry.value}'));
+  if (disclosure.containsAdditiveCodes.isNotEmpty) {
+    rows.add(
+      _disclosureBullet(
+        'Zusatzstoffe: ${disclosure.containsAdditiveCodes.join(', ')}',
+      ),
+    );
+  }
+  final allergenLegendEntries = disclosure.allergenLegend.entries.toList(growable: false)
+    ..sort((a, b) => a.key.compareTo(b.key));
+  final additiveLegendEntries = disclosure.additiveLegend.entries.toList(growable: false)
+    ..sort((a, b) => int.parse(a.key).compareTo(int.parse(b.key)));
+
+  for (final entry in allergenLegendEntries) {
+    rows.add(_disclosureLegendBullet('${entry.key} = ${entry.value}'));
+  }
+  for (final entry in additiveLegendEntries) {
+    rows.add(_disclosureLegendBullet('${entry.key} = ${entry.value}'));
   }
   return rows;
+}
+
+Widget _disclosureIngredientBullet(_IngredientDisclosureLine line) {
+  final suffix = [...line.allergenCodes, ...line.additiveCodes].join('');
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.fiber_manual_record, size: 10, color: Color(0xFF9CA3AF)),
+        const SizedBox(width: 8),
+        Expanded(child: _buildSuperscriptText(line.name, suffix)),
+      ],
+    ),
+  );
+}
+
+Widget _disclosureLegendBullet(String label) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(width: 18),
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 Widget _disclosureBullet(String label) {
@@ -806,15 +836,169 @@ Widget _disclosureBullet(String label) {
 
 String? _ingredientPreview(TenantCatalogProduct product, _DisclosureData disclosure) {
   if (disclosure.ingredientLines.isNotEmpty) {
-    return disclosure.ingredientLines.join(', ');
+    return disclosure.ingredientLines.map((entry) => entry.name).join(', ');
   }
   if (product.ingredients.isEmpty) {
-    if (product.allergens.isEmpty) {
+    if (disclosure.containsAllergenCodes.isEmpty && disclosure.containsAdditiveCodes.isEmpty) {
       return null;
     }
-    return 'Allergene: ${product.allergens.join(', ')}';
+    final parts = <String>[];
+    if (disclosure.containsAllergenCodes.isNotEmpty) {
+      parts.add('Enthält: ${disclosure.containsAllergenCodes.join(', ')}');
+    }
+    if (disclosure.containsAdditiveCodes.isNotEmpty) {
+      parts.add('Zusatzstoffe: ${disclosure.containsAdditiveCodes.join(', ')}');
+    }
+    return parts.join(' • ');
   }
   return product.ingredients.map((entry) => entry.name).join(', ');
+}
+
+class _IngredientDisclosureLine {
+  const _IngredientDisclosureLine({
+    required this.name,
+    required this.allergenCodes,
+    required this.additiveCodes,
+  });
+
+  final String name;
+  final List<String> allergenCodes;
+  final List<String> additiveCodes;
+}
+
+class _AllergenDescriptor {
+  const _AllergenDescriptor(this.code, this.name);
+  final String code;
+  final String name;
+}
+
+class _AdditiveDescriptor {
+  const _AdditiveDescriptor(this.code, this.name);
+  final String code;
+  final String name;
+}
+
+Widget _buildSuperscriptText(String base, String suffix) {
+  if (suffix.trim().isEmpty) {
+    return Text(base, style: const TextStyle(fontSize: 12));
+  }
+  return RichText(
+    text: TextSpan(
+      text: base,
+      style: const TextStyle(fontSize: 12, color: Color(0xFF111827)),
+      children: [
+        WidgetSpan(
+          alignment: PlaceholderAlignment.top,
+          child: Transform.translate(
+            offset: const Offset(1, -3),
+            child: Text(
+              suffix,
+              style: const TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF374151),
+              ),
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+const Map<String, String> _allergenCodeNames = {
+  'A': 'Glutenhaltiges Getreide',
+  'B': 'Krebstiere',
+  'C': 'Eier',
+  'D': 'Fisch',
+  'E': 'Erdnüsse',
+  'F': 'Soja',
+  'G': 'Milch',
+  'H': 'Schalenfrüchte',
+  'I': 'Sellerie',
+  'J': 'Senf',
+  'K': 'Sesam',
+  'L': 'Schwefeldioxid und Sulfite',
+  'M': 'Lupinen',
+  'N': 'Weichtiere',
+};
+
+const Map<String, String> _additiveCodeNames = {
+  '1': 'Farbstoff',
+  '2': 'Konservierungsstoff',
+  '3': 'Antioxidationsmittel',
+  '4': 'Geschmacksverstärker',
+  '5': 'Geschwefelt',
+  '6': 'Geschwärzt',
+  '7': 'Gewachst',
+  '8': 'Phosphat',
+  '9': 'Süßungsmittel',
+  '10': 'Phenylalaninquelle',
+};
+
+_AllergenDescriptor? _resolveAllergenDescriptor(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) {
+    return null;
+  }
+  final letterOnly = RegExp(r'^[A-Na-n]$');
+  if (letterOnly.hasMatch(value)) {
+    final code = value.toUpperCase();
+    final name = _allergenCodeNames[code];
+    if (name == null) {
+      return null;
+    }
+    return _AllergenDescriptor(code, name);
+  }
+
+  final split = value.split(RegExp(r'[:=-]')).map((entry) => entry.trim()).where((entry) => entry.isNotEmpty).toList(growable: false);
+  if (split.length >= 2 && letterOnly.hasMatch(split.first)) {
+    final code = split.first.toUpperCase();
+    final fallbackName = _allergenCodeNames[code];
+    final name = split.sublist(1).join(' ');
+    if (name.isNotEmpty) {
+      return _AllergenDescriptor(code, name);
+    }
+    if (fallbackName != null) {
+      return _AllergenDescriptor(code, fallbackName);
+    }
+  }
+
+  final normalized = value.toLowerCase();
+  for (final entry in _allergenCodeNames.entries) {
+    if (normalized.contains(entry.value.toLowerCase())) {
+      return _AllergenDescriptor(entry.key, entry.value);
+    }
+  }
+  return null;
+}
+
+_AdditiveDescriptor? _resolveAdditiveDescriptor(String raw) {
+  final value = raw.trim();
+  if (value.isEmpty) {
+    return null;
+  }
+  final matchNumber = RegExp(r'^(\d{1,2})').firstMatch(value);
+  if (matchNumber != null) {
+    final code = matchNumber.group(1)!;
+    final fallbackName = _additiveCodeNames[code];
+    final namePart = value.replaceFirst(RegExp(r'^\d{1,2}\s*[:=-]?\s*'), '').trim();
+    if (namePart.isNotEmpty) {
+      return _AdditiveDescriptor(code, namePart);
+    }
+    if (fallbackName != null) {
+      return _AdditiveDescriptor(code, fallbackName);
+    }
+    return null;
+  }
+
+  final normalized = value.toLowerCase();
+  for (final entry in _additiveCodeNames.entries) {
+    if (normalized.contains(entry.value.toLowerCase())) {
+      return _AdditiveDescriptor(entry.key, entry.value);
+    }
+  }
+  return null;
 }
 
 bool _hasArticleDetails(TenantCatalogProduct product) {

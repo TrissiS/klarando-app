@@ -657,9 +657,21 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
     bindingsByDisplayId.set(binding.displayId, list)
   }
 
+  const screenDeviceCodeByTenantAndCode = new Map<string, string>()
+  for (const device of screenDevices) {
+    screenDeviceCodeByTenantAndCode.set(
+      `${device.tenantId}:${device.deviceCode.toUpperCase()}`,
+      device.deviceCode
+    )
+  }
+
   const rows: DisplayRecord[] = []
 
   for (const display of orderDisplays) {
+    const resolvedDeviceCode =
+      screenDeviceCodeByTenantAndCode.get(
+        `${display.tenantId}:${display.displayCode.toUpperCase()}`
+      ) ?? display.displayCode
     const bindings = bindingsByDisplayId.get(display.id) || []
     const latestBinding = bindings
       .slice()
@@ -718,7 +730,7 @@ async function loadDisplayOverviewRows(tenantIds: string[]) {
           }
         : null,
       status: computeDisplayStatus(display.isActive, lastSeenCandidate),
-      previewPath: `/order-display/${display.displayCode}`,
+      previewPath: `/screen/${resolvedDeviceCode}`,
       editablePath: '/admin/screen-studio',
       pairingSupported: true,
     })
@@ -1025,12 +1037,25 @@ router.get('/displays/:ref/preview', requirePermission(PermissionKey.SETTINGS_RE
       }
 
       await resolveTenantScope(req, display.tenantId)
+      const linkedScreenDevice = await prisma.screenDevice.findFirst({
+        where: {
+          tenantId: display.tenantId,
+          deviceCode: {
+            equals: display.displayCode,
+            mode: 'insensitive',
+          },
+        },
+        select: {
+          deviceCode: true,
+        },
+      })
+      const resolvedDeviceCode = linkedScreenDevice?.deviceCode ?? display.displayCode
 
       return res.json({
         id: `order:${display.id}`,
         sourceKind: 'ORDER_DISPLAY',
         displayType: mapOrderDisplayRoleToType(display.displayRole),
-        previewUrl: `/order-display/${display.displayCode}`,
+        previewUrl: `/screen/${resolvedDeviceCode}`,
         status: computeDisplayStatus(display.isActive, null),
         isActive: display.isActive,
         serverTime: new Date().toISOString(),
