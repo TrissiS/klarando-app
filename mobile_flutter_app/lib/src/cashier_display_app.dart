@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,6 +27,12 @@ const _prefsCashierDeviceAlias = 'klarando_cashier_device_alias';
 const _prefsCashierPrinterMode = 'klarando_cashier_printer_mode';
 const _prefsCashierPrinterHost = 'klarando_cashier_printer_host';
 const _prefsCashierPrinterPort = 'klarando_cashier_printer_port';
+const _secureCashierDeviceToken = 'klarando_cashier_secure_device_token';
+const _secureCashierBindingId = 'klarando_cashier_secure_binding_id';
+const _secureCashierDisplayCode = 'klarando_cashier_secure_display_code';
+const _secureCashierTenantName = 'klarando_cashier_secure_tenant_name';
+const _secureCashierAdmins = 'klarando_cashier_secure_admins';
+const _secureCashierChainadmins = 'klarando_cashier_secure_chainadmins';
 const _cashierCurrentVersionName = '1.0.0';
 const _cashierCurrentVersionCode = 1;
 const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
@@ -88,6 +95,7 @@ class _CashierDisplayHomePage extends StatefulWidget {
 class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   final _api = const KlarandoApi();
   final _appUpdateService = AppUpdateService();
+  final _secureStorage = const FlutterSecureStorage();
   final _baseUrlController = TextEditingController(
     text: defaultApiBaseUrl,
   );
@@ -192,9 +200,18 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   Future<void> _loadPrefs() async {
     final prefs = await SharedPreferences.getInstance();
     final baseUrl = prefs.getString(_prefsCashierBaseUrl);
-    final displayCode = prefs.getString(_prefsCashierDisplayCode);
-    final deviceToken = prefs.getString(_prefsCashierDeviceToken);
-    final bindingId = prefs.getString(_prefsCashierBindingId);
+    final displayCode =
+        await _secureRead(_secureCashierDisplayCode) ??
+        prefs.getString(_prefsCashierDisplayCode);
+    final deviceToken =
+        await _secureRead(_secureCashierDeviceToken) ??
+        prefs.getString(_prefsCashierDeviceToken);
+    final bindingId =
+        await _secureRead(_secureCashierBindingId) ??
+        prefs.getString(_prefsCashierBindingId);
+    final secureTenantName = await _secureRead(_secureCashierTenantName);
+    final secureAdmins = await _secureRead(_secureCashierAdmins);
+    final secureChainadmins = await _secureRead(_secureCashierChainadmins);
     final deviceSerial = prefs.getString(_prefsCashierDeviceSerial);
     final deviceAlias = prefs.getString(_prefsCashierDeviceAlias);
     final printerModeRaw = prefs.getString(_prefsCashierPrinterMode);
@@ -232,9 +249,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     _deviceAuthToken = deviceToken;
     _bindingId = bindingId;
     _bindingLocked = (deviceToken ?? '').trim().isNotEmpty;
+    _connectedTenantName = secureTenantName;
+    if (secureAdmins != null) {
+      final adminEmails = secureAdmins
+          .split(';')
+          .map((entry) => entry.trim())
+          .where((entry) => entry.isNotEmpty)
+          .toList(growable: false);
+      _connectedAdmins = adminEmails
+          .map((entry) => OrderDeskContactUser(name: entry, email: entry))
+          .toList(growable: false);
+    }
+    if (secureChainadmins != null) {
+      final chainadminEmails = secureChainadmins
+          .split(';')
+          .map((entry) => entry.trim())
+          .where((entry) => entry.isNotEmpty)
+          .toList(growable: false);
+      _connectedChainadmins = chainadminEmails
+          .map((entry) => OrderDeskContactUser(name: entry, email: entry))
+          .toList(growable: false);
+    }
     _printQueue.updateSettings(_buildPrinterSettings());
     if (mounted) {
       setState(() {});
+    }
+    if (_bindingLocked && _displayCodeController.text.trim().isNotEmpty) {
+      unawaited(_connect());
     }
   }
 
@@ -246,6 +287,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     );
     await prefs.setString(
       _prefsCashierDisplayCode,
+      _displayCodeController.text.trim(),
+    );
+    await _secureWrite(
+      _secureCashierDisplayCode,
       _displayCodeController.text.trim(),
     );
     await prefs.setString(
@@ -351,6 +396,22 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _error = null;
       }
     });
+  }
+
+  Future<void> _secureWrite(String key, String? value) async {
+    if (value == null || value.trim().isEmpty) {
+      await _secureStorage.delete(key: key);
+      return;
+    }
+    await _secureStorage.write(key: key, value: value);
+  }
+
+  Future<String?> _secureRead(String key) async {
+    final value = await _secureStorage.read(key: key);
+    if (value == null || value.trim().isEmpty) {
+      return null;
+    }
+    return value.trim();
   }
 
   void _handleOrderFeedSignals(List<PublicOrderSummary> orders) {
@@ -646,6 +707,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         baseUrl: _normalizeBaseUrl(_baseUrlController.text),
         authToken: token,
       );
+      await _secureWrite(_secureCashierTenantName, heartbeat.tenantName);
+      await _secureWrite(
+        _secureCashierAdmins,
+        heartbeat.admins.map((entry) => entry.email).join(';'),
+      );
+      await _secureWrite(
+        _secureCashierChainadmins,
+        heartbeat.chainadmins.map((entry) => entry.email).join(';'),
+      );
       if (!mounted) {
         return;
       }
@@ -673,6 +743,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_prefsCashierDeviceToken);
         await prefs.remove(_prefsCashierBindingId);
+        await _secureStorage.delete(key: _secureCashierDeviceToken);
+        await _secureStorage.delete(key: _secureCashierBindingId);
+        await _secureStorage.delete(key: _secureCashierDisplayCode);
+        await _secureStorage.delete(key: _secureCashierTenantName);
+        await _secureStorage.delete(key: _secureCashierAdmins);
+        await _secureStorage.delete(key: _secureCashierChainadmins);
         if (!mounted) {
           return;
         }
@@ -790,8 +866,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
   }
 
-  Future<void> _bindWithPairingToken() async {
-    final rawPairingInput = _pairingTokenController.text.trim();
+  Future<void> _bindWithPairingToken([String? scannedPairingPayload]) async {
+    final rawPairingInput =
+        (scannedPairingPayload ?? _pairingTokenController.text).trim();
     final deviceSerial = _deviceSerialController.text.trim().toUpperCase();
     if (rawPairingInput.isEmpty) {
       setState(() {
@@ -817,6 +894,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return;
     }
 
+    var bindingSuccessful = false;
     await _runOrderMutation(() async {
       final response = await _api.bindOrderDeskDevice(
         baseUrl: parsedPairing.apiBaseUrl,
@@ -836,6 +914,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       await prefs.setString(_prefsCashierDisplayCode, response.displayCode);
       await prefs.setString(_prefsCashierDeviceToken, response.authToken);
       await prefs.setString(_prefsCashierBindingId, response.binding.id);
+      await _secureWrite(_secureCashierDisplayCode, response.displayCode);
+      await _secureWrite(_secureCashierDeviceToken, response.authToken);
+      await _secureWrite(_secureCashierBindingId, response.binding.id);
       await prefs.setString(
         _prefsCashierDeviceSerial,
         response.binding.deviceSerial,
@@ -866,7 +947,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _info =
             'OrderDesk wurde mit ${response.displayCode} verbunden (${response.binding.deviceSerial}).';
       });
+      bindingSuccessful = true;
     });
+    if (bindingSuccessful) {
+      await _connect();
+    }
   }
 
   Future<void> _scanPairingTokenWithCamera() async {
@@ -891,9 +976,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     setState(() {
       _pairingTokenController.text = parsedPairing.rawPayload;
       _baseUrlController.text = parsedPairing.apiBaseUrl;
-      _info = 'QR-Code erkannt. Jetzt "Per QR verbinden" tippen.';
+      _info = 'QR-Code erkannt. Gerät wird verbunden...';
       _error = null;
     });
+    await _bindWithPairingToken(parsedPairing.rawPayload);
   }
 
   Future<void> _showConnectedAdminsDialog() async {
@@ -1074,6 +1160,81 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       driverLatitude: order.driverLocation?.latitude,
       driverLongitude: order.driverLocation?.longitude,
     );
+  }
+
+  Future<void> _showServiceActionsSheet() async {
+    if (!mounted) {
+      return;
+    }
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Servicebereich',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Nur für Support/Admin: Gerät zurücksetzen entfernt die OrderDesk-Bindung auf diesem Gerät.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF52525B)),
+                ),
+                const SizedBox(height: 12),
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _resetLocalBinding();
+                  },
+                  icon: const Icon(Icons.restart_alt),
+                  label: const Text('Gerät trennen / zurücksetzen'),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _resetLocalBinding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_prefsCashierDisplayCode);
+    await prefs.remove(_prefsCashierDeviceToken);
+    await prefs.remove(_prefsCashierBindingId);
+    await _secureStorage.delete(key: _secureCashierDeviceToken);
+    await _secureStorage.delete(key: _secureCashierBindingId);
+    await _secureStorage.delete(key: _secureCashierDisplayCode);
+    await _secureStorage.delete(key: _secureCashierTenantName);
+    await _secureStorage.delete(key: _secureCashierAdmins);
+    await _secureStorage.delete(key: _secureCashierChainadmins);
+
+    _pollTimer?.cancel();
+    _heartbeatTimer?.cancel();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _deviceAuthToken = null;
+      _bindingId = null;
+      _bindingLocked = false;
+      _connected = false;
+      _connectedTenantName = null;
+      _connectedAdmins = const [];
+      _connectedChainadmins = const [];
+      _displayCodeController.clear();
+      _pairingTokenController.clear();
+      _info = 'Gerät wurde zurückgesetzt. Bitte erneut per QR-Code verbinden.';
+      _error = null;
+      _feed = null;
+      _lastSuccessfulSyncAt = null;
+    });
   }
 
   String _buildOsmMapHtml(_DeliveryMapPayload payload) {
@@ -1517,6 +1678,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final statusText = _connectionStatusLabel(health);
     final statusColor = _connectionStatusColor(health);
     final isOperationalView = _bindingLocked && _connected;
+    final showOperationalActions = isOperationalView;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -1617,12 +1779,18 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ),
             ),
+          if (showOperationalActions)
+            IconButton(
+              tooltip: 'Aktualisieren',
+              onPressed: _loading
+                  ? null
+                  : () => _runOrderMutation(() => _pollFeed()),
+              icon: const Icon(Icons.refresh),
+            ),
           IconButton(
-            tooltip: 'Aktualisieren',
-            onPressed: _loading
-                ? null
-                : () => _runOrderMutation(() => _pollFeed()),
-            icon: const Icon(Icons.refresh),
+            tooltip: 'Servicebereich',
+            onPressed: _showServiceActionsSheet,
+            icon: const Icon(Icons.more_vert),
           ),
         ],
       ),
@@ -1682,7 +1850,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   child: Padding(
                     padding: EdgeInsets.all(14),
                     child: Text(
-                      'Gerät ist noch nicht verbunden. Bitte auf „Gerät verbinden“ tippen und den QR-Code aus dem Adminbereich scannen.',
+                      'Gerät ist nicht verbunden. Bitte QR-Code aus dem Adminbereich scannen.',
                     ),
                   ),
                 )
@@ -1700,63 +1868,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (_bindingLocked && !_connected) {
       return Card(
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Gerät verbinden',
-                style: TextStyle(fontWeight: FontWeight.w700),
+                'Gerät wird verbunden',
+                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
               ),
               const SizedBox(height: 8),
-              const Text(
-                'Dieses Gerät ist bereits gekoppelt. Verbindung wird jetzt aufgebaut.',
-              ),
+              const Text('Verbindung zum zugewiesenen Betrieb wird hergestellt...'),
               const SizedBox(height: 10),
               FilledButton.icon(
                 onPressed: _loading ? null : _connect,
-                icon: const Icon(Icons.link),
-                label: Text(_loading ? 'Bitte warten…' : 'Jetzt verbinden'),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (_bindingLocked) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Image.asset('assets/klarando_logo_wordmark.png', height: 24),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'OrderDesk verbunden',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'Verbunden mit Display ${_displayCodeController.text.trim()} auf S/N ${_deviceSerialController.text.trim()}',
-              ),
-              Text(
-                'Alias: ${_deviceAliasController.text.trim().isEmpty ? '-' : _deviceAliasController.text.trim()}',
-              ),
-              const SizedBox(height: 4),
-              const Text(
-                'Tipp: Doppelklick auf das Logo oben zeigt Admin/Kettenadmin-Kontakte.',
-                style: TextStyle(fontSize: 12),
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Gerät ist verbunden.',
-                style: TextStyle(fontWeight: FontWeight.w600),
+                icon: const Icon(Icons.refresh),
+                label: Text(_loading ? 'Bitte warten…' : 'Erneut versuchen'),
               ),
             ],
           ),
@@ -1766,84 +1892,32 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Verbindung & Drucker',
-              style: TextStyle(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _baseUrlController,
-              decoration: const InputDecoration(
-                labelText: 'Backend-URL',
-                hintText: 'http://192.168.1.10:4000',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _deviceSerialController,
-              textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(
-                labelText: 'Geräte-Seriennummer',
-                hintText: 'z.B. OD-8ZZM4A9K2P1Q',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _deviceAliasController,
-              decoration: const InputDecoration(
-                labelText: 'Geräte-Alias (optional)',
-                hintText: 'z.B. Kasse vorne 8 Zoll',
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _pairingTokenController,
-              decoration: const InputDecoration(
-                labelText: 'QR Pairing Token / Inhalt',
-                hintText: 'klarando-orderdesk-pair:DISPLAY:TOKEN',
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
               children: [
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _scanPairingTokenWithCamera,
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('QR scannen'),
-                ),
-                FilledButton.icon(
-                  onPressed: _loading ? null : _bindWithPairingToken,
-                  icon: const Icon(Icons.link),
-                  label: const Text('Gerät verbinden'),
+                Image.asset('assets/klarando_icon.png', width: 28, height: 28),
+                const SizedBox(width: 8),
+                const Text(
+                  'Klarando OrderDesk',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _displayCodeController,
-              readOnly: _bindingLocked,
-              decoration: const InputDecoration(
-                labelText: 'Display-Code',
-                hintText: 'Wird nach QR-Bindung gesetzt',
-              ),
+            const SizedBox(height: 8),
+            const Text('Gerät mit Betrieb verbinden'),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _loading ? null : _scanPairingTokenWithCamera,
+              icon: const Icon(Icons.qr_code_scanner),
+              label: Text(_loading ? 'Bitte warten…' : 'QR-Code scannen'),
             ),
-            const SizedBox(height: 6),
-            Text(
-              _bindingLocked
-                  ? 'Gerät ist fest verbunden (Binding-ID: ${_bindingId ?? '-'})'
-                  : 'Noch nicht gebunden: Bitte zuerst QR aus dem Adminbereich scannen.',
-              style: TextStyle(
-                fontSize: 12,
-                color: _bindingLocked
-                    ? Theme.of(context).colorScheme.primary
-                    : Theme.of(context).colorScheme.secondary,
-              ),
+            const SizedBox(height: 10),
+            const Text(
+              'Hinweis: Der QR-Code wird im Klarando Admin/Superadmin erzeugt und ist sicher zeitlich begrenzt.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF52525B)),
             ),
             const SizedBox(height: 8),
             Wrap(
@@ -1861,94 +1935,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 TextButton(
                   onPressed: () => _openExternalLink(_klarandoTermsUrl),
                   child: const Text('AGB'),
-                ),
-                TextButton(
-                  onPressed: () => _openExternalLink(_klarandoCookiesUrl),
-                  child: const Text('Cookies'),
-                ),
-                TextButton(
-                  onPressed: () => _openExternalLink(_klarandoJugendschutzUrl),
-                  child: const Text('Jugendschutz'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            DropdownButtonFormField<EscPosPrinterMode>(
-              value: _printerMode,
-              decoration: const InputDecoration(labelText: 'Druckmodus'),
-              items: EscPosPrinterMode.values
-                  .map(
-                    (mode) => DropdownMenuItem(
-                      value: mode,
-                      child: Text(switch (mode) {
-                        EscPosPrinterMode.disabled => 'Deaktiviert',
-                        EscPosPrinterMode.tcp => 'TCP (9100)',
-                        EscPosPrinterMode.sunmi => 'Sunmi (integriert)',
-                        EscPosPrinterMode.debugLog => 'Debug-Log (ohne Druck)',
-                        EscPosPrinterMode.platformChannel =>
-                          'Android-Herstellerkanal',
-                      }),
-                    ),
-                  )
-                  .toList(growable: false),
-              onChanged: (value) {
-                if (value == null) {
-                  return;
-                }
-                setState(() {
-                  _printerMode = value;
-                });
-                _printQueue.updateSettings(_buildPrinterSettings());
-              },
-            ),
-            if (_printerMode == EscPosPrinterMode.tcp) ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: _tcpHostController,
-                decoration: const InputDecoration(
-                  labelText: 'Drucker Host/IP',
-                  hintText: '192.168.1.80',
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _tcpPortController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(
-                  labelText: 'Drucker-Port',
-                  hintText: '9100',
-                ),
-              ),
-            ],
-            if (_printerMode == EscPosPrinterMode.debugLog) ...[
-              const SizedBox(height: 8),
-              const Text(
-                'Debug-Modus schreibt ESC/POS Logs lokal in ein Temp-Verzeichnis.',
-              ),
-            ],
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: _loading || (_deviceAuthToken ?? '').trim().isEmpty
-                      ? null
-                      : _connect,
-                  icon: const Icon(Icons.link),
-                  label: Text(
-                    _loading ? 'Bitte warten…' : 'Speichern & Verbinden',
-                  ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _runDemoPrintFlow,
-                  icon: const Icon(Icons.science),
-                  label: const Text('Demo-Druck'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _loading ? null : _checkForAppUpdate,
-                  icon: const Icon(Icons.system_update),
-                  label: const Text('Update prüfen'),
                 ),
               ],
             ),
