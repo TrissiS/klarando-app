@@ -2845,7 +2845,12 @@ class _HomeShellState extends State<HomeShell> {
           final location = await fetchCurrentLocation();
           resolvedCustomerLatitude = location.latitude;
           resolvedCustomerLongitude = location.longitude;
-          await _saveLocationCoordinates(location.latitude, location.longitude);
+          await _persistDiscoveryAddress(
+            address: _activeAddress,
+            zipCode: _activeZipCode,
+            latitude: location.latitude,
+            longitude: location.longitude,
+          );
         } catch (_) {
           // Leave values null; backend can geocode from address as fallback.
         }
