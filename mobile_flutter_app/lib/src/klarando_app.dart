@@ -1479,6 +1479,46 @@ class _HomeShellState extends State<HomeShell> {
     return lines.fold<double>(0, (sum, line) => sum + line.lineTotal);
   }
 
+  String _formatCurrency(double amount) {
+    final normalized = amount.toStringAsFixed(2).replaceAll('.', ',');
+    return '$normalized €';
+  }
+
+  String _articleCountLabel(int count) {
+    return count == 1 ? '1 Artikel' : '$count Artikel';
+  }
+
+  Widget? _buildCartMinimumOrderHint() {
+    if (_cart.isEmpty) {
+      return null;
+    }
+    final tenant = _selectedTenant;
+    if (tenant == null || !tenant.deliveryAvailable) {
+      return null;
+    }
+    final minOrderValue = _parseMoneyValue(tenant.minOrderValue);
+    if (minOrderValue == null || minOrderValue <= 0) {
+      return null;
+    }
+    final remaining = minOrderValue - _cartTotal;
+    final reached = remaining <= 0;
+
+    return Container(
+      width: double.infinity,
+      color: reached ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: Text(
+        reached
+            ? '✓ Mindestbestellwert erreicht'
+            : 'Es fehlen noch ${_formatCurrency(remaining)} bis zum Mindestbestellwert.',
+        style: TextStyle(
+          color: reached ? const Color(0xFF065F46) : const Color(0xFF92400E),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
   Future<void> _useCurrentLocationForDiscovery() async {
     final location = await fetchCurrentLocation();
     final resolvedAddress = (location.addressLine ?? '').trim();
@@ -2707,7 +2747,7 @@ class _HomeShellState extends State<HomeShell> {
         minOrderValue != null &&
         subtotal < minOrderValue) {
       throw ApiException(
-        'Mindestbestellwert nicht erreicht. Aktuell ${subtotal.toStringAsFixed(2)} EUR, benötigt ${minOrderValue.toStringAsFixed(2)} EUR.',
+        'Mindestbestellwert nicht erreicht. Aktuell ${_formatCurrency(subtotal)}, benötigt ${_formatCurrency(minOrderValue)}.',
       );
     }
 
@@ -2866,6 +2906,7 @@ class _HomeShellState extends State<HomeShell> {
   @override
   Widget build(BuildContext context) {
     final labels = _labelsForLanguage(_languageCode);
+    final cartMinOrderHint = _buildCartMinimumOrderHint();
 
     return Scaffold(
       appBar: AppBar(
@@ -3038,6 +3079,7 @@ class _HomeShellState extends State<HomeShell> {
       bottomNavigationBar: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (cartMinOrderHint != null) cartMinOrderHint,
           if (_cart.isNotEmpty)
             Material(
               color: const Color(0xFFFF5A1F),
@@ -3069,7 +3111,7 @@ class _HomeShellState extends State<HomeShell> {
                               ),
                               const SizedBox(width: 8),
                               Text(
-                                '${_cartTotal.toStringAsFixed(2)} EUR',
+                                _formatCurrency(_cartTotal),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w700,
@@ -3089,28 +3131,13 @@ class _HomeShellState extends State<HomeShell> {
                           child: Row(
                             children: [
                               Text(
-                                '$_cartItemsCount Artikel',
+                                '${_articleCountLabel(_cartItemsCount)} • ${_formatCurrency(_cartTotal)} • Zur Kasse',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
                               const Spacer(),
-                              Text(
-                                '${_cartTotal.toStringAsFixed(2)} EUR',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Zur Kasse',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
                               const SizedBox(width: 4),
                               const Icon(Icons.chevron_right_rounded, color: Colors.white),
                             ],
@@ -3583,6 +3610,11 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     return false;
   }
 
+  String _formatCurrency(double value) {
+    final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
+    return '$normalized €';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -3802,7 +3834,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                                 ),
                               ),
                               Text(
-                                '${line.lineTotal.toStringAsFixed(2)} EUR',
+                                _formatCurrency(line.lineTotal),
                                 style: const TextStyle(fontWeight: FontWeight.w700),
                               ),
                             ],
@@ -3818,7 +3850,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                           Row(
                             children: [
                               Text(
-                                '${line.unitPrice.toStringAsFixed(2)} EUR / Stk.',
+                                '${_formatCurrency(line.unitPrice)} / Stk.',
                                 style: const TextStyle(color: Colors.black54, fontSize: 12),
                               ),
                               const Spacer(),
@@ -3854,7 +3886,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
           Card(
             child: ListTile(
               title: Text(widget.tenantName),
-              subtitle: Text('$_itemsCount Artikel | ${_total.toStringAsFixed(2)} EUR'),
+              subtitle: Text('$_itemsCount Artikel | ${_formatCurrency(_total)}'),
             ),
           ),
           const SizedBox(height: 8),
@@ -4089,16 +4121,16 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                 children: [
                   const Text('Preisübersicht', style: TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
-                  Text('Zwischensumme: ${_subtotal.toStringAsFixed(2)} EUR'),
+                  Text('Zwischensumme: ${_formatCurrency(_subtotal)}'),
                   if (_serviceType == _CheckoutServiceType.delivery)
-                    Text('Liefergebühr: ${widget.deliveryFeeAmount.toStringAsFixed(2)} EUR'),
+                    Text('Liefergebühr: ${_formatCurrency(widget.deliveryFeeAmount)}'),
                   if (widget.minOrderValueAmount != null)
                     Text(
-                      'Mindestbestellwert: ${widget.minOrderValueAmount!.toStringAsFixed(2)} EUR',
+                      'Mindestbestellwert: ${_formatCurrency(widget.minOrderValueAmount!)}',
                     ),
                   const SizedBox(height: 4),
                   Text(
-                    'Gesamt: ${_total.toStringAsFixed(2)} EUR',
+                    'Gesamt: ${_formatCurrency(_total)}',
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ],
@@ -4114,9 +4146,31 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
           ],
           if (belowMinOrder) ...[
             const SizedBox(height: 8),
-            Text(
-              'Mindestbestellwert nicht erreicht. Es fehlen ${(widget.minOrderValueAmount! - _subtotal).toStringAsFixed(2)} EUR.',
-              style: const TextStyle(color: Color(0xFFB91C1C)),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFF59E0B)),
+              ),
+              child: Text(
+                'Noch ${_formatCurrency(widget.minOrderValueAmount! - _subtotal)} für die Lieferung.',
+                style: const TextStyle(
+                  color: Color(0xFF92400E),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ] else if (_serviceType == _CheckoutServiceType.delivery &&
+              widget.minOrderValueAmount != null) ...[
+            const SizedBox(height: 8),
+            const Text(
+              '✓ Mindestbestellwert erreicht',
+              style: TextStyle(
+                color: Color(0xFF166534),
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ],
           if (_containsAlcohol) ...[
@@ -4218,7 +4272,13 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
 
       return FilledButton(
         onPressed: disabled ? null : _sendOrder,
-        child: Text(_isSubmitting ? 'Bestellung wird gesendet...' : 'Bestellung senden'),
+        child: Text(
+          _isSubmitting
+              ? 'Bestellung wird gesendet...'
+              : belowMinOrder
+              ? 'Mindestbestellwert nicht erreicht'
+              : 'Bestellung senden',
+        ),
       );
     }
 
