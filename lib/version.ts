@@ -29,6 +29,10 @@ export const buildNumber = Number(rootVersion.buildNumber || 0)
 export const buildDateIso = resolveBuildDateIso()
 export const commitSha =
   process.env.NEXT_PUBLIC_COMMIT_SHA || process.env.COMMIT_SHA || rootVersion.gitCommit || null
+export const gitBranch =
+  process.env.NEXT_PUBLIC_GIT_BRANCH || process.env.GIT_BRANCH || process.env.VERCEL_GIT_COMMIT_REF || 'main'
+export const deploymentTimestampIso =
+  process.env.NEXT_PUBLIC_DEPLOYMENT_TIME || process.env.DEPLOYMENT_TIME || buildDateIso
 export const environment = resolveEnvironment()
 
 export function formatBuildDateForUi(value = buildDateIso) {

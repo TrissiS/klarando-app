@@ -9,7 +9,17 @@ import {
   getPlatformBrandingSettings,
   type PlatformBrandingSettings,
 } from '@/lib/api'
-import { appVersion, buildDateIso, buildNumber, commitSha, environment, formatBuildDateForUi, releaseName } from '@/lib/version'
+import {
+  appVersion,
+  buildDateIso,
+  buildNumber,
+  commitSha,
+  deploymentTimestampIso,
+  environment,
+  formatBuildDateForUi,
+  gitBranch,
+  releaseName,
+} from '@/lib/version'
 import { clearSuperadminTenantContext } from '@/lib/superadmin-tenant-context'
 
 type BackofficeNavItem = {
@@ -101,7 +111,12 @@ export default function BackofficeLayout({
             {
               id: 'security',
               label: 'Benutzer & Rechte',
-              items: pickItemsByHref(['/superadmin/security', '/superadmin/customers', '/superadmin/drivers']),
+              items: pickItemsByHref([
+                '/superadmin/security',
+                '/superadmin/customer-management',
+                '/superadmin/customers',
+                '/superadmin/drivers',
+              ]),
             },
             {
               id: 'system',
@@ -655,13 +670,22 @@ export default function BackofficeLayout({
             )}
           </div>
           <footer className="border-t border-[var(--brand-border)] bg-white/95 px-4 py-3 backdrop-blur">
-            <div className="mx-auto flex max-w-[1600px] flex-wrap items-center gap-3 text-xs text-rose-900/70">
+            <div className="mx-auto flex max-w-[1600px] flex-wrap items-center justify-between gap-3 text-xs text-rose-900/70">
+              <div className="flex flex-wrap items-center gap-3">
+                <span>
+                  Version {appVersion} · Build {buildNumber} · Commit {(commitSha || backendCommitSha || '-').slice(0, 8)}
+                </span>
+                <span>Branch {gitBranch}</span>
+                <span>Deployment {formatBuildDateForUi(deploymentTimestampIso)}</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
               <Link href="/impressum" className="hover:text-rose-900">Impressum</Link>
               <Link href="/datenschutz" className="hover:text-rose-900">Datenschutz</Link>
               <Link href="/agb" className="hover:text-rose-900">AGB</Link>
               <Link href="/cookies" className="hover:text-rose-900">Cookies</Link>
               <Link href="/jugendschutz" className="hover:text-rose-900">Jugendschutz</Link>
               <Link href="/partner-agb" className="hover:text-rose-900">Partner-AGB</Link>
+              </div>
             </div>
           </footer>
           {sessionWarningOpen ? (

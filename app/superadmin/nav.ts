@@ -15,6 +15,7 @@ export const SUPERADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/superadmin/menu-import', label: 'Menü-Import' },
   { href: '/superadmin/cms', label: 'Website / CMS' },
   { href: '/superadmin/security', label: 'Benutzer & Rechte' },
+  { href: '/superadmin/customer-management', label: 'Kundenverwaltung' },
   { href: '/superadmin/privacy-center', label: 'Kunden & Datenschutz' },
   { href: '/superadmin/orders', label: 'Bestellungen' },
   { href: '/superadmin/devices', label: 'Geräte' },
