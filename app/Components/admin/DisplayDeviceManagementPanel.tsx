@@ -11,6 +11,7 @@ import {
   getDisplayDevicePreview,
   regenerateDisplayPairingCode,
   updateDisplayDeviceActiveState,
+  type DisplayDeviceStatus,
   type DisplayDeviceOverviewRow,
   type DisplayDeviceType,
   type ManagedChain,
@@ -215,10 +216,12 @@ export default function DisplayDeviceManagementPanel({
     try {
       setLoading(true)
       setError('')
+      const apiStatusFilter: DisplayDeviceStatus | 'all' | undefined =
+        statusFilter === 'unstable' ? undefined : statusFilter
       const response = await getDisplayDeviceOverview(token, {
         tenantId: isTenantLocked ? fixedTenantId || undefined : selectedTenantId || undefined,
         chainId: isChainLocked ? fixedChainId || undefined : selectedChainId || undefined,
-        status: statusFilter,
+        status: apiStatusFilter,
         displayType: displayTypeFilter,
         q: searchText.trim() || undefined,
       })
