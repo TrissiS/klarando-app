@@ -119,3 +119,14 @@ flutter {
     source = "../.."
 }
 
+// Activate Google Services only when the config file exists.
+// This prevents hard build failures on branches/environments without Firebase config.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+} else {
+    logger.lifecycle(
+        "Klarando: google-services.json fehlt unter android/app. " +
+            "Google Login bleibt deaktiviert, bis die Datei hinterlegt ist.",
+    )
+}
+

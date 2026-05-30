@@ -32,6 +32,10 @@ const _prefsKeyUserLatitude = 'klarando_user_latitude';
 const _prefsKeyUserLongitude = 'klarando_user_longitude';
 const _googleServerClientId =
     '198427463115-m6u039q4ive21u9gjrg9v61hk4nqkejn.apps.googleusercontent.com';
+const _googleServicesConfigured = bool.fromEnvironment(
+  'GOOGLE_SERVICES_CONFIGURED',
+  defaultValue: false,
+);
 const _facebookAppId = String.fromEnvironment('FACEBOOK_APP_ID', defaultValue: '');
 const _facebookClientToken = String.fromEnvironment(
   'FACEBOOK_CLIENT_TOKEN',
@@ -481,6 +485,13 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
       _busy = true;
     });
     try {
+      if (!_googleServicesConfigured) {
+        _showMessage(
+          'Google Login ist deaktiviert: google-services.json fehlt oder Firebase '
+          'ist noch nicht vollständig konfiguriert.',
+        );
+        return;
+      }
       final packageName = await _packageName();
       debugPrint(
         'GOOGLE_SIGN_IN_CONFIG {'
@@ -744,6 +755,13 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
                     icon: const Icon(Icons.g_mobiledata, size: 26),
                     label: const Text('Mit Google fortfahren'),
                   ),
+                  if (!_googleServicesConfigured) ...[
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Google Login ist aktuell deaktiviert (Firebase-Konfiguration fehlt).',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF7C2D12)),
+                    ),
+                  ],
                   const SizedBox(height: 10),
                   ElevatedButton.icon(
                     onPressed: _busy ? null : _submitFacebookLogin,
