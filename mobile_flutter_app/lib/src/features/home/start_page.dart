@@ -28,6 +28,7 @@ class StartPage extends StatefulWidget {
     required this.favoriteTenantIds,
     required this.tenantRatings,
     required this.onSearchByZip,
+    required this.onEditAddress,
     required this.onSelectTenant,
     required this.onSelectUnavailableTenant,
     required this.onToggleFavorite,
@@ -44,6 +45,7 @@ class StartPage extends StatefulWidget {
   final Set<String> favoriteTenantIds;
   final Map<String, TenantRatingInfo> tenantRatings;
   final Future<void> Function(String zipCode, DiscoveryMode mode) onSearchByZip;
+  final Future<void> Function() onEditAddress;
   final void Function(TenantDiscoveryTenant tenant) onSelectTenant;
   final void Function(TenantDiscoveryTenant tenant) onSelectUnavailableTenant;
   final void Function(String tenantId) onToggleFavorite;
@@ -125,6 +127,7 @@ class _StartPageState extends State<StartPage> {
                 zipCode: widget.activeZipCode,
                 searchController: _searchController,
                 collapsedSearch: _searchCollapsed,
+                onEditAddress: widget.onEditAddress,
                 onExpandSearch: () {
                   setState(() {
                     _searchCollapsed = false;
@@ -200,6 +203,7 @@ class _StartHeaderContent extends StatelessWidget {
     required this.zipCode,
     required this.searchController,
     required this.collapsedSearch,
+    required this.onEditAddress,
     required this.onExpandSearch,
     required this.onSubmitSearch,
     required this.onModeChanged,
@@ -213,6 +217,7 @@ class _StartHeaderContent extends StatelessWidget {
   final String zipCode;
   final TextEditingController searchController;
   final bool collapsedSearch;
+  final Future<void> Function() onEditAddress;
   final VoidCallback onExpandSearch;
   final Future<void> Function() onSubmitSearch;
   final ValueChanged<DiscoveryMode> onModeChanged;
@@ -272,33 +277,39 @@ class _StartHeaderContent extends StatelessWidget {
                         ),
                       ),
                     ),
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.symmetric(
-                      horizontal: lerpDouble(10, 8, collapse) ?? 8,
-                      vertical: lerpDouble(8, 6, collapse) ?? 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.22),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.location_on_rounded, color: Colors.white, size: 16),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            '$zipCode | $userAddress',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.w700,
-                              fontSize: lerpDouble(14, 12, collapse),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => onEditAddress(),
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: lerpDouble(10, 8, collapse) ?? 8,
+                        vertical: lerpDouble(8, 6, collapse) ?? 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.22),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.location_on_rounded, color: Colors.white, size: 16),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              '$zipCode | $userAddress',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                                fontSize: lerpDouble(14, 12, collapse),
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          const Icon(Icons.edit_location_alt_rounded, color: Colors.white, size: 16),
+                        ],
+                      ),
                     ),
                   ),
                 ],

@@ -95,11 +95,16 @@ function readRawDeliveryAreaFromBusinessSettings(raw: unknown) {
   return null
 }
 
-async function geocodeSearchLocation(input: { zipCode: string; street?: string | null }) {
+async function geocodeSearchLocation(input: {
+  zipCode: string
+  street?: string | null
+  city?: string | null
+}) {
   const street = normalizeText(input.street)
+  const city = normalizeText(input.city)
   const query = street
-    ? `${street}, ${input.zipCode}, Germany`
-    : `${input.zipCode}, Germany`
+    ? `${street}, ${input.zipCode}${city != null ? ', $city' : ''}, Germany`
+    : `${input.zipCode}${city != null ? ', $city' : ''}, Germany`
   const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 4500)
@@ -526,18 +531,20 @@ router.get('/public/discovery', async (req, res) => {
         req.query.streetAddress ??
         null
     )
+    const city = normalizeText(req.query.city)
     const latitude = parseCoordinate(req.query.latitude ?? req.query.lat)
     const longitude = parseCoordinate(
       req.query.longitude ?? req.query.lng ?? req.query.lon
     )
     const geocodedLocation =
       latitude === null || longitude === null
-        ? await geocodeSearchLocation({ zipCode, street })
+        ? await geocodeSearchLocation({ zipCode, street, city })
         : null
     const effectiveLatitude = latitude ?? geocodedLocation?.latitude ?? null
     const effectiveLongitude = longitude ?? geocodedLocation?.longitude ?? null
     console.info('DISCOVERY_GEOCODE_RESULT', {
       street,
+      city,
       zipCode,
       latitude: effectiveLatitude,
       longitude: effectiveLongitude,
@@ -715,6 +722,7 @@ router.get('/public/discovery', async (req, res) => {
           strategy: effectiveDeliveryArea.strategy,
           zipCode,
           street,
+          city,
           hasPolygon: effectiveDeliveryArea.polygonPath.length >= 3,
           polygonPoints: effectiveDeliveryArea.polygonPath.length,
           customerLat: effectiveLatitude,

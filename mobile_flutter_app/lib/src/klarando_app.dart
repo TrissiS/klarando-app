@@ -181,9 +181,7 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
     final profileZip = user.zipCode?.trim();
     final profileStreet = user.street?.trim();
     final profileCity = user.city?.trim();
-    if ((_userZipCode == null || _userZipCode!.trim().isEmpty) &&
-        profileZip != null &&
-        _isValidZipCode(profileZip)) {
+    if (profileZip != null && _isValidZipCode(profileZip)) {
       final mergedAddress = [
         profileStreet ?? '',
         profileCity ?? '',
@@ -370,6 +368,8 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
     return HomeShell(
       userAddress: address,
       userZipCode: zipCode,
+      userLatitude: _userLatitude,
+      userLongitude: _userLongitude,
       languageCode: _languageCode,
       onLanguageChanged: _saveLanguage,
       onRequireAuth: _handleLogoutToAuthGate,
@@ -381,6 +381,8 @@ class HomeShell extends StatefulWidget {
   const HomeShell({
     required this.userAddress,
     required this.userZipCode,
+    this.userLatitude,
+    this.userLongitude,
     required this.languageCode,
     required this.onLanguageChanged,
     required this.onRequireAuth,
@@ -389,6 +391,8 @@ class HomeShell extends StatefulWidget {
 
   final String userAddress;
   final String userZipCode;
+  final double? userLatitude;
+  final double? userLongitude;
   final String languageCode;
   final Future<void> Function(String languageCode) onLanguageChanged;
   final Future<void> Function() onRequireAuth;
@@ -995,7 +999,10 @@ class _HomeShellState extends State<HomeShell> {
   int _currentIndex = 0;
   String _baseUrl = _defaultBaseUrl();
   late String _languageCode = widget.languageCode;
+  late String _activeAddress = widget.userAddress;
   late String _activeZipCode = widget.userZipCode;
+  double? _activeLatitude = widget.userLatitude;
+  double? _activeLongitude = widget.userLongitude;
 
   bool _discoveryLoading = false;
   String _discoveryMessage = 'Wir laden passende Filialen für dich.';
@@ -1020,6 +1027,51 @@ class _HomeShellState extends State<HomeShell> {
   bool _ordersSyncInFlight = false;
   bool _customerUpdateBusy = false;
   String? _customerUpdateInfo;
+
+  String _streetForDiscovery() {
+    final raw = _activeAddress.trim();
+    if (raw.isEmpty) {
+      return '';
+    }
+    final firstPart = raw.split(',').first.trim();
+    return firstPart;
+  }
+
+  String _cityForDiscovery() {
+    final raw = _activeAddress.trim();
+    if (raw.isEmpty) {
+      return '';
+    }
+    final parts = raw.split(',');
+    if (parts.length < 2) {
+      return _appCustomer?.city?.trim() ?? '';
+    }
+    return parts.sublist(1).join(',').trim();
+  }
+
+  Future<void> _persistDiscoveryAddress({
+    required String address,
+    required String zipCode,
+    double? latitude,
+    double? longitude,
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_prefsKeyUserAddress, address);
+    await prefs.setString(_prefsKeyUserZipCode, zipCode);
+    if (latitude != null && longitude != null) {
+      await prefs.setDouble(_prefsKeyUserLatitude, latitude);
+      await prefs.setDouble(_prefsKeyUserLongitude, longitude);
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _activeAddress = address;
+      _activeZipCode = zipCode;
+      _activeLatitude = latitude;
+      _activeLongitude = longitude;
+    });
+  }
 
   @override
   void initState() {
@@ -1125,6 +1177,18 @@ class _HomeShellState extends State<HomeShell> {
         _appAuthToken = token;
         _appCustomer = AppCustomerUser.fromJson(parsed);
       });
+      final profile = _appCustomer;
+      final profileStreet = profile?.street?.trim();
+      final profileZip = profile?.zipCode?.trim();
+      final profileCity = profile?.city?.trim();
+      if (profileStreet != null &&
+          profileStreet.isNotEmpty &&
+          profileZip != null &&
+          _isValidZipCode(profileZip)) {
+        final merged = [profileStreet, if (profileCity != null && profileCity.isNotEmpty) profileCity]
+            .join(', ');
+        await _persistDiscoveryAddress(address: merged, zipCode: profileZip);
+      }
       unawaited(_syncSubmittedOrdersFromServer(force: true));
     } catch (_) {
       await prefs.remove(_prefsKeyAppAuthToken);
@@ -1413,6 +1477,165 @@ class _HomeShellState extends State<HomeShell> {
     return lines.fold<double>(0, (sum, line) => sum + line.lineTotal);
   }
 
+  Future<void> _useCurrentLocationForDiscovery() async {
+    final location = await fetchCurrentLocation();
+    final resolvedAddress = (location.addressLine ?? '').trim();
+    final resolvedZip = (location.postalCode ?? '').trim();
+    final fallbackAddress =
+        'Standort ${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}';
+    final addressToStore = resolvedAddress.isNotEmpty ? resolvedAddress : fallbackAddress;
+    final zipToStore = _isValidZipCode(resolvedZip) ? resolvedZip : _activeZipCode;
+    await _persistDiscoveryAddress(
+      address: addressToStore,
+      zipCode: zipToStore,
+      latitude: location.latitude,
+      longitude: location.longitude,
+    );
+    await _searchTenants(_activeZipCode, DiscoveryMode.delivery);
+  }
+
+  Future<void> _promptAndSaveManualAddress() async {
+    final addressController = TextEditingController(text: _activeAddress);
+    final zipController = TextEditingController(text: _activeZipCode);
+    final cityController = TextEditingController(
+      text: _appCustomer?.city?.trim() ?? '',
+    );
+    final formKey = GlobalKey<FormState>();
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Adresse ändern'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: addressController,
+                decoration: const InputDecoration(labelText: 'Straße + Hausnummer'),
+                validator: (value) {
+                  final text = (value ?? '').trim();
+                  if (!_looksLikeStreetWithHouseNumber(text)) {
+                    return 'Bitte Straße und Hausnummer eingeben.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: zipController,
+                decoration: const InputDecoration(labelText: 'PLZ'),
+                keyboardType: TextInputType.number,
+                validator: (value) =>
+                    _isValidZipCode((value ?? '').trim()) ? null : 'Ungültige PLZ.',
+              ),
+              const SizedBox(height: 10),
+              TextFormField(
+                controller: cityController,
+                decoration: const InputDecoration(labelText: 'Ort'),
+                validator: (value) =>
+                    (value ?? '').trim().length >= 2 ? null : 'Bitte Ort eingeben.',
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (formKey.currentState?.validate() != true) {
+                return;
+              }
+              Navigator.of(dialogContext).pop(true);
+            },
+            child: const Text('Übernehmen'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true) {
+      return;
+    }
+    final street = addressController.text.trim();
+    final zip = zipController.text.trim();
+    final city = cityController.text.trim();
+    final mergedAddress = '$street, $city';
+    await _persistDiscoveryAddress(address: mergedAddress, zipCode: zip);
+    await _searchTenants(zip, DiscoveryMode.delivery);
+  }
+
+  Future<void> _openAddressManager() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final profileStreet = _appCustomer?.street?.trim();
+        final profileZip = _appCustomer?.zipCode?.trim();
+        final profileCity = _appCustomer?.city?.trim();
+        final hasProfileAddress =
+            profileStreet != null && profileStreet.isNotEmpty && profileZip != null && _isValidZipCode(profileZip);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Adresse auswählen',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                ),
+                const SizedBox(height: 12),
+                if (hasProfileAddress)
+                  ListTile(
+                    leading: const Icon(Icons.person_pin_circle_outlined),
+                    title: const Text('Profil-Hauptadresse verwenden'),
+                    subtitle: Text('$profileStreet, ${profileZip!} ${profileCity ?? ''}'.trim()),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await _persistDiscoveryAddress(
+                        address: '$profileStreet${(profileCity ?? '').isEmpty ? '' : ', $profileCity'}',
+                        zipCode: profileZip,
+                      );
+                      await _searchTenants(profileZip, DiscoveryMode.delivery);
+                    },
+                  ),
+                ListTile(
+                  leading: const Icon(Icons.my_location),
+                  title: const Text('Standort verwenden'),
+                  subtitle: const Text('Standortberechtigung wird bei Bedarf abgefragt'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    try {
+                      await _useCurrentLocationForDiscovery();
+                    } on CurrentLocationException catch (error) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(error.message)),
+                      );
+                    }
+                  },
+                ),
+                ListTile(
+                  leading: const Icon(Icons.edit_location_alt_outlined),
+                  title: const Text('Neue Adresse eingeben'),
+                  subtitle: const Text('Adresse wird validiert und für die Suche verwendet'),
+                  onTap: () async {
+                    Navigator.of(sheetContext).pop();
+                    await _promptAndSaveManualAddress();
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _searchTenants(String zipCode, DiscoveryMode mode) async {
     final normalizedZip = zipCode.trim();
     if (!_isValidZipCode(normalizedZip)) {
@@ -1447,11 +1670,23 @@ class _HomeShellState extends State<HomeShell> {
 
       for (final candidate in uniqueCandidates) {
         try {
+          final street = _streetForDiscovery();
+          final city = _cityForDiscovery();
+          debugPrint(
+            'CUSTOMER_APP_DISCOVERY_REQUEST {endpoint: $candidate/api/tenants/public/discovery, zipCode: $normalizedZip, street: ${street.isEmpty ? 'null' : street}, city: ${city.isEmpty ? 'null' : city}, latitude: ${_activeLatitude ?? 'null'}, longitude: ${_activeLongitude ?? 'null'}, mode: ${DiscoveryMode.all.name}}',
+          );
           final candidateRows = await _api.discoverTenants(
             baseUrl: candidate,
             zipCode: normalizedZip,
             mode: DiscoveryMode.all,
+            street: street.isEmpty ? null : street,
+            city: city.isEmpty ? null : city,
+            latitude: _activeLatitude,
+            longitude: _activeLongitude,
             includeOutOfArea: true,
+          );
+          debugPrint(
+            'CUSTOMER_APP_DISCOVERY_RESPONSE {endpoint: $candidate/api/tenants/public/discovery, tenants: ${candidateRows.length}, deliveryAvailableCount: ${candidateRows.where((entry) => entry.deliveryAvailable).length}, pickupAvailableCount: ${candidateRows.where((entry) => entry.pickupAvailable).length}}',
           );
 
           if (resolvedBaseUrl == null) {
@@ -1508,6 +1743,11 @@ class _HomeShellState extends State<HomeShell> {
           _checkoutBarCollapsed = false;
         }
       });
+      for (final tenant in rows) {
+        debugPrint(
+          'CUSTOMER_ORDER_INTAKE_STATUS {tenantId: ${tenant.tenantId}, branchId: ${tenant.tenantId}, backendStatus: ${tenant.orderIntake.enabled}, source: discovery}',
+        );
+      }
     } on ApiException catch (error) {
       setState(() {
         _tenantResults = const [];
@@ -1538,6 +1778,10 @@ class _HomeShellState extends State<HomeShell> {
         baseUrl: _baseUrl,
         zipCode: _activeZipCode,
         mode: DiscoveryMode.all,
+        street: _streetForDiscovery().isEmpty ? null : _streetForDiscovery(),
+        city: _cityForDiscovery().isEmpty ? null : _cityForDiscovery(),
+        latitude: _activeLatitude,
+        longitude: _activeLongitude,
         includeOutOfArea: true,
       );
       if (!mounted) {
@@ -1594,6 +1838,9 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _selectTenant(TenantDiscoveryTenant tenant) async {
+    debugPrint(
+      'CUSTOMER_ORDER_INTAKE_STATUS {tenantId: ${tenant.tenantId}, branchId: ${tenant.tenantId}, backendStatus: ${tenant.orderIntake.enabled}, source: selected-tenant}',
+    );
     setState(() {
       _selectedTenant = tenant;
       _currentIndex = 1;
@@ -2366,18 +2613,18 @@ class _HomeShellState extends State<HomeShell> {
           initialAddress:
               (_appCustomer?.street?.trim().isNotEmpty ?? false)
                   ? _appCustomer!.street!.trim()
-                  : widget.userAddress,
+                  : _activeAddress,
           initialZipCode:
               (_appCustomer?.zipCode?.trim().isNotEmpty ?? false)
                   ? _appCustomer!.zipCode!.trim()
-                  : widget.userZipCode,
+                  : _activeZipCode,
           initialCity: _appCustomer?.city?.trim(),
           appCustomerName: _appCustomer?.fullName,
           appCustomerPhone: _appCustomer?.phone,
           requireCustomerLogin: true,
           customerLoggedIn: _appAuthToken != null,
-          orderIntakeEnabled: tenant.orderIntake.enabled && (_selectedCatalog?.orderIntake.enabled ?? true),
-          orderIntakeMessage: _selectedCatalog?.orderIntake.customerMessage ?? tenant.orderIntake.customerMessage,
+          orderIntakeEnabled: tenant.orderIntake.enabled,
+          orderIntakeMessage: tenant.orderIntake.customerMessage,
           submitOrder: _submitOrder,
         ),
       ),
@@ -2647,12 +2894,13 @@ class _HomeShellState extends State<HomeShell> {
                 message: _discoveryMessage,
                 results: _tenantResults,
                 selectedTenantId: _selectedTenant?.tenantId,
-                userAddress: widget.userAddress,
+                userAddress: _activeAddress,
                 activeZipCode: _activeZipCode,
                 languageCode: _languageCode,
                 favoriteTenantIds: _favoriteTenantIds,
                 tenantRatings: _tenantRatings,
                 onSearchByZip: _searchTenants,
+                onEditAddress: _openAddressManager,
                 onSelectTenant: _selectTenant,
                 onSelectUnavailableTenant: _selectUnavailableTenant,
                 onToggleFavorite: _toggleFavorite,
