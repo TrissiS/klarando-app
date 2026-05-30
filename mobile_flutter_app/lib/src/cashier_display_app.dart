@@ -49,7 +49,19 @@ const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
 const _orderDeskNewOrderAudioAsset = 'assets/audio/orderdesk_new_order.mp3';
 const _heartbeatFailureOfflineThreshold = 3;
 
-enum _DeskConnectionHealth { online, unstable, offline }
+enum _DeskConnectionHealth { online, checking, degraded, offline }
+
+class _OrderDeskLogEntry {
+  const _OrderDeskLogEntry({
+    required this.timestamp,
+    required this.category,
+    required this.message,
+  });
+
+  final DateTime timestamp;
+  final String category;
+  final String message;
+}
 
 class _DeliveryMapPayload {
   const _DeliveryMapPayload({
@@ -143,9 +155,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _isReconnecting = false;
   bool _heartbeatInFlight = false;
   int _consecutiveHeartbeatFailures = 0;
+  int _consecutiveApiFailures = 0;
   DateTime? _lastHeartbeatAt;
+  DateTime? _lastOrdersLoadAt;
+  DateTime? _lastReconnectAttemptAt;
   String? _lastHeartbeatError;
+  String? _lastApiError;
   bool _hasLoadedInitialFeed = false;
+  final List<_OrderDeskLogEntry> _localErrorLog = <_OrderDeskLogEntry>[];
   final Map<String, String> _lastOrderStatusById = <String, String>{};
   final Set<String> _archivingOrderIds = <String>{};
   final Map<String, _GeoPoint> _destinationCoordinatesByOrderId =
@@ -403,7 +420,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _loading = true;
       _error = null;
       _info = null;
+      _lastReconnectAttemptAt = DateTime.now();
     });
+    _appendLocalLog('CONNECT', 'Verbindungsaufbau gestartet');
     try {
       await _savePrefs();
       _printQueue.updateSettings(_buildPrinterSettings());
@@ -423,9 +442,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _connected = true;
         _lastSuccessfulSyncAt = DateTime.now();
+        _lastOrdersLoadAt = DateTime.now();
         _showManualConnection = false;
         _info = 'Verbunden mit Display $displayCode';
       });
+      _appendLocalLog('CONNECT', 'Verbunden mit Display $displayCode');
+      _appendStatusSnapshot();
     } on ApiException catch (error) {
       if (!mounted) {
         return;
@@ -433,6 +455,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _error = error.message;
       });
+      _appendLocalLog('CONNECT', 'Fehler: ${error.message}');
+      _appendStatusSnapshot();
     } catch (error) {
       if (!mounted) {
         return;
@@ -440,6 +464,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _error = error.toString();
       });
+      _appendLocalLog('CONNECT', 'Fehler: $error');
+      _appendStatusSnapshot();
     } finally {
       if (mounted) {
         setState(() {
@@ -464,25 +490,31 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _feed = response;
         _now = DateTime.now();
         _lastSuccessfulSyncAt = DateTime.now();
+        _lastOrdersLoadAt = DateTime.now();
         _connected = true;
         _isReconnecting = false;
-        _consecutiveHeartbeatFailures = 0;
-        _lastHeartbeatError = null;
+        _consecutiveApiFailures = 0;
+        _lastApiError = null;
         if (!silent) {
           _error = null;
         }
       });
+      _appendLocalLog('ORDERS', 'loaded: ${response.orders.length}');
+      _appendStatusSnapshot();
     } on ApiException catch (error) {
       if (!mounted) {
         return;
       }
       setState(() {
         _isReconnecting = true;
-        _lastHeartbeatError = error.message;
+        _consecutiveApiFailures += 1;
+        _lastApiError = error.message;
         if (!silent) {
           _error = error.message;
         }
       });
+      _appendLocalLog('ORDERS', 'failed: ${error.message}');
+      _appendStatusSnapshot();
       if (!silent) {
         rethrow;
       }
@@ -492,11 +524,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
       setState(() {
         _isReconnecting = true;
-        _lastHeartbeatError = error.toString();
+        _consecutiveApiFailures += 1;
+        _lastApiError = error.toString();
         if (!silent) {
           _error = error.toString();
         }
       });
+      _appendLocalLog('ORDERS', 'failed: $error');
+      _appendStatusSnapshot();
       if (!silent) {
         rethrow;
       }
@@ -847,6 +882,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (_heartbeatInFlight) {
       return;
     }
+    _lastReconnectAttemptAt = DateTime.now();
     _heartbeatInFlight = true;
 
     try {
@@ -882,6 +918,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _activeDriverDevices = heartbeat.activeDriverDevices;
         _onlineDriverDevices = heartbeat.onlineDriverDevices;
       });
+      _appendLocalLog('HEARTBEAT', 'ok');
+      _appendStatusSnapshot();
     } on ApiException catch (error) {
       if (!mounted) {
         return;
@@ -895,10 +933,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _isReconnecting = true;
         _lastHeartbeatError = error.message;
-        if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
-          _connected = false;
-        }
+        _connected = _lastOrdersLoadAt != null;
       });
+      _appendLocalLog('HEARTBEAT', 'failed: ${error.message}');
+      _appendStatusSnapshot();
       if (error.statusCode == 403 || error.statusCode == 401) {
         final prefs = await SharedPreferences.getInstance();
         await prefs.remove(_prefsCashierDeviceToken);
@@ -941,13 +979,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _isReconnecting = true;
         _lastHeartbeatError = 'Heartbeat-Timeout';
-        if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
-          _connected = false;
-        }
+        _connected = _lastOrdersLoadAt != null;
         if (!silent) {
           _error = 'Verbindung zum Klarando-Server hat zu lange gedauert.';
         }
       });
+      _appendLocalLog('HEARTBEAT', 'failed: timeout');
+      _appendStatusSnapshot();
     } catch (error) {
       if (!mounted) {
         return;
@@ -956,13 +994,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _isReconnecting = true;
         _lastHeartbeatError = error.toString();
-        if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
-          _connected = false;
-        }
+        _connected = _lastOrdersLoadAt != null;
         if (!silent) {
           _error = error.toString();
         }
       });
+      _appendLocalLog('HEARTBEAT', 'failed: $error');
+      _appendStatusSnapshot();
     } finally {
       _heartbeatInFlight = false;
     }
@@ -1409,51 +1447,189 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (!_bindingLocked) {
       return _DeskConnectionHealth.offline;
     }
-    if (_consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold) {
+    final heartbeatFailed = _consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold;
+    final apiFailed = _consecutiveApiFailures >= _heartbeatFailureOfflineThreshold;
+    final hasOrdersSignal = _lastOrdersLoadAt != null;
+    final hasHeartbeatSignal = _lastHeartbeatAt != null;
+
+    if (_heartbeatInFlight) {
+      return _DeskConnectionHealth.checking;
+    }
+
+    if ((heartbeatFailed && apiFailed) && !hasOrdersSignal && !hasHeartbeatSignal) {
       return _DeskConnectionHealth.offline;
     }
-    if (_isReconnecting) {
-      return _DeskConnectionHealth.unstable;
+
+    if (hasOrdersSignal && heartbeatFailed) {
+      return _DeskConnectionHealth.degraded;
     }
-    if (!_connected || _lastSuccessfulSyncAt == null) {
-      return _DeskConnectionHealth.unstable;
+
+    if (_isReconnecting && !hasOrdersSignal && !hasHeartbeatSignal) {
+      return _DeskConnectionHealth.checking;
     }
-    final ageSeconds = now.difference(_lastSuccessfulSyncAt!).inSeconds;
-    if (ageSeconds < 45) {
+
+    final lastSignal = [if (_lastOrdersLoadAt != null) _lastOrdersLoadAt!, if (_lastHeartbeatAt != null) _lastHeartbeatAt!]
+      ..sort();
+    if (lastSignal.isEmpty) {
+      return _DeskConnectionHealth.checking;
+    }
+    final ageSeconds = now.difference(lastSignal.last).inSeconds;
+    if (ageSeconds < 60) {
       return _DeskConnectionHealth.online;
     }
-    if (ageSeconds <= 240) {
-      return _DeskConnectionHealth.unstable;
+    if (ageSeconds <= 300) {
+      return _DeskConnectionHealth.degraded;
     }
     return _DeskConnectionHealth.offline;
   }
 
   String _connectionStatusLabel(_DeskConnectionHealth health) {
-    if (_isReconnecting) {
-      return 'Verbindung wird wiederhergestellt…';
-    }
     switch (health) {
       case _DeskConnectionHealth.online:
         return 'Online';
-      case _DeskConnectionHealth.unstable:
-        return 'Instabil';
+      case _DeskConnectionHealth.checking:
+        return 'Verbindung wird geprüft…';
+      case _DeskConnectionHealth.degraded:
+        return 'Eingeschränkt';
       case _DeskConnectionHealth.offline:
         return 'Offline';
     }
   }
 
   Color _connectionStatusColor(_DeskConnectionHealth health) {
-    if (_isReconnecting) {
-      return const Color(0xFFEAB308);
-    }
     switch (health) {
       case _DeskConnectionHealth.online:
         return const Color(0xFF16A34A);
-      case _DeskConnectionHealth.unstable:
+      case _DeskConnectionHealth.checking:
         return const Color(0xFFEAB308);
+      case _DeskConnectionHealth.degraded:
+        return const Color(0xFFF59E0B);
       case _DeskConnectionHealth.offline:
         return const Color(0xFFDC2626);
     }
+  }
+
+  void _appendLocalLog(String category, String message) {
+    final entry = _OrderDeskLogEntry(
+      timestamp: DateTime.now(),
+      category: category,
+      message: message,
+    );
+    _localErrorLog.insert(0, entry);
+    if (_localErrorLog.length > 30) {
+      _localErrorLog.removeRange(30, _localErrorLog.length);
+    }
+  }
+
+  void _appendStatusSnapshot() {
+    final status = _connectionStatusLabel(_connectionHealth(DateTime.now()));
+    _appendLocalLog('STATUS', status);
+  }
+
+  String _formatLogTime(DateTime value) {
+    final hh = value.hour.toString().padLeft(2, '0');
+    final mm = value.minute.toString().padLeft(2, '0');
+    final ss = value.second.toString().padLeft(2, '0');
+    return '$hh:$mm:$ss';
+  }
+
+  String _truncateMiddle(String input, {int edge = 4}) {
+    final value = input.trim();
+    if (value.length <= edge * 2 + 1) {
+      return value;
+    }
+    return '${value.substring(0, edge)}…${value.substring(value.length - edge)}';
+  }
+
+  Future<void> _showConnectionSetupDialog() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      useSafeArea: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              12,
+              8,
+              12,
+              12 + MediaQuery.of(sheetContext).padding.bottom,
+            ),
+            child: _buildConnectionCard(),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showErrorLogDialog() async {
+    if (!mounted) return;
+    final health = _connectionHealth(_now);
+    final status = _connectionStatusLabel(health);
+    final hasBinding = _bindingLocked || (_deviceAuthToken ?? '').trim().isNotEmpty;
+    final tokenStatus = (_deviceAuthToken ?? '').trim().isEmpty
+        ? 'nein'
+        : _truncateMiddle(_deviceAuthToken!, edge: 5);
+    final tenantId = _manualTenantIdController.text.trim();
+    final apiBase = _normalizeBaseUrl(_baseUrlController.text);
+    final displayCode = _displayCodeController.text.trim();
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Fehlerlog anzeigen'),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Version: v$_cashierCurrentVersionName+$_cashierCurrentVersionCode'),
+                  Text('Commit: $_cashierCommitShort'),
+                  const SizedBox(height: 8),
+                  Text('Gerät verbunden: ${_connected ? 'ja' : 'nein'}'),
+                  Text('Binding vorhanden: ${hasBinding ? 'ja' : 'nein'}'),
+                  Text('API-URL: $apiBase'),
+                  Text('Tenant-ID: ${tenantId.isEmpty ? '-' : _truncateMiddle(tenantId)}'),
+                  Text('Device-Code: ${displayCode.isEmpty ? '-' : displayCode}'),
+                  Text('Token: $tokenStatus'),
+                  const SizedBox(height: 8),
+                  Text('Letzter Orders-Load: ${_lastOrdersLoadAt?.toIso8601String() ?? '-'}'),
+                  Text('Letzter Heartbeat: ${_lastHeartbeatAt?.toIso8601String() ?? '-'}'),
+                  Text('Letzter Heartbeat-Fehler: ${_lastHeartbeatError ?? '-'}'),
+                  Text('Letzter API-Fehler: ${_lastApiError ?? '-'}'),
+                  Text('Letzter Reconnect-Versuch: ${_lastReconnectAttemptAt?.toIso8601String() ?? '-'}'),
+                  Text('Aktueller Status: $status'),
+                  Text('Heartbeat-Fehler in Folge: $_consecutiveHeartbeatFailures'),
+                  Text('API-Fehler in Folge: $_consecutiveApiFailures'),
+                  const SizedBox(height: 12),
+                  const Text('Interne Logliste (max. 30):', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  if (_localErrorLog.isEmpty)
+                    const Text('Keine Einträge vorhanden.')
+                  else
+                    ..._localErrorLog.map(
+                      (entry) => Text(
+                        '[${_formatLogTime(entry.timestamp)}] ${entry.category}: ${entry.message}',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Schließen'),
+            ),
+          ],
+        );
+      },
+    );
   }
 
   _DeliveryMapPayload? _resolveDeliveryMapPayload(PublicOrderSummary order) {
@@ -1526,13 +1702,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     if (!allowed || !mounted) {
                       return;
                     }
-                    setState(() {
-                      _showManualConnection = true;
-                      _info = 'Manuelle Verbindung geöffnet.';
-                    });
+                    await _showConnectionSetupDialog();
                   },
                   icon: const Icon(Icons.tune_rounded),
-                  label: const Text('Manuelle Verbindung bearbeiten'),
+                  label: const Text('Geräteverbindung bearbeiten'),
                 ),
                 const SizedBox(height: 8),
                 FilledButton.tonalIcon(
@@ -1546,6 +1719,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   },
                   icon: const Icon(Icons.restart_alt),
                   label: const Text('Gerät trennen / zurücksetzen'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _showErrorLogDialog();
+                  },
+                  icon: const Icon(Icons.bug_report_rounded),
+                  label: const Text('Fehlerlog anzeigen'),
                 ),
                 const SizedBox(height: 8),
                 FilledButton.tonalIcon(
@@ -2285,19 +2467,32 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               onDoubleTap: _showConnectedAdminsDialog,
               child: Image.asset(
                 'assets/klarando_icon.png',
-                width: 26,
-                height: 26,
+                width: 24,
+                height: 24,
               ),
             ),
             const SizedBox(width: 8),
-            const Text('Klarando OrderDesk'),
-            const SizedBox(width: 8),
-            Text(
-              'v$_cashierCurrentVersionName+$_cashierCurrentVersionCode / Commit: $_cashierCommitShort',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Klarando OrderDesk',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'v$_cashierCurrentVersionName+$_cashierCurrentVersionCode • Commit $_cashierCommitShort',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.9),
+                      fontSize: 10,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -2403,7 +2598,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               if (isOperationalView)
                 _buildOperationalStatusCard(statusText: statusText, statusColor: statusColor)
               else
-                _buildConnectionCard(),
+                _buildDisconnectedInfoCard(),
               const SizedBox(height: 8),
               if (_error != null)
                 Text(
@@ -2439,15 +2634,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ],
               const SizedBox(height: 12),
-              if (!_connected && !hasStoredBinding)
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(14),
-                    child: Text(
-                      'Gerät ist nicht verbunden. Bitte QR-Code aus dem Adminbereich scannen.',
-                    ),
-                  ),
-                ),
               ...visibleOrders.map(_buildOrderCard),
             ],
           ),
@@ -2658,6 +2844,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     );
   }
 
+  Widget _buildDisconnectedInfoCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Gerät ist noch nicht verbunden',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Verbindungseinstellungen sind nur im Servicebereich verfügbar.',
+            ),
+            const SizedBox(height: 10),
+            FilledButton.icon(
+              onPressed: _loading ? null : _showConnectionSetupDialog,
+              icon: const Icon(Icons.link_rounded),
+              label: const Text('Geräteverbindung öffnen'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildOperationalStatusCard({
     required String statusText,
     required Color statusColor,
@@ -2680,19 +2893,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
+            Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 Container(
                   width: 10,
                   height: 10,
                   decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minWidth: 120, maxWidth: 320),
                   child: Text(
                     tenantName.isEmpty ? 'Filiale verbunden' : tenantName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
+                    softWrap: true,
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),
