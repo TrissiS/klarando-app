@@ -419,6 +419,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         _connected = true;
         _lastSuccessfulSyncAt = DateTime.now();
+        _showManualConnection = false;
         _info = 'Verbunden mit Display $displayCode';
       });
     } on ApiException catch (error) {
@@ -2470,17 +2471,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 label: Text(_loading ? 'Bitte warten…' : 'Erneut versuchen'),
               ),
               const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _loading
-                    ? null
-                    : () {
-                        setState(() {
-                          _showManualConnection = true;
-                          _info = 'Bitte manuelle Verbindung prüfen.';
-                        });
-                      },
-                icon: const Icon(Icons.tune_rounded),
-                label: const Text('Manuelle Verbindung öffnen'),
+              const Text(
+                'Geräteverbindung bearbeiten ist nur im Servicebereich verfügbar.',
+                style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
             ],
           ),
