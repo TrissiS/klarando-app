@@ -474,13 +474,7 @@ class _ProductCard extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 8),
-                  Text(
-                    _basePriceLabel(product),
-                    style: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
+                  _buildPriceLabel(product),
                   if (product.modifiers.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Text(
@@ -604,19 +598,7 @@ class _RemoteOrAssetImage extends StatelessWidget {
 
   Widget _buildNeutralPlaceholder() {
     return Container(
-      color: const Color(0xFFF3F4F6),
-      alignment: Alignment.center,
-      child: const Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.image_not_supported_outlined, color: Color(0xFF9CA3AF), size: 20),
-          SizedBox(height: 4),
-          Text(
-            'Kein Bild vorhanden',
-            style: TextStyle(fontSize: 10, color: Color(0xFF6B7280), fontWeight: FontWeight.w600),
-          ),
-        ],
-      ),
+      color: Colors.white,
     );
   }
 
@@ -1091,14 +1073,6 @@ List<Widget> _buildArticleDetails(TenantCatalogProduct product) {
 
   addRow('Artikelinfo', product.articleInfo);
   addRow('Lebensmittelunternehmer', product.foodBusinessOperator);
-  final containerLabel = _beverageContainerLabel(product);
-  if (containerLabel != null) {
-    addRow('Verpackung', containerLabel.replaceAll('(', '').replaceAll(')', ''));
-  }
-  final literPrice = _literPriceLabel(product);
-  if (literPrice != null) {
-    addRow('Literpreis', literPrice);
-  }
   final nutrition = product.nutrition;
   if (nutrition != null && nutrition.hasValues) {
     final unitLabel = () {
@@ -1174,13 +1148,47 @@ String _formatNutrientValue(double value) {
   return rounded.replaceAll('.', ',');
 }
 
-String _basePriceLabel(TenantCatalogProduct product) {
+Widget _buildPriceLabel(TenantCatalogProduct product) {
   final basePrice = _formatCurrency(product.price);
-  var base = basePrice;
+  final metaParts = <String>[];
   if (product.depositAmount > 0) {
-    base = '$basePrice zzgl. ${_formatCurrency(product.depositAmount)} Pfand';
+    metaParts.add('+${_formatCurrency(product.depositAmount)} Pfand');
   }
-  return base;
+  final containerLabel = _beverageContainerLabel(product);
+  if (containerLabel != null) {
+    metaParts.add(containerLabel);
+  }
+  final literPrice = _literPriceLabel(product);
+  if (literPrice != null) {
+    metaParts.add(literPrice);
+  }
+
+  final spans = <InlineSpan>[
+    TextSpan(
+      text: basePrice,
+      style: const TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w800,
+        color: Color(0xFF111827),
+      ),
+    ),
+  ];
+  for (final part in metaParts) {
+    spans.add(
+      TextSpan(
+        text: ' ($part)',
+        style: const TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF6B7280),
+        ),
+      ),
+    );
+  }
+
+  return RichText(
+    text: TextSpan(children: spans),
+  );
 }
 
 String? _literPriceLabel(TenantCatalogProduct product) {
@@ -1236,10 +1244,10 @@ Widget _productBadge(String label, Color color) {
 String? _beverageContainerLabel(TenantCatalogProduct product) {
   final value = product.beverageContainerType.toUpperCase();
   if (value == 'EINWEG') {
-    return '(EINWEG)';
+    return 'Einweg';
   }
   if (value == 'MEHRWEG') {
-    return '(MEHRWEG)';
+    return 'Mehrweg';
   }
   return null;
 }

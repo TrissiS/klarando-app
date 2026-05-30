@@ -40,16 +40,20 @@ class PairingPayloadParseResult {
     this.payload,
     this.failure,
     this.detectedType,
+    this.usedExpectedTypeFallback = false,
     this.hasToken = false,
     this.hasApiBaseUrl = false,
+    this.usingDefaultApiBaseUrl = false,
   });
 
   final String normalizedInput;
   final ParsedPairingPayload? payload;
   final PairingPayloadParseFailure? failure;
   final PairingPayloadType? detectedType;
+  final bool usedExpectedTypeFallback;
   final bool hasToken;
   final bool hasApiBaseUrl;
+  final bool usingDefaultApiBaseUrl;
 
   bool get isSuccess => payload != null;
 }
@@ -145,7 +149,7 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
           failure: PairingPayloadParseFailure.unreadable,
         );
       }
-      final normalizedType = _parseType(parsed['type']);
+      final normalizedType = _parseType(parsed['type'] ?? parsed['payloadType']);
       if (expectedType != null && normalizedType != null && normalizedType != expectedType) {
         return PairingPayloadParseResult(
           normalizedInput: raw,
@@ -162,23 +166,29 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
           hasApiBaseUrl: _normalizeText(parsed['apiBaseUrl']) != null,
         );
       }
-      final apiBaseUrl = normalizeApiBaseUrl(
-        _normalizeText(parsed['apiBaseUrl']) ?? defaultPairingApiBaseUrl(),
+      final explicitApiBaseUrl = _normalizeText(
+        parsed['apiBaseUrl'] ?? parsed['apiUrl'] ?? parsed['baseUrl'],
       );
+      final apiBaseUrl = normalizeApiBaseUrl(
+        explicitApiBaseUrl ?? defaultPairingApiBaseUrl(),
+      );
+      final effectiveType = normalizedType ?? expectedType;
       return PairingPayloadParseResult(
         normalizedInput: raw,
         payload: ParsedPairingPayload(
           token: token,
           rawPayload: raw,
-          type: normalizedType,
+          type: effectiveType,
           apiBaseUrl: apiBaseUrl,
           tenantId: _normalizeText(parsed['tenantId']),
-          displayCode: _normalizeText(parsed['displayCode'])?.toUpperCase(),
+          displayCode: _normalizeText(parsed['displayCode'] ?? parsed['deviceCode'])?.toUpperCase(),
           expiresAt: _parseDateTime(parsed['expiresAt']),
         ),
-        detectedType: normalizedType,
+        detectedType: effectiveType,
+        usedExpectedTypeFallback: normalizedType == null && expectedType != null,
         hasToken: true,
-        hasApiBaseUrl: _normalizeText(parsed['apiBaseUrl']) != null,
+        hasApiBaseUrl: explicitApiBaseUrl != null,
+        usingDefaultApiBaseUrl: explicitApiBaseUrl == null,
       );
     } catch (_) {
       return PairingPayloadParseResult(
@@ -216,6 +226,7 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
       ),
       detectedType: PairingPayloadType.driver,
       hasToken: true,
+      usingDefaultApiBaseUrl: true,
     );
   }
 
@@ -247,18 +258,23 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
       ),
       detectedType: PairingPayloadType.orderDesk,
       hasToken: true,
+      usingDefaultApiBaseUrl: true,
     );
   }
 
+  final fallbackType = expectedType;
   return PairingPayloadParseResult(
     normalizedInput: raw,
     payload: ParsedPairingPayload(
       token: raw,
       rawPayload: raw,
-      type: null,
+      type: fallbackType,
       apiBaseUrl: defaultPairingApiBaseUrl(),
     ),
+    detectedType: fallbackType,
+    usedExpectedTypeFallback: fallbackType != null,
     hasToken: true,
+    usingDefaultApiBaseUrl: true,
   );
 }
 

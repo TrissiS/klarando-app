@@ -951,8 +951,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         PairingPayloadType.driver => 'DRIVER_PAIRING',
         null => 'unbekannt',
       };
+      final apiStatus = parseResult.hasApiBaseUrl
+          ? 'ja'
+          : (parseResult.usingDefaultApiBaseUrl ? 'Standard verwendet' : 'nein');
       _pairingInputDebug =
-          'Typ: $detectedType · Token: ${parseResult.hasToken ? 'ja' : 'nein'} · API-URL: ${parseResult.hasApiBaseUrl ? 'ja' : 'nein'}';
+          'Typ: $detectedType · Token: ${parseResult.hasToken ? 'ja' : 'nein'} · API-URL: $apiStatus';
     });
     if (parsedPairing == null) {
       setState(() {

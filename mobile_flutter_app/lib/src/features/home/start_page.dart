@@ -136,8 +136,8 @@ class _StartPageState extends State<StartPage> {
         SliverPersistentHeader(
           pinned: true,
           delegate: _StartHeaderDelegate(
-            minHeight: 96,
-            maxHeight: 224,
+            minHeight: 104,
+            maxHeight: 252,
             builder: (context, collapse) {
               return _StartHeaderContent(
                 collapse: collapse,
