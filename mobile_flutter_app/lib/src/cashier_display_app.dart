@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
-import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -103,6 +102,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   );
   final _displayCodeController = TextEditingController();
   final _pairingTokenController = TextEditingController();
+  final _pairingTokenFocusNode = FocusNode();
   final _deviceSerialController = TextEditingController();
   final _deviceAliasController = TextEditingController();
   final _tcpHostController = TextEditingController();
@@ -183,6 +183,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     _baseUrlController.dispose();
     _displayCodeController.dispose();
     _pairingTokenController.dispose();
+    _pairingTokenFocusNode.dispose();
     _deviceSerialController.dispose();
     _deviceAliasController.dispose();
     _tcpHostController.dispose();
@@ -1009,32 +1010,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
   }
 
-  Future<void> _scanPairingTokenWithCamera() async {
-    final scanResult = await Navigator.of(context).push<String>(
-      MaterialPageRoute(builder: (_) => const _CashierQrScannerPage()),
-    );
-    final token = scanResult?.trim();
-    if (token == null || token.isEmpty || !mounted) {
+  Future<void> _connectWithEnteredBindingCode({bool fromEnter = false}) async {
+    if (_loading) {
       return;
     }
-    final parsedPairing = parsePairingPayload(
-      token,
-      expectedType: PairingPayloadType.orderDesk,
-    );
-    if (parsedPairing == null) {
+    final token = _pairingTokenController.text.trim();
+    if (token.isEmpty) {
       setState(() {
-        _error = 'Dieser QR-Code ist nicht für diese App geeignet.';
+        _error = 'Bitte einen Binding-Code scannen oder einfügen.';
       });
       return;
     }
-
     setState(() {
-      _pairingTokenController.text = parsedPairing.rawPayload;
-      _baseUrlController.text = parsedPairing.apiBaseUrl;
-      _info = 'QR-Code erkannt. Gerät wird verbunden...';
+      _info = fromEnter
+          ? 'Scanner-Eingabe erkannt. Gerät wird mit Klarando verbunden …'
+          : 'Gerät wird mit Klarando verbunden …';
       _error = null;
     });
-    await _bindWithPairingToken(parsedPairing.rawPayload);
+    await _bindWithPairingToken(token);
   }
 
   Future<void> _showConnectedAdminsDialog() async {
@@ -1962,12 +1955,40 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ],
             ),
             const SizedBox(height: 8),
-            const Text('Gerät mit Betrieb verbinden'),
+            const Text('QR-Code mit dem seitlichen Scanner scannen'),
             const SizedBox(height: 12),
+            TextField(
+              controller: _pairingTokenController,
+              focusNode: _pairingTokenFocusNode,
+              autofocus: true,
+              enabled: !_loading,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _connectWithEnteredBindingCode(fromEnter: true),
+              decoration: InputDecoration(
+                labelText: 'Gescannten QR-/Binding-Code einfügen',
+                hintText: 'Scanner schreibt den Code automatisch hier hinein',
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: 'Feld leeren',
+                  onPressed: _loading
+                      ? null
+                      : () {
+                          _pairingTokenController.clear();
+                          _pairingTokenFocusNode.requestFocus();
+                        },
+                  icon: const Icon(Icons.close_rounded),
+                ),
+              ),
+              minLines: 2,
+              maxLines: 4,
+            ),
+            const SizedBox(height: 10),
             FilledButton.icon(
-              onPressed: _loading ? null : _scanPairingTokenWithCamera,
-              icon: const Icon(Icons.qr_code_scanner),
-              label: Text(_loading ? 'Bitte warten…' : 'QR-Code scannen'),
+              onPressed: _loading ? null : _connectWithEnteredBindingCode,
+              icon: const Icon(Icons.link_rounded),
+              label: Text(
+                _loading ? 'Bitte warten…' : 'Mit Klarando verbinden',
+              ),
             ),
             const SizedBox(height: 10),
             const Text(
@@ -2605,78 +2626,6 @@ class _OsmMapEmbedState extends State<_OsmMapEmbed> {
       );
     }
     return WebViewWidget(controller: _controller);
-  }
-}
-
-class _CashierQrScannerPage extends StatefulWidget {
-  const _CashierQrScannerPage();
-
-  @override
-  State<_CashierQrScannerPage> createState() => _CashierQrScannerPageState();
-}
-
-class _CashierQrScannerPageState extends State<_CashierQrScannerPage> {
-  late final MobileScannerController _controller;
-  bool _handlingResult = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = MobileScannerController(
-      detectionSpeed: DetectionSpeed.noDuplicates,
-      formats: const [BarcodeFormat.qrCode],
-    );
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleDetection(BarcodeCapture capture) async {
-    if (_handlingResult) {
-      return;
-    }
-    final value = capture.barcodes
-        .map((entry) => entry.rawValue?.trim())
-        .whereType<String>()
-        .firstWhere((entry) => entry.isNotEmpty, orElse: () => '');
-    if (value.isEmpty) {
-      return;
-    }
-
-    _handlingResult = true;
-    await _controller.stop();
-    if (!mounted) {
-      return;
-    }
-    Navigator.of(context).pop(value);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('OrderDesk QR scannen')),
-      body: Stack(
-        children: [
-          MobileScanner(controller: _controller, onDetect: _handleDetection),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: Container(
-              width: double.infinity,
-              color: Colors.black54,
-              padding: const EdgeInsets.all(12),
-              child: const Text(
-                'QR-Code aus dem Adminbereich in den Rahmen halten.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.white),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

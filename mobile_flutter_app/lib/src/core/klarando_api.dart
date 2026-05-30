@@ -712,13 +712,7 @@ class TenantCatalogProduct {
             (_readNullableString(json['productType'])?.toUpperCase() == 'BEVERAGE') ??
             false,
       ),
-      unitSizeLiters: _readNullableDouble(
-        json['unitSizeLiters'] ??
-            json['volumeLiters'] ??
-            json['unitSizeL'] ??
-            json['volumeL'] ??
-            json['liter'],
-      ),
+      unitSizeLiters: _readVolumeLiters(json),
       imageUrl: _resolvePublicAssetUrl(
         baseUrl,
         _readNullableString(json['imageUrl']),
@@ -2633,10 +2627,52 @@ double? _readNullableDouble(dynamic value) {
     return value.toDouble();
   }
   if (value is String) {
-    final parsed = double.tryParse(value);
+    final parsed = double.tryParse(value.trim().replaceAll(',', '.'));
     return parsed;
   }
   return null;
+}
+
+double? _readVolumeLiters(Map<String, dynamic> json) {
+  final directLiters = _readNullableDouble(
+    json['unitSizeLiters'] ??
+        json['volumeLiters'] ??
+        json['unitSizeL'] ??
+        json['volumeL'] ??
+        json['liter'] ??
+        json['contentAmountLiters'],
+  );
+  if (directLiters != null && directLiters > 0) {
+    return directLiters;
+  }
+
+  final mlValue = _readNullableDouble(
+    json['volumeMl'] ??
+        json['unitSizeMl'] ??
+        json['contentAmountMl'] ??
+        json['packageSizeMl'],
+  );
+  if (mlValue != null && mlValue > 0) {
+    return mlValue / 1000;
+  }
+
+  final unitSizeText = _readNullableString(
+    json['unitSize'] ?? json['packageSize'] ?? json['contentAmount'],
+  );
+  if (unitSizeText == null) {
+    return null;
+  }
+
+  final normalized = unitSizeText.toLowerCase().replaceAll(',', '.').trim();
+  final match = RegExp(r'(\d+(?:\.\d+)?)\s*(ml|l)\b').firstMatch(normalized);
+  if (match == null) {
+    return null;
+  }
+  final amount = double.tryParse(match.group(1)!);
+  if (amount == null || amount <= 0) {
+    return null;
+  }
+  return match.group(2) == 'ml' ? amount / 1000 : amount;
 }
 
 double _readDouble(dynamic value) {
