@@ -75,6 +75,27 @@ async function isUserRoleSupported(role: UserRole) {
   return roles.has(role)
 }
 
+function resolvePublicApiBaseUrl() {
+  const candidate =
+    typeof process.env.PUBLIC_API_BASE_URL === 'string'
+      ? process.env.PUBLIC_API_BASE_URL.trim()
+      : typeof process.env.NEXT_PUBLIC_API_BASE_URL === 'string'
+        ? process.env.NEXT_PUBLIC_API_BASE_URL.trim()
+        : typeof process.env.NEXT_PUBLIC_API_URL === 'string'
+          ? process.env.NEXT_PUBLIC_API_URL.trim()
+          : ''
+  if (!candidate) {
+    return 'https://api.klarando.com'
+  }
+  return candidate.replace(/\/+$/, '')
+}
+
+function encodeOrderDeskPairingPayload(payload: Record<string, unknown>) {
+  const jsonPayload = JSON.stringify(payload)
+  const hexPayload = Buffer.from(jsonPayload, 'utf8').toString('hex').toUpperCase()
+  return `KOD${hexPayload}`
+}
+
 const DISPLAY_STATUS_ONLINE_MS = 60_000
 const ORDERDESK_PAIRING_SESSION_MS = 15 * 60 * 1000
 const DISPLAY_MANAGEMENT_TYPES = new Set([
@@ -1265,7 +1286,14 @@ router.post(
         kind: 'PAIRING',
         expiresAtMs: expiresAt.getTime(),
       })
-      const pairingPayload = `klarando-orderdesk-pair:${display.displayCode}:${pairingToken}`
+      const pairingPayload = encodeOrderDeskPairingPayload({
+        type: 'ORDER_DESK_PAIRING',
+        apiBaseUrl: resolvePublicApiBaseUrl(),
+        tenantId: display.tenantId,
+        displayCode: display.displayCode,
+        pairingToken,
+        expiresAt: expiresAt.toISOString(),
+      })
 
       await writeAuditLog({
         req,

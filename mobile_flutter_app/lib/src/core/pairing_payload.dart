@@ -113,6 +113,16 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
     }
   }
 
+  if (_looksLikeHexPayload(upperRaw)) {
+    final decoded = _decodeHexToUtf8(upperRaw);
+    if (decoded != null) {
+      return parsePairingPayloadDetailed(
+        decoded,
+        expectedType: expectedType,
+      );
+    }
+  }
+
   if (raw.startsWith(orderDeskEncodedPrefix)) {
     final encodedPayload = raw.substring(orderDeskEncodedPrefix.length);
     if (encodedPayload.isEmpty) {
@@ -198,6 +208,24 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
     }
   }
 
+  final decodedToken = _decodeJsonWrappedToken(raw);
+  if (decodedToken != null) {
+    final fallbackType = expectedType;
+    return PairingPayloadParseResult(
+      normalizedInput: raw,
+      payload: ParsedPairingPayload(
+        token: decodedToken,
+        rawPayload: decodedToken,
+        type: fallbackType,
+        apiBaseUrl: defaultPairingApiBaseUrl(),
+      ),
+      detectedType: fallbackType,
+      usedExpectedTypeFallback: fallbackType != null,
+      hasToken: true,
+      usingDefaultApiBaseUrl: true,
+    );
+  }
+
   final legacyDriverPrefix = 'klarando-driver-pair:';
   if (raw.startsWith(legacyDriverPrefix)) {
     final parts = raw.split(':');
@@ -276,6 +304,40 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
     hasToken: true,
     usingDefaultApiBaseUrl: true,
   );
+}
+
+bool _looksLikeHexPayload(String value) {
+  return value.length >= 32 && value.length.isEven && RegExp(r'^[0-9A-F]+$').hasMatch(value);
+}
+
+String? _decodeHexToUtf8(String value) {
+  if (!_looksLikeHexPayload(value)) {
+    return null;
+  }
+  try {
+    final bytes = <int>[];
+    for (var index = 0; index < value.length; index += 2) {
+      bytes.add(int.parse(value.substring(index, index + 2), radix: 16));
+    }
+    return utf8.decode(bytes);
+  } catch (_) {
+    return null;
+  }
+}
+
+String? _decodeJsonWrappedToken(String value) {
+  if (!(value.startsWith('"') && value.endsWith('"'))) {
+    return null;
+  }
+  try {
+    final decoded = jsonDecode(value);
+    if (decoded is! String) {
+      return null;
+    }
+    return _normalizeText(decoded);
+  } catch (_) {
+    return null;
+  }
 }
 
 String _sanitizeScannerInput(String rawValue) {
