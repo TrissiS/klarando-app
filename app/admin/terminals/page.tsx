@@ -28,6 +28,93 @@ function normalizeHexColorInput(input: string) {
   return /^#[0-9a-f]{6}$/.test(value) ? value : null
 }
 
+type OrderDeskManualPairingData = {
+  apiBaseUrl: string
+  tenantId: string
+  adminCode: string
+  displayCode: string
+  pairingToken: string
+}
+
+function decodeOrderDeskPairingPayload(rawPayload: string): Partial<OrderDeskManualPairingData> | null {
+  const raw = rawPayload.trim()
+  if (!raw) return null
+  const tryParseJson = (jsonText: string): Partial<OrderDeskManualPairingData> | null => {
+    try {
+      const parsed = JSON.parse(jsonText) as Record<string, unknown>
+      const token =
+        typeof parsed.pairingToken === 'string'
+          ? parsed.pairingToken.trim()
+          : typeof parsed.token === 'string'
+            ? parsed.token.trim()
+            : ''
+      const apiBaseUrl =
+        typeof parsed.apiBaseUrl === 'string'
+          ? parsed.apiBaseUrl.trim()
+          : typeof parsed.apiUrl === 'string'
+            ? parsed.apiUrl.trim()
+            : typeof parsed.baseUrl === 'string'
+              ? parsed.baseUrl.trim()
+              : ''
+      const tenantId = typeof parsed.tenantId === 'string' ? parsed.tenantId.trim() : ''
+      const displayCode =
+        typeof parsed.displayCode === 'string'
+          ? parsed.displayCode.trim()
+          : typeof parsed.deviceCode === 'string'
+            ? parsed.deviceCode.trim()
+            : ''
+      return {
+        apiBaseUrl,
+        tenantId,
+        adminCode: '',
+        displayCode,
+        pairingToken: token,
+      }
+    } catch {
+      return null
+    }
+  }
+
+  if (raw.startsWith('{')) {
+    return tryParseJson(raw)
+  }
+  if (raw.toUpperCase().startsWith('KOD')) {
+    const hex = raw.slice(3).trim().toUpperCase()
+    if (!hex || hex.length % 2 !== 0 || !/^[0-9A-F]+$/.test(hex)) return null
+    try {
+      return tryParseJson(Buffer.from(hex, 'hex').toString('utf8'))
+    } catch {
+      return null
+    }
+  }
+  if (raw.startsWith('KLARANDO_ORDERDESK_PAIRING:')) {
+    const base64 = raw.slice('KLARANDO_ORDERDESK_PAIRING:'.length).replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    try {
+      return tryParseJson(Buffer.from(padded, 'base64').toString('utf8'))
+    } catch {
+      return null
+    }
+  }
+  if (raw.startsWith('klarando-orderdesk-pair:')) {
+    const parts = raw.split(':')
+    return {
+      apiBaseUrl: 'https://api.klarando.com',
+      tenantId: '',
+      adminCode: '',
+      displayCode: parts[1] ?? '',
+      pairingToken: parts.slice(2).join(':'),
+    }
+  }
+  return {
+    apiBaseUrl: 'https://api.klarando.com',
+    tenantId: '',
+    adminCode: '',
+    displayCode: '',
+    pairingToken: raw,
+  }
+}
+
 export default function AdminTerminalsPage() {
   const [terminals, setTerminals] = useState<OrderTerminal[]>([])
   const [displays, setDisplays] = useState<OrderDisplay[]>([])
@@ -65,6 +152,7 @@ export default function AdminTerminalsPage() {
   const [resettingOrderDeskBindingId, setResettingOrderDeskBindingId] = useState<string | null>(null)
   const [recreatingOrderDeskBindingId, setRecreatingOrderDeskBindingId] = useState<string | null>(null)
   const [orderDeskQrExpired, setOrderDeskQrExpired] = useState(false)
+  const [copyState, setCopyState] = useState('')
 
   const browserOrigin =
     typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
@@ -102,6 +190,30 @@ export default function AdminTerminalsPage() {
     [displays]
   )
   const isSuperadmin = sessionRole.trim().toUpperCase() === 'SUPERADMIN'
+  const orderDeskManualData = useMemo(() => {
+    if (!orderDeskQr) return null
+    const fromPayload = decodeOrderDeskPairingPayload(orderDeskQr.pairingPayload) || {}
+    const apiBaseUrl = (fromPayload.apiBaseUrl || 'https://api.klarando.com').replace(/\/api\/?$/i, '')
+    return {
+      apiBaseUrl,
+      tenantId: fromPayload.tenantId || orderDeskQr.tenantId,
+      adminCode: fromPayload.adminCode || '',
+      displayCode: fromPayload.displayCode || orderDeskQr.displayCode,
+      pairingToken: fromPayload.pairingToken || orderDeskQr.pairingToken,
+    }
+  }, [orderDeskQr])
+
+  async function copyManualValue(value: string, label: string) {
+    if (!value.trim()) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopyState(`${label} kopiert`)
+      window.setTimeout(() => setCopyState(''), 1800)
+    } catch {
+      setCopyState(`Kopieren fehlgeschlagen (${label})`)
+      window.setTimeout(() => setCopyState(''), 2200)
+    }
+  }
 
   async function loadData() {
     try {
@@ -548,6 +660,36 @@ export default function AdminTerminalsPage() {
                     >
                       Neuen QR-Code generieren
                     </button>
+                  ) : null}
+                  {orderDeskManualData ? (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-left">
+                      <p className="text-xs font-semibold text-slate-900">Manuelle OrderDesk-Verbindung</p>
+                      <p className="mt-1 text-[11px] text-slate-600">Diese Werte in der OrderDesk-App unter „Manuell verbinden“ eintragen.</p>
+                      <div className="mt-2 space-y-2 text-xs">
+                        {[
+                          { label: 'API-URL', value: orderDeskManualData.apiBaseUrl },
+                          { label: 'Tenant-ID', value: orderDeskManualData.tenantId },
+                          { label: 'Admin-ID / Betriebscode', value: orderDeskManualData.adminCode },
+                          { label: 'DisplayCode / Gerätename', value: orderDeskManualData.displayCode },
+                          { label: 'PairingToken / manueller Gerätecode', value: orderDeskManualData.pairingToken },
+                        ].map((entry) => (
+                          <div key={entry.label} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-[11px] font-semibold text-slate-700">{entry.label}</p>
+                              <button
+                                type="button"
+                                onClick={() => void copyManualValue(entry.value, entry.label)}
+                                className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-700 hover:bg-slate-100"
+                              >
+                                Kopieren
+                              </button>
+                            </div>
+                            <p className="mt-1 break-all font-mono text-[11px] text-slate-900">{entry.value || '-'}</p>
+                          </div>
+                        ))}
+                        {copyState ? <p className="text-[11px] text-emerald-700">{copyState}</p> : null}
+                      </div>
+                    </div>
                   ) : null}
                 </div>
               ) : (

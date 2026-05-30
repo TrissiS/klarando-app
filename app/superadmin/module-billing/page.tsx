@@ -164,6 +164,62 @@ function formatDateTime(date: string | null) {
   return parsed.toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })
 }
 
+type ManualOrderDeskData = {
+  apiBaseUrl: string
+  tenantId: string
+  adminCode: string
+  displayCode: string
+  pairingToken: string
+}
+
+function decodeManualOrderDeskData(rawPayload: string): ManualOrderDeskData | null {
+  const raw = rawPayload.trim()
+  if (!raw) return null
+  const parseFromJson = (jsonText: string): ManualOrderDeskData | null => {
+    try {
+      const parsed = JSON.parse(jsonText) as Record<string, unknown>
+      const apiBaseUrlRaw =
+        typeof parsed.apiBaseUrl === 'string'
+          ? parsed.apiBaseUrl
+          : typeof parsed.apiUrl === 'string'
+            ? parsed.apiUrl
+            : typeof parsed.baseUrl === 'string'
+              ? parsed.baseUrl
+              : 'https://api.klarando.com'
+      return {
+        apiBaseUrl: apiBaseUrlRaw.replace(/\/api\/?$/i, ''),
+        tenantId: typeof parsed.tenantId === 'string' ? parsed.tenantId : '',
+        adminCode: '',
+        displayCode:
+          typeof parsed.displayCode === 'string'
+            ? parsed.displayCode
+            : typeof parsed.deviceCode === 'string'
+              ? parsed.deviceCode
+              : '',
+        pairingToken:
+          typeof parsed.pairingToken === 'string'
+            ? parsed.pairingToken
+            : typeof parsed.token === 'string'
+              ? parsed.token
+              : '',
+      }
+    } catch {
+      return null
+    }
+  }
+  if (raw.startsWith('{')) return parseFromJson(raw)
+  if (raw.toUpperCase().startsWith('KOD')) {
+    const hex = raw.slice(3).trim().toUpperCase()
+    if (!hex || hex.length % 2 !== 0 || !/^[0-9A-F]+$/.test(hex)) return null
+    try {
+      return parseFromJson(Buffer.from(hex, 'hex').toString('utf8'))
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 function formatDateOnly(date: string | null) {
   if (!date) return '—'
   const parsed = new Date(date)
@@ -217,10 +273,27 @@ export default function SuperadminModuleBillingPage() {
   const [orderDeskRows, setOrderDeskRows] = useState<OrderDeskDeviceBinding[]>([])
   const [driverRows, setDriverRows] = useState<SuperadminDriverOverviewRow[]>([])
   const [pairingModal, setPairingModal] = useState<{ title: string; payload: string; qrImageUrl?: string | null } | null>(null)
+  const [pairingCopyInfo, setPairingCopyInfo] = useState('')
   const [deviceActionLoadingByKey, setDeviceActionLoadingByKey] = useState<Record<string, boolean>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
+  const pairingManualData = useMemo(() => {
+    if (!pairingModal) return null
+    return decodeManualOrderDeskData(pairingModal.payload)
+  }, [pairingModal])
+
+  async function copyPairingField(value: string, label: string) {
+    if (!value.trim()) return
+    try {
+      await navigator.clipboard.writeText(value)
+      setPairingCopyInfo(`${label} kopiert`)
+      window.setTimeout(() => setPairingCopyInfo(''), 1800)
+    } catch {
+      setPairingCopyInfo(`Kopieren fehlgeschlagen (${label})`)
+      window.setTimeout(() => setPairingCopyInfo(''), 2200)
+    }
+  }
 
   useEffect(() => {
     const raw = localStorage.getItem('sessionUser')
@@ -1181,6 +1254,36 @@ export default function SuperadminModuleBillingPage() {
                 <img src={pairingModal.qrImageUrl} alt="Pairing QR-Code" className="mx-auto mt-3 h-52 w-52 rounded-lg border border-slate-200 object-contain" />
               ) : null}
               <textarea readOnly value={pairingModal.payload} className="mt-3 h-32 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700" />
+              {pairingManualData ? (
+                <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-xs font-semibold text-slate-900">Manuelle OrderDesk-Verbindung</p>
+                  <p className="mt-1 text-[11px] text-slate-600">Diese Werte in der OrderDesk-App unter „Manuell verbinden“ eintragen.</p>
+                  <div className="mt-2 space-y-2">
+                    {[
+                      { label: 'API-URL', value: pairingManualData.apiBaseUrl },
+                      { label: 'Tenant-ID', value: pairingManualData.tenantId },
+                      { label: 'Admin-ID / Betriebscode', value: pairingManualData.adminCode },
+                      { label: 'DisplayCode / Gerätename', value: pairingManualData.displayCode },
+                      { label: 'PairingToken / manueller Gerätecode', value: pairingManualData.pairingToken },
+                    ].map((entry) => (
+                      <div key={entry.label} className="rounded-lg border border-slate-200 bg-white px-2 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold text-slate-700">{entry.label}</p>
+                          <button
+                            type="button"
+                            className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] text-slate-700 hover:bg-slate-100"
+                            onClick={() => void copyPairingField(entry.value, entry.label)}
+                          >
+                            Kopieren
+                          </button>
+                        </div>
+                        <p className="mt-1 break-all font-mono text-[11px] text-slate-900">{entry.value || '-'}</p>
+                      </div>
+                    ))}
+                    {pairingCopyInfo ? <p className="text-[11px] text-emerald-700">{pairingCopyInfo}</p> : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         ) : null}
