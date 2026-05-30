@@ -119,6 +119,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _bindingLocked = false;
   String? _error;
   String? _info;
+  String? _pairingInputDebug;
   String? _updateInfo;
   DateTime? _lastSuccessfulSyncAt;
   String? _connectedTenantName;
@@ -939,29 +940,43 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return;
     }
 
-    final parsedPairing = parsePairingPayload(
+    final parseResult = parsePairingPayloadDetailed(
       rawPairingInput,
       expectedType: PairingPayloadType.orderDesk,
     );
+    final parsedPairing = parseResult.payload;
+    setState(() {
+      final detectedType = switch (parseResult.detectedType) {
+        PairingPayloadType.orderDesk => 'ORDER_DESK_PAIRING',
+        PairingPayloadType.driver => 'DRIVER_PAIRING',
+        null => 'unbekannt',
+      };
+      _pairingInputDebug =
+          'Typ: $detectedType · Token: ${parseResult.hasToken ? 'ja' : 'nein'} · API-URL: ${parseResult.hasApiBaseUrl ? 'ja' : 'nein'}';
+    });
     if (parsedPairing == null) {
       setState(() {
-        _error =
-            'QR-Code konnte nicht gelesen werden. Bitte neuen OrderDesk-Code im Admin erzeugen.';
+        _error = _pairingParseErrorMessage(parseResult.failure);
       });
       return;
     }
 
     var bindingSuccessful = false;
     await _runOrderMutation(() async {
-      final response = await _api.bindOrderDeskDevice(
-        baseUrl: parsedPairing.apiBaseUrl,
-        pairingTokenOrPayload: parsedPairing.rawPayload,
-        deviceSerial: deviceSerial,
-        deviceAlias: _deviceAliasController.text.trim(),
-        deviceModel: 'unknown',
-        devicePlatform: 'flutter',
-        appVersion: '$_cashierCurrentVersionName+$_cashierCurrentVersionCode',
-      );
+      OrderDeskBindResponse response;
+      try {
+        response = await _api.bindOrderDeskDevice(
+          baseUrl: parsedPairing.apiBaseUrl,
+          pairingTokenOrPayload: parsedPairing.rawPayload,
+          deviceSerial: deviceSerial,
+          deviceAlias: _deviceAliasController.text.trim(),
+          deviceModel: 'unknown',
+          devicePlatform: 'flutter',
+          appVersion: '$_cashierCurrentVersionName+$_cashierCurrentVersionCode',
+        );
+      } on ApiException catch (error) {
+        throw _mapOrderDeskBindingError(error);
+      }
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -1029,6 +1044,37 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _error = null;
     });
     await _bindWithPairingToken(token);
+  }
+
+  String _pairingParseErrorMessage(PairingPayloadParseFailure? failure) {
+    switch (failure) {
+      case PairingPayloadParseFailure.empty:
+      case PairingPayloadParseFailure.unreadable:
+        return 'QR-Code konnte nicht gelesen werden. Bitte Code neu scannen.';
+      case PairingPayloadParseFailure.wrongType:
+        return 'QR-Code hat den falschen Typ. Bitte einen OrderDesk-Code verwenden.';
+      case PairingPayloadParseFailure.missingToken:
+        return 'Pairing-Token fehlt im QR-Code. Bitte neuen Code im Admin erzeugen.';
+      case null:
+        return 'QR-Code konnte nicht gelesen werden. Bitte Code neu scannen.';
+    }
+  }
+
+  ApiException _mapOrderDeskBindingError(ApiException error) {
+    final status = error.statusCode;
+    if (status == 410) {
+      return const ApiException('Der QR-Code ist abgelaufen. Bitte neuen Code erzeugen.', statusCode: 410);
+    }
+    if (status == 400 || status == 422) {
+      return ApiException('Der QR-Code oder Pairing-Token ist ungültig. ${error.message}', statusCode: status);
+    }
+    if (status == 401 || status == 403) {
+      return ApiException('Server hat den Token abgelehnt. Bitte neuen OrderDesk-Code erzeugen.', statusCode: status);
+    }
+    if (status == null) {
+      return const ApiException('Keine Verbindung zum Klarando-Server. Bitte Netzwerk prüfen.');
+    }
+    return error;
   }
 
   Future<void> _showConnectedAdminsDialog() async {
@@ -1983,6 +2029,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               minLines: 2,
               maxLines: 4,
             ),
+            if (_pairingInputDebug != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                _pairingInputDebug!,
+                style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+              ),
+            ],
             const SizedBox(height: 10),
             FilledButton.icon(
               onPressed: _loading ? null : _connectWithEnteredBindingCode,

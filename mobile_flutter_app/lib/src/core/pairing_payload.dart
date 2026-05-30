@@ -7,6 +7,13 @@ enum PairingPayloadType {
   driver,
 }
 
+enum PairingPayloadParseFailure {
+  empty,
+  unreadable,
+  wrongType,
+  missingToken,
+}
+
 class ParsedPairingPayload {
   const ParsedPairingPayload({
     required this.token,
@@ -27,6 +34,26 @@ class ParsedPairingPayload {
   final DateTime? expiresAt;
 }
 
+class PairingPayloadParseResult {
+  const PairingPayloadParseResult({
+    required this.normalizedInput,
+    this.payload,
+    this.failure,
+    this.detectedType,
+    this.hasToken = false,
+    this.hasApiBaseUrl = false,
+  });
+
+  final String normalizedInput;
+  final ParsedPairingPayload? payload;
+  final PairingPayloadParseFailure? failure;
+  final PairingPayloadType? detectedType;
+  final bool hasToken;
+  final bool hasApiBaseUrl;
+
+  bool get isSuccess => payload != null;
+}
+
 String defaultPairingApiBaseUrl() {
   return normalizeApiBaseUrl('https://api.klarando.com');
 }
@@ -35,16 +62,32 @@ ParsedPairingPayload? parsePairingPayload(
   String rawValue, {
   PairingPayloadType? expectedType,
 }) {
+  return parsePairingPayloadDetailed(
+    rawValue,
+    expectedType: expectedType,
+  ).payload;
+}
+
+PairingPayloadParseResult parsePairingPayloadDetailed(
+  String rawValue, {
+  PairingPayloadType? expectedType,
+}) {
   final raw = _sanitizeScannerInput(rawValue);
   if (raw.isEmpty) {
-    return null;
+    return PairingPayloadParseResult(
+      normalizedInput: raw,
+      failure: PairingPayloadParseFailure.empty,
+    );
   }
 
   const orderDeskEncodedPrefix = 'KLARANDO_ORDERDESK_PAIRING:';
   if (raw.startsWith(orderDeskEncodedPrefix)) {
     final encodedPayload = raw.substring(orderDeskEncodedPrefix.length);
     if (encodedPayload.isEmpty) {
-      return null;
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.unreadable,
+      );
     }
     try {
       final normalizedBase64 = encodedPayload
@@ -53,12 +96,15 @@ ParsedPairingPayload? parsePairingPayload(
       final padding = (4 - normalizedBase64.length % 4) % 4;
       final paddedBase64 = '$normalizedBase64${'=' * padding}';
       final decodedPayload = utf8.decode(base64Decode(paddedBase64));
-      return parsePairingPayload(
+      return parsePairingPayloadDetailed(
         decodedPayload,
         expectedType: expectedType,
       );
     } catch (_) {
-      return null;
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.unreadable,
+      );
     }
   }
 
@@ -66,30 +112,51 @@ ParsedPairingPayload? parsePairingPayload(
     try {
       final parsed = jsonDecode(raw);
       if (parsed is! Map<String, dynamic>) {
-        return null;
+        return PairingPayloadParseResult(
+          normalizedInput: raw,
+          failure: PairingPayloadParseFailure.unreadable,
+        );
       }
       final normalizedType = _parseType(parsed['type']);
       if (expectedType != null && normalizedType != null && normalizedType != expectedType) {
-        return null;
+        return PairingPayloadParseResult(
+          normalizedInput: raw,
+          failure: PairingPayloadParseFailure.wrongType,
+          detectedType: normalizedType,
+        );
       }
       final token = _normalizeText(parsed['pairingToken']) ?? _normalizeText(parsed['token']);
       if (token == null) {
-        return null;
+        return PairingPayloadParseResult(
+          normalizedInput: raw,
+          failure: PairingPayloadParseFailure.missingToken,
+          detectedType: normalizedType,
+          hasApiBaseUrl: _normalizeText(parsed['apiBaseUrl']) != null,
+        );
       }
       final apiBaseUrl = normalizeApiBaseUrl(
         _normalizeText(parsed['apiBaseUrl']) ?? defaultPairingApiBaseUrl(),
       );
-      return ParsedPairingPayload(
-        token: token,
-        rawPayload: raw,
-        type: normalizedType,
-        apiBaseUrl: apiBaseUrl,
-        tenantId: _normalizeText(parsed['tenantId']),
-        displayCode: _normalizeText(parsed['displayCode'])?.toUpperCase(),
-        expiresAt: _parseDateTime(parsed['expiresAt']),
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        payload: ParsedPairingPayload(
+          token: token,
+          rawPayload: raw,
+          type: normalizedType,
+          apiBaseUrl: apiBaseUrl,
+          tenantId: _normalizeText(parsed['tenantId']),
+          displayCode: _normalizeText(parsed['displayCode'])?.toUpperCase(),
+          expiresAt: _parseDateTime(parsed['expiresAt']),
+        ),
+        detectedType: normalizedType,
+        hasToken: true,
+        hasApiBaseUrl: _normalizeText(parsed['apiBaseUrl']) != null,
       );
     } catch (_) {
-      return null;
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.unreadable,
+      );
     }
   }
 
@@ -97,17 +164,30 @@ ParsedPairingPayload? parsePairingPayload(
   if (raw.startsWith(legacyDriverPrefix)) {
     final parts = raw.split(':');
     if (parts.length < 3) {
-      return null;
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.missingToken,
+        detectedType: PairingPayloadType.driver,
+      );
     }
     if (expectedType != null && expectedType != PairingPayloadType.driver) {
-      return null;
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.wrongType,
+        detectedType: PairingPayloadType.driver,
+      );
     }
-    return ParsedPairingPayload(
-      token: parts.sublist(2).join(':'),
-      rawPayload: raw,
-      type: PairingPayloadType.driver,
-      apiBaseUrl: defaultPairingApiBaseUrl(),
-      displayCode: _normalizeText(parts[1])?.toUpperCase(),
+    return PairingPayloadParseResult(
+      normalizedInput: raw,
+      payload: ParsedPairingPayload(
+        token: parts.sublist(2).join(':'),
+        rawPayload: raw,
+        type: PairingPayloadType.driver,
+        apiBaseUrl: defaultPairingApiBaseUrl(),
+        displayCode: _normalizeText(parts[1])?.toUpperCase(),
+      ),
+      detectedType: PairingPayloadType.driver,
+      hasToken: true,
     );
   }
 
@@ -115,34 +195,51 @@ ParsedPairingPayload? parsePairingPayload(
   if (raw.startsWith(legacyOrderDeskPrefix)) {
     final parts = raw.split(':');
     if (parts.length < 3) {
-      return null;
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.missingToken,
+        detectedType: PairingPayloadType.orderDesk,
+      );
     }
     if (expectedType != null && expectedType != PairingPayloadType.orderDesk) {
-      return null;
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.wrongType,
+        detectedType: PairingPayloadType.orderDesk,
+      );
     }
-    return ParsedPairingPayload(
-      token: parts.sublist(2).join(':'),
-      rawPayload: raw,
-      type: PairingPayloadType.orderDesk,
-      apiBaseUrl: defaultPairingApiBaseUrl(),
-      displayCode: _normalizeText(parts[1])?.toUpperCase(),
+    return PairingPayloadParseResult(
+      normalizedInput: raw,
+      payload: ParsedPairingPayload(
+        token: parts.sublist(2).join(':'),
+        rawPayload: raw,
+        type: PairingPayloadType.orderDesk,
+        apiBaseUrl: defaultPairingApiBaseUrl(),
+        displayCode: _normalizeText(parts[1])?.toUpperCase(),
+      ),
+      detectedType: PairingPayloadType.orderDesk,
+      hasToken: true,
     );
   }
 
-  return ParsedPairingPayload(
-    token: raw,
-    rawPayload: raw,
-    type: null,
-    apiBaseUrl: defaultPairingApiBaseUrl(),
+  return PairingPayloadParseResult(
+    normalizedInput: raw,
+    payload: ParsedPairingPayload(
+      token: raw,
+      rawPayload: raw,
+      type: null,
+      apiBaseUrl: defaultPairingApiBaseUrl(),
+    ),
+    hasToken: true,
   );
 }
 
 String _sanitizeScannerInput(String rawValue) {
-  return rawValue
-      .replaceAll('\r', '')
-      .replaceAll('\n', '')
-      .replaceAll(' ', '')
-      .trim();
+  final withoutControlChars = rawValue.replaceAll(RegExp(r'[\u0000-\u001F\u007F]'), '');
+  final normalizedWhitespace = withoutControlChars
+      .replaceAll('\u00A0', ' ')
+      .replaceAll(RegExp(r'\s+'), '');
+  return normalizedWhitespace.trim();
 }
 
 PairingPayloadType? _parseType(Object? value) {
