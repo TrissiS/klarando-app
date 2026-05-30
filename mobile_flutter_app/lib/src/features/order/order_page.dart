@@ -475,7 +475,7 @@ class _ProductCard extends StatelessWidget {
                   ],
                   const SizedBox(height: 8),
                   Text(
-                    _priceLabel(product),
+                    _basePriceLabel(product),
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w800,
@@ -571,15 +571,20 @@ class _ProductImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final imageSize = isBeverage ? 104.0 : 92.0;
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
       child: SizedBox(
-        width: isBeverage ? 112 : 96,
-        height: isBeverage ? 112 : 96,
-        child: _RemoteOrAssetImage(
-          imageUrl: imageUrl,
-          fit: BoxFit.cover,
-          showLogoFallback: false,
+        width: imageSize,
+        height: imageSize,
+        child: Container(
+          color: const Color(0xFFF8FAFC),
+          alignment: Alignment.center,
+          child: _RemoteOrAssetImage(
+            imageUrl: imageUrl,
+            fit: BoxFit.contain,
+            showLogoFallback: false,
+          ),
         ),
       ),
     );
@@ -1086,6 +1091,14 @@ List<Widget> _buildArticleDetails(TenantCatalogProduct product) {
 
   addRow('Artikelinfo', product.articleInfo);
   addRow('Lebensmittelunternehmer', product.foodBusinessOperator);
+  final containerLabel = _beverageContainerLabel(product);
+  if (containerLabel != null) {
+    addRow('Verpackung', containerLabel.replaceAll('(', '').replaceAll(')', ''));
+  }
+  final literPrice = _literPriceLabel(product);
+  if (literPrice != null) {
+    addRow('Literpreis', literPrice);
+  }
   final nutrition = product.nutrition;
   if (nutrition != null && nutrition.hasValues) {
     final unitLabel = () {
@@ -1161,23 +1174,11 @@ String _formatNutrientValue(double value) {
   return rounded.replaceAll('.', ',');
 }
 
-String _priceLabel(TenantCatalogProduct product) {
+String _basePriceLabel(TenantCatalogProduct product) {
   final basePrice = _formatCurrency(product.price);
   var base = basePrice;
   if (product.depositAmount > 0) {
     base = '$basePrice zzgl. ${_formatCurrency(product.depositAmount)} Pfand';
-  }
-  final containerLabel = _beverageContainerLabel(product);
-  final literPrice = _literPriceLabel(product);
-  if (containerLabel != null || literPrice != null) {
-    final details = <String>[];
-    if (containerLabel != null) {
-      details.add(containerLabel.replaceAll('(', '').replaceAll(')', ''));
-    }
-    if (literPrice != null) {
-      details.add(literPrice);
-    }
-    return '$base · (${details.join(', ')})';
   }
   return base;
 }
