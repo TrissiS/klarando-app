@@ -43,7 +43,7 @@ export default function MarketingOverviewPage() {
       quickActions={[
         { href: '/admin/actions', label: 'Aktionen bearbeiten' },
         { href: '/admin/coupons', label: 'Gutscheine öffnen' },
-        { href: '/admin/orders?tab=ratings', label: 'Bewertungen ansehen' },
+        { href: '/admin/marketing/ratings', label: 'Bewertungen ansehen' },
       ]}
     />
   )

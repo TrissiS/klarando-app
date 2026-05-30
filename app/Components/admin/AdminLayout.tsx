@@ -161,7 +161,7 @@ const sectionNavSections: NavSection[] = [
       { href: '/admin/marketing', label: 'Übersicht', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/coupons', label: 'Gutscheine', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/orders?tab=ratings', label: 'Bewertungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/marketing/ratings', label: 'Bewertungen', moduleKey: 'actions', requiredPermission: 'ORDERS_READ' },
     ],
   },
   {

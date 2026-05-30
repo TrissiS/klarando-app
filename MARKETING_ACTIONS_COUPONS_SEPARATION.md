@@ -35,3 +35,13 @@
 - Coupon CRUD im Admin
 - Coupon Validate API
 - Trennung der Navigation (Aktionen vs. Gutscheine)
+
+## Navigation Fix (Bewertungen)
+- **Ursache**: Der Marketing-Eintrag "Bewertungen" zeigte auf `/admin/orders?tab=ratings` und sprang dadurch in den Bestellbereich.
+- **Fix**: Eigene Route `/admin/marketing/ratings` angelegt und alle Marketing-Links darauf umgestellt.
+- **Tab-Logik**: Marketing-Navigation bleibt im Modul `actions` und markiert den aktiven Marketing-Kontext korrekt.
+- **Getestete Tabs**:
+  - Übersicht: `/admin/marketing`
+  - Aktionen: `/admin/actions`
+  - Gutscheine: `/admin/coupons`
+  - Bewertungen: `/admin/marketing/ratings`
