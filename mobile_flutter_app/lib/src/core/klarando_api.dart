@@ -1921,6 +1921,8 @@ class KlarandoApi {
     String? customerAddress,
     String? customerZipCode,
     String? customerCity,
+    double? customerLatitude,
+    double? customerLongitude,
     String? appAuthToken,
     bool markPaid = false,
   }) async {
@@ -1946,6 +1948,8 @@ class KlarandoApi {
         'customerAddress': customerAddress,
         'customerZipCode': customerZipCode,
         'customerCity': customerCity,
+        if (customerLatitude != null) 'customerLatitude': customerLatitude,
+        if (customerLongitude != null) 'customerLongitude': customerLongitude,
       },
     );
     return PublicOrderSummary.fromJson(response);

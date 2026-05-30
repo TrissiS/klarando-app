@@ -2734,6 +2734,9 @@ class _HomeShellState extends State<HomeShell> {
           customerLoggedIn: _appAuthToken != null,
           orderIntakeEnabled: tenant.orderIntake.enabled,
           orderIntakeMessage: tenant.orderIntake.customerMessage,
+          requiresDeliveryCoordinates: tenant.deliveryStrategy.toUpperCase() == 'POLYGON',
+          initialDeliveryLatitude: _activeLatitude,
+          initialDeliveryLongitude: _activeLongitude,
           submitOrder: _submitOrder,
         ),
       ),
@@ -3604,6 +3607,9 @@ class _CheckoutFlowPage extends StatefulWidget {
     required this.customerLoggedIn,
     required this.orderIntakeEnabled,
     required this.orderIntakeMessage,
+    required this.requiresDeliveryCoordinates,
+    required this.initialDeliveryLatitude,
+    required this.initialDeliveryLongitude,
     required this.submitOrder,
   });
 
@@ -3622,6 +3628,9 @@ class _CheckoutFlowPage extends StatefulWidget {
   final bool customerLoggedIn;
   final bool orderIntakeEnabled;
   final String? orderIntakeMessage;
+  final bool requiresDeliveryCoordinates;
+  final double? initialDeliveryLatitude;
+  final double? initialDeliveryLongitude;
   final Future<PublicOrderSummary> Function({
     required List<_CartLine> lines,
     required _CheckoutServiceType serviceType,
@@ -3658,6 +3667,8 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   late final TextEditingController _deliveryAddressController;
   late final TextEditingController _deliveryZipController;
   late final TextEditingController _deliveryCityController;
+  double? _checkoutLatitude;
+  double? _checkoutLongitude;
   final TextEditingController _secondaryAddressController = TextEditingController();
   final TextEditingController _secondaryZipController = TextEditingController();
   final TextEditingController _secondaryCityController = TextEditingController();
@@ -3705,6 +3716,28 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     _deliveryAddressController = TextEditingController(text: widget.initialAddress.trim());
     _deliveryZipController = TextEditingController(text: widget.initialZipCode.trim());
     _deliveryCityController = TextEditingController(text: widget.initialCity?.trim() ?? '');
+    _checkoutLatitude = widget.initialDeliveryLatitude;
+    _checkoutLongitude = widget.initialDeliveryLongitude;
+    if (widget.requiresDeliveryCoordinates &&
+        widget.allowDelivery &&
+        (_checkoutLatitude == null || _checkoutLongitude == null)) {
+      unawaited(_resolveDeliveryCoordinatesForCheckout());
+    }
+  }
+
+  Future<void> _resolveDeliveryCoordinatesForCheckout() async {
+    try {
+      final location = await fetchCurrentLocation();
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _checkoutLatitude = location.latitude;
+        _checkoutLongitude = location.longitude;
+      });
+    } catch (_) {
+      // Keep the state as-is; checkout shows an explicit hint when coordinates are missing.
+    }
   }
 
   @override
@@ -3731,6 +3764,8 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
 
     return _isCompleteDeliveryAddress(address: address, zipCode: zipCode, city: city);
   }
+
+  bool get _hasDeliveryCoordinates => _checkoutLatitude != null && _checkoutLongitude != null;
 
   void _changeQuantity(String lineId, int delta) {
     setState(() {
@@ -4107,6 +4142,24 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                       ],
                     ),
                     const SizedBox(height: 8),
+                    Text(
+                      'Koordinaten vorhanden: ${_hasDeliveryCoordinates ? 'Ja' : 'Nein'}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _hasDeliveryCoordinates
+                            ? const Color(0xFF166534)
+                            : const Color(0xFF92400E),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (widget.requiresDeliveryCoordinates && !_hasDeliveryCoordinates) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Bitte Lieferadresse auswählen oder Standort verwenden, damit Koordinaten gesetzt werden.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFFB91C1C)),
+                      ),
+                    ],
+                    const SizedBox(height: 8),
                     if (!_deliveryAddressReady) ...[
                       const SizedBox(height: 8),
                       const Text(
@@ -4274,12 +4327,16 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       final belowMinOrder = _serviceType == _CheckoutServiceType.delivery &&
           widget.minOrderValueAmount != null &&
           _subtotal < widget.minOrderValueAmount!;
+      final missingDeliveryCoordinates = _serviceType == _CheckoutServiceType.delivery &&
+          widget.requiresDeliveryCoordinates &&
+          !_hasDeliveryCoordinates;
       final hasName = _customerNameController.text.trim().isNotEmpty;
       final blockedByLogin = widget.requireCustomerLogin && !widget.customerLoggedIn;
       final disabled = _isSubmitting ||
           _lines.isEmpty ||
           !hasName ||
           belowMinOrder ||
+          missingDeliveryCoordinates ||
           blockedByLogin ||
           !_deliveryAddressReady;
 
@@ -4290,6 +4347,8 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
               ? 'Bestellung wird gesendet...'
               : belowMinOrder
               ? 'Mindestbestellwert nicht erreicht'
+              : missingDeliveryCoordinates
+              ? 'Bitte Lieferadresse auswählen'
               : 'Zahlungspflichtig bestellen',
         ),
       );
