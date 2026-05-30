@@ -81,6 +81,34 @@ PairingPayloadParseResult parsePairingPayloadDetailed(
   }
 
   const orderDeskEncodedPrefix = 'KLARANDO_ORDERDESK_PAIRING:';
+  const orderDeskHexPrefix = 'KOD';
+  final upperRaw = raw.toUpperCase();
+  if (upperRaw.startsWith(orderDeskHexPrefix)) {
+    final hexPayload = upperRaw.substring(orderDeskHexPrefix.length).trim();
+    if (hexPayload.isEmpty || hexPayload.length.isOdd || !RegExp(r'^[0-9A-F]+$').hasMatch(hexPayload)) {
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.unreadable,
+      );
+    }
+    try {
+      final bytes = <int>[];
+      for (var index = 0; index < hexPayload.length; index += 2) {
+        bytes.add(int.parse(hexPayload.substring(index, index + 2), radix: 16));
+      }
+      final decodedPayload = utf8.decode(bytes);
+      return parsePairingPayloadDetailed(
+        decodedPayload,
+        expectedType: expectedType,
+      );
+    } catch (_) {
+      return PairingPayloadParseResult(
+        normalizedInput: raw,
+        failure: PairingPayloadParseFailure.unreadable,
+      );
+    }
+  }
+
   if (raw.startsWith(orderDeskEncodedPrefix)) {
     final encodedPayload = raw.substring(orderDeskEncodedPrefix.length);
     if (encodedPayload.isEmpty) {

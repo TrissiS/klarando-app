@@ -16,6 +16,7 @@ const ORDERDESK_DEVICE_TARGET_TYPE = 'orderdesk_device_binding'
 const ORDERDESK_PAIRING_TARGET_TYPE = 'orderdesk_pairing_session'
 const ORDERDESK_PAIRING_EXPIRES_MINUTES = 5
 const ORDERDESK_PAIRING_PREFIX = 'KLARANDO_ORDERDESK_PAIRING:'
+const ORDERDESK_PAIRING_HEX_PREFIX = 'KOD'
 
 function normalizeText(value: unknown) {
   if (typeof value !== 'string') {
@@ -91,6 +92,19 @@ function parsePairingPayload(rawValue: unknown) {
     }
   }
 
+  if (raw.startsWith(ORDERDESK_PAIRING_HEX_PREFIX)) {
+    const hexPayload = raw.slice(ORDERDESK_PAIRING_HEX_PREFIX.length).trim().toUpperCase()
+    if (!hexPayload || hexPayload.length % 2 !== 0 || !/^[0-9A-F]+$/.test(hexPayload)) {
+      return null
+    }
+    try {
+      const decodedPayload = Buffer.from(hexPayload, 'hex').toString('utf8')
+      return parsePairingPayload(decodedPayload)
+    } catch {
+      return null
+    }
+  }
+
   if (raw.startsWith('{')) {
     try {
       const parsed = JSON.parse(raw) as {
@@ -142,12 +156,8 @@ function parsePairingPayload(rawValue: unknown) {
 
 function encodeOrderDeskPairingPayload(payload: Record<string, unknown>) {
   const jsonPayload = JSON.stringify(payload)
-  const encodedPayload = Buffer.from(jsonPayload, 'utf8')
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '')
-  return `${ORDERDESK_PAIRING_PREFIX}${encodedPayload}`
+  const hexPayload = Buffer.from(jsonPayload, 'utf8').toString('hex').toUpperCase()
+  return `${ORDERDESK_PAIRING_HEX_PREFIX}${hexPayload}`
 }
 
 function resolvePublicApiBaseUrl() {

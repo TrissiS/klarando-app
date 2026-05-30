@@ -1050,7 +1050,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     switch (failure) {
       case PairingPayloadParseFailure.empty:
       case PairingPayloadParseFailure.unreadable:
-        return 'QR-Code konnte nicht gelesen werden. Bitte Code neu scannen.';
+        return 'Scanner-Code konnte nicht gelesen werden. Bitte Scanner-Tastaturmodus prüfen oder neuen Code erzeugen.';
       case PairingPayloadParseFailure.wrongType:
         return 'QR-Code hat den falschen Typ. Bitte einen OrderDesk-Code verwenden.';
       case PairingPayloadParseFailure.missingToken:
