@@ -40,6 +40,7 @@ const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
 const _klarandoTermsUrl = 'https://www.klarando.com/agb';
 const _klarandoCookiesUrl = 'https://www.klarando.com/cookies';
 const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
+const _orderDeskNewOrderAudioAsset = 'assets/audio/orderdesk_new_order.mp3';
 
 enum _DeskConnectionHealth { online, unstable, offline }
 
@@ -110,6 +111,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   Timer? _pollTimer;
   Timer? _uiTicker;
+  VideoPlayerController? _newOrderAudioController;
+  bool _newOrderAudioPlaying = false;
   bool _loading = false;
   bool _connected = false;
   bool _bindingLocked = false;
@@ -183,6 +186,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     _deviceAliasController.dispose();
     _tcpHostController.dispose();
     _tcpPortController.dispose();
+    unawaited(_disposeNewOrderAudioController());
     super.dispose();
   }
 
@@ -257,7 +261,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           .where((entry) => entry.isNotEmpty)
           .toList(growable: false);
       _connectedAdmins = adminEmails
-          .map((entry) => OrderDeskContactUser(name: entry, email: entry))
+          .map<OrderDeskContactUser>(
+            (entry) => OrderDeskContactUser(
+              id: entry,
+              name: entry,
+              email: entry,
+            ),
+          )
           .toList(growable: false);
     }
     if (secureChainadmins != null) {
@@ -267,7 +277,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           .where((entry) => entry.isNotEmpty)
           .toList(growable: false);
       _connectedChainadmins = chainadminEmails
-          .map((entry) => OrderDeskContactUser(name: entry, email: entry))
+          .map<OrderDeskContactUser>(
+            (entry) => OrderDeskContactUser(
+              id: entry,
+              name: entry,
+              email: entry,
+            ),
+          )
           .toList(growable: false);
     }
     _printQueue.updateSettings(_buildPrinterSettings());
@@ -431,7 +447,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       (order) => !_lastOrderStatusById.containsKey(order.id),
     );
     if (hasNewOrder) {
-      unawaited(SystemSound.play(SystemSoundType.alert));
+      unawaited(_playNewOrderSound());
     }
 
     for (final order in orders) {
@@ -446,6 +462,50 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     _lastOrderStatusById
       ..clear()
       ..addAll(nextStatusByOrderId);
+  }
+
+  Future<void> _playNewOrderSound() async {
+    if (_newOrderAudioPlaying) {
+      return;
+    }
+    _newOrderAudioPlaying = true;
+    try {
+      if (_newOrderAudioController == null) {
+        final createdController = VideoPlayerController.asset(
+          _orderDeskNewOrderAudioAsset,
+        );
+        _newOrderAudioController = createdController;
+        await createdController.initialize();
+        await createdController.setLooping(false);
+        createdController.addListener(() {
+          if (!createdController.value.isPlaying) {
+            _newOrderAudioPlaying = false;
+          }
+        });
+      }
+      final controller = _newOrderAudioController;
+      if (controller == null) {
+        _newOrderAudioPlaying = false;
+        return;
+      }
+      await controller.seekTo(Duration.zero);
+      await controller.play();
+    } catch (_) {
+      _newOrderAudioPlaying = false;
+    }
+  }
+
+  Future<void> _disposeNewOrderAudioController() async {
+    final controller = _newOrderAudioController;
+    _newOrderAudioController = null;
+    if (controller == null) {
+      return;
+    }
+    try {
+      await controller.dispose();
+    } catch (_) {
+      // Ignore dispose errors to keep app shutdown stable.
+    }
   }
 
   Future<void> _archiveDeliveredOrder(PublicOrderSummary order) async {
