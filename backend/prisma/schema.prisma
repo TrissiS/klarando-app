@@ -603,6 +603,9 @@ model AppCustomerAccount {
   orders              Order[]
   tipTransactions     TipTransaction[]
   authProviders       AppCustomerAuthProvider[]
+  privacyRequests     CustomerPrivacyRequest[]
+  privacyConsents     CustomerConsent[]
+  privacyAuditLogs    PrivacyAuditLog[]
   createdAt           DateTime                  @default(now())
   updatedAt           DateTime                  @updatedAt
 
@@ -624,6 +627,90 @@ model AppCustomerAuthProvider {
 
   @@unique([provider, providerUserId])
   @@index([appCustomerId, provider])
+}
+
+enum CustomerPrivacyRequestType {
+  EXPORT
+  DELETE
+  RECTIFICATION
+}
+
+enum CustomerPrivacyRequestStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+}
+
+enum CustomerConsentType {
+  LOCATION_USAGE
+  DELIVERY_UPDATES
+  FAVORITE_OFFERS
+  MARKETING
+}
+
+enum PrivacyAuditActionType {
+  CUSTOMER_VIEWED
+  DATA_EXPORT_CREATED
+  DELETE_REQUEST_CREATED
+  CUSTOMER_DISABLED
+  CUSTOMER_ANONYMIZED
+  CUSTOMER_HARD_DELETED
+  CONSENT_CHANGED
+  PUSH_TOKEN_DELETED
+}
+
+model CustomerPrivacyRequest {
+  id                String                       @id @default(uuid())
+  customerId        String
+  type              CustomerPrivacyRequestType
+  status            CustomerPrivacyRequestStatus @default(PENDING)
+  requestedAt       DateTime                     @default(now())
+  processedAt       DateTime?
+  processedByUserId String?
+  reason            String?
+  metadata          Json?
+  customer          AppCustomerAccount           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  processedByUser   User?                        @relation(fields: [processedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, requestedAt])
+  @@index([status, requestedAt])
+}
+
+model CustomerConsent {
+  id         String              @id @default(uuid())
+  customerId String
+  consentType CustomerConsentType
+  granted    Boolean             @default(false)
+  grantedAt  DateTime?
+  revokedAt  DateTime?
+  source     String?
+  version    String?
+  metadata   Json?
+  customer   AppCustomerAccount  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  @@unique([customerId, consentType])
+  @@index([consentType, granted])
+}
+
+model PrivacyAuditLog {
+  id          String               @id @default(uuid())
+  actorUserId String?
+  actorRole   String?
+  customerId  String
+  actionType  PrivacyAuditActionType
+  reason      String?
+  oldStatus   String?
+  newStatus   String?
+  metadata    Json?
+  createdAt   DateTime             @default(now())
+  actorUser   User?                @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  customer    AppCustomerAccount   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, createdAt])
+  @@index([actionType, createdAt])
 }
 
 model Category {
@@ -2160,6 +2247,8 @@ model User {
   userPermissions                   UserPermission[]
   chainAdminTenantAccesses          ChainAdminTenantAccess[]  @relation("ChainAdminAccessUser")
   auditLogs                         AuditLog[]                @relation("AuditActor")
+  privacyAuditLogs                  PrivacyAuditLog[]
+  processedPrivacyRequests          CustomerPrivacyRequest[]
   stockMovements                    StockMovement[]           @relation("StockMovementActor")
   assignedOrders                    Order[]                   @relation("OrderAssignedDriver")
   createdOrderDeskPairingSessions   OrderDeskPairingSession[] @relation("OrderDeskPairingSessionCreator")

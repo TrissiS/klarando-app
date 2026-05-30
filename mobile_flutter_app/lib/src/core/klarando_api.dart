@@ -1621,6 +1621,70 @@ class KlarandoApi {
     return _readNullableDateTime(response['deletionRequestedAt']);
   }
 
+  Future<Map<String, dynamic>> fetchCustomerPrivacyMe({
+    required String baseUrl,
+    required String appAuthToken,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'GET',
+      path: '/api/customer/privacy/me',
+      headers: {'Authorization': 'Bearer $appAuthToken'},
+    );
+    return response;
+  }
+
+  Future<Map<String, dynamic>> exportCustomerPrivacyData({
+    required String baseUrl,
+    required String appAuthToken,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'GET',
+      path: '/api/customer/privacy/export',
+      headers: {'Authorization': 'Bearer $appAuthToken'},
+    );
+    return response;
+  }
+
+  Future<Map<String, dynamic>> createCustomerPrivacyDeleteRequest({
+    required String baseUrl,
+    required String appAuthToken,
+    String? reason,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/customer/privacy/delete-request',
+      headers: {'Authorization': 'Bearer $appAuthToken'},
+      body: {'reason': reason},
+    );
+    return response;
+  }
+
+  Future<Map<String, dynamic>> updateCustomerPrivacyConsents({
+    required String baseUrl,
+    required String appAuthToken,
+    required bool locationUsage,
+    required bool deliveryUpdates,
+    required bool favoriteOffers,
+    required bool marketing,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'PATCH',
+      path: '/api/customer/privacy/consents',
+      headers: {'Authorization': 'Bearer $appAuthToken'},
+      body: {
+        'locationUsage': locationUsage,
+        'deliveryUpdates': deliveryUpdates,
+        'favoriteOffers': favoriteOffers,
+        'marketing': marketing,
+      },
+    );
+    return response;
+  }
+
   Future<LoginResponse> login({
     required String baseUrl,
     required String email,
