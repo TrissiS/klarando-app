@@ -35,8 +35,12 @@ const _secureCashierAdmins = 'klarando_cashier_secure_admins';
 const _secureCashierChainadmins = 'klarando_cashier_secure_chainadmins';
 const _secureCashierManualTenantId = 'klarando_cashier_secure_manual_tenant_id';
 const _secureCashierManualAdminCode = 'klarando_cashier_secure_manual_admin_code';
-const _cashierCurrentVersionName = '1.0.0';
-const _cashierCurrentVersionCode = 1;
+const _cashierCurrentVersionName = '0.1.22';
+const _cashierCurrentVersionCode = 22;
+const _cashierCommitShort = String.fromEnvironment(
+  'KLARANDO_COMMIT',
+  defaultValue: 'dev',
+);
 const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
 const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
 const _klarandoTermsUrl = 'https://www.klarando.com/agb';
@@ -2289,10 +2293,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             const Text('Klarando OrderDesk'),
             const SizedBox(width: 8),
             Text(
-              'v0.1.22',
+              'v$_cashierCurrentVersionName+$_cashierCurrentVersionCode / Commit: $_cashierCommitShort',
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.9),
-                fontSize: 12,
+                fontSize: 11,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -2435,7 +2439,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ],
               const SizedBox(height: 12),
-              if (!_connected && !_bindingLocked)
+              if (!_connected && !hasStoredBinding)
                 const Card(
                   child: Padding(
                     padding: EdgeInsets.all(14),
