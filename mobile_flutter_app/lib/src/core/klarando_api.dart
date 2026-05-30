@@ -1823,6 +1823,8 @@ class KlarandoApi {
     double? longitude,
     bool includeOutOfArea = false,
   }) async {
+    final normalizedStreet = _normalizeGermanStreet(street);
+    final normalizedCity = city?.trim().replaceAll(RegExp(r'\s+'), ' ');
     final response = await _request(
       baseUrl: baseUrl,
       method: 'GET',
@@ -1830,8 +1832,8 @@ class KlarandoApi {
       query: {
         'zipCode': zipCode,
         'mode': mode.name,
-        if (street != null && street.trim().isNotEmpty) 'street': street.trim(),
-        if (city != null && city.trim().isNotEmpty) 'city': city.trim(),
+        if (normalizedStreet != null && normalizedStreet.isNotEmpty) 'street': normalizedStreet,
+        if (normalizedCity != null && normalizedCity.isNotEmpty) 'city': normalizedCity,
         if (latitude != null && latitude.isFinite) 'latitude': latitude.toString(),
         if (longitude != null && longitude.isFinite) 'longitude': longitude.toString(),
         if (includeOutOfArea) 'includeOutOfArea': 'true',
@@ -2429,6 +2431,17 @@ class KlarandoApi {
       );
     }
   }
+}
+
+String? _normalizeGermanStreet(String? input) {
+  final raw = input?.trim();
+  if (raw == null || raw.isEmpty) {
+    return null;
+  }
+  var next = raw.replaceAll(RegExp(r'\s+'), ' ');
+  next = next.replaceAll(RegExp(r'\bstr\.\b', caseSensitive: false), 'Straße');
+  next = next.replaceAll(RegExp(r'\bstr\b', caseSensitive: false), 'Straße');
+  return next;
 }
 
 String _normalizeBaseUrl(String value) {
