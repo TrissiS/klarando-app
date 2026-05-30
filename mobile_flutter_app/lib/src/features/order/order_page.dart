@@ -513,7 +513,7 @@ class _ProductCard extends StatelessWidget {
                       children: articleDetails,
                     ),
                   ],
-                  const SizedBox(height: 6),
+                  const SizedBox(height: 4),
                   FilledButton.icon(
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFFFF5A1F),
@@ -546,6 +546,7 @@ class _ProductCard extends StatelessWidget {
             _ProductImage(
               imageUrl: product.imageUrl,
               isBeverage: product.isBeverage,
+              ageRestriction: product.ageRestriction,
             ),
           ],
         ),
@@ -558,28 +559,61 @@ class _ProductImage extends StatelessWidget {
   const _ProductImage({
     required this.imageUrl,
     required this.isBeverage,
+    required this.ageRestriction,
   });
 
   final String? imageUrl;
   final bool isBeverage;
+  final int? ageRestriction;
 
   @override
   Widget build(BuildContext context) {
-    final imageSize = isBeverage ? 104.0 : 92.0;
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox(
-        width: imageSize,
-        height: imageSize,
-        child: Container(
-          color: const Color(0xFFF8FAFC),
-          alignment: Alignment.center,
-          child: _RemoteOrAssetImage(
-            imageUrl: imageUrl,
-            fit: BoxFit.contain,
-            showLogoFallback: false,
+    final imageSize = isBeverage ? 112.0 : 98.0;
+    final showAgeBadge = ageRestriction == 16 || ageRestriction == 18;
+    final ageLabel = ageRestriction == 18 ? 'AB 18' : 'AB 16';
+    return SizedBox(
+      width: imageSize,
+      height: imageSize,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: imageSize,
+              height: imageSize,
+              child: Container(
+                color: const Color(0xFFF8FAFC),
+                alignment: Alignment.center,
+                child: _RemoteOrAssetImage(
+                  imageUrl: imageUrl,
+                  fit: BoxFit.contain,
+                  showLogoFallback: false,
+                ),
+              ),
+            ),
           ),
-        ),
+          if (showAgeBadge)
+            Positioned(
+              top: -6,
+              left: -4,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFB91C1C),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  ageLabel,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1163,31 +1197,32 @@ Widget _buildPriceLabel(TenantCatalogProduct product) {
     metaParts.add(literPrice);
   }
 
-  final spans = <InlineSpan>[
-    TextSpan(
-      text: basePrice,
-      style: const TextStyle(
-        fontSize: 14,
-        fontWeight: FontWeight.w800,
-        color: Color(0xFF111827),
-      ),
-    ),
-  ];
-  for (final part in metaParts) {
-    spans.add(
-      TextSpan(
-        text: ' ($part)',
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(
+        basePrice,
         style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF6B7280),
+          fontSize: 14,
+          fontWeight: FontWeight.w800,
+          color: Color(0xFF111827),
         ),
       ),
-    );
-  }
-
-  return RichText(
-    text: TextSpan(children: spans),
+      if (metaParts.isNotEmpty) ...[
+        const SizedBox(height: 1),
+        Text(
+          metaParts.map((part) => '($part)').join(' '),
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF6B7280),
+          ),
+        ),
+      ],
+    ],
   );
 }
 
