@@ -3,6 +3,7 @@ import { PermissionKey, Prisma, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
+import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 
 const router = Router()
 
@@ -224,91 +225,23 @@ function topEntriesFromCounter(counter: Map<string, number>, limit = 3) {
     .slice(0, limit)
 }
 
-function scopedCustomerWhere(req: {
-  authUser?: {
-    role: UserRole
-    chainId: string | null
-    tenantId: string | null
-  }
-}) {
-  const actor = req.authUser
-  if (!actor) {
-    return {}
-  }
-
-  if (actor.role === UserRole.CHAINADMIN && actor.chainId) {
-    return { chainId: actor.chainId }
-  }
-
-  if ((actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF) && actor.tenantId) {
-    return { tenantId: actor.tenantId }
-  }
-
-  return {}
-}
-
-async function resolveTenantForWrite(req: {
-  authUser?: {
-    role: UserRole
-    chainId: string | null
-    tenantId: string | null
-  }
-}, tenantId: string) {
-  const tenant = await prisma.tenant.findUnique({
-    where: { id: tenantId },
-    select: {
-      id: true,
-      chainId: true,
-    },
-  })
-
-  if (!tenant) {
-    return { ok: false as const, error: 'Filiale nicht gefunden' }
-  }
-
-  const actor = req.authUser
-  if (!actor) {
-    return { ok: true as const, tenant }
-  }
-
-  if (actor.role === UserRole.SUPERADMIN) {
-    return { ok: true as const, tenant }
-  }
-
-  if (actor.role === UserRole.CHAINADMIN) {
-    if (!actor.chainId || tenant.chainId !== actor.chainId) {
-      return { ok: false as const, error: 'Filiale liegt nicht in deiner Kette' }
-    }
-    return { ok: true as const, tenant }
-  }
-
-  if (!actor.tenantId || actor.tenantId !== tenant.id) {
-    return { ok: false as const, error: 'Kein Zugriff auf diese Filiale' }
-  }
-
-  return { ok: true as const, tenant }
-}
-
 router.get('/', requirePermission(PermissionKey.TENANTS_READ), async (req, res) => {
   try {
     const q = normalizeText(req.query.q)
-    const tenantId = normalizeText(req.query.tenantId)
-    const chainId = normalizeText(req.query.chainId)
+    const requestedTenantId = normalizeText(req.query.tenantId)
     const activeParam = normalizeText(req.query.active)
     const limitRaw = Number(req.query.limit || 200)
     const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(Math.round(limitRaw), 1), 500) : 200
 
-    const where: Record<string, unknown> = {
-      ...scopedCustomerWhere(req),
+    if (req.authUser?.role === UserRole.SUPERADMIN && !requestedTenantId) {
+      return res
+        .status(400)
+        .json({ error: 'SUPERADMIN muss fuer Kundendaten einen tenantId-Scope angeben' })
     }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
-    if (tenantId) {
-      where.tenantId = tenantId
-    }
-
-    if (chainId) {
-      where.chainId = chainId
-    }
+    const where: Prisma.CustomerProfileWhereInput = { tenantId }
 
     if (activeParam === 'true') {
       where.isActive = true
@@ -350,6 +283,10 @@ router.get('/', requirePermission(PermissionKey.TENANTS_READ), async (req, res) 
 
     return res.json(rows)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET CUSTOMERS ERROR:', error)
     return res.status(500).json({ error: 'Kundenstamm konnte nicht geladen werden' })
   }
@@ -357,7 +294,7 @@ router.get('/', requirePermission(PermissionKey.TENANTS_READ), async (req, res) 
 
 router.post('/', requirePermission(PermissionKey.TENANTS_WRITE), async (req, res) => {
   try {
-    const tenantId = normalizeText((req.body as { tenantId?: unknown }).tenantId)
+    const requestedTenantId = normalizeText((req.body as { tenantId?: unknown }).tenantId)
     const firstName = normalizeText((req.body as { firstName?: unknown }).firstName)
     const lastName = normalizeText((req.body as { lastName?: unknown }).lastName)
     const email = normalizeText((req.body as { email?: unknown }).email)?.toLowerCase() || null
@@ -373,19 +310,23 @@ router.post('/', requirePermission(PermissionKey.TENANTS_WRITE), async (req, res
     const isActive = normalizeBoolean((req.body as { isActive?: unknown }).isActive, true)
     const notes = normalizeText((req.body as { notes?: unknown }).notes)
 
-    if (!tenantId || !firstName) {
+    if (!requestedTenantId || !firstName) {
       return res.status(400).json({ error: 'tenantId und firstName sind erforderlich' })
     }
-
-    const access = await resolveTenantForWrite(req, tenantId)
-    if (!access.ok) {
-      return res.status(403).json({ error: access.error })
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, chainId: true },
+    })
+    if (!tenant) {
+      return res.status(400).json({ error: 'Filiale nicht gefunden' })
     }
 
     const created = await prisma.customerProfile.create({
       data: {
-        tenantId: access.tenant.id,
-        chainId: access.tenant.chainId,
+        tenantId: tenant.id,
+        chainId: tenant.chainId,
         firstName,
         lastName,
         email,
@@ -434,6 +375,10 @@ router.post('/', requirePermission(PermissionKey.TENANTS_WRITE), async (req, res
 
     return res.status(201).json(created)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('CREATE CUSTOMER ERROR:', error)
     return res.status(500).json({ error: 'Kunde konnte nicht erstellt werden' })
   }
@@ -442,12 +387,18 @@ router.post('/', requirePermission(PermissionKey.TENANTS_WRITE), async (req, res
 router.patch('/:id', requirePermission(PermissionKey.TENANTS_WRITE), async (req, res) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    const requestedTenantId = normalizeText((req.body as { tenantId?: unknown }).tenantId)
     if (!id) {
       return res.status(400).json({ error: 'id fehlt' })
     }
+    if (!requestedTenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
-    const current = await prisma.customerProfile.findUnique({
-      where: { id },
+    const current = await prisma.customerProfile.findFirst({
+      where: { id, tenantId },
       select: {
         id: true,
         tenantId: true,
@@ -456,11 +407,6 @@ router.patch('/:id', requirePermission(PermissionKey.TENANTS_WRITE), async (req,
 
     if (!current) {
       return res.status(404).json({ error: 'Kunde nicht gefunden' })
-    }
-
-    const access = await resolveTenantForWrite(req, current.tenantId)
-    if (!access.ok) {
-      return res.status(403).json({ error: access.error })
     }
 
     const patch = req.body as Record<string, unknown>
@@ -532,6 +478,10 @@ router.patch('/:id', requirePermission(PermissionKey.TENANTS_WRITE), async (req,
 
     return res.json(updated)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('UPDATE CUSTOMER ERROR:', error)
     return res.status(500).json({ error: 'Kunde konnte nicht aktualisiert werden' })
   }
@@ -540,12 +490,18 @@ router.patch('/:id', requirePermission(PermissionKey.TENANTS_WRITE), async (req,
 router.delete('/:id', requirePermission(PermissionKey.TENANTS_WRITE), async (req, res) => {
   try {
     const id = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id
+    const requestedTenantId = normalizeText(req.query.tenantId)
     if (!id) {
       return res.status(400).json({ error: 'id fehlt' })
     }
+    if (!requestedTenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+    const scope = await resolveTenantScope(req, requestedTenantId)
+    const tenantId = scope.tenantId as string
 
-    const current = await prisma.customerProfile.findUnique({
-      where: { id },
+    const current = await prisma.customerProfile.findFirst({
+      where: { id, tenantId },
       select: {
         id: true,
         tenantId: true,
@@ -554,11 +510,6 @@ router.delete('/:id', requirePermission(PermissionKey.TENANTS_WRITE), async (req
 
     if (!current) {
       return res.status(404).json({ error: 'Kunde nicht gefunden' })
-    }
-
-    const access = await resolveTenantForWrite(req, current.tenantId)
-    if (!access.ok) {
-      return res.status(403).json({ error: access.error })
     }
 
     const archived = await prisma.customerProfile.update({
@@ -580,6 +531,10 @@ router.delete('/:id', requirePermission(PermissionKey.TENANTS_WRITE), async (req
 
     return res.json({ ok: true, id: archived.id })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('ARCHIVE CUSTOMER ERROR:', error)
     return res.status(500).json({ error: 'Kunde konnte nicht archiviert werden' })
   }
@@ -594,6 +549,12 @@ router.get('/app-accounts', requirePermission(PermissionKey.TENANTS_READ), async
     const isActive = parseOptionalBoolean(req.query.isActive)
     const limit = parsePositiveInt(req.query.limit, 300, 600)
     const behaviorDays = parsePositiveInt(req.query.behaviorDays, 180, 365)
+
+    if (req.authUser?.role === UserRole.SUPERADMIN && !chainId && !tenantId) {
+      return res
+        .status(400)
+        .json({ error: 'SUPERADMIN muss fuer App-Kunden einen tenantId- oder chainId-Scope angeben' })
+    }
 
     const scope = await resolveAppTenantScope({
       authUser: req.authUser,
@@ -899,6 +860,10 @@ router.get('/app-accounts', requirePermission(PermissionKey.TENANTS_READ), async
       rows,
     })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET APP CUSTOMER ANALYTICS ERROR:', error)
     return res.status(500).json({ error: 'App-Kundenanalyse konnte nicht geladen werden' })
   }
@@ -933,6 +898,12 @@ router.post(
 
       if (!message || message.length < 3) {
         return res.status(400).json({ error: 'message ist erforderlich' })
+      }
+
+      if (actor?.role === UserRole.SUPERADMIN && !chainId && !tenantId) {
+        return res
+          .status(400)
+          .json({ error: 'SUPERADMIN muss fuer Kampagnen einen tenantId- oder chainId-Scope angeben' })
       }
 
       const scope = await resolveAppTenantScope({
@@ -1012,6 +983,10 @@ router.post(
         recipientsPreview: recipients.slice(0, 120),
       })
     } catch (error) {
+      const scopeError = asTenantScopeError(error)
+      if (scopeError) {
+        return res.status(scopeError.status).json({ error: scopeError.message })
+      }
       console.error('POST APP CUSTOMER CAMPAIGN ERROR:', error)
       return res.status(500).json({ error: 'Marketingkampagne konnte nicht erstellt werden' })
     }
