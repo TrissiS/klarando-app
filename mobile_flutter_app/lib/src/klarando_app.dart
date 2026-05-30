@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -31,6 +32,11 @@ const _prefsKeyUserLatitude = 'klarando_user_latitude';
 const _prefsKeyUserLongitude = 'klarando_user_longitude';
 const _googleServerClientId =
     '198427463115-m6u039q4ive21u9gjrg9v61hk4nqkejn.apps.googleusercontent.com';
+const _facebookAppId = String.fromEnvironment('FACEBOOK_APP_ID', defaultValue: '');
+const _facebookClientToken = String.fromEnvironment(
+  'FACEBOOK_CLIENT_TOKEN',
+  defaultValue: '',
+);
 const _klarandoImpressumUrl = 'https://www.klarando.com/impressum';
 const _klarandoPrivacyUrl = 'https://www.klarando.com/datenschutz';
 const _klarandoTermsUrl = 'https://www.klarando.com/agb';
@@ -442,11 +448,17 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
   final _zipController = TextEditingController();
   final _cityController = TextEditingController();
 
-  _AuthEmailMode _mode = _AuthEmailMode.undecided;
+  _AuthEmailMode _mode = _AuthEmailMode.login;
   bool _busy = false;
   bool _privacyAccepted = false;
   bool _termsAccepted = false;
+  bool _passwordVisible = false;
   String? _infoMessage;
+
+  Future<String> _packageName() async {
+    final info = await PackageInfo.fromPlatform();
+    return info.packageName;
+  }
 
   @override
   void dispose() {
@@ -469,6 +481,16 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
       _busy = true;
     });
     try {
+      final packageName = await _packageName();
+      debugPrint(
+        'GOOGLE_SIGN_IN_CONFIG {'
+        'packageName: $packageName, '
+        'clientIdPresent: ${_googleServerClientId.trim().isNotEmpty}, '
+        'serverClientIdPresent: ${_googleServerClientId.trim().isNotEmpty}, '
+        'buildMode: ${kReleaseMode ? 'release' : 'debug'}, '
+        "flavor: ${const String.fromEnvironment('FLAVOR', defaultValue: 'customer')}"
+        '}',
+      );
       final signIn = GoogleSignIn(
         serverClientId: _googleServerClientId,
       );
@@ -494,7 +516,10 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
     } catch (error, stackTrace) {
       debugPrint('GOOGLE LOGIN ERROR: $error');
       debugPrint(stackTrace.toString());
-      _showMessage('Google Login fehlgeschlagen: $error');
+      _showMessage(
+        'Google Login fehlgeschlagen. Bitte Google OAuth für com.klarando.customer '
+        '(SHA-1/SHA-256 Debug+Release) in Firebase prüfen.',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -512,6 +537,22 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
       _busy = true;
     });
     try {
+      final packageName = await _packageName();
+      debugPrint(
+        'FACEBOOK_LOGIN_CONFIG {'
+        'appIdPresent: ${_facebookAppId.trim().isNotEmpty}, '
+        'clientTokenPresent: ${_facebookClientToken.trim().isNotEmpty}, '
+        'packageName: $packageName, '
+        "flavor: ${const String.fromEnvironment('FLAVOR', defaultValue: 'customer')}"
+        '}',
+      );
+      if (_facebookAppId.trim().isEmpty || _facebookClientToken.trim().isEmpty) {
+        _showMessage(
+          'Facebook Login ist noch nicht vollständig konfiguriert '
+          '(App ID / Client Token fehlt).',
+        );
+        return;
+      }
       final result = await FacebookAuth.instance.login();
       if (result.status != LoginStatus.success || result.accessToken == null) {
         _showMessage('Facebook-Anmeldung wurde abgebrochen.');
@@ -524,8 +565,12 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
       );
     } on ApiException catch (error) {
       _showMessage(error.message);
-    } catch (_) {
-      _showMessage('Facebook Login konnte nicht gestartet werden.');
+    } catch (error) {
+      _showMessage(
+        'Facebook Login fehlgeschlagen. Bitte App-ID, Client-Token und KeyHash '
+        'für com.klarando.customer in der Facebook Console prüfen.',
+      );
+      debugPrint('FACEBOOK LOGIN ERROR: $error');
     } finally {
       if (mounted) {
         setState(() {
@@ -662,7 +707,7 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
     final canSubmit = _mode == _AuthEmailMode.login || _mode == _AuthEmailMode.register;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFFFFF7ED),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -725,27 +770,45 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
                       border: OutlineInputBorder(),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  OutlinedButton(
-                    onPressed: _busy ? null : _continueWithEmail,
-                    child: Text(_busy ? 'Bitte warten...' : 'Mit E-Mail fortfahren'),
-                  ),
+                  if (canSubmit) ...[
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: _passwordController,
+                      obscureText: !_passwordVisible,
+                      decoration: InputDecoration(
+                        labelText: 'Passwort',
+                        border: OutlineInputBorder(),
+                        suffixIcon: IconButton(
+                          onPressed: () {
+                            setState(() {
+                              _passwordVisible = !_passwordVisible;
+                            });
+                          },
+                          icon: Icon(
+                            _passwordVisible ? Icons.visibility_off : Icons.visibility,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                      onPressed: _busy
+                          ? null
+                          : (_mode == _AuthEmailMode.login ? _submit : _continueWithEmail),
+                      child: Text(
+                        _busy
+                            ? 'Bitte warten...'
+                            : (_mode == _AuthEmailMode.login
+                                  ? 'Login mit E-Mail'
+                                  : 'Mit E-Mail fortfahren'),
+                      ),
+                    ),
+                  ],
                   if (_infoMessage != null) ...[
                     const SizedBox(height: 10),
                     Text(
                       _infoMessage!,
                       style: const TextStyle(color: Colors.black54, fontSize: 12.5),
-                    ),
-                  ],
-                  if (canSubmit) ...[
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _passwordController,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Passwort',
-                        border: OutlineInputBorder(),
-                      ),
                     ),
                   ],
                   if (_mode == _AuthEmailMode.login) ...[
@@ -839,14 +902,12 @@ class _CustomerAuthStartPageState extends State<_CustomerAuthStartPage> {
                       controlAffinity: ListTileControlAffinity.leading,
                     ),
                   ],
-                  if (canSubmit) ...[
+                  if (isRegister) ...[
                     const SizedBox(height: 8),
                     ElevatedButton(
                       onPressed: _busy ? null : _submit,
                       child: Text(
-                        _busy
-                            ? 'Bitte warten...'
-                            : (_mode == _AuthEmailMode.login ? 'Einloggen' : 'Konto erstellen'),
+                        _busy ? 'Bitte warten...' : 'Konto erstellen',
                       ),
                     ),
                   ],
