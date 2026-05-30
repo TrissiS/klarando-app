@@ -39,7 +39,6 @@ class OrderPage extends StatefulWidget {
 class _OrderPageState extends State<OrderPage> {
   final _searchController = TextEditingController();
   String? _selectedCategory;
-  final Set<String> _activeProductFilters = <String>{};
   bool _headerCompact = false;
 
   void _openLocalInfoSheet({
@@ -137,10 +136,6 @@ class _OrderPageState extends State<OrderPage> {
     final filtered = widget.products.where((product) {
       final inCategory = _selectedCategory == null || product.categoryName == _selectedCategory;
       if (!inCategory) {
-        return false;
-      }
-      final matchesFilters = _matchesActiveFilters(product);
-      if (!matchesFilters) {
         return false;
       }
       if (query.isEmpty) {
@@ -243,43 +238,6 @@ class _OrderPageState extends State<OrderPage> {
           ),
         ],
         const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            _buildFilterChip(
-              keyName: 'vegan',
-              label: 'Vegan',
-              color: const Color(0xFF16A34A),
-            ),
-            _buildFilterChip(
-              keyName: 'vegetarian',
-              label: 'Vegetarisch',
-              color: const Color(0xFF65A30D),
-            ),
-            _buildFilterChip(
-              keyName: 'spicy',
-              label: 'Scharf',
-              color: const Color(0xFFDC2626),
-            ),
-            _buildFilterChip(
-              keyName: 'beverage',
-              label: 'Getränke',
-              color: const Color(0xFF0284C7),
-            ),
-            _buildFilterChip(
-              keyName: 'age16',
-              label: '+16',
-              color: const Color(0xFFB45309),
-            ),
-            _buildFilterChip(
-              keyName: 'age18',
-              label: '+18',
-              color: const Color(0xFF7F1D1D),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
         if (widget.loading)
           const Expanded(child: Center(child: CircularProgressIndicator()))
         else if (filtered.isEmpty)
@@ -320,65 +278,6 @@ class _OrderPageState extends State<OrderPage> {
     );
   }
 
-  bool _matchesActiveFilters(TenantCatalogProduct product) {
-    if (_activeProductFilters.isEmpty) {
-      return true;
-    }
-    for (final filter in _activeProductFilters) {
-      switch (filter) {
-        case 'vegan':
-          if (!product.isVegan) return false;
-          break;
-        case 'vegetarian':
-          if (!product.isVegetarian) return false;
-          break;
-        case 'spicy':
-          if (!product.isSpicy) return false;
-          break;
-        case 'beverage':
-          if (!product.isBeverage) return false;
-          break;
-        case 'age16':
-          if (product.ageRestriction != 16) return false;
-          break;
-        case 'age18':
-          if (product.ageRestriction != 18) return false;
-          break;
-      }
-    }
-    return true;
-  }
-
-  Widget _buildFilterChip({
-    required String keyName,
-    required String label,
-    required Color color,
-  }) {
-    final isActive = _activeProductFilters.contains(keyName);
-    return FilterChip(
-      selected: isActive,
-      label: Text(label),
-      labelStyle: TextStyle(
-        color: isActive ? color : const Color(0xFF374151),
-        fontWeight: FontWeight.w700,
-        fontSize: 12,
-      ),
-      selectedColor: color.withValues(alpha: 0.14),
-      checkmarkColor: color,
-      side: BorderSide(
-        color: isActive ? color.withValues(alpha: 0.45) : const Color(0xFFD1D5DB),
-      ),
-      onSelected: (_) {
-        setState(() {
-          if (isActive) {
-            _activeProductFilters.remove(keyName);
-          } else {
-            _activeProductFilters.add(keyName);
-          }
-        });
-      },
-    );
-  }
 }
 
 class _MenuHeader extends StatelessWidget {
@@ -536,6 +435,7 @@ class _ProductCard extends StatelessWidget {
     final optionCount = product.modifiers.length - sizeCount;
     final disclosure = _buildDisclosureData(product);
     final ingredientPreview = _ingredientPreview(product, disclosure);
+    final articleDetails = _buildArticleDetails(product);
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
@@ -605,16 +505,18 @@ class _ProductCard extends StatelessWidget {
                       children: _buildDisclosureRows(disclosure),
                     ),
                   ],
-                  if (_hasArticleDetails(product)) ...[
+                  if (articleDetails.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     ExpansionTile(
+                      dense: true,
+                      visualDensity: const VisualDensity(vertical: -2),
                       tilePadding: EdgeInsets.zero,
-                      childrenPadding: const EdgeInsets.only(bottom: 4),
+                      childrenPadding: const EdgeInsets.only(bottom: 2),
                       title: const Text(
                         'Artikeldetails',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                       ),
-                      children: _buildArticleDetails(product),
+                      children: articleDetails,
                     ),
                   ],
                   const SizedBox(height: 6),
@@ -1150,13 +1052,6 @@ _AdditiveDescriptor? _resolveAdditiveDescriptor(String raw) {
   return null;
 }
 
-bool _hasArticleDetails(TenantCatalogProduct product) {
-  return (product.articleInfo?.trim().isNotEmpty ?? false) ||
-      (product.foodBusinessOperator?.trim().isNotEmpty ?? false) ||
-      (product.nutritionInfo?.trim().isNotEmpty ?? false) ||
-      (product.nutrition?.hasValues ?? false);
-}
-
 List<Widget> _buildArticleDetails(TenantCatalogProduct product) {
   final rows = <Widget>[];
 
@@ -1289,7 +1184,10 @@ String _priceLabel(TenantCatalogProduct product) {
 
 String? _literPriceLabel(TenantCatalogProduct product) {
   final liters = product.unitSizeLiters;
-  if (!product.isBeverage || liters == null || liters <= 0) {
+  final looksLikeBeverage = product.isBeverage ||
+      _beverageContainerLabel(product) != null ||
+      product.depositAmount > 0;
+  if (!looksLikeBeverage || liters == null || liters <= 0) {
     return null;
   }
   final literPrice = product.price / liters;

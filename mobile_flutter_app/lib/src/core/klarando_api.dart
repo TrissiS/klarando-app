@@ -2659,20 +2659,51 @@ double? _readVolumeLiters(Map<String, dynamic> json) {
   final unitSizeText = _readNullableString(
     json['unitSize'] ?? json['packageSize'] ?? json['contentAmount'],
   );
-  if (unitSizeText == null) {
-    return null;
+  if (unitSizeText != null) {
+    final parsedFromUnitText = _parseVolumeTextToLiters(unitSizeText);
+    if (parsedFromUnitText != null && parsedFromUnitText > 0) {
+      return parsedFromUnitText;
+    }
   }
 
-  final normalized = unitSizeText.toLowerCase().replaceAll(',', '.').trim();
-  final match = RegExp(r'(\d+(?:\.\d+)?)\s*(ml|l)\b').firstMatch(normalized);
-  if (match == null) {
-    return null;
+  final fallbackNameText = _readNullableString(
+    json['name'] ?? json['productName'] ?? json['title'],
+  );
+  if (fallbackNameText != null) {
+    final parsedFromName = _parseVolumeTextToLiters(fallbackNameText);
+    if (parsedFromName != null && parsedFromName > 0) {
+      return parsedFromName;
+    }
   }
-  final amount = double.tryParse(match.group(1)!);
-  if (amount == null || amount <= 0) {
-    return null;
+
+  return null;
+}
+
+double? _parseVolumeTextToLiters(String rawText) {
+  final normalized = rawText.toLowerCase().replaceAll(',', '.').trim();
+  final unitMatch = RegExp(r'(\d+(?:\.\d+)?)\s*(ml|l)\b').firstMatch(normalized);
+  if (unitMatch != null) {
+    final amount = double.tryParse(unitMatch.group(1)!);
+    if (amount == null || amount <= 0) {
+      return null;
+    }
+    return unitMatch.group(2) == 'ml' ? amount / 1000 : amount;
   }
-  return match.group(2) == 'ml' ? amount / 1000 : amount;
+
+  final decimalMatch = RegExp(r'(\d+\.\d{1,3})\b').allMatches(normalized);
+  for (final match in decimalMatch) {
+    final amount = double.tryParse(match.group(1)!);
+    if (amount == null || amount <= 0) {
+      continue;
+    }
+    if (amount <= 5) {
+      return amount;
+    }
+    if (amount >= 100) {
+      return amount / 1000;
+    }
+  }
+  return null;
 }
 
 double _readDouble(dynamic value) {
