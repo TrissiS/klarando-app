@@ -120,12 +120,6 @@ const sectionNavSections: NavSection[] = [
         requiredPermission: 'PRODUCTS_READ',
       },
       {
-        href: '/admin/business-templates',
-        label: 'Business-Vorlagen',
-        moduleKey: 'products',
-        requiredPermission: 'PRODUCTS_WRITE',
-      },
-      {
         href: '/admin/products?tab=pricing',
         label: 'Preise & Kalkulation',
         moduleKey: 'products',
@@ -793,7 +787,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
   function inferPathModuleKey(path: string): AdminModuleKey | null {
     if (path === '/admin') return 'dashboard'
-    if (path.startsWith('/admin/products') || path.startsWith('/admin/business-templates') || path.startsWith('/admin/categories') || path.startsWith('/admin/ingredients') || path.startsWith('/admin/suppliers') || path.startsWith('/admin/calculation')) {
+    if (path.startsWith('/admin/products') || path.startsWith('/admin/categories') || path.startsWith('/admin/ingredients') || path.startsWith('/admin/suppliers') || path.startsWith('/admin/calculation')) {
       return 'products'
     }
     if (path.startsWith('/admin/stock')) return 'inventory'

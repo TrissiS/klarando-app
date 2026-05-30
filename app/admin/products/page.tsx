@@ -254,6 +254,15 @@ function AdminProductsPageContent() {
   const [beverageContainerType, setBeverageContainerType] = useState<
     'NONE' | 'EINWEG' | 'MEHRWEG'
   >('NONE')
+  const [isBeverage, setIsBeverage] = useState(false)
+  const [contentVolumeLiters, setContentVolumeLiters] = useState('')
+  const [ageRestriction, setAgeRestriction] = useState<'NONE' | 'AGE_16' | 'AGE_18'>('NONE')
+  const [isVegetarian, setIsVegetarian] = useState(false)
+  const [isVegan, setIsVegan] = useState(false)
+  const [isSpicy, setIsSpicy] = useState(false)
+  const [isVerySpicy, setIsVerySpicy] = useState(false)
+  const [isNew, setIsNew] = useState(false)
+  const [isPopular, setIsPopular] = useState(false)
   const [productDeposit, setProductDeposit] = useState('0')
   const [articleInfo, setArticleInfo] = useState('')
   const [foodBusinessOperator, setFoodBusinessOperator] = useState('')
@@ -478,6 +487,15 @@ function AdminProductsPageContent() {
     setProductEan('')
     setProductUnitEans([])
     setBeverageContainerType('NONE')
+    setIsBeverage(false)
+    setContentVolumeLiters('')
+    setAgeRestriction('NONE')
+    setIsVegetarian(false)
+    setIsVegan(false)
+    setIsSpicy(false)
+    setIsVerySpicy(false)
+    setIsNew(false)
+    setIsPopular(false)
     setProductDeposit('0')
     setArticleInfo('')
     setFoodBusinessOperator('')
@@ -579,7 +597,16 @@ function AdminProductsPageContent() {
         ean: productEan.trim() || null,
         unitEans: productUnitEans,
         beverageContainerType,
+        isBeverage,
+        contentVolumeLiters: contentVolumeLiters.trim() ? Number(contentVolumeLiters) : null,
         deposit: Number(productDeposit || 0),
+        ageRestriction,
+        isVegetarian,
+        isVegan,
+        isSpicy,
+        isVerySpicy,
+        isNew,
+        isPopular,
         articleInfo: articleInfo.trim() || null,
         foodBusinessOperator: foodBusinessOperator.trim() || null,
         nutritionInfo: nutritionInfo.trim() || null,
@@ -604,7 +631,16 @@ function AdminProductsPageContent() {
           ean: payload.ean,
           unitEans: payload.unitEans,
           beverageContainerType: payload.beverageContainerType,
+          isBeverage: payload.isBeverage,
+          contentVolumeLiters: payload.contentVolumeLiters,
           deposit: payload.deposit,
+          ageRestriction: payload.ageRestriction,
+          isVegetarian: payload.isVegetarian,
+          isVegan: payload.isVegan,
+          isSpicy: payload.isSpicy,
+          isVerySpicy: payload.isVerySpicy,
+          isNew: payload.isNew,
+          isPopular: payload.isPopular,
           articleInfo: payload.articleInfo,
           foodBusinessOperator: payload.foodBusinessOperator,
           nutritionInfo: payload.nutritionInfo,
@@ -699,7 +735,16 @@ function AdminProductsPageContent() {
         ean: (importProductEan.trim() || selectedProduct.ean || null) as string | null,
         unitEans: [],
         beverageContainerType: 'NONE',
+        isBeverage: false,
+        contentVolumeLiters: null,
         deposit: 0,
+        ageRestriction: 'NONE',
+        isVegetarian: false,
+        isVegan: false,
+        isSpicy: false,
+        isVerySpicy: false,
+        isNew: false,
+        isPopular: false,
         articleInfo: null,
         foodBusinessOperator: null,
         nutritionInfo: null,
@@ -804,7 +849,17 @@ function AdminProductsPageContent() {
         ean: product.ean || null,
         unitEans: product.unitEans || [],
         beverageContainerType: product.beverageContainerType || 'NONE',
+        isBeverage: product.isBeverage || false,
+        contentVolumeLiters:
+          product.contentVolumeLiters != null ? Number(product.contentVolumeLiters) : null,
         deposit: Number(product.deposit || 0),
+        ageRestriction: product.ageRestriction || 'NONE',
+        isVegetarian: product.isVegetarian || false,
+        isVegan: product.isVegan || false,
+        isSpicy: product.isSpicy || false,
+        isVerySpicy: product.isVerySpicy || false,
+        isNew: product.isNew || false,
+        isPopular: product.isPopular || false,
         articleInfo: product.articleInfo || null,
         foodBusinessOperator: product.foodBusinessOperator || null,
         nutritionInfo: product.nutritionInfo || null,
@@ -1155,8 +1210,26 @@ function AdminProductsPageContent() {
             setProductUnitEans={setProductUnitEans}
             beverageContainerType={beverageContainerType}
             setBeverageContainerType={setBeverageContainerType}
+            isBeverage={isBeverage}
+            setIsBeverage={setIsBeverage}
+            contentVolumeLiters={contentVolumeLiters}
+            setContentVolumeLiters={setContentVolumeLiters}
             productDeposit={productDeposit}
             setProductDeposit={setProductDeposit}
+            ageRestriction={ageRestriction}
+            setAgeRestriction={setAgeRestriction}
+            isVegetarian={isVegetarian}
+            setIsVegetarian={setIsVegetarian}
+            isVegan={isVegan}
+            setIsVegan={setIsVegan}
+            isSpicy={isSpicy}
+            setIsSpicy={setIsSpicy}
+            isVerySpicy={isVerySpicy}
+            setIsVerySpicy={setIsVerySpicy}
+            isNew={isNew}
+            setIsNew={setIsNew}
+            isPopular={isPopular}
+            setIsPopular={setIsPopular}
             articleInfo={articleInfo}
             setArticleInfo={setArticleInfo}
             foodBusinessOperator={foodBusinessOperator}
@@ -1191,6 +1264,15 @@ function AdminProductsPageContent() {
               setProductEan(product.ean || '')
               setProductUnitEans(product.unitEans || [])
               setBeverageContainerType(product.beverageContainerType || 'NONE')
+              setIsBeverage(product.isBeverage || false)
+              setContentVolumeLiters(product.contentVolumeLiters || '')
+              setAgeRestriction(product.ageRestriction || 'NONE')
+              setIsVegetarian(product.isVegetarian || false)
+              setIsVegan(product.isVegan || false)
+              setIsSpicy(product.isSpicy || false)
+              setIsVerySpicy(product.isVerySpicy || false)
+              setIsNew(product.isNew || false)
+              setIsPopular(product.isPopular || false)
               setProductDeposit(product.deposit || '0')
               setArticleInfo(product.articleInfo || '')
               setFoodBusinessOperator(product.foodBusinessOperator || '')

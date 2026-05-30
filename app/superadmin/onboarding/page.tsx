@@ -315,7 +315,7 @@ export default function SuperadminOnboardingPage() {
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <Link href={selectedTenantId ? `/superadmin/menu-import?tenantId=${selectedTenantId}` : '/superadmin/menu-import'} className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Menü-Import starten</Link>
-          <Link href="/superadmin/business-templates" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Business-Vorlage wählen</Link>
+          <Link href="/superadmin/trade-catalog" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Handelsartikel öffnen</Link>
           <Link href="/superadmin/app-settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Betreiberlogo / Titelbild</Link>
           <Link href="/admin/settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Öffnungszeiten prüfen</Link>
           <Link href="/admin/settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Liefergebiet prüfen</Link>
@@ -560,7 +560,7 @@ export default function SuperadminOnboardingPage() {
         <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
           <Link href="/superadmin/onboarding" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Neues Unternehmen anlegen</Link>
           <Link href="/superadmin/business-data" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Neue Filiale anlegen</Link>
-          <Link href="/superadmin/business-templates" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Templates verwalten</Link>
+          <Link href="/superadmin/trade-catalog" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Handelsartikel verwalten</Link>
           <Link href="/superadmin/security" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Benutzer verwalten</Link>
         </div>
       </section>

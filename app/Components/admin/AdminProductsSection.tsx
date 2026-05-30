@@ -33,8 +33,26 @@ type Props = {
   setProductUnitEans: (value: UnitEanEntry[]) => void
   beverageContainerType: 'NONE' | 'EINWEG' | 'MEHRWEG'
   setBeverageContainerType: (value: 'NONE' | 'EINWEG' | 'MEHRWEG') => void
+  isBeverage: boolean
+  setIsBeverage: (value: boolean) => void
+  contentVolumeLiters: string
+  setContentVolumeLiters: (value: string) => void
   productDeposit: string
   setProductDeposit: (value: string) => void
+  ageRestriction: 'NONE' | 'AGE_16' | 'AGE_18'
+  setAgeRestriction: (value: 'NONE' | 'AGE_16' | 'AGE_18') => void
+  isVegetarian: boolean
+  setIsVegetarian: (value: boolean) => void
+  isVegan: boolean
+  setIsVegan: (value: boolean) => void
+  isSpicy: boolean
+  setIsSpicy: (value: boolean) => void
+  isVerySpicy: boolean
+  setIsVerySpicy: (value: boolean) => void
+  isNew: boolean
+  setIsNew: (value: boolean) => void
+  isPopular: boolean
+  setIsPopular: (value: boolean) => void
   articleInfo: string
   setArticleInfo: (value: string) => void
   foodBusinessOperator: string
@@ -84,8 +102,26 @@ export default function AdminProductsSection({
   setProductUnitEans,
   beverageContainerType,
   setBeverageContainerType,
+  isBeverage,
+  setIsBeverage,
+  contentVolumeLiters,
+  setContentVolumeLiters,
   productDeposit,
   setProductDeposit,
+  ageRestriction,
+  setAgeRestriction,
+  isVegetarian,
+  setIsVegetarian,
+  isVegan,
+  setIsVegan,
+  isSpicy,
+  setIsSpicy,
+  isVerySpicy,
+  setIsVerySpicy,
+  isNew,
+  setIsNew,
+  isPopular,
+  setIsPopular,
   articleInfo,
   setArticleInfo,
   foodBusinessOperator,
@@ -216,7 +252,7 @@ export default function AdminProductsSection({
               onClick={onOpenTemplateImportDialog}
               className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-800 transition hover:bg-emerald-100"
             >
-              Aus Business-Vorlage übernehmen
+              Import / Vorlagen (alt)
             </button>
             <button
               type="button"
@@ -270,6 +306,10 @@ export default function AdminProductsSection({
               className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
             />
           </label>
+
+          <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/40 px-3 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">Preis & Pfand</p>
+          </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <label className="block">
@@ -325,6 +365,40 @@ export default function AdminProductsSection({
             </select>
           </label>
 
+          <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/40 px-3 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">Kennzeichnungen</p>
+            <div className="mt-2 grid gap-2 text-sm text-rose-900/85 md:grid-cols-3">
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isVegetarian} onChange={(event) => setIsVegetarian(event.target.checked)} />Vegetarisch</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isVegan} onChange={(event) => setIsVegan(event.target.checked)} />Vegan</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isSpicy} onChange={(event) => setIsSpicy(event.target.checked)} />Scharf</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isVerySpicy} onChange={(event) => setIsVerySpicy(event.target.checked)} />Sehr scharf</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isNew} onChange={(event) => setIsNew(event.target.checked)} />Neu</label>
+              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isPopular} onChange={(event) => setIsPopular(event.target.checked)} />Beliebt</label>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/40 px-3 py-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">Getränkedaten</p>
+            <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+                <input type="checkbox" checked={isBeverage} onChange={(event) => setIsBeverage(event.target.checked)} />
+                Produkt ist Getränk
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-rose-900/85">Inhalt (Liter)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.001"
+                  value={contentVolumeLiters}
+                  onChange={(event) => setContentVolumeLiters(event.target.value)}
+                  placeholder="z. B. 0.33"
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                />
+              </label>
+            </div>
+          </div>
+
           <label className="block">
             <span className="mb-1 block text-sm font-medium text-rose-900/85">
               Getränke-Behältnis
@@ -345,6 +419,21 @@ export default function AdminProductsSection({
             <p className="mt-1 text-xs text-rose-900/70">
               Nur für Getränke: wird auf der Verkaufsseite klein angezeigt.
             </p>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-rose-900/85">Altersfreigabe</span>
+            <select
+              value={ageRestriction}
+              onChange={(event) =>
+                setAgeRestriction(event.target.value as 'NONE' | 'AGE_16' | 'AGE_18')
+              }
+              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+            >
+              <option value="NONE">Keine</option>
+              <option value="AGE_16">ab 16</option>
+              <option value="AGE_18">ab 18</option>
+            </select>
           </label>
 
           <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-3">
@@ -827,6 +916,13 @@ export default function AdminProductsSection({
                           {formatBeverageContainerType(product.beverageContainerType)}
                         </p>
                       ) : null}
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {product.isVegetarian ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] text-emerald-700">Vegetarisch</span> : null}
+                        {product.isVegan ? <span className="rounded bg-lime-100 px-1.5 text-[10px] text-lime-700">Vegan</span> : null}
+                        {product.isSpicy ? <span className="rounded bg-orange-100 px-1.5 text-[10px] text-orange-700">Scharf</span> : null}
+                        {product.ageRestriction === 'AGE_16' ? <span className="rounded bg-amber-100 px-1.5 text-[10px] text-amber-700">ab 16</span> : null}
+                        {product.ageRestriction === 'AGE_18' ? <span className="rounded bg-red-100 px-1.5 text-[10px] text-red-700">ab 18</span> : null}
+                      </div>
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
                       <p>Brutto: {Number(product.price).toFixed(2)} EUR</p>
@@ -834,6 +930,9 @@ export default function AdminProductsSection({
                         <p className="text-xs text-rose-900/70">
                           inkl. {Number(product.deposit || 0).toFixed(2)} EUR Pfand
                         </p>
+                      ) : null}
+                      {product.literPrice ? (
+                        <p className="text-xs text-rose-900/70">{Number(product.literPrice).toFixed(2)} EUR/l</p>
                       ) : null}
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">

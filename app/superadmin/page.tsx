@@ -448,7 +448,7 @@ export default function SuperadminPage() {
                 Neue Filiale anlegen
               </Link>
               <Link
-                href="/superadmin/business-templates"
+                href="/superadmin/trade-catalog"
                 className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3 text-sm font-medium text-[var(--brand-ink)] transition hover:border-orange-300 hover:bg-orange-50"
               >
                 Templates verwalten

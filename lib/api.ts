@@ -54,7 +54,17 @@ export type Product = {
   ean: string | null
   unitEans: UnitEanEntry[]
   beverageContainerType: 'NONE' | 'EINWEG' | 'MEHRWEG'
+  isBeverage: boolean
+  contentVolumeLiters: string | null
+  literPrice?: string | null
   deposit: string
+  ageRestriction: 'NONE' | 'AGE_16' | 'AGE_18'
+  isVegetarian: boolean
+  isVegan: boolean
+  isSpicy: boolean
+  isVerySpicy: boolean
+  isNew: boolean
+  isPopular: boolean
   articleInfo: string | null
   foodBusinessOperator: string | null
   nutritionInfo: string | null
@@ -1827,7 +1837,16 @@ export async function createProduct(data: {
   ean?: string | null
   unitEans?: UnitEanEntry[]
   beverageContainerType?: 'NONE' | 'EINWEG' | 'MEHRWEG'
+  isBeverage?: boolean
+  contentVolumeLiters?: number | null
   deposit?: number
+  ageRestriction?: 'NONE' | 'AGE_16' | 'AGE_18'
+  isVegetarian?: boolean
+  isVegan?: boolean
+  isSpicy?: boolean
+  isVerySpicy?: boolean
+  isNew?: boolean
+  isPopular?: boolean
   articleInfo?: string | null
   foodBusinessOperator?: string | null
   nutritionInfo?: string | null
@@ -1856,7 +1875,16 @@ export async function createProduct(data: {
       ean: data.ean ?? null,
       unitEans: data.unitEans ?? [],
       beverageContainerType: data.beverageContainerType ?? 'NONE',
+      isBeverage: data.isBeverage ?? false,
+      contentVolumeLiters: data.contentVolumeLiters ?? null,
       deposit: data.deposit ?? 0,
+      ageRestriction: data.ageRestriction ?? 'NONE',
+      isVegetarian: data.isVegetarian ?? false,
+      isVegan: data.isVegan ?? false,
+      isSpicy: data.isSpicy ?? false,
+      isVerySpicy: data.isVerySpicy ?? false,
+      isNew: data.isNew ?? false,
+      isPopular: data.isPopular ?? false,
       articleInfo: data.articleInfo ?? null,
       foodBusinessOperator: data.foodBusinessOperator ?? null,
       nutritionInfo: data.nutritionInfo ?? null,
@@ -1884,7 +1912,16 @@ export async function updateProduct(
     ean?: string | null
     unitEans?: UnitEanEntry[]
     beverageContainerType?: 'NONE' | 'EINWEG' | 'MEHRWEG'
+    isBeverage?: boolean
+    contentVolumeLiters?: number | null
     deposit?: number
+    ageRestriction?: 'NONE' | 'AGE_16' | 'AGE_18'
+    isVegetarian?: boolean
+    isVegan?: boolean
+    isSpicy?: boolean
+    isVerySpicy?: boolean
+    isNew?: boolean
+    isPopular?: boolean
     articleInfo?: string | null
     foodBusinessOperator?: string | null
     nutritionInfo?: string | null
@@ -3363,6 +3400,67 @@ export async function deleteAction(id: string): Promise<void> {
     const errorData = await res.json().catch(() => null)
     throw new Error(errorData?.error || 'Aktion konnte nicht geloescht werden')
   }
+}
+
+export type TradeCatalogItem = {
+  id: string
+  name: string
+  brand: string | null
+  category: string | null
+  ean: string | null
+  articleNumber: string | null
+  imageUrl: string | null
+  contentVolumeLiters: string | null
+  beverageContainerType: 'NONE' | 'EINWEG' | 'MEHRWEG'
+  deposit: string
+  ageRestriction: 'NONE' | 'AGE_16' | 'AGE_18'
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export async function getTradeCatalogItems(): Promise<TradeCatalogItem[]> {
+  const token = readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/trade-catalog`, {
+    method: 'GET',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Handelsartikel konnten nicht geladen werden')
+  }
+  return res.json()
+}
+
+export async function createTradeCatalogItem(
+  payload: {
+    name: string
+    brand?: string | null
+    category?: string | null
+    ean?: string | null
+    articleNumber?: string | null
+    imageUrl?: string | null
+    contentVolumeLiters?: number | null
+    beverageContainerType?: 'NONE' | 'EINWEG' | 'MEHRWEG'
+    deposit?: number
+    ageRestriction?: 'NONE' | 'AGE_16' | 'AGE_18'
+    isActive?: boolean
+  }
+): Promise<TradeCatalogItem> {
+  const token = readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/trade-catalog`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Handelsartikel konnte nicht erstellt werden')
+  }
+  return res.json()
 }
 
 export async function getCoupons(): Promise<Coupon[]> {

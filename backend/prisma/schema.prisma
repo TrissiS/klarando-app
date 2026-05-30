@@ -91,6 +91,12 @@ enum BeverageContainerType {
   MEHRWEG
 }
 
+enum ProductAgeRestriction {
+  NONE
+  AGE_16
+  AGE_18
+}
+
 enum PaymentProvider {
   STRIPE
   PAYPAL
@@ -749,7 +755,16 @@ model Product {
   ean                   String?
   unitEans              Json?
   beverageContainerType BeverageContainerType @default(NONE)
+  isBeverage            Boolean               @default(false)
+  contentVolumeLiters   Decimal?              @db.Decimal(10, 3)
   deposit               Decimal               @default(0) @db.Decimal(10, 2)
+  ageRestriction        ProductAgeRestriction @default(NONE)
+  isVegetarian          Boolean               @default(false)
+  isVegan               Boolean               @default(false)
+  isSpicy               Boolean               @default(false)
+  isVerySpicy           Boolean               @default(false)
+  isNew                 Boolean               @default(false)
+  isPopular             Boolean               @default(false)
   articleInfo           String?
   foodBusinessOperator  String?
   nutritionInfo         String?
@@ -769,6 +784,27 @@ model Product {
   createdAt DateTime @default(now())
 
   @@unique([tenantId, productNumber])
+}
+
+model TradeCatalogItem {
+  id                  String                @id @default(uuid())
+  name                String
+  brand               String?
+  category            String?
+  ean                 String?               @unique
+  articleNumber       String?
+  imageUrl            String?
+  contentVolumeLiters Decimal?              @db.Decimal(10, 3)
+  beverageContainerType BeverageContainerType @default(NONE)
+  deposit             Decimal               @default(0) @db.Decimal(10, 2)
+  ageRestriction      ProductAgeRestriction @default(NONE)
+  isActive            Boolean               @default(true)
+  metadata            Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  @@index([isActive, category, brand])
+  @@index([name])
 }
 
 model ScreenSetting {

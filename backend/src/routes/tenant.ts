@@ -379,6 +379,17 @@ function normalizeMoney(value: unknown, fallback = 0) {
   return Number(parsed.toFixed(2))
 }
 
+function normalizeAgeRestriction(value: unknown) {
+  if (typeof value !== 'string') {
+    return 'NONE'
+  }
+  const normalized = value.trim().toUpperCase()
+  if (normalized === 'AGE_16' || normalized === 'AGE_18') {
+    return normalized
+  }
+  return 'NONE'
+}
+
 function isMissingProductColumnsError(error: unknown) {
   if (!(error instanceof Error)) {
     return false
@@ -396,7 +407,16 @@ function isMissingProductColumnsError(error: unknown) {
     error.message.includes('Product.nutritionInfo') ||
     error.message.includes('"nutritionInfo"') ||
     error.message.includes('Product.nutrition') ||
-    error.message.includes('"nutrition"')
+    error.message.includes('"nutrition"') ||
+    error.message.includes('Product.isBeverage') ||
+    error.message.includes('Product.contentVolumeLiters') ||
+    error.message.includes('Product.ageRestriction') ||
+    error.message.includes('Product.isVegetarian') ||
+    error.message.includes('Product.isVegan') ||
+    error.message.includes('Product.isSpicy') ||
+    error.message.includes('Product.isVerySpicy') ||
+    error.message.includes('Product.isNew') ||
+    error.message.includes('Product.isPopular')
   )
 }
 
@@ -439,6 +459,29 @@ async function ensureProductColumns() {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Product"
     ADD COLUMN IF NOT EXISTS "nutrition" JSONB;
+  `)
+
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ProductAgeRestriction') THEN
+        CREATE TYPE "ProductAgeRestriction" AS ENUM ('NONE', 'AGE_16', 'AGE_18');
+      END IF;
+    END
+    $$;
+  `)
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Product"
+    ADD COLUMN IF NOT EXISTS "isBeverage" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "contentVolumeLiters" DECIMAL(10, 3),
+    ADD COLUMN IF NOT EXISTS "ageRestriction" "ProductAgeRestriction" NOT NULL DEFAULT 'NONE',
+    ADD COLUMN IF NOT EXISTS "isVegetarian" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isVegan" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isSpicy" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isVerySpicy" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isNew" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isPopular" BOOLEAN NOT NULL DEFAULT false;
   `)
 }
 
@@ -527,7 +570,16 @@ async function copyTenantBaseData(
             ? (product.unitEans as Prisma.InputJsonValue)
             : undefined,
           beverageContainerType: product.beverageContainerType,
+          isBeverage: product.isBeverage,
+          contentVolumeLiters: product.contentVolumeLiters,
           deposit: product.deposit,
+          ageRestriction: product.ageRestriction,
+          isVegetarian: product.isVegetarian,
+          isVegan: product.isVegan,
+          isSpicy: product.isSpicy,
+          isVerySpicy: product.isVerySpicy,
+          isNew: product.isNew,
+          isPopular: product.isPopular,
           articleInfo: product.articleInfo,
           foodBusinessOperator: product.foodBusinessOperator,
           nutritionInfo: product.nutritionInfo,
@@ -1110,7 +1162,16 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           name: true,
           imageUrl: true,
           beverageContainerType: true,
+          isBeverage: true,
+          contentVolumeLiters: true,
           deposit: true,
+          ageRestriction: true,
+          isVegetarian: true,
+          isVegan: true,
+          isSpicy: true,
+          isVerySpicy: true,
+          isNew: true,
+          isPopular: true,
           articleInfo: true,
           foodBusinessOperator: true,
           nutritionInfo: true,
@@ -1238,6 +1299,12 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         const offer = productOffers.get(product.id)
         const effectivePrice = offer ? offer.effectivePrice : Number(product.price)
         const originalPrice = offer ? offer.originalPrice : Number(product.price)
+        const contentVolumeLiters =
+          product.contentVolumeLiters == null ? null : normalizeMoney(product.contentVolumeLiters, 0)
+        const literPrice =
+          Boolean(product.isBeverage) && contentVolumeLiters != null && contentVolumeLiters > 0
+            ? Number((effectivePrice / contentVolumeLiters).toFixed(2))
+            : null
 
         return {
           id: product.id,
@@ -1248,14 +1315,26 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           name: product.name,
           imageUrl: sanitizePublicAssetUrl(product.imageUrl),
           beverageContainerType: product.beverageContainerType,
+          isBeverage: Boolean(product.isBeverage),
+          contentVolumeLiters: contentVolumeLiters == null ? null : contentVolumeLiters.toFixed(3),
           articleInfo: normalizeText(product.articleInfo),
           foodBusinessOperator: normalizeText(product.foodBusinessOperator),
+          ageRestriction: normalizeAgeRestriction(product.ageRestriction),
+          tags: {
+            vegetarian: Boolean(product.isVegetarian),
+            vegan: Boolean(product.isVegan),
+            spicy: Boolean(product.isSpicy),
+            verySpicy: Boolean(product.isVerySpicy),
+            isNew: Boolean(product.isNew),
+            popular: Boolean(product.isPopular),
+          },
           nutritionInfo: normalizeText(product.nutritionInfo),
           nutrition:
             product.nutrition && typeof product.nutrition === 'object' && !Array.isArray(product.nutrition)
               ? product.nutrition
               : null,
           price: effectivePrice.toFixed(2),
+          literPrice: literPrice == null ? null : literPrice.toFixed(2),
           originalPrice:
             offer && offer.hasOffer ? originalPrice.toFixed(2) : null,
           offerLabel:

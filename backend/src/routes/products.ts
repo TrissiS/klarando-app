@@ -7,6 +7,7 @@ import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 
 const router = Router()
 const BEVERAGE_CONTAINER_TYPES = new Set(['NONE', 'EINWEG', 'MEHRWEG'])
+const AGE_RESTRICTIONS = new Set(['NONE', 'AGE_16', 'AGE_18'])
 
 type UnitEanEntry = {
   label: string
@@ -142,6 +143,15 @@ function mapProductOutput(
     ean: string | null
     unitEans: Prisma.JsonValue | null
     deposit?: Prisma.Decimal | number | string | null
+    isBeverage?: boolean | null
+    contentVolumeLiters?: Prisma.Decimal | number | string | null
+    ageRestriction?: string | null
+    isVegetarian?: boolean | null
+    isVegan?: boolean | null
+    isSpicy?: boolean | null
+    isVerySpicy?: boolean | null
+    isNew?: boolean | null
+    isPopular?: boolean | null
     articleInfo?: string | null
     foodBusinessOperator?: string | null
     nutritionInfo?: string | null
@@ -154,6 +164,22 @@ function mapProductOutput(
     ean: normalizeEan(product.ean) ?? null,
     unitEans: normalizeUnitEans(product.unitEans),
     deposit: normalizeMoney(product.deposit, 0).toFixed(2),
+    isBeverage: Boolean(product.isBeverage),
+    contentVolumeLiters:
+      product.contentVolumeLiters == null
+        ? null
+        : normalizeMoney(product.contentVolumeLiters, 0).toFixed(3),
+    literPrice:
+      Boolean(product.isBeverage) && normalizeMoney(product.contentVolumeLiters, 0) > 0
+        ? (normalizeMoney(product.price, 0) / normalizeMoney(product.contentVolumeLiters, 0)).toFixed(2)
+        : null,
+    ageRestriction: normalizeAgeRestriction(product.ageRestriction) ?? 'NONE',
+    isVegetarian: Boolean(product.isVegetarian),
+    isVegan: Boolean(product.isVegan),
+    isSpicy: Boolean(product.isSpicy),
+    isVerySpicy: Boolean(product.isVerySpicy),
+    isNew: Boolean(product.isNew),
+    isPopular: Boolean(product.isPopular),
     articleInfo: normalizeText(product.articleInfo) ?? null,
     foodBusinessOperator: normalizeText(product.foodBusinessOperator) ?? null,
     nutritionInfo: normalizeText(product.nutritionInfo) ?? null,
@@ -163,6 +189,37 @@ function mapProductOutput(
         : null,
     allergens: collectAllergens(product),
   }
+}
+
+function normalizeAgeRestriction(value: unknown) {
+  if (typeof value !== 'string') {
+    return undefined
+  }
+
+  const normalized = value.trim().toUpperCase()
+  if (!AGE_RESTRICTIONS.has(normalized)) {
+    return undefined
+  }
+
+  return normalized as 'NONE' | 'AGE_16' | 'AGE_18'
+}
+
+function normalizeBoolean(value: unknown, fallback = false) {
+  if (typeof value === 'boolean') {
+    return value
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true' || normalized === '1' || normalized === 'yes') {
+      return true
+    }
+    if (normalized === 'false' || normalized === '0' || normalized === 'no') {
+      return false
+    }
+  }
+
+  return fallback
 }
 
 function isMissingProductColumnsError(error: unknown) {
@@ -182,7 +239,16 @@ function isMissingProductColumnsError(error: unknown) {
     error.message.includes('Product.nutritionInfo') ||
     error.message.includes('"nutritionInfo"') ||
     error.message.includes('Product.nutrition') ||
-    error.message.includes('"nutrition"')
+    error.message.includes('"nutrition"') ||
+    error.message.includes('Product.isBeverage') ||
+    error.message.includes('Product.contentVolumeLiters') ||
+    error.message.includes('Product.ageRestriction') ||
+    error.message.includes('Product.isVegetarian') ||
+    error.message.includes('Product.isVegan') ||
+    error.message.includes('Product.isSpicy') ||
+    error.message.includes('Product.isVerySpicy') ||
+    error.message.includes('Product.isNew') ||
+    error.message.includes('Product.isPopular')
   )
 }
 
@@ -225,6 +291,29 @@ async function ensureProductColumns() {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Product"
     ADD COLUMN IF NOT EXISTS "nutrition" JSONB;
+  `)
+
+  await prisma.$executeRawUnsafe(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'ProductAgeRestriction') THEN
+        CREATE TYPE "ProductAgeRestriction" AS ENUM ('NONE', 'AGE_16', 'AGE_18');
+      END IF;
+    END
+    $$;
+  `)
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Product"
+    ADD COLUMN IF NOT EXISTS "isBeverage" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "contentVolumeLiters" DECIMAL(10, 3),
+    ADD COLUMN IF NOT EXISTS "ageRestriction" "ProductAgeRestriction" NOT NULL DEFAULT 'NONE',
+    ADD COLUMN IF NOT EXISTS "isVegetarian" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isVegan" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isSpicy" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isVerySpicy" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isNew" BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS "isPopular" BOOLEAN NOT NULL DEFAULT false;
   `)
 }
 
@@ -310,6 +399,15 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       foodBusinessOperator,
       nutritionInfo,
       nutrition,
+      isBeverage,
+      contentVolumeLiters,
+      ageRestriction,
+      isVegetarian,
+      isVegan,
+      isSpicy,
+      isVerySpicy,
+      isNew,
+      isPopular,
       price,
       vatRate,
       available,
@@ -327,6 +425,15 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       foodBusinessOperator?: string | null
       nutritionInfo?: string | null
       nutrition?: unknown
+      isBeverage?: boolean
+      contentVolumeLiters?: number | null
+      ageRestriction?: string
+      isVegetarian?: boolean
+      isVegan?: boolean
+      isSpicy?: boolean
+      isVerySpicy?: boolean
+      isNew?: boolean
+      isPopular?: boolean
       price?: number
       vatRate?: number
       available?: boolean
@@ -372,6 +479,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
 
     const normalizedUnitEans = normalizeUnitEans(unitEans)
     const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType)
+    const normalizedAgeRestriction = normalizeAgeRestriction(ageRestriction) ?? 'NONE'
 
     const createProductRecord = () =>
       prisma.product.create({
@@ -384,7 +492,17 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
           ean: normalizeEan(ean),
           unitEans: normalizedUnitEans as unknown as Prisma.InputJsonValue,
           beverageContainerType: normalizedContainerType ?? 'NONE',
+          isBeverage: normalizeBoolean(isBeverage, false),
+          contentVolumeLiters:
+            contentVolumeLiters == null ? null : normalizeMoney(contentVolumeLiters, 0),
           deposit: normalizeMoney(deposit, 0),
+          ageRestriction: normalizedAgeRestriction,
+          isVegetarian: normalizeBoolean(isVegetarian, false),
+          isVegan: normalizeBoolean(isVegan, false),
+          isSpicy: normalizeBoolean(isSpicy, false),
+          isVerySpicy: normalizeBoolean(isVerySpicy, false),
+          isNew: normalizeBoolean(isNew, false),
+          isPopular: normalizeBoolean(isPopular, false),
           articleInfo: normalizeText(articleInfo),
           foodBusinessOperator: normalizeText(foodBusinessOperator),
           nutritionInfo: normalizeText(nutritionInfo),
@@ -462,6 +580,15 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       foodBusinessOperator,
       nutritionInfo,
       nutrition,
+      isBeverage,
+      contentVolumeLiters,
+      ageRestriction,
+      isVegetarian,
+      isVegan,
+      isSpicy,
+      isVerySpicy,
+      isNew,
+      isPopular,
       price,
       vatRate,
       categoryId,
@@ -477,6 +604,15 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       foodBusinessOperator?: string | null
       nutritionInfo?: string | null
       nutrition?: unknown
+      isBeverage?: boolean
+      contentVolumeLiters?: number | null
+      ageRestriction?: string
+      isVegetarian?: boolean
+      isVegan?: boolean
+      isSpicy?: boolean
+      isVerySpicy?: boolean
+      isNew?: boolean
+      isPopular?: boolean
       price?: number
       vatRate?: number
       categoryId?: string | null
@@ -512,6 +648,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
 
     const normalizedUnitEans = unitEans === undefined ? undefined : normalizeUnitEans(unitEans)
     const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType)
+    const normalizedAgeRestriction = normalizeAgeRestriction(ageRestriction)
     const normalizedProductNumber = normalizeProductNumber(productNumber)
     const existingNormalizedProductNumber = normalizeProductNumber(existingProduct.productNumber)
     const targetAvailable = available ?? existingProduct.available
@@ -564,11 +701,30 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
           ean: normalizeEan(ean),
           beverageContainerType:
             beverageContainerType === undefined ? undefined : (normalizedContainerType ?? 'NONE'),
+          isBeverage: isBeverage === undefined ? undefined : normalizeBoolean(isBeverage, false),
+          contentVolumeLiters:
+            contentVolumeLiters === undefined
+              ? undefined
+              : contentVolumeLiters == null
+                ? null
+                : normalizeMoney(contentVolumeLiters, 0),
           unitEans:
             normalizedUnitEans === undefined
               ? undefined
               : (normalizedUnitEans as unknown as Prisma.InputJsonValue),
           deposit: deposit === undefined ? undefined : normalizeMoney(deposit, 0),
+          ageRestriction:
+            ageRestriction === undefined
+              ? undefined
+              : normalizedAgeRestriction ?? 'NONE',
+          isVegetarian:
+            isVegetarian === undefined ? undefined : normalizeBoolean(isVegetarian, false),
+          isVegan: isVegan === undefined ? undefined : normalizeBoolean(isVegan, false),
+          isSpicy: isSpicy === undefined ? undefined : normalizeBoolean(isSpicy, false),
+          isVerySpicy:
+            isVerySpicy === undefined ? undefined : normalizeBoolean(isVerySpicy, false),
+          isNew: isNew === undefined ? undefined : normalizeBoolean(isNew, false),
+          isPopular: isPopular === undefined ? undefined : normalizeBoolean(isPopular, false),
           articleInfo: articleInfo === undefined ? undefined : normalizeText(articleInfo),
           foodBusinessOperator:
             foodBusinessOperator === undefined ? undefined : normalizeText(foodBusinessOperator),

@@ -48,7 +48,7 @@ export default function MenuOverviewPage() {
       quickActions={[
         { href: '/admin/products', label: 'Produkte bearbeiten' },
         { href: '/admin/categories', label: 'Kategorien verwalten' },
-        { href: '/admin/business-templates', label: 'Business-Vorlagen öffnen' },
+        { href: '/superadmin/trade-catalog', label: 'Klarando Handelsartikel' },
       ]}
     />
   )

@@ -50,6 +50,7 @@ import tableOrderingRoutes from './routes/table-ordering'
 import branchOrderIntakeRoutes from './routes/branch-order-intake'
 import superadminPrivacyRoutes from './routes/superadmin-privacy'
 import customerPrivacyRoutes from './routes/customer-privacy'
+import tradeCatalogRoutes from './routes/trade-catalog'
 import { optionalAuth } from './middleware/auth'
 import { rateLimitPasswordReset, rateLimitTokenRefresh } from './middleware/rate-limit'
 import { prisma } from './lib/prisma'
@@ -380,6 +381,7 @@ app.use('/api/table-ordering', tableOrderingRoutes)
 app.use('/api/branches', branchOrderIntakeRoutes)
 app.use('/api/superadmin/privacy', superadminPrivacyRoutes)
 app.use('/api/customer/privacy', customerPrivacyRoutes)
+app.use('/api/trade-catalog', tradeCatalogRoutes)
 
 app.use((req, res) => {
   res.status(404).json({
