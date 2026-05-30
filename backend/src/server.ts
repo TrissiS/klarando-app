@@ -26,6 +26,7 @@ import supplierRoutes from './routes/suppliers'
 import stockRoutes from './routes/stock'
 import businessTemplateRoutes from './routes/business-templates'
 import actionRoutes from './routes/actions'
+import couponRoutes from './routes/coupons'
 import staffRoutes from './routes/staff'
 import screenRoutes from './routes/screen'
 import displayRuntimeRoutes from './routes/display-runtime'
@@ -354,6 +355,7 @@ app.use('/api/suppliers', supplierRoutes)
 app.use('/api/stock', stockRoutes)
 app.use('/api/business-templates', businessTemplateRoutes)
 app.use('/api/actions', actionRoutes)
+app.use('/api/coupons', couponRoutes)
 app.use('/api/staff', staffRoutes)
 app.use('/api/screen', screenRoutes)
 app.use('/api/display-runtime', displayRuntimeRoutes)

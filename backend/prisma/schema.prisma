@@ -56,6 +56,18 @@ enum ActionValueType {
   FIXED_PRICE
 }
 
+enum CouponDiscountType {
+  PERCENT
+  AMOUNT
+  FREE_DELIVERY
+}
+
+enum CouponOrderType {
+  ALL
+  DELIVERY
+  PICKUP
+}
+
 enum StaffShiftStatus {
   PLANNED
   COMPLETED
@@ -505,6 +517,7 @@ model Tenant {
   suppliers                Supplier[]
   stockMovements           StockMovement[]
   actions                  Action[]
+  coupons                  Coupon[]
   staffMembers             StaffMember[]
   staffShifts              StaffShift[]
   staffSetting             StaffSetting?
@@ -2231,6 +2244,33 @@ model ActionProduct {
 
   @@unique([actionId, productId])
   @@index([productId])
+}
+
+model Coupon {
+  id                   String             @id @default(uuid())
+  tenantId             String
+  code                 String
+  name                 String
+  description          String?
+  discountType         CouponDiscountType
+  discountValueCents   Int?
+  discountPercent      Decimal?           @db.Decimal(5, 2)
+  minOrderValueCents   Int?
+  maxUses              Int?
+  maxUsesPerCustomer   Int?
+  usedCount            Int                @default(0)
+  validFrom            DateTime?
+  validUntil           DateTime?
+  appliesToOrderType   CouponOrderType    @default(ALL)
+  newCustomersOnly     Boolean            @default(false)
+  isActive             Boolean            @default(true)
+  tenant               Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@index([tenantId, validFrom, validUntil])
 }
 
 model User {

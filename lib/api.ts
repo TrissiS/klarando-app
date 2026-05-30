@@ -798,6 +798,31 @@ export type ActionCampaign = {
   products: ActionProductLink[]
 }
 
+export type CouponDiscountType = 'PERCENT' | 'AMOUNT' | 'FREE_DELIVERY'
+export type CouponOrderType = 'ALL' | 'DELIVERY' | 'PICKUP'
+
+export type Coupon = {
+  id: string
+  tenantId: string
+  code: string
+  name: string
+  description: string | null
+  discountType: CouponDiscountType
+  discountValueCents: number | null
+  discountPercent: string | null
+  minOrderValueCents: number | null
+  maxUses: number | null
+  maxUsesPerCustomer: number | null
+  usedCount: number
+  validFrom: string | null
+  validUntil: string | null
+  appliesToOrderType: CouponOrderType
+  newCustomersOnly: boolean
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
 export type StaffShiftStatus = 'PLANNED' | 'COMPLETED' | 'CANCELED'
 
 export type StaffMember = {
@@ -3338,6 +3363,157 @@ export async function deleteAction(id: string): Promise<void> {
     const errorData = await res.json().catch(() => null)
     throw new Error(errorData?.error || 'Aktion konnte nicht geloescht werden')
   }
+}
+
+export async function getCoupons(): Promise<Coupon[]> {
+  const tenantId = resolveTenantId()
+  if (!tenantId) {
+    return []
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/coupons?tenantId=${tenantId}`, {
+    headers: authHeaders(),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Gutscheine konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function createCoupon(data: {
+  code: string
+  name: string
+  description?: string | null
+  discountType: CouponDiscountType
+  discountValueCents?: number | null
+  discountPercent?: number | null
+  minOrderValueCents?: number | null
+  maxUses?: number | null
+  maxUsesPerCustomer?: number | null
+  validFrom?: string | null
+  validUntil?: string | null
+  appliesToOrderType?: CouponOrderType
+  newCustomersOnly?: boolean
+  isActive?: boolean
+}): Promise<Coupon> {
+  const tenantId = resolveTenantId()
+  if (!tenantId) {
+    throw new Error('Keine Filiale ausgewaehlt')
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/coupons`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      tenantId,
+      ...data,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Gutschein konnte nicht erstellt werden')
+  }
+
+  return res.json()
+}
+
+export async function updateCoupon(
+  id: string,
+  data: Partial<{
+    code: string
+    name: string
+    description: string | null
+    discountType: CouponDiscountType
+    discountValueCents: number | null
+    discountPercent: number | null
+    minOrderValueCents: number | null
+    maxUses: number | null
+    maxUsesPerCustomer: number | null
+    validFrom: string | null
+    validUntil: string | null
+    appliesToOrderType: CouponOrderType
+    newCustomersOnly: boolean
+    isActive: boolean
+  }>
+): Promise<Coupon> {
+  const tenantId = resolveTenantId()
+  if (!tenantId) {
+    throw new Error('Keine Filiale ausgewaehlt')
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/coupons/${id}`, {
+    method: 'PATCH',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      tenantId,
+      ...data,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Gutschein konnte nicht aktualisiert werden')
+  }
+
+  return res.json()
+}
+
+export async function deleteCoupon(id: string): Promise<void> {
+  const tenantId = resolveTenantId()
+  if (!tenantId) {
+    throw new Error('Keine Filiale ausgewaehlt')
+  }
+  const query = new URLSearchParams({
+    tenantId,
+  })
+
+  const res = await fetch(`${API_BASE_URL}/api/coupons/${id}?${query.toString()}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Gutschein konnte nicht geloescht werden')
+  }
+}
+
+export async function validateCoupon(data: {
+  code: string
+  orderType?: CouponOrderType
+  subtotalCents?: number
+  customerOrderCount?: number
+}): Promise<{
+  valid: boolean
+  reason?: string
+  checkoutReady: boolean
+  note?: string
+  coupon?: Coupon
+}> {
+  const tenantId = resolveTenantId()
+  if (!tenantId) {
+    throw new Error('Keine Filiale ausgewaehlt')
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/coupons/validate`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      tenantId,
+      ...data,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Gutschein konnte nicht geprueft werden')
+  }
+
+  return res.json()
 }
 
 export async function getStaffSettings(): Promise<StaffSetting> {
