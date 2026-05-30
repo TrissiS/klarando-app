@@ -123,6 +123,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _connected = false;
   bool _bindingLocked = false;
   bool _showManualConnection = false;
+  final Map<String, bool> _orderDetailExpandedById = <String, bool>{};
   String? _error;
   String? _info;
   String? _pairingInputDebug;
@@ -1110,6 +1111,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     // Try full pairing/bind first. If that fails, treat the manual token as an existing device auth token.
     await _bindWithPairingToken(manualToken);
     if (_bindingLocked && _connected) {
+      if (mounted) {
+        setState(() {
+          _showManualConnection = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Einstellungen gespeichert')),
+        );
+      }
       return;
     }
 
@@ -1125,8 +1134,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
       setState(() {
         _connected = true;
+        _showManualConnection = false;
         _info = 'Manuelle Verbindung gespeichert.';
       });
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Einstellungen gespeichert')),
+      );
     });
   }
 
@@ -1367,13 +1381,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonalIcon(
-                  onPressed: () {
+                  onPressed: () async {
                     Navigator.of(context).pop();
-                    if (!mounted) {
+                    final allowed = await _confirmConnectionEdit();
+                    if (!allowed || !mounted) {
                       return;
                     }
                     setState(() {
                       _showManualConnection = true;
+                      _bindingLocked = false;
                       _info = 'Manuelle Verbindung geöffnet.';
                     });
                   },
@@ -1384,10 +1400,91 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 FilledButton.tonalIcon(
                   onPressed: () async {
                     Navigator.of(context).pop();
+                    final allowed = await _confirmConnectionEdit();
+                    if (!allowed) {
+                      return;
+                    }
                     await _resetLocalBinding();
                   },
                   icon: const Icon(Icons.restart_alt),
                   label: const Text('Gerät trennen / zurücksetzen'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _showPrinterSettingsSheet();
+                  },
+                  icon: const Icon(Icons.print_rounded),
+                  label: const Text('Drucker einrichten'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _testPrinter();
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      const SnackBar(content: Text('Testdruck ausgelöst')),
+                    );
+                  },
+                  icon: const Icon(Icons.receipt_long_rounded),
+                  label: const Text('Testdruck'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    if (!mounted) return;
+                    final status = _printerMode == EscPosPrinterMode.disabled
+                        ? 'deaktiviert'
+                        : _printerMode == EscPosPrinterMode.debugLog
+                        ? 'Debug-Log'
+                        : 'TCP ${_tcpHostController.text.trim().isEmpty ? '(kein Host)' : _tcpHostController.text.trim()}:${int.tryParse(_tcpPortController.text.trim()) ?? 9100}';
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(content: Text('Druckerstatus: $status')),
+                    );
+                  },
+                  icon: const Icon(Icons.info_outline_rounded),
+                  label: const Text('Druckerstatus anzeigen'),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    final nextMode = _printerMode == EscPosPrinterMode.disabled
+                        ? EscPosPrinterMode.debugLog
+                        : EscPosPrinterMode.disabled;
+                    setState(() {
+                      _printerMode = nextMode;
+                    });
+                    await _persistState();
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(this.context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          nextMode == EscPosPrinterMode.disabled
+                              ? 'Automatischer Bondruck deaktiviert'
+                              : 'Automatischer Bondruck aktiviert',
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.settings_suggest_rounded),
+                  label: Text(
+                    _printerMode == EscPosPrinterMode.disabled
+                        ? 'Automatischer Bondruck an'
+                        : 'Automatischer Bondruck aus',
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.tonalIcon(
+                  onPressed: () async {
+                    Navigator.of(context).pop();
+                    await _showDriverPairingInfo();
+                  },
+                  icon: const Icon(Icons.qr_code_rounded),
+                  label: const Text('Driver-App koppeln (Info)'),
                 ),
               ],
             ),
@@ -1430,11 +1527,167 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _manualTenantIdController.clear();
       _manualAdminCodeController.clear();
       _showManualConnection = false;
+      _orderDetailExpandedById.clear();
       _info = 'Gerät wurde zurückgesetzt. Bitte erneut per QR-Code verbinden.';
       _error = null;
       _feed = null;
       _lastSuccessfulSyncAt = null;
     });
+  }
+
+  Future<bool> _confirmConnectionEdit() async {
+    if (!mounted) return false;
+    final first = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Geräteverbindung bearbeiten'),
+        content: const Text(
+          'Achtung: Wenn Sie die Geräteverbindung ändern, kann dieses OrderDesk-Gerät keine Bestellungen mehr empfangen, bis es erneut verbunden wurde.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Weiter'),
+          ),
+        ],
+      ),
+    );
+    if (first != true || !mounted) return false;
+
+    final second = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Final bestätigen'),
+        content: const Text('Ja, Verbindung ändern?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Ja, Verbindung ändern'),
+          ),
+        ],
+      ),
+    );
+    return second == true;
+  }
+
+  Future<void> _showPrinterSettingsSheet() async {
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 8,
+              bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 16,
+            ),
+            child: StatefulBuilder(
+              builder: (innerContext, setSheetState) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Drucker einrichten',
+                      style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<EscPosPrinterMode>(
+                      value: _printerMode,
+                      decoration: const InputDecoration(
+                        labelText: 'Modus',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: EscPosPrinterMode.values
+                          .map(
+                            (mode) => DropdownMenuItem<EscPosPrinterMode>(
+                              value: mode,
+                              child: Text(mode.name),
+                            ),
+                          )
+                          .toList(growable: false),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() {
+                          _printerMode = value;
+                        });
+                        setSheetState(() {});
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _tcpHostController,
+                      decoration: const InputDecoration(
+                        labelText: 'TCP Host',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextField(
+                      controller: _tcpPortController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(
+                        labelText: 'TCP Port',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: () async {
+                        await _persistState();
+                        if (!mounted) return;
+                        Navigator.of(innerContext).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Einstellungen gespeichert')),
+                        );
+                      },
+                      icon: const Icon(Icons.save_rounded),
+                      label: const Text('Einstellungen speichern'),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showDriverPairingInfo() async {
+    if (!mounted) return;
+    final apiUrl = _baseUrlController.text.trim().isEmpty
+        ? defaultApiBaseUrl
+        : _baseUrlController.text.trim();
+    final tenantValue = _manualTenantIdController.text.trim();
+    final displayValue = _displayCodeController.text.trim();
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Driver-App koppeln'),
+        content: Text(
+          'Status: vorbereitet\n\nAPI-URL: $apiUrl\nTenant-ID: ${tenantValue.isEmpty ? '-' : tenantValue}\nDriver-Gerätecode: ${displayValue.isEmpty ? '-' : displayValue}\nPairingToken: im Admin/Superadmin erzeugen.\n\nHinweis: Die Driver-App nutzt bereits die bestehende Device-Login-Route.',
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   String _buildOsmMapHtml(_DeliveryMapPayload payload) {
@@ -2333,6 +2586,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         : waitMinutes >= 5
         ? const Color(0xFFD97706)
         : const Color(0xFF166534);
+    final detailsExpanded = _orderDetailExpandedById[order.id] ?? false;
+    final addressText = [
+      order.customerAddress,
+      order.customerZipCode,
+      order.customerCity,
+    ].where((entry) => entry != null && entry.trim().isNotEmpty).join(', ');
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
@@ -2363,9 +2622,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              '${order.customerName ?? '-'} • ${order.customerPhone ?? '-'}',
-            ),
+            Text(order.customerName ?? '-'),
             if (order.assignedDriverName != null &&
                 order.assignedDriverName!.trim().isNotEmpty)
               Padding(
@@ -2392,6 +2649,41 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             Text(
               '${isDelivery ? 'Lieferung' : 'Abholung'} • ${_orderStatusLabel(order.status)} • ${order.total.toStringAsFixed(2)} EUR',
             ),
+            TextButton.icon(
+              onPressed: () {
+                setState(() {
+                  _orderDetailExpandedById[order.id] = !detailsExpanded;
+                });
+              },
+              icon: Icon(
+                detailsExpanded
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                size: 18,
+              ),
+              label: Text(detailsExpanded ? 'Details ausblenden' : 'Details anzeigen'),
+            ),
+            if (detailsExpanded) ...[
+              Text(
+                'Telefon: ${order.customerPhone ?? '-'}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+              ),
+              if (addressText.isNotEmpty)
+                Text(
+                  'Adresse: $addressText',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                ),
+              if (order.paymentMethod != null && order.paymentMethod!.trim().isNotEmpty)
+                Text(
+                  'Zahlungsart: ${order.paymentMethod}',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                ),
+              if (order.estimatedMinutes != null)
+                Text(
+                  'Geplante Zeit: ca. ${order.estimatedMinutes} Min.',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                ),
+            ],
             if (isDelivery &&
                 (order.assignedDriverName == null ||
                     order.assignedDriverName!.trim().isEmpty))
