@@ -71,6 +71,9 @@ function normalizePolygonPath(
 }
 
 export default function AdminAppSettingsPage() {
+  const [section, setSection] = useState('')
+  const isDeliveryAreaSection = section === 'delivery-area'
+  const isTourSection = section === 'delivery-priority'
   const [settings, setSettings] = useState<BusinessSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -101,6 +104,14 @@ export default function AdminAppSettingsPage() {
     } catch {
       setIsSuperadminView(false)
     }
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const params = new URLSearchParams(window.location.search)
+    setSection(params.get('section') || '')
   }, [])
 
   useEffect(() => {
@@ -295,33 +306,76 @@ export default function AdminAppSettingsPage() {
         </section>
       ) : (
         <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            App-Freigaben werden zentral im Superadmin verwaltet.
-          </div>
-          {isSuperadminView ? (
-            <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              Lieferzonen werden vom Betreiber/Admin der Filiale gepflegt.
+          {isTourSection ? (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                <p className="font-semibold">Tourenplanung</p>
+                <p className="mt-1">
+                  Hier werden später offene Lieferbestellungen zu Touren gebündelt und Fahrern zugewiesen.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <TourCard title="Offene Lieferungen" value="-" />
+                <TourCard title="Geplante Touren" value="-" />
+                <TourCard title="Fahrer verfügbar" value="-" />
+                <TourCard title="Tourstatus Live" value="Vorbereitung" />
+              </div>
+              <div className="rounded-2xl border border-dashed border-rose-300 bg-white px-4 py-4 text-sm text-rose-900/80">
+                <p className="font-medium">Tourenmodul vorbereiten</p>
+                <p className="mt-1 text-xs">
+                  Nächster Schritt: DeliveryTour, DeliveryTourStop und Fahrerzuweisung anbinden.
+                </p>
+              </div>
             </div>
-          ) : null}
-          <AppSettingsFields
-            settings={settings}
-            onChange={setSettings}
-            showAppReleaseControls={false}
-            showServiceAreaEditor={!isSuperadminView}
-          />
-          <div className="mt-5 flex justify-end">
+          ) : (
+            <>
+              <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                App-Freigaben werden zentral im Superadmin verwaltet.
+              </div>
+              {isSuperadminView ? (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Lieferzonen werden vom Betreiber/Admin der Filiale gepflegt.
+                </div>
+              ) : null}
+              <AppSettingsFields
+                settings={settings}
+                onChange={setSettings}
+                showAppReleaseControls={false}
+                showServiceAreaEditor={!isSuperadminView}
+                showDeliveryScheduling={!isDeliveryAreaSection}
+              />
+              <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+                Änderungen werden erst nach dem Speichern übernommen.
+              </div>
+            </>
+          )}
+        </section>
+      )}
+      {!loading && settings && !isTourSection ? (
+        <div className="sticky bottom-0 z-20 mt-4 border border-slate-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-slate-700">Lieferzeiten und App-Einstellungen speichern</p>
             <button
               type="button"
               onClick={() => void save()}
               disabled={saving}
-              className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving ? 'Speichert...' : 'App-Einstellungen speichern'}
+              {saving ? 'Speichert...' : 'Jetzt speichern'}
             </button>
           </div>
-        </section>
-      )}
+        </div>
+      ) : null}
     </AdminLayout>
+  )
+}
+
+function TourCard({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3">
+      <p className="text-xs uppercase tracking-wide text-rose-900/70">{title}</p>
+      <p className="mt-2 text-lg font-semibold text-[var(--brand-ink)]">{value}</p>
+    </div>
   )
 }
 

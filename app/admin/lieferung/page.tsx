@@ -17,7 +17,7 @@ export default function DeliveryOverviewPage() {
       quickActions={[
         { href: '/admin/app-settings?section=delivery-area', label: 'Lieferzonen bearbeiten' },
         { href: '/admin/drivers', label: 'Fahrer verwalten' },
-        { href: '/admin/app-settings?section=delivery-priority', label: 'Tourenlogik öffnen' },
+        { href: '/admin/tours', label: 'Touren öffnen' },
       ]}
     />
   )

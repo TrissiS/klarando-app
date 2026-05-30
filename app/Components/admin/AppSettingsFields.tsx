@@ -12,11 +12,14 @@ type Props = {
   showAppReleaseControls?: boolean
   showComplianceControls?: boolean
   showServiceAreaEditor?: boolean
+  showDeliveryScheduling?: boolean
 }
 
 type ServiceMode = 'DELIVERY' | 'PICKUP' | 'BOTH'
+type DeliveryDay = BusinessSettings['deliveryScheduling']['allowedDeliveryDays'][number]
+type DeliverySlot = BusinessSettings['deliveryScheduling']['timeSlots'][number]
 const WEEK_DAYS: Array<{
-  key: BusinessSettings['deliveryScheduling']['allowedDeliveryDays'][number]
+  key: DeliveryDay
   label: string
 }> = [
   { key: 'MONDAY', label: 'Mo' },
@@ -28,6 +31,17 @@ const WEEK_DAYS: Array<{
   { key: 'SUNDAY', label: 'So' },
 ]
 
+const DEFAULT_SLOT_TEMPLATES: Array<{
+  id: string
+  label: string
+  slot: Pick<DeliverySlot, 'start' | 'end'>
+}> = [
+  { id: 'morning', label: 'Vormittag 09:00-12:00', slot: { start: '09:00', end: '12:00' } },
+  { id: 'midday', label: 'Mittag 12:00-15:00', slot: { start: '12:00', end: '15:00' } },
+  { id: 'afternoon', label: 'Nachmittag 15:00-18:00', slot: { start: '15:00', end: '18:00' } },
+  { id: 'full', label: 'Ganztägig 09:00-18:00', slot: { start: '09:00', end: '18:00' } },
+]
+
 export default function AppSettingsFields({
   settings,
   onChange,
@@ -37,6 +51,7 @@ export default function AppSettingsFields({
   showAppReleaseControls = true,
   showComplianceControls = false,
   showServiceAreaEditor = true,
+  showDeliveryScheduling = true,
 }: Props) {
   function patchCustomerApp(next: Partial<BusinessSettings['customerApp']>) {
     onChange({
@@ -133,9 +148,106 @@ export default function AppSettingsFields({
     patchDeliveryScheduling({ timeSlots: next })
   }
 
+  function addTimeSlotForDay(day: DeliveryDay) {
+    patchDeliveryScheduling({
+      timeSlots: [
+        ...settings.deliveryScheduling.timeSlots,
+        {
+          day,
+          start: '09:00',
+          end: '12:00',
+          maxOrders: null,
+        },
+      ],
+    })
+  }
+
   function removeTimeSlot(index: number) {
     const next = settings.deliveryScheduling.timeSlots.filter((_, slotIndex) => slotIndex !== index)
     patchDeliveryScheduling({ timeSlots: next })
+  }
+
+  function copyDaySlotsToAllDays(sourceDay: DeliveryDay) {
+    const source = settings.deliveryScheduling.timeSlots
+      .filter((slot) => slot.day === sourceDay)
+      .map((slot) => ({
+        start: slot.start,
+        end: slot.end,
+        maxOrders: slot.maxOrders ?? null,
+      }))
+
+    if (source.length === 0) {
+      return
+    }
+
+    patchDeliveryScheduling({
+      timeSlots: WEEK_DAYS.flatMap((dayEntry) =>
+        source.map((slot) => ({
+          day: dayEntry.key,
+          ...slot,
+        }))
+      ),
+    })
+  }
+
+  function applyTemplateToDay(
+    day: DeliveryDay,
+    template: Pick<DeliverySlot, 'start' | 'end'> | null
+  ) {
+    const withoutDay = settings.deliveryScheduling.timeSlots.filter((slot) => slot.day !== day)
+    patchDeliveryScheduling({
+      timeSlots: template
+        ? [...withoutDay, { day, start: template.start, end: template.end, maxOrders: null }]
+        : withoutDay,
+    })
+  }
+
+  const slotsByDay = WEEK_DAYS.map((dayEntry) => ({
+    ...dayEntry,
+    slots: settings.deliveryScheduling.timeSlots
+      .map((slot, index) => ({ slot, index }))
+      .filter((entry) => entry.slot.day === dayEntry.key)
+      .sort((left, right) => left.slot.start.localeCompare(right.slot.start)),
+  }))
+
+  function validateDaySlots(day: DeliveryDay) {
+    const daySlots = settings.deliveryScheduling.timeSlots
+      .filter((slot) => slot.day === day)
+      .map((slot) => ({
+        start: slot.start?.trim() || '',
+        end: slot.end?.trim() || '',
+        maxOrders: slot.maxOrders,
+      }))
+      .sort((left, right) => left.start.localeCompare(right.start))
+
+    const errors: string[] = []
+
+    if (settings.deliveryScheduling.allowedDeliveryDays.includes(day) && daySlots.length === 0) {
+      errors.push('Tag ist aktiv, aber es gibt kein Zeitfenster.')
+    }
+
+    for (const slot of daySlots) {
+      if (!slot.start || !slot.end) {
+        errors.push('Bitte Von- und Bis-Zeit ausfüllen.')
+        continue
+      }
+      if (slot.end <= slot.start) {
+        errors.push(`Zeitfenster ${slot.start}-${slot.end}: Bis muss später als Von sein.`)
+      }
+      if (slot.maxOrders !== null && slot.maxOrders < 0) {
+        errors.push(`Zeitfenster ${slot.start}-${slot.end}: Max. Aufträge darf nicht negativ sein.`)
+      }
+    }
+
+    for (let index = 1; index < daySlots.length; index += 1) {
+      const previous = daySlots[index - 1]
+      const current = daySlots[index]
+      if (previous.end && current.start && previous.end > current.start) {
+        errors.push(`Zeitfenster überlappen (${previous.start}-${previous.end} und ${current.start}-${current.end}).`)
+      }
+    }
+
+    return Array.from(new Set(errors))
   }
 
   return (
@@ -171,6 +283,7 @@ export default function AppSettingsFields({
         </label>
       </div>
 
+      {showDeliveryScheduling ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Bestellmodus
@@ -191,6 +304,7 @@ export default function AppSettingsFields({
           </select>
         </div>
       </section>
+      ) : null}
 
       {showAppReleaseControls ? (
         <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
@@ -420,11 +534,18 @@ export default function AppSettingsFields({
           <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">
             Aktive Liefertage
           </h4>
-          <div className="mt-2 flex flex-wrap gap-3">
+          <div className="mt-2 flex flex-wrap gap-2">
             {WEEK_DAYS.map((entry) => {
               const checked = settings.deliveryScheduling.allowedDeliveryDays.includes(entry.key)
               return (
-                <label key={entry.key} className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+                <label
+                  key={entry.key}
+                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
+                    checked
+                      ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                      : 'border-rose-200 bg-white text-rose-900/80'
+                  }`}
+                >
                   <input
                     type="checkbox"
                     checked={checked}
@@ -445,76 +566,186 @@ export default function AppSettingsFields({
         </div>
 
         <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/70 p-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">
-              Zeitfenster
+              Wochenplanung Zeitfenster
             </h4>
             <button
               type="button"
               onClick={addTimeSlot}
-              className="rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white"
+              className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-semibold text-rose-900"
             >
-              Zeitfenster hinzufügen
+              + Schnelles Zeitfenster
             </button>
           </div>
-          <div className="mt-3 space-y-2">
-            {settings.deliveryScheduling.timeSlots.map((slot, index) => (
-              <div
-                key={`${slot.day}-${slot.start}-${slot.end}-${index}`}
-                className="grid gap-2 rounded-xl border border-[var(--brand-border)] bg-white p-2 sm:grid-cols-[1fr,1fr,1fr,1fr,auto]"
+
+          <div className="mt-3 rounded-xl border border-[var(--brand-border)] bg-white">
+            <div className="hidden grid-cols-[72px_72px_1fr_120px_130px] gap-2 border-b border-rose-100 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-rose-900/70 sm:grid">
+              <span>Tag</span>
+              <span>Aktiv</span>
+              <span>Zeitfenster</span>
+              <span>Max. Aufträge</span>
+              <span>Aktionen</span>
+            </div>
+
+            <div className="divide-y divide-rose-100">
+              {slotsByDay.map((dayRow) => {
+                const dayErrors = validateDaySlots(dayRow.key)
+                const isActiveDay = settings.deliveryScheduling.allowedDeliveryDays.includes(dayRow.key)
+
+                return (
+                  <div key={dayRow.key} className="p-3">
+                    <div className="grid gap-2 sm:grid-cols-[72px_72px_1fr_120px_130px] sm:items-start">
+                      <div className="text-sm font-semibold text-rose-950">{dayRow.label}</div>
+                      <div>
+                        <span
+                          className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            isActiveDay
+                              ? 'bg-emerald-100 text-emerald-700'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {isActiveDay ? 'aktiv' : 'inaktiv'}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        {dayRow.slots.length === 0 ? (
+                          <p className="text-xs text-rose-900/65">Keine Zeitfenster</p>
+                        ) : (
+                          dayRow.slots.map(({ slot, index }) => (
+                            <div key={`${dayRow.key}-${index}`} className="grid grid-cols-[1fr_1fr_auto] gap-1">
+                              <input
+                                type="time"
+                                value={slot.start}
+                                onChange={(event) => updateTimeSlot(index, { start: event.target.value })}
+                                className="rounded-md border border-[var(--brand-border)] px-2 py-1 text-xs outline-none"
+                              />
+                              <input
+                                type="time"
+                                value={slot.end}
+                                onChange={(event) => updateTimeSlot(index, { end: event.target.value })}
+                                className="rounded-md border border-[var(--brand-border)] px-2 py-1 text-xs outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeTimeSlot(index)}
+                                className="rounded-md border border-rose-200 px-2 py-1 text-xs text-rose-700 hover:bg-rose-50"
+                                title="Zeitfenster entfernen"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="space-y-1">
+                        {dayRow.slots.length === 0 ? (
+                          <span className="text-xs text-rose-900/65">—</span>
+                        ) : (
+                          dayRow.slots.map(({ slot, index }) => (
+                            <input
+                              key={`max-${dayRow.key}-${index}`}
+                              type="number"
+                              min={0}
+                              value={slot.maxOrders ?? ''}
+                              placeholder="optional"
+                              onChange={(event) =>
+                                updateTimeSlot(index, {
+                                  maxOrders: event.target.value === '' ? null : Number(event.target.value),
+                                })
+                              }
+                              className="w-full rounded-md border border-[var(--brand-border)] px-2 py-1 text-xs outline-none"
+                            />
+                          ))
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => addTimeSlotForDay(dayRow.key)}
+                          className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[11px] font-semibold text-rose-900"
+                        >
+                          + Zeitfenster
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => copyDaySlotsToAllDays(dayRow.key)}
+                          className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[11px] font-semibold text-rose-900"
+                          disabled={dayRow.slots.length === 0}
+                        >
+                          Auf alle kopieren
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {DEFAULT_SLOT_TEMPLATES.map((template) => (
+                        <button
+                          key={`${dayRow.key}-${template.id}`}
+                          type="button"
+                          onClick={() => applyTemplateToDay(dayRow.key, template.slot)}
+                          className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[11px] text-rose-900/90"
+                        >
+                          {template.label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => applyTemplateToDay(dayRow.key, null)}
+                        className="rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-[11px] text-slate-700"
+                      >
+                        Leer starten
+                      </button>
+                    </div>
+
+                    {dayErrors.length > 0 ? (
+                      <div className="mt-2 space-y-1">
+                        {dayErrors.map((message) => (
+                          <p key={`${dayRow.key}-${message}`} className="text-xs text-red-700">
+                            {message}
+                          </p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {settings.deliveryScheduling.timeSlots.length === 0 ? (
+            <p className="mt-3 text-xs text-rose-900/70">
+              Ohne Zeitfenster gelten nur die aktiven Tage. Für klare Liefertermine bitte Zeitfenster setzen.
+            </p>
+          ) : null}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {DEFAULT_SLOT_TEMPLATES.map((template) => (
+              <button
+                key={`global-${template.id}`}
+                type="button"
+                onClick={() =>
+                  patchDeliveryScheduling({
+                    timeSlots: WEEK_DAYS.map((dayEntry) => ({
+                      day: dayEntry.key,
+                      start: template.slot.start,
+                      end: template.slot.end,
+                      maxOrders: null,
+                    })),
+                  })
+                }
+                className="rounded-md border border-rose-200 bg-white px-2 py-1 text-xs text-rose-900/90"
               >
-                <select
-                  value={slot.day}
-                  onChange={(event) =>
-                    updateTimeSlot(index, { day: event.target.value as typeof slot.day })
-                  }
-                  className="rounded-lg border border-[var(--brand-border)] px-2 py-1.5 text-xs outline-none"
-                >
-                  {WEEK_DAYS.map((entry) => (
-                    <option key={entry.key} value={entry.key}>
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="time"
-                  value={slot.start}
-                  onChange={(event) => updateTimeSlot(index, { start: event.target.value })}
-                  className="rounded-lg border border-[var(--brand-border)] px-2 py-1.5 text-xs outline-none"
-                />
-                <input
-                  type="time"
-                  value={slot.end}
-                  onChange={(event) => updateTimeSlot(index, { end: event.target.value })}
-                  className="rounded-lg border border-[var(--brand-border)] px-2 py-1.5 text-xs outline-none"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  value={slot.maxOrders ?? ''}
-                  placeholder="max. Aufträge"
-                  onChange={(event) =>
-                    updateTimeSlot(index, {
-                      maxOrders: event.target.value === '' ? null : Number(event.target.value),
-                    })
-                  }
-                  className="rounded-lg border border-[var(--brand-border)] px-2 py-1.5 text-xs outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeTimeSlot(index)}
-                  className="rounded-lg bg-rose-600 px-2 py-1.5 text-xs font-semibold text-white"
-                >
-                  Entfernen
-                </button>
-              </div>
+                Standard: {template.label}
+              </button>
             ))}
-            {settings.deliveryScheduling.timeSlots.length === 0 ? (
-              <p className="text-xs text-rose-900/70">
-                Noch keine Zeitfenster gepflegt. Ohne Zeitfenster gelten die erlaubten Liefertage
-                ganztägig.
-              </p>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => patchDeliveryScheduling({ timeSlots: [] })}
+              className="rounded-md border border-slate-300 bg-slate-50 px-2 py-1 text-xs text-slate-700"
+            >
+              Alle Zeitfenster leeren
+            </button>
           </div>
         </div>
       </section>
