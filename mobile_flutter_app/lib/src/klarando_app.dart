@@ -1001,8 +1001,8 @@ class _HomeShellState extends State<HomeShell> {
   late String _languageCode = widget.languageCode;
   late String _activeAddress = widget.userAddress;
   late String _activeZipCode = widget.userZipCode;
-  double? _activeLatitude = widget.userLatitude;
-  double? _activeLongitude = widget.userLongitude;
+  double? _activeLatitude;
+  double? _activeLongitude;
 
   bool _discoveryLoading = false;
   String _discoveryMessage = 'Wir laden passende Filialen für dich.';
@@ -1076,6 +1076,8 @@ class _HomeShellState extends State<HomeShell> {
   @override
   void initState() {
     super.initState();
+    _activeLatitude = widget.userLatitude;
+    _activeLongitude = widget.userLongitude;
     _restoreAppAuthFromPrefs();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _searchTenants(_activeZipCode, DiscoveryMode.delivery);
