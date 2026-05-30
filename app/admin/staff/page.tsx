@@ -60,6 +60,24 @@ function toDateInput(value: string) {
   return value.slice(0, 10)
 }
 
+function toFiniteNumber(value: string | number | null | undefined): number | null {
+  if (value == null || value === '') {
+    return null
+  }
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function formatHourlyRate(value: string | number | null | undefined): string {
+  const parsed = toFiniteNumber(value)
+  return parsed === null ? '-' : `${parsed.toFixed(2)} €`
+}
+
+function formatWeeklyTargetHours(value: string | number | null | undefined): string {
+  const parsed = toFiniteNumber(value)
+  return parsed === null ? '-' : `${parsed.toFixed(1)} h/Woche`
+}
+
 export default function AdminStaffPage() {
   const [tab, setTab] = useState<TabKey>('employees')
 
@@ -463,9 +481,7 @@ export default function AdminStaffPage() {
                         <td className="border-t border-slate-100 px-3 py-2 text-sm font-medium">{member.name}</td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">{member.position || '-'}</td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">{member.email || member.phone || '-'}</td>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
-                          {member.hourlyRate === null ? '-' : `${member.hourlyRate.toFixed(2)} €`}
-                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatHourlyRate(member.hourlyRate)}</td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">
                           <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${
                             member.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'
@@ -473,9 +489,7 @@ export default function AdminStaffPage() {
                             {member.isActive ? 'Aktiv' : 'Inaktiv'}
                           </span>
                         </td>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
-                          {member.weeklyTargetHours === null ? '-' : `${member.weeklyTargetHours.toFixed(1)} h/Woche`}
-                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatWeeklyTargetHours(member.weeklyTargetHours)}</td>
                         <td className="border-t border-slate-100 px-3 py-2 text-sm">
                           <div className="flex gap-2">
                             <button
