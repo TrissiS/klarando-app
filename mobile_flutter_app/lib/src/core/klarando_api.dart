@@ -612,6 +612,12 @@ class TenantCatalogProduct {
     required this.offerValueType,
     required this.offerValue,
     required this.depositAmount,
+    required this.isVegan,
+    required this.isVegetarian,
+    required this.isSpicy,
+    required this.ageRestriction,
+    required this.isBeverage,
+    required this.unitSizeLiters,
     required this.imageUrl,
     required this.allergens,
     required this.additives,
@@ -633,6 +639,12 @@ class TenantCatalogProduct {
   final String? offerValueType;
   final double? offerValue;
   final double depositAmount;
+  final bool isVegan;
+  final bool isVegetarian;
+  final bool isSpicy;
+  final int? ageRestriction;
+  final bool isBeverage;
+  final double? unitSizeLiters;
   final String? imageUrl;
   final List<String> allergens;
   final List<String> additives;
@@ -667,6 +679,46 @@ class TenantCatalogProduct {
       offerValueType: _readNullableString(json['offerValueType']),
       offerValue: _readNullableDouble(json['offerValue']),
       depositAmount: _readDouble(json['depositAmount']),
+      isVegan:
+          _readBool(
+            json['isVegan'] ??
+                json['vegan'] ??
+                json['tags']?['vegan'] ??
+                false,
+          ),
+      isVegetarian:
+          _readBool(
+            json['isVegetarian'] ??
+                json['vegetarian'] ??
+                json['tags']?['vegetarian'] ??
+                false,
+          ),
+      isSpicy:
+          _readBool(
+            json['isSpicy'] ??
+                json['spicy'] ??
+                json['tags']?['spicy'] ??
+                false,
+          ),
+      ageRestriction: _readNullableInt(
+        json['ageRestriction'] ??
+            json['alcoholAge'] ??
+            json['minimumAge'] ??
+            json['age'],
+      ),
+      isBeverage: _readBool(
+        json['isBeverage'] ??
+            json['beverage'] ??
+            (_readNullableString(json['productType'])?.toUpperCase() == 'BEVERAGE') ??
+            false,
+      ),
+      unitSizeLiters: _readNullableDouble(
+        json['unitSizeLiters'] ??
+            json['volumeLiters'] ??
+            json['unitSizeL'] ??
+            json['volumeL'] ??
+            json['liter'],
+      ),
       imageUrl: _resolvePublicAssetUrl(
         baseUrl,
         _readNullableString(json['imageUrl']),

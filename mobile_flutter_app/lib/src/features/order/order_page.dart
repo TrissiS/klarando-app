@@ -39,6 +39,7 @@ class OrderPage extends StatefulWidget {
 class _OrderPageState extends State<OrderPage> {
   final _searchController = TextEditingController();
   String? _selectedCategory;
+  final Set<String> _activeProductFilters = <String>{};
   bool _headerCompact = false;
 
   void _openLocalInfoSheet({
@@ -136,6 +137,10 @@ class _OrderPageState extends State<OrderPage> {
     final filtered = widget.products.where((product) {
       final inCategory = _selectedCategory == null || product.categoryName == _selectedCategory;
       if (!inCategory) {
+        return false;
+      }
+      final matchesFilters = _matchesActiveFilters(product);
+      if (!matchesFilters) {
         return false;
       }
       if (query.isEmpty) {
@@ -238,6 +243,43 @@ class _OrderPageState extends State<OrderPage> {
           ),
         ],
         const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            _buildFilterChip(
+              keyName: 'vegan',
+              label: 'Vegan',
+              color: const Color(0xFF16A34A),
+            ),
+            _buildFilterChip(
+              keyName: 'vegetarian',
+              label: 'Vegetarisch',
+              color: const Color(0xFF65A30D),
+            ),
+            _buildFilterChip(
+              keyName: 'spicy',
+              label: 'Scharf',
+              color: const Color(0xFFDC2626),
+            ),
+            _buildFilterChip(
+              keyName: 'beverage',
+              label: 'Getränke',
+              color: const Color(0xFF0284C7),
+            ),
+            _buildFilterChip(
+              keyName: 'age16',
+              label: '+16',
+              color: const Color(0xFFB45309),
+            ),
+            _buildFilterChip(
+              keyName: 'age18',
+              label: '+18',
+              color: const Color(0xFF7F1D1D),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
         if (widget.loading)
           const Expanded(child: Center(child: CircularProgressIndicator()))
         else if (filtered.isEmpty)
@@ -275,6 +317,66 @@ class _OrderPageState extends State<OrderPage> {
             ),
           ),
       ],
+    );
+  }
+
+  bool _matchesActiveFilters(TenantCatalogProduct product) {
+    if (_activeProductFilters.isEmpty) {
+      return true;
+    }
+    for (final filter in _activeProductFilters) {
+      switch (filter) {
+        case 'vegan':
+          if (!product.isVegan) return false;
+          break;
+        case 'vegetarian':
+          if (!product.isVegetarian) return false;
+          break;
+        case 'spicy':
+          if (!product.isSpicy) return false;
+          break;
+        case 'beverage':
+          if (!product.isBeverage) return false;
+          break;
+        case 'age16':
+          if (product.ageRestriction != 16) return false;
+          break;
+        case 'age18':
+          if (product.ageRestriction != 18) return false;
+          break;
+      }
+    }
+    return true;
+  }
+
+  Widget _buildFilterChip({
+    required String keyName,
+    required String label,
+    required Color color,
+  }) {
+    final isActive = _activeProductFilters.contains(keyName);
+    return FilterChip(
+      selected: isActive,
+      label: Text(label),
+      labelStyle: TextStyle(
+        color: isActive ? color : const Color(0xFF374151),
+        fontWeight: FontWeight.w700,
+        fontSize: 12,
+      ),
+      selectedColor: color.withValues(alpha: 0.14),
+      checkmarkColor: color,
+      side: BorderSide(
+        color: isActive ? color.withValues(alpha: 0.45) : const Color(0xFFD1D5DB),
+      ),
+      onSelected: (_) {
+        setState(() {
+          if (isActive) {
+            _activeProductFilters.remove(keyName);
+          } else {
+            _activeProductFilters.add(keyName);
+          }
+        });
+      },
     );
   }
 }
@@ -450,6 +552,14 @@ class _ProductCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildProductName(product.name),
+                  if (_productBadges(product).isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: _productBadges(product),
+                    ),
+                  ],
                   if (ingredientPreview != null) ...[
                     const SizedBox(height: 4),
                     Text(
@@ -1155,11 +1265,62 @@ String _priceLabel(TenantCatalogProduct product) {
   if (product.depositAmount > 0) {
     base = '$base (inkl. ${_formatCurrency(product.depositAmount)} Pfand)';
   }
+  final literPrice = _literPriceLabel(product);
+  if (literPrice != null) {
+    base = '$base • $literPrice';
+  }
   final containerLabel = _beverageContainerLabel(product);
   if (containerLabel != null) {
     return '$base • $containerLabel';
   }
   return base;
+}
+
+String? _literPriceLabel(TenantCatalogProduct product) {
+  final liters = product.unitSizeLiters;
+  if (!product.isBeverage || liters == null || liters <= 0) {
+    return null;
+  }
+  final literPrice = product.price / liters;
+  return '${_formatCurrency(literPrice)}/l';
+}
+
+List<Widget> _productBadges(TenantCatalogProduct product) {
+  final badges = <Widget>[];
+  if (product.isVegan) {
+    badges.add(_productBadge('Vegan', const Color(0xFF16A34A)));
+  }
+  if (product.isVegetarian) {
+    badges.add(_productBadge('Vegetarisch', const Color(0xFF65A30D)));
+  }
+  if (product.isSpicy) {
+    badges.add(_productBadge('Scharf', const Color(0xFFDC2626)));
+  }
+  if (product.ageRestriction == 18) {
+    badges.add(_productBadge('+18', const Color(0xFF7F1D1D)));
+  } else if (product.ageRestriction == 16) {
+    badges.add(_productBadge('+16', const Color(0xFFB45309)));
+  }
+  return badges;
+}
+
+Widget _productBadge(String label, Color color) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: color.withValues(alpha: 0.35)),
+    ),
+    child: Text(
+      label,
+      style: TextStyle(
+        color: color,
+        fontSize: 10,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
 }
 
 String? _beverageContainerLabel(TenantCatalogProduct product) {
