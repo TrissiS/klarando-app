@@ -136,6 +136,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   int _activeDriverDevices = 0;
   int _onlineDriverDevices = 0;
   DateTime _now = DateTime.now();
+  bool _isReconnecting = false;
+  bool _heartbeatInFlight = false;
+  int _consecutiveHeartbeatFailures = 0;
+  DateTime? _lastHeartbeatAt;
+  String? _lastHeartbeatError;
   bool _hasLoadedInitialFeed = false;
   final Map<String, String> _lastOrderStatusById = <String, String>{};
   final Set<String> _archivingOrderIds = <String>{};
