@@ -34,7 +34,7 @@ const _googleServerClientId =
     '198427463115-m6u039q4ive21u9gjrg9v61hk4nqkejn.apps.googleusercontent.com';
 const _googleServicesConfigured = bool.fromEnvironment(
   'GOOGLE_SERVICES_CONFIGURED',
-  defaultValue: false,
+  defaultValue: true,
 );
 const _facebookAppId = String.fromEnvironment('FACEBOOK_APP_ID', defaultValue: '');
 const _facebookClientToken = String.fromEnvironment(

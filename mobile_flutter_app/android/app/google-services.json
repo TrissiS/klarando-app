@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1066826718981",
+    "project_id": "klarando-b0b1c",
+    "storage_bucket": "klarando-b0b1c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1066826718981:android:f7f59f7f23799647c4216c",
+        "android_client_info": {
+          "package_name": "com.klarando.customer"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB48up4LAmEamIFEFTUyzaOuA_sG5EKBKQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

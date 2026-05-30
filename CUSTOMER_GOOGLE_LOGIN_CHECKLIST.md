@@ -10,9 +10,11 @@
   - `com.klarando.customer` (in `mobile_flutter_app/android/app/build.gradle.kts`)
 
 ## customer_main.dart / Firebase-Init Status
-- `mobile_flutter_app/lib/customer_main.dart` startet aktuell nur `KlarandoApp` (kein `Firebase.initializeApp()`).
+- `mobile_flutter_app/lib/customer_main.dart` initialisiert Firebase vor App-Start:
+  - `WidgetsFlutterBinding.ensureInitialized()`
+  - `Firebase.initializeApp()`
 - In diesem Schritt wurde **kein** Fake-Firebase-Setup ergänzt.
-- Schutz ist eingebaut: Google Login wird in der UI deaktiviert, solange `GOOGLE_SERVICES_CONFIGURED` nicht gesetzt ist.
+- Schutz ist eingebaut: Google Login kann per `GOOGLE_SERVICES_CONFIGURED=false` deaktiviert werden, falls Konfiguration in einer Umgebung fehlt.
 
 ## 1) SHA-Fingerprints (Customer-App)
 Quelle: lokaler Debug-Keystore (`%USERPROFILE%\\.android\\debug.keystore`)
@@ -42,8 +44,11 @@ Das deutet auf ein Google/Firebase Projekt mit Projekt-Nummer `198427463115` hin
 - Package / Application ID: `com.klarando.customer`
 
 ## 5) Welche Datei fehlt genau?
-Erwartet, aber aktuell nicht vorhanden:
+Aktueller Stand: Datei ist vorhanden unter
 - `mobile_flutter_app/android/app/google-services.json`
+
+Pflicht weiterhin:
+- Datei muss je Umgebung korrekt zum Firebase-Projekt und Package `com.klarando.customer` passen.
 
 ## Fehlverhalten ohne Datei (abgesichert)
 - Wenn `google-services.json` fehlt, bleibt Google Login deaktiviert und zeigt eine klare Meldung statt still zu scheitern.
