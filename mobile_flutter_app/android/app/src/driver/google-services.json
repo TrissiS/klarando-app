@@ -1,0 +1,126 @@
+{
+  "project_info": {
+    "project_number": "1066826718981",
+    "project_id": "klarando-b0b1c",
+    "storage_bucket": "klarando-b0b1c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1066826718981:android:f7f59f7f23799647c4216c",
+        "android_client_info": {
+          "package_name": "com.klarando.customer"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB48up4LAmEamIFEFTUyzaOuA_sG5EKBKQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1066826718981:android:13a1af5c786190b1c4216c",
+        "android_client_info": {
+          "package_name": "com.klarando.display"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB48up4LAmEamIFEFTUyzaOuA_sG5EKBKQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1066826718981:android:29f5265e5f672764c4216c",
+        "android_client_info": {
+          "package_name": "com.klarando.driver"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB48up4LAmEamIFEFTUyzaOuA_sG5EKBKQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1066826718981:android:87089a80ae6a49f7c4216c",
+        "android_client_info": {
+          "package_name": "com.klarando.orderdesk"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB48up4LAmEamIFEFTUyzaOuA_sG5EKBKQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1066826718981-hlu83akprqasqkvmfa3dmm9q2k9h3qb2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
