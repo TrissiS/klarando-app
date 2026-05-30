@@ -15,6 +15,7 @@ const ORDERDESK_DEVICE_MODULE = 'orderdesk_device'
 const ORDERDESK_DEVICE_TARGET_TYPE = 'orderdesk_device_binding'
 const ORDERDESK_PAIRING_TARGET_TYPE = 'orderdesk_pairing_session'
 const ORDERDESK_PAIRING_EXPIRES_MINUTES = 5
+const ORDERDESK_PAIRING_PREFIX = 'KLARANDO_ORDERDESK_PAIRING:'
 
 function normalizeText(value: unknown) {
   if (typeof value !== 'string') {
@@ -70,9 +71,24 @@ function parsePairingPayload(rawValue: unknown) {
   if (typeof rawValue !== 'string') {
     return null
   }
-  const raw = rawValue.trim()
+  const raw = rawValue.replace(/\s+/g, '').trim()
   if (!raw) {
     return null
+  }
+
+  if (raw.startsWith(ORDERDESK_PAIRING_PREFIX)) {
+    const encodedPayload = raw.slice(ORDERDESK_PAIRING_PREFIX.length)
+    if (!encodedPayload) {
+      return null
+    }
+    try {
+      const base64 = encodedPayload.replace(/-/g, '+').replace(/_/g, '/')
+      const paddedBase64 = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+      const decodedPayload = Buffer.from(paddedBase64, 'base64').toString('utf8')
+      return parsePairingPayload(decodedPayload)
+    } catch {
+      return null
+    }
   }
 
   if (raw.startsWith('{')) {
@@ -122,6 +138,16 @@ function parsePairingPayload(rawValue: unknown) {
     displayCode: null,
     invalidType: null,
   }
+}
+
+function encodeOrderDeskPairingPayload(payload: Record<string, unknown>) {
+  const jsonPayload = JSON.stringify(payload)
+  const encodedPayload = Buffer.from(jsonPayload, 'utf8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '')
+  return `${ORDERDESK_PAIRING_PREFIX}${encodedPayload}`
 }
 
 function resolvePublicApiBaseUrl() {
@@ -265,14 +291,15 @@ router.post(
       expiresAtMs: expiresAt.getTime(),
     })
     const apiBaseUrl = resolvePublicApiBaseUrl()
-    const pairingPayload = JSON.stringify({
+    const pairingPayloadObject = {
       type: 'ORDER_DESK_PAIRING',
       apiBaseUrl,
       tenantId: display.tenantId,
       displayCode: display.displayCode,
       pairingToken,
       expiresAt: expiresAt.toISOString(),
-    })
+    }
+    const pairingPayload = encodeOrderDeskPairingPayload(pairingPayloadObject)
     const legacyPairingPayload = `klarando-orderdesk-pair:${display.displayCode}:${pairingToken}`
 
     await writeAuditLog({
@@ -527,14 +554,15 @@ router.post('/bindings/:bindingId/reset-pairing', requirePermission(PermissionKe
       expiresAtMs: expiresAt.getTime(),
     })
     const apiBaseUrl = resolvePublicApiBaseUrl()
-    const pairingPayload = JSON.stringify({
+    const pairingPayloadObject = {
       type: 'ORDER_DESK_PAIRING',
       apiBaseUrl,
       tenantId: binding.tenantId,
       displayCode: binding.displayCode,
       pairingToken,
       expiresAt: expiresAt.toISOString(),
-    })
+    }
+    const pairingPayload = encodeOrderDeskPairingPayload(pairingPayloadObject)
 
     return res.status(201).json({
       ok: true,

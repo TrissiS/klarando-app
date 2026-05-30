@@ -945,7 +945,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     );
     if (parsedPairing == null) {
       setState(() {
-        _error = 'Dieser QR-Code ist nicht für diese App geeignet.';
+        _error =
+            'QR-Code konnte nicht gelesen werden. Bitte neuen OrderDesk-Code im Admin erzeugen.';
       });
       return;
     }

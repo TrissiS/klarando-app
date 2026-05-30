@@ -35,9 +35,31 @@ ParsedPairingPayload? parsePairingPayload(
   String rawValue, {
   PairingPayloadType? expectedType,
 }) {
-  final raw = rawValue.trim();
+  final raw = _sanitizeScannerInput(rawValue);
   if (raw.isEmpty) {
     return null;
+  }
+
+  const orderDeskEncodedPrefix = 'KLARANDO_ORDERDESK_PAIRING:';
+  if (raw.startsWith(orderDeskEncodedPrefix)) {
+    final encodedPayload = raw.substring(orderDeskEncodedPrefix.length);
+    if (encodedPayload.isEmpty) {
+      return null;
+    }
+    try {
+      final normalizedBase64 = encodedPayload
+          .replaceAll('-', '+')
+          .replaceAll('_', '/');
+      final padding = (4 - normalizedBase64.length % 4) % 4;
+      final paddedBase64 = '$normalizedBase64${'=' * padding}';
+      final decodedPayload = utf8.decode(base64Decode(paddedBase64));
+      return parsePairingPayload(
+        decodedPayload,
+        expectedType: expectedType,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   if (raw.startsWith('{')) {
@@ -113,6 +135,14 @@ ParsedPairingPayload? parsePairingPayload(
     type: null,
     apiBaseUrl: defaultPairingApiBaseUrl(),
   );
+}
+
+String _sanitizeScannerInput(String rawValue) {
+  return rawValue
+      .replaceAll('\r', '')
+      .replaceAll('\n', '')
+      .replaceAll(' ', '')
+      .trim();
 }
 
 PairingPayloadType? _parseType(Object? value) {
