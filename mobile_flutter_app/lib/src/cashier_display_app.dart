@@ -357,6 +357,22 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     );
   }
 
+  Future<void> _persistState() async {
+    await _savePrefs();
+    _printQueue.updateSettings(_buildPrinterSettings());
+  }
+
+  Future<void> _testPrinter() async {
+    if (_printerMode == EscPosPrinterMode.disabled) {
+      if (!mounted) return;
+      setState(() {
+        _info = 'Drucker ist deaktiviert. Bitte zuerst Drucker einrichten.';
+      });
+      return;
+    }
+    await _runDemoPrintFlow();
+  }
+
   Future<void> _connect() async {
     if ((_deviceAuthToken ?? '').trim().isEmpty) {
       setState(() {
