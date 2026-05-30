@@ -2265,7 +2265,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final health = _connectionHealth(now);
     final statusText = _connectionStatusLabel(health);
     final statusColor = _connectionStatusColor(health);
-    final isOperationalView = _bindingLocked && !_showManualConnection;
+    final hasStoredBinding =
+        _bindingLocked || (_deviceAuthToken ?? '').trim().isNotEmpty;
+    final isOperationalView = hasStoredBinding;
     final showOperationalActions = isOperationalView;
 
     return Scaffold(
