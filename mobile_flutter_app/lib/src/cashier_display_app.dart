@@ -2440,7 +2440,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       'Gerät ist nicht verbunden. Bitte QR-Code aus dem Adminbereich scannen.',
                     ),
                   ),
-                )
+                ),
               ...visibleOrders.map(_buildOrderCard),
             ],
           ),
