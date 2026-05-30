@@ -97,11 +97,9 @@ function readRawDeliveryAreaFromBusinessSettings(raw: unknown) {
 
 async function geocodeSearchLocation(input: { zipCode: string; street?: string | null }) {
   const street = normalizeText(input.street)
-  if (!street) {
-    return null
-  }
-
-  const query = `${street}, ${input.zipCode}, Germany`
+  const query = street
+    ? `${street}, ${input.zipCode}, Germany`
+    : `${input.zipCode}, Germany`
   const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 4500)
@@ -521,15 +519,32 @@ router.get('/public/discovery', async (req, res) => {
     const modeRaw = typeof req.query.mode === 'string' ? req.query.mode.trim().toLowerCase() : ''
     const mode = modeRaw === 'pickup' || modeRaw === 'delivery' ? modeRaw : 'all'
     const includeOutOfArea = readBooleanQuery(req.query.includeOutOfArea)
-    const street = normalizeText(req.query.street)
-    const latitude = parseCoordinate(req.query.latitude)
-    const longitude = parseCoordinate(req.query.longitude)
+    const street = normalizeText(
+      req.query.street ??
+        req.query.strasse ??
+        req.query.address ??
+        req.query.streetAddress ??
+        null
+    )
+    const latitude = parseCoordinate(req.query.latitude ?? req.query.lat)
+    const longitude = parseCoordinate(
+      req.query.longitude ?? req.query.lng ?? req.query.lon
+    )
     const geocodedLocation =
       latitude === null || longitude === null
         ? await geocodeSearchLocation({ zipCode, street })
         : null
     const effectiveLatitude = latitude ?? geocodedLocation?.latitude ?? null
     const effectiveLongitude = longitude ?? geocodedLocation?.longitude ?? null
+    console.info('DISCOVERY_GEOCODE_RESULT', {
+      street,
+      zipCode,
+      latitude: effectiveLatitude,
+      longitude: effectiveLongitude,
+      geocodeSuccess: Boolean(geocodedLocation),
+      requestLatitude: latitude,
+      requestLongitude: longitude,
+    })
 
     const tenants = await prisma.tenant.findMany({
       where: {
@@ -653,6 +668,15 @@ router.get('/public/discovery', async (req, res) => {
               effectiveLongitude !== null &&
               Boolean(deliveryMatch?.matchedByPolygon)
             : Boolean(deliveryMatch?.matched)
+        if (effectiveDeliveryArea.strategy === 'POLYGON') {
+          console.info('DISCOVERY_POLYGON_RESULT', {
+            tenantId: tenant.id,
+            latitude: effectiveLatitude,
+            longitude: effectiveLongitude,
+            insidePolygon: Boolean(deliveryMatch?.matchedByPolygon),
+            polygonPoints: effectiveDeliveryArea.polygonPath.length,
+          })
+        }
 
         const strictPickupMatch =
           settings.pickupArea.strategy === 'POLYGON'
