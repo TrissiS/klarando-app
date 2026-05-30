@@ -29,11 +29,11 @@ type CustomerDetail = {
   zipCode: string | null
   city: string | null
   marketingOptIn: boolean
-  favorites: Array<{ productId: string; productName: string | null; tenantName: string | null }>
-  addresses: Array<{ street: string | null; zipCode: string | null; city: string | null }>
-  orders: Array<{ id: string; status: string; total: number | null; createdAt: string }>
-  loginProviders: string[]
-  pushStatus: { hasPushTokens: boolean; tokenCount: number }
+  favorites?: Array<{ productId: string; productName: string | null; tenantName: string | null }>
+  addresses?: Array<{ street: string | null; zipCode: string | null; city: string | null }>
+  orders?: Array<{ id: string; status: string; total: number | null; createdAt: string }>
+  loginProviders?: string[]
+  pushStatus?: { hasPushTokens: boolean; tokenCount: number }
 }
 
 function formatDate(value: string | null) {
@@ -107,6 +107,19 @@ export default function SuperadminCustomerManagementPage() {
     })
   }, [users, query])
 
+  const selectedCustomer = useMemo(
+    () => customers.find((entry) => entry.id === selectedCustomerId) || null,
+    [customers, selectedCustomerId]
+  )
+
+  useEffect(() => {
+    if (!selectedCustomer) {
+      return
+    }
+    console.log('SELECTED_CUSTOMER', selectedCustomer)
+    console.log('CUSTOMER_DETAIL_RENDER', customerDetail)
+  }, [selectedCustomer, customerDetail])
+
   async function openCustomerDetail(customerId: string) {
     if (!token) return
     try {
@@ -115,6 +128,7 @@ export default function SuperadminCustomerManagementPage() {
       )
       setSelectedCustomerId(customerId)
       setCustomerDetail(payload.customer)
+      console.log('CUSTOMER_DETAIL_RENDER', payload.customer)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Kundendetail konnte nicht geladen werden.')
     }
@@ -288,7 +302,16 @@ export default function SuperadminCustomerManagementPage() {
                       </tr>
                     ) : null}
                     {customers.map((customer) => (
-                      <tr key={customer.id} className="border-b border-slate-100">
+                      <tr
+                        key={customer.id}
+                        className={`cursor-pointer border-b border-slate-100 ${
+                          selectedCustomerId === customer.id ? 'bg-orange-50' : 'hover:bg-slate-50'
+                        }`}
+                        onClick={() => {
+                          console.log('CUSTOMER_ROW_CLICK', customer)
+                          void openCustomerDetail(customer.id)
+                        }}
+                      >
                         <td className="px-2 py-2">{customer.name}</td>
                         <td className="px-2 py-2">{customer.emailMasked || '-'}</td>
                         <td className="px-2 py-2">{customer.status}</td>
@@ -297,10 +320,19 @@ export default function SuperadminCustomerManagementPage() {
                         <td className="px-2 py-2">{customer.orderCount}</td>
                         <td className="px-2 py-2">
                           <div className="flex flex-wrap gap-1">
-                            <button onClick={() => void openCustomerDetail(customer.id)} className="rounded bg-slate-100 px-2 py-1 text-xs">Detail</button>
-                            <button onClick={() => void exportCustomer(customer.id)} className="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800">DSGVO Export</button>
-                            <button onClick={() => void createDeleteRequest(customer.id)} className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">Konto löschen</button>
-                            <button onClick={() => void anonymizeCustomer(customer.id)} className="rounded bg-rose-600 px-2 py-1 text-xs text-white">Anonymisieren</button>
+                            <button
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                console.log('CUSTOMER_ROW_CLICK', customer)
+                                void openCustomerDetail(customer.id)
+                              }}
+                              className="rounded bg-slate-100 px-2 py-1 text-xs"
+                            >
+                              Detail
+                            </button>
+                            <button onClick={(event) => { event.stopPropagation(); void exportCustomer(customer.id) }} className="rounded bg-blue-100 px-2 py-1 text-xs text-blue-800">DSGVO Export</button>
+                            <button onClick={(event) => { event.stopPropagation(); void createDeleteRequest(customer.id) }} className="rounded bg-amber-100 px-2 py-1 text-xs text-amber-800">Konto löschen</button>
+                            <button onClick={(event) => { event.stopPropagation(); void anonymizeCustomer(customer.id) }} className="rounded bg-rose-600 px-2 py-1 text-xs text-white">Anonymisieren</button>
                           </div>
                         </td>
                       </tr>
@@ -312,7 +344,7 @@ export default function SuperadminCustomerManagementPage() {
 
             <article className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
               <h3 className="mb-3 text-base font-semibold text-[var(--brand-ink)]">Kundendetail</h3>
-              {!customerDetail ? (
+              {!selectedCustomer || !customerDetail ? (
                 <p className="text-sm text-slate-600">Bitte links einen Kunden auswählen.</p>
               ) : (
                 <div className="space-y-3 text-sm">
@@ -321,18 +353,32 @@ export default function SuperadminCustomerManagementPage() {
                   <p><strong>Telefon:</strong> {customerDetail.phone || '-'}</p>
                   <p><strong>Adresse:</strong> {[customerDetail.street, customerDetail.zipCode, customerDetail.city].filter(Boolean).join(', ') || '-'}</p>
                   <p><strong>Werbeeinwilligung:</strong> {customerDetail.marketingOptIn ? 'Ja' : 'Nein'}</p>
-                  <p><strong>Push-Status:</strong> {customerDetail.pushStatus.hasPushTokens ? `aktiv (${customerDetail.pushStatus.tokenCount})` : 'keine Tokens'}</p>
-                  <p><strong>Login-Provider:</strong> {customerDetail.loginProviders.join(', ') || '-'}</p>
+                  <p><strong>Push-Status:</strong> {customerDetail.pushStatus?.hasPushTokens ? `aktiv (${customerDetail.pushStatus.tokenCount})` : 'keine Tokens'}</p>
+                  <p><strong>Login-Provider:</strong> {(customerDetail.loginProviders || []).join(', ') || '-'}</p>
+                  <div>
+                    <p className="font-semibold">Adressen</p>
+                    <ul className="list-disc pl-5">
+                      {(customerDetail.addresses || []).length === 0 ? (
+                        <li>Keine</li>
+                      ) : (
+                        (customerDetail.addresses || []).slice(0, 8).map((entry, index) => (
+                          <li key={`${entry.street}-${entry.zipCode}-${entry.city}-${index}`}>
+                            {[entry.street, entry.zipCode, entry.city].filter(Boolean).join(', ') || '-'}
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
                   <div>
                     <p className="font-semibold">Favoriten</p>
                     <ul className="list-disc pl-5">
-                      {customerDetail.favorites.length === 0 ? <li>Keine</li> : customerDetail.favorites.slice(0, 8).map((entry) => <li key={`${entry.productId}-${entry.tenantName}`}>{entry.productName || entry.productId}</li>)}
+                      {(customerDetail.favorites || []).length === 0 ? <li>Keine</li> : (customerDetail.favorites || []).slice(0, 8).map((entry) => <li key={`${entry.productId}-${entry.tenantName}`}>{entry.productName || entry.productId}</li>)}
                     </ul>
                   </div>
                   <div>
                     <p className="font-semibold">Bestellungen</p>
                     <ul className="list-disc pl-5">
-                      {customerDetail.orders.length === 0 ? <li>Keine</li> : customerDetail.orders.slice(0, 8).map((entry) => <li key={entry.id}>{entry.id} · {entry.status} · {formatDate(entry.createdAt)}</li>)}
+                      {(customerDetail.orders || []).length === 0 ? <li>Keine</li> : (customerDetail.orders || []).slice(0, 8).map((entry) => <li key={entry.id}>{entry.id} · {entry.status} · {formatDate(entry.createdAt)}</li>)}
                     </ul>
                   </div>
                 </div>
