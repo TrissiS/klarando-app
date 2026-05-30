@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   claimDisplayPairingSession,
+  deleteOrderDisplay,
+  deleteScreenDevice,
   deleteDisplayDevice,
   getAccessContext,
   getDisplayDeviceOverview,
@@ -10,7 +12,6 @@ import {
   regenerateDisplayPairingCode,
   updateDisplayDeviceActiveState,
   type DisplayDeviceOverviewRow,
-  type DisplayDeviceStatus,
   type DisplayDeviceType,
   type ManagedChain,
   type ManagedTenant,
@@ -36,8 +37,11 @@ type DisplayDeviceManagementPanelProps = {
   studioMode?: boolean
 }
 
-const STATUS_LABEL: Record<DisplayDeviceStatus, string> = {
+type UiDisplayStatus = 'online' | 'unstable' | 'offline' | 'inactive'
+
+const UI_STATUS_LABEL: Record<UiDisplayStatus, string> = {
   online: 'Online',
+  unstable: 'Instabil',
   offline: 'Offline',
   inactive: 'Inaktiv',
 }
@@ -52,12 +56,24 @@ const DISPLAY_TYPE_OPTIONS: Array<{ value: DisplayDeviceType | 'all'; label: str
   { value: 'MIXED', label: 'Gemischt' },
 ]
 
-const STATUS_OPTIONS: Array<{ value: DisplayDeviceStatus | 'all'; label: string }> = [
+const STATUS_OPTIONS: Array<{ value: UiDisplayStatus | 'all'; label: string }> = [
   { value: 'all', label: 'Alle Status' },
   { value: 'online', label: 'Online' },
+  { value: 'unstable', label: 'Instabil' },
   { value: 'offline', label: 'Offline' },
   { value: 'inactive', label: 'Inaktiv' },
 ]
+
+function computeUiStatus(row: DisplayDeviceOverviewRow): UiDisplayStatus {
+  if (!row.isActive) return 'inactive'
+  if (!row.lastSeenAt) return 'offline'
+  const heartbeatAt = new Date(row.lastSeenAt)
+  if (Number.isNaN(heartbeatAt.getTime())) return 'offline'
+  const ageMs = Date.now() - heartbeatAt.getTime()
+  if (ageMs < 2 * 60 * 1000) return 'online'
+  if (ageMs <= 10 * 60 * 1000) return 'unstable'
+  return 'offline'
+}
 
 function formatDateTime(value: string | null) {
   if (!value) return '-'
@@ -78,7 +94,7 @@ export default function DisplayDeviceManagementPanel({
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [searchText, setSearchText] = useState('')
-  const [statusFilter, setStatusFilter] = useState<DisplayDeviceStatus | 'all'>('all')
+  const [statusFilter, setStatusFilter] = useState<UiDisplayStatus | 'all'>('all')
   const [displayTypeFilter, setDisplayTypeFilter] = useState<DisplayDeviceType | 'all'>('all')
   const [selectedTenantId, setSelectedTenantId] = useState(fixedTenantId || '')
   const [selectedChainId, setSelectedChainId] = useState(fixedChainId || '')
@@ -119,6 +135,29 @@ export default function DisplayDeviceManagementPanel({
     () => rows.find((entry) => entry.id === selectedDisplayRowId) || null,
     [rows, selectedDisplayRowId]
   )
+  const visibleRows = useMemo(() => {
+    return rows.filter((row) => {
+      const uiStatus = computeUiStatus(row)
+      const statusMatches = statusFilter === 'all' || uiStatus === statusFilter
+      const typeMatches = displayTypeFilter === 'all' || row.displayType === displayTypeFilter
+      const search = searchText.trim().toLowerCase()
+      if (!search) {
+        return statusMatches && typeMatches
+      }
+      const searchable = [
+        row.name,
+        row.code,
+        row.tenantName,
+        row.tenantId,
+        row.id,
+        row.entityId,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return statusMatches && typeMatches && searchable.includes(search)
+    })
+  }, [rows, statusFilter, displayTypeFilter, searchText])
   const detectedResolutionFromPayload = useMemo(() => {
     const raw = claimPayload.trim()
     if (!raw.startsWith('{')) return null
@@ -286,13 +325,79 @@ export default function DisplayDeviceManagementPanel({
       setBusyDisplayRef(row.id)
       setError('')
       setSuccess('')
-      const result = await deleteDisplayDevice(token, row.entityId, tenantId)
-      setSuccess(result.message || 'Display wurde gelöscht.')
+      if (row.sourceKind === 'ORDER_DISPLAY') {
+        await deleteOrderDisplay(row.entityId)
+      } else if (row.sourceKind === 'SCREEN_DEVICE') {
+        await deleteScreenDevice(row.entityId)
+      } else {
+        const result = await deleteDisplayDevice(token, row.entityId, tenantId)
+        if (result.message) {
+          setSuccess(result.message)
+        }
+      }
+      setSuccess('Display wurde gelöscht.')
       await loadOverview()
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Display konnte nicht gelöscht werden')
     } finally {
       setBusyDisplayRef(null)
+    }
+  }
+
+  async function handleArchiveDisplay(row: DisplayDeviceOverviewRow) {
+    const firstConfirm = window.confirm('Möchtest du dieses Display archivieren (deaktivieren)?')
+    if (!firstConfirm) return
+    const secondConfirm = window.confirm(
+      'Bitte bestätigen: Das Display wird archiviert und ist anschließend inaktiv.'
+    )
+    if (!secondConfirm) return
+    try {
+      setBusyDisplayRef(row.id)
+      setError('')
+      setSuccess('')
+      await updateDisplayDeviceActiveState(token, row.id, false)
+      await loadOverview()
+      setSuccess('Display wurde archiviert und deaktiviert.')
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : 'Display konnte nicht archiviert werden')
+    } finally {
+      setBusyDisplayRef(null)
+    }
+  }
+
+  async function handleResetDisplay(row: DisplayDeviceOverviewRow) {
+    const firstConfirm = window.confirm(
+      'Gerät zurücksetzen? Dabei wird das Display deaktiviert und ein neuer Pairing-Code erzeugt.'
+    )
+    if (!firstConfirm) return
+    const secondConfirm = window.confirm(
+      'Bitte endgültig bestätigen: Das Gerät muss danach neu gekoppelt werden.'
+    )
+    if (!secondConfirm) return
+    try {
+      setBusyDisplayRef(row.id)
+      setError('')
+      setSuccess('')
+      await updateDisplayDeviceActiveState(token, row.id, false)
+      if (row.pairingSupported) {
+        await handleRegeneratePairing(row)
+      } else {
+        setSuccess('Gerät wurde zurückgesetzt und deaktiviert.')
+      }
+      await loadOverview()
+    } catch (resetError) {
+      setError(resetError instanceof Error ? resetError.message : 'Gerät konnte nicht zurückgesetzt werden')
+    } finally {
+      setBusyDisplayRef(null)
+    }
+  }
+
+  async function copyValue(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setSuccess(`${label} kopiert.`)
+    } catch {
+      setError(`${label} konnte nicht kopiert werden.`)
     }
   }
 
@@ -749,7 +854,7 @@ export default function DisplayDeviceManagementPanel({
           <AdminSelect
             label="Status"
             value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as DisplayDeviceStatus | 'all')}
+            onChange={(event) => setStatusFilter(event.target.value as UiDisplayStatus | 'all')}
           >
             {STATUS_OPTIONS.map((entry) => (
               <option key={entry.value} value={entry.value}>{entry.label}</option>
@@ -806,7 +911,7 @@ export default function DisplayDeviceManagementPanel({
       <AdminSectionCard title={isAdminScope ? 'Verbundene Displays' : 'Geräteübersicht'}>
         {loading ? (
           <p className="text-sm text-rose-900/75">Lade Display-Geräte...</p>
-        ) : rows.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <AdminEmptyState title="Noch keine Displays gekoppelt." description="Kopple zuerst ein Display-Gerät über Pairing-Code." />
         ) : (
           <AdminTable>
@@ -816,13 +921,14 @@ export default function DisplayDeviceManagementPanel({
                 <th className="th-ui">Status</th>
                 <th className="th-ui">Filiale</th>
                 <th className="th-ui">Zuletzt gesehen</th>
-                {!isAdminScope ? <th className="th-ui">Letzter Sync</th> : null}
-                {!isAdminScope ? <th className="th-ui">Geräteinfo</th> : null}
+                <th className="th-ui">Letzter Sync</th>
+                <th className="th-ui">Geräteinfo</th>
                 <th className="th-ui">Aktionen</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {visibleRows.map((row) => {
+                const uiStatus = computeUiStatus(row)
                 const pairingData = pairingByDisplayRef[row.id]
                 return (
                   <tr key={row.id}>
@@ -840,20 +946,43 @@ export default function DisplayDeviceManagementPanel({
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <AdminStatusBadge
-                        status={row.status === 'online' ? 'online' : row.status === 'offline' ? 'offline' : 'inactive'}
-                        label={STATUS_LABEL[row.status]}
+                        status={uiStatus === 'unstable' ? 'offline' : uiStatus}
+                        label={UI_STATUS_LABEL[uiStatus]}
                       />
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.tenantName || row.tenantId}</td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatDateTime(row.lastSeenAt)}</td>
-                    {!isAdminScope ? <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatDateTime(row.lastSyncAt)}</td> : null}
-                    {!isAdminScope ? <td className="border-t border-slate-100 px-3 py-2 text-xs text-rose-900/80">
+                    <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatDateTime(row.lastSyncAt)}</td>
+                    <td className="border-t border-slate-100 px-3 py-2 text-xs text-rose-900/80">
                       <p>Alias: {row.deviceInfo?.alias || '-'}</p>
                       <p>Modell: {row.deviceInfo?.model || '-'}</p>
                       <p>Plattform: {row.deviceInfo?.platform || '-'}</p>
                       <p>App: {row.deviceInfo?.appVersion || '-'}</p>
                       <p>Auflösung: {row.resolution || '-'}</p>
-                    </td> : null}
+                      <div className="mt-2 grid gap-1">
+                        <p>Geräte-ID: {row.id}</p>
+                        <p>Tenant-ID: {row.tenantId || '-'}</p>
+                        <p>Display-Code: {row.code || '-'}</p>
+                        <p>Letzter Heartbeat: {formatDateTime(row.lastSeenAt)}</p>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {row.id ? (
+                          <AdminButton type="button" variant="secondary" onClick={() => void copyValue(row.id, 'Geräte-ID')}>
+                            Geräte-ID kopieren
+                          </AdminButton>
+                        ) : null}
+                        {row.tenantId ? (
+                          <AdminButton type="button" variant="secondary" onClick={() => void copyValue(row.tenantId, 'Tenant-ID')}>
+                            Tenant-ID kopieren
+                          </AdminButton>
+                        ) : null}
+                        {row.code ? (
+                          <AdminButton type="button" variant="secondary" onClick={() => void copyValue(row.code, 'Display-Code')}>
+                            Display-Code kopieren
+                          </AdminButton>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm">
                       <div className="flex flex-wrap gap-2">
                         <AdminButton
@@ -873,14 +1002,7 @@ export default function DisplayDeviceManagementPanel({
                         <AdminButton
                           type="button"
                           variant="secondary"
-                          onClick={() =>
-                            window.open(
-                              row.sourceKind === 'DISPLAY_DEVICE'
-                                ? `/admin/screen-studio?deviceId=${encodeURIComponent(row.entityId)}&tab=devices`
-                                : '/admin/screen-studio?tab=devices',
-                              '_self'
-                            )
-                          }
+                          onClick={() => window.open(row.editablePath || '/admin/screen-studio?tab=devices', '_self')}
                         >
                           Einstellungen
                         </AdminButton>
@@ -910,12 +1032,28 @@ export default function DisplayDeviceManagementPanel({
                           <AdminButton
                             type="button"
                             variant="secondary"
-                            onClick={() => void handleDeleteDisplay(row)}
+                            onClick={() => void handleArchiveDisplay(row)}
                             disabled={busyDisplayRef === row.id}
                           >
-                            Display löschen
+                            Archivieren
                           </AdminButton>
                         ) : null}
+                        <AdminButton
+                          type="button"
+                          variant="secondary"
+                          onClick={() => void handleResetDisplay(row)}
+                          disabled={busyDisplayRef === row.id}
+                        >
+                          Gerät zurücksetzen
+                        </AdminButton>
+                        <AdminButton
+                          type="button"
+                          variant="secondary"
+                          onClick={() => void handleDeleteDisplay(row)}
+                          disabled={busyDisplayRef === row.id}
+                        >
+                          Gerät löschen
+                        </AdminButton>
                         {row.pairingSupported && !isAdminScope ? (
                           <AdminButton
                             type="button"
@@ -923,9 +1061,17 @@ export default function DisplayDeviceManagementPanel({
                             onClick={() => void handleRegeneratePairing(row)}
                             disabled={busyDisplayRef === row.id}
                           >
-                            Pairing-Code neu erzeugen
+                            QR-Code neu erzeugen
                           </AdminButton>
-                        ) : null}
+                        ) : (
+                          <AdminButton
+                            type="button"
+                            variant="secondary"
+                            disabled
+                          >
+                            QR-Code neu erzeugen
+                          </AdminButton>
+                        )}
                       </div>
                       {pairingData ? (
                         <div className="mt-3 rounded-xl border border-[var(--brand-border)] bg-rose-50/70 p-2 text-xs text-rose-900/80">
