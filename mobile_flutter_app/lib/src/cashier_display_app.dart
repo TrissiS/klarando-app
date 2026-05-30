@@ -1378,14 +1378,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
+      useSafeArea: true,
       builder: (context) {
+        final maxHeight = MediaQuery.of(context).size.height * 0.85;
         return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                4,
+                16,
+                16 + MediaQuery.of(context).padding.bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                 const Text(
                   'Servicebereich',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
@@ -1502,7 +1512,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   icon: const Icon(Icons.qr_code_rounded),
                   label: const Text('Driver-App koppeln (Info)'),
                 ),
-              ],
+                ],
+              ),
             ),
           ),
         );
@@ -2492,6 +2503,18 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 onPressed: _loading ? null : _saveManualConnection,
                 icon: const Icon(Icons.save_rounded),
                 label: Text(_loading ? 'Bitte warten…' : 'Verbindung speichern'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _loading
+                    ? null
+                    : () {
+                        setState(() {
+                          _showManualConnection = false;
+                        });
+                      },
+                icon: const Icon(Icons.close_rounded),
+                label: const Text('Schließen'),
               ),
             ],
             const SizedBox(height: 10),
