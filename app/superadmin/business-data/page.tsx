@@ -18,6 +18,18 @@ export default function SuperadminBusinessDataPage() {
   const [context, setContext] = useState<AccessContext | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [copyInfo, setCopyInfo] = useState('')
+
+  async function copyValue(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopyInfo(`${label} kopiert`)
+      window.setTimeout(() => setCopyInfo(''), 1800)
+    } catch {
+      setCopyInfo(`Kopieren fehlgeschlagen (${label})`)
+      window.setTimeout(() => setCopyInfo(''), 2200)
+    }
+  }
 
   useEffect(() => {
     setToken(getStoredAccessToken() || '')
@@ -69,6 +81,9 @@ export default function SuperadminBusinessDataPage() {
         {error ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
         ) : null}
+        {copyInfo ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{copyInfo}</div>
+        ) : null}
 
         <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <article className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
@@ -98,7 +113,9 @@ export default function SuperadminBusinessDataPage() {
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
                   <th className="px-2 py-2">Unternehmen</th>
+                  <th className="px-2 py-2">Unternehmens-ID</th>
                   <th className="px-2 py-2">Filiale</th>
+                  <th className="px-2 py-2">Tenant-ID / Filial-ID</th>
                   <th className="px-2 py-2">Status</th>
                   <th className="px-2 py-2">Erstellt</th>
                   <th className="px-2 py-2">Aktionen</th>
@@ -107,7 +124,7 @@ export default function SuperadminBusinessDataPage() {
               <tbody>
                 {!loading && (context?.tenants.length || 0) === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-2 py-3 text-slate-500">
+                    <td colSpan={7} className="px-2 py-3 text-slate-500">
                       Keine Unternehmen/Filialen gefunden.
                     </td>
                   </tr>
@@ -115,7 +132,33 @@ export default function SuperadminBusinessDataPage() {
                 {(context?.tenants || []).map((tenant) => (
                   <tr key={tenant.id} className="border-b border-slate-100">
                     <td className="px-2 py-2">{chainNameById.get(tenant.chainId || '') || '-'}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs">{tenant.chainId || '-'}</span>
+                        {tenant.chainId ? (
+                          <button
+                            type="button"
+                            onClick={() => void copyValue(tenant.chainId || '', 'Unternehmens-ID')}
+                            className="rounded border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
+                          >
+                            Copy
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
                     <td className="px-2 py-2">{tenant.name}</td>
+                    <td className="px-2 py-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs">{tenant.id}</span>
+                        <button
+                          type="button"
+                          onClick={() => void copyValue(tenant.id, 'Tenant-ID')}
+                          className="rounded border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-2 py-2">
                       {tenant.separateDatabase?.enabled ? 'AKTIV' : 'STANDARD'}
                     </td>

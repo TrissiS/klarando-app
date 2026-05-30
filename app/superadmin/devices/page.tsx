@@ -62,6 +62,18 @@ export default function SuperadminDevicesPage() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [showInactiveSection, setShowInactiveSection] = useState(false)
+  const [copyInfo, setCopyInfo] = useState('')
+
+  async function copyValue(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopyInfo(`${label} kopiert`)
+      window.setTimeout(() => setCopyInfo(''), 1800)
+    } catch {
+      setCopyInfo(`Kopieren fehlgeschlagen (${label})`)
+      window.setTimeout(() => setCopyInfo(''), 2200)
+    }
+  }
 
   useEffect(() => {
     let parsed: SessionUser | null = null
@@ -204,6 +216,7 @@ export default function SuperadminDevicesPage() {
           </div>
         ) : null}
         {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{info}</div> : null}
+        {copyInfo ? <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{copyInfo}</div> : null}
 
         <section className="grid gap-3 md:grid-cols-5">
           <StatCard title="Geräte gesamt" value={summary.total} hint="Alle verbundenen und inaktiven Geräte" tone="slate" />
@@ -299,15 +312,37 @@ export default function SuperadminDevicesPage() {
 
         {(tab === 'ALL' || tab === 'ORDERDESK' || tab === 'OFFLINE') ? (
           <DeviceSection title="OrderDesk-Geräte">
-            <DesktopTable headers={['Label', 'Display', 'Status', 'Seriennummer', 'Plattform', 'App-Version', 'Zuletzt aktiv', 'Aktionen']}>
+            <DesktopTable headers={['Label', 'Gerätetyp', 'Geräte-ID', 'Tenant-ID', 'DisplayCode', 'PairingToken', 'Status', 'Seriennummer', 'Plattform', 'App-Version', 'Zuletzt aktiv', 'Aktionen']}>
               {orderdeskFiltered
                 .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
                 .map((row) => {
                   const status = normalizedStatus(row.lastSeenAt, row.isActive)
+                  const pairingToken = ((row as unknown as { pairingToken?: string | null }).pairingToken || '').trim()
                   return (
                     <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
                       <td className="py-2.5 font-medium text-slate-800">{row.deviceAlias || 'OrderDesk'}</td>
+                      <td>OrderDesk</td>
+                      <td className="font-mono text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span>{row.id}</span>
+                          <button type="button" onClick={() => void copyValue(row.id, 'Geräte-ID')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
+                        </div>
+                      </td>
+                      <td className="font-mono text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span>{row.tenantId}</span>
+                          <button type="button" onClick={() => void copyValue(row.tenantId, 'Tenant-ID')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
+                        </div>
+                      </td>
                       <td className="font-mono text-xs">{row.displayCode}</td>
+                      <td className="font-mono text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span>{pairingToken || '—'}</span>
+                          {pairingToken ? (
+                            <button type="button" onClick={() => void copyValue(pairingToken, 'PairingToken')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
+                          ) : null}
+                        </div>
+                      </td>
                       <td><StatusBadge status={status} /></td>
                       <td className="font-mono text-xs">{row.deviceSerial}</td>
                       <td>{row.devicePlatform || '—'}</td>
@@ -316,7 +351,7 @@ export default function SuperadminDevicesPage() {
                       <td>
                         <div className="flex flex-wrap gap-1.5">
                           <ActionButton label="Pairing neu" tone="primary" onClick={() => void refreshOrderdeskPairing(row.id)} />
-                          <ActionButton label="Entkoppeln" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
+                          <ActionButton label="Gerät zurücksetzen" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
                           <ActionButton label="Löschen" tone="danger" onClick={() => void disconnectOrderdesk(row.id, true)} />
                         </div>
                       </td>
@@ -336,15 +371,20 @@ export default function SuperadminDevicesPage() {
                       subtitle={`Display: ${row.displayCode}`}
                       status={status}
                       details={[
+                        `Gerätetyp: OrderDesk`,
+                        `Geräte-ID: ${row.id}`,
+                        `Tenant-ID: ${row.tenantId}`,
                         `Seriennummer: ${row.deviceSerial}`,
                         `Plattform: ${row.devicePlatform || '—'}`,
                         `App-Version: ${row.appVersion || '—'}`,
+                        `PairingToken: ${((row as unknown as { pairingToken?: string | null }).pairingToken || '—')}`,
+                        `API-URL: https://api.klarando.com`,
                         `Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`,
                       ]}
                       actions={
                         <div className="mt-3 flex flex-wrap gap-2">
                           <ActionButton label="Pairing neu" tone="primary" onClick={() => void refreshOrderdeskPairing(row.id)} />
-                          <ActionButton label="Entkoppeln" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
+                          <ActionButton label="Gerät zurücksetzen" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
                           <ActionButton label="Löschen" tone="danger" onClick={() => void disconnectOrderdesk(row.id, true)} />
                         </div>
                       }

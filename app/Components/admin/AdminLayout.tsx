@@ -178,7 +178,6 @@ const sectionNavSections: NavSection[] = [
       { href: '/admin/app-settings?section=business', label: 'Filialdaten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/stock', label: 'Lager', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
-      { href: '#', label: 'Inventur (in Vorbereitung)', moduleKey: 'inventory', disabled: true },
     ],
   },
 ]
@@ -994,7 +993,8 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                     Menü
                   </button>
                   <div className="brand-chip rounded-xl px-3 py-2 text-xs">
-                    {sessionName || 'Benutzer'} {sessionRole ? `(${sessionRole})` : ''}
+                    {hasValidSession ? sessionName || 'Benutzer' : 'Nicht eingeloggt'}{' '}
+                    {hasValidSession && sessionRole ? `(${sessionRole})` : ''}
                   </div>
                   <div className="relative">
                     <button

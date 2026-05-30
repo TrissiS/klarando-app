@@ -52,6 +52,18 @@ export default function SuperadminCustomerManagementPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState('')
   const [customerDetail, setCustomerDetail] = useState<CustomerDetail | null>(null)
   const [loading, setLoading] = useState(false)
+  const [copyInfo, setCopyInfo] = useState('')
+
+  async function copyValue(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      setCopyInfo(`${label} kopiert`)
+      window.setTimeout(() => setCopyInfo(''), 1800)
+    } catch {
+      setCopyInfo(`Kopieren fehlgeschlagen (${label})`)
+      window.setTimeout(() => setCopyInfo(''), 2200)
+    }
+  }
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
 
@@ -238,6 +250,7 @@ export default function SuperadminCustomerManagementPage() {
 
         {error ? <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div> : null}
         {info ? <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{info}</div> : null}
+        {copyInfo ? <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">{copyInfo}</div> : null}
 
         {tab === 'internal' ? (
           <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
@@ -248,6 +261,8 @@ export default function SuperadminCustomerManagementPage() {
                   <tr className="border-b border-slate-200 text-slate-500">
                     <th className="px-2 py-2">Name</th>
                     <th className="px-2 py-2">E-Mail</th>
+                    <th className="px-2 py-2">Benutzer-ID</th>
+                    <th className="px-2 py-2">Tenant-ID</th>
                     <th className="px-2 py-2">Rolle</th>
                     <th className="px-2 py-2">Rechte</th>
                     <th className="px-2 py-2">Fahrer</th>
@@ -258,13 +273,27 @@ export default function SuperadminCustomerManagementPage() {
                 <tbody>
                   {!loading && filteredUsers.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-2 py-3 text-slate-500">Keine internen Benutzer gefunden.</td>
+                      <td colSpan={9} className="px-2 py-3 text-slate-500">Keine internen Benutzer gefunden.</td>
                     </tr>
                   ) : null}
                   {filteredUsers.map((user) => (
                     <tr key={user.id} className="border-b border-slate-100">
                       <td className="px-2 py-2">{user.name}</td>
                       <td className="px-2 py-2">{user.email}</td>
+                      <td className="px-2 py-2 font-mono text-xs">
+                        <div className="flex items-center gap-1.5">
+                          <span>{user.id}</span>
+                          <button type="button" onClick={() => void copyValue(user.id, 'Benutzer-ID')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 font-mono text-xs">
+                        {user.tenantId ? (
+                          <div className="flex items-center gap-1.5">
+                            <span>{user.tenantId}</span>
+                            <button type="button" onClick={() => void copyValue(user.tenantId || '', 'Tenant-ID')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
+                          </div>
+                        ) : '—'}
+                      </td>
                       <td className="px-2 py-2">{user.role}</td>
                       <td className="px-2 py-2">rollenbasiert</td>
                       <td className="px-2 py-2">{user.role === 'DRIVER' ? 'Ja' : '-'}</td>

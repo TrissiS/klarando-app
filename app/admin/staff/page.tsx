@@ -20,7 +20,7 @@ import {
   type StaffShiftStatus,
 } from '@/lib/api'
 
-type TabKey = 'planning' | 'evaluation' | 'settings'
+type TabKey = 'employees' | 'users' | 'schedule'
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10)
@@ -61,7 +61,7 @@ function toDateInput(value: string) {
 }
 
 export default function AdminStaffPage() {
-  const [tab, setTab] = useState<TabKey>('planning')
+  const [tab, setTab] = useState<TabKey>('employees')
 
   const [members, setMembers] = useState<StaffMember[]>([])
   const [shifts, setShifts] = useState<StaffShift[]>([])
@@ -340,7 +340,7 @@ export default function AdminStaffPage() {
   return (
     <AdminLayout
       title="Mitarbeiterverwaltung"
-      subtitle="Planung, Auswertung und Einstellungen fuer dein Team"
+      subtitle="Mitarbeiter, Benutzerrechte und Dienstplanung"
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -354,21 +354,21 @@ export default function AdminStaffPage() {
         </div>
       ) : null}
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        <TabButton active={tab === 'planning'} onClick={() => setTab('planning')}>
-          Planung
+      <div className="mb-4 flex flex-wrap gap-2">
+        <TabButton active={tab === 'employees'} onClick={() => setTab('employees')}>
+          Mitarbeiter
         </TabButton>
-        <TabButton active={tab === 'evaluation'} onClick={() => setTab('evaluation')}>
-          Auswertung
+        <TabButton active={tab === 'users'} onClick={() => setTab('users')}>
+          Benutzer & Rechte
         </TabButton>
-        <TabButton active={tab === 'settings'} onClick={() => setTab('settings')}>
-          Einstellungen
+        <TabButton active={tab === 'schedule'} onClick={() => setTab('schedule')}>
+          Dienstplanung
         </TabButton>
       </div>
 
-      {tab === 'planning' ? (
-        <div className="grid gap-6 xl:grid-cols-[430px_1fr]">
-          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+      {tab === 'employees' ? (
+        <div className="grid gap-4 xl:grid-cols-[410px_1fr]">
+          <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">
               {employeeEditId ? 'Mitarbeiter bearbeiten' : 'Neuer Mitarbeiter'}
             </h2>
@@ -380,7 +380,7 @@ export default function AdminStaffPage() {
               <InputField label="Telefon" value={employeePhone} setValue={setEmployeePhone} />
               <InputField label="E-Mail" value={employeeEmail} setValue={setEmployeeEmail} />
               <InputField
-                label="Stundenlohn (EUR)"
+                label="Stundenlohn (€)"
                 type="number"
                 step="0.01"
                 value={employeeRate}
@@ -427,7 +427,121 @@ export default function AdminStaffPage() {
             </form>
           </section>
 
-          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+          <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
+            <h2 className="text-xl font-semibold">Mitarbeiterliste</h2>
+            <p className="mt-1 text-sm text-rose-900/70">Alle aktiven und inaktiven Teammitglieder.</p>
+
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
+              <table className="w-full min-w-[760px] border-collapse">
+                <thead>
+                  <tr>
+                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Name</th>
+                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Position</th>
+                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Kontakt</th>
+                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Stundenlohn</th>
+                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Status</th>
+                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Sollstunden</th>
+                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Aktion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-3 text-sm text-rose-900/70">
+                        Lade Mitarbeiter...
+                      </td>
+                    </tr>
+                  ) : members.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-3 text-sm text-rose-900/70">
+                        Keine Mitarbeiter angelegt.
+                      </td>
+                    </tr>
+                  ) : (
+                    members.map((member) => (
+                      <tr key={member.id}>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm font-medium">{member.name}</td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{member.position || '-'}</td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{member.email || member.phone || '-'}</td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
+                          {member.hourlyRate === null ? '-' : `${member.hourlyRate.toFixed(2)} €`}
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
+                          <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${
+                            member.isActive ? 'bg-green-100 text-green-700' : 'bg-slate-200 text-slate-700'
+                          }`}>
+                            {member.isActive ? 'Aktiv' : 'Inaktiv'}
+                          </span>
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
+                          {member.weeklyTargetHours === null ? '-' : `${member.weeklyTargetHours.toFixed(1)} h/Woche`}
+                        </td>
+                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEmployeeEditId(member.id)
+                                setEmployeeName(member.name)
+                                setEmployeePosition(member.position || '')
+                                setEmployeePhone(member.phone || '')
+                                setEmployeeEmail(member.email || '')
+                                setEmployeeRate(member.hourlyRate === null ? '' : String(member.hourlyRate))
+                                setEmployeeTargetHours(
+                                  member.weeklyTargetHours === null ? '' : String(member.weeklyTargetHours)
+                                )
+                                setEmployeeActive(member.isActive)
+                                setError('')
+                                setSuccess('')
+                              }}
+                              className="rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white transition hover:bg-slate-800"
+                            >
+                              Bearbeiten
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {tab === 'users' ? (
+        <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
+          <h2 className="text-xl font-semibold">Benutzer & Rechte</h2>
+          <p className="mt-1 text-sm text-rose-900/70">
+            Benutzerkonten, Rollen und Berechtigungen werden getrennt von der Schichtplanung verwaltet.
+          </p>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-3 text-sm text-rose-900/85">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/70">Benutzer</p>
+              <p className="mt-1">Interne Nutzerkonten und Zugriffe.</p>
+            </div>
+            <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-3 text-sm text-rose-900/85">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/70">Rollen</p>
+              <p className="mt-1">Admin-, Kassen-, Fahrer- und Teamrollen.</p>
+            </div>
+            <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-3 text-sm text-rose-900/85">
+              <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/70">Berechtigungen</p>
+              <p className="mt-1">Lesen, Schreiben und Modulzugriffe steuern.</p>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-dashed border-[var(--brand-border)] bg-white px-3 py-3 text-sm text-rose-900/80">
+            Dieses Modul ist fuer Benutzerverwaltung reserviert. Schichtplanung wurde in den Tab{' '}
+            <span className="font-semibold">Dienstplanung</span> verschoben.
+          </div>
+        </section>
+      ) : null}
+
+      {tab === 'schedule' ? (
+        <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
+          <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
             <h2 className="text-xl font-semibold">Schichtplanung</h2>
             <p className="mt-1 text-sm text-rose-900/70">Schichten fuer den gewaehlten Zeitraum erfassen.</p>
 
@@ -497,155 +611,11 @@ export default function AdminStaffPage() {
                 </button>
               </div>
             </form>
-
-            <div className="mt-5 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
-              <table className="w-full min-w-[900px] border-collapse">
-                <thead>
-                  <tr>
-                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Datum</th>
-                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Mitarbeiter</th>
-                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Zeit</th>
-                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Pause</th>
-                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Status</th>
-                    <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Aktion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-3 text-sm text-rose-900/70">
-                        Lade Schichten...
-                      </td>
-                    </tr>
-                  ) : shifts.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-3 py-3 text-sm text-rose-900/70">
-                        Keine Schichten im Zeitraum.
-                      </td>
-                    </tr>
-                  ) : (
-                    shifts.map((shift) => (
-                      <tr key={shift.id}>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{toDateInput(shift.shiftDate)}</td>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{shift.staffMember.name}</td>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{shift.startTime} - {shift.endTime}</td>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">{shift.breakMinutes} Min</td>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
-                          <span className={`rounded-lg px-2 py-1 text-xs font-semibold ${shiftStatusBadge(shift.status)}`}>
-                            {shiftStatusLabel(shift.status)}
-                          </span>
-                        </td>
-                        <td className="border-t border-slate-100 px-3 py-2 text-sm">
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setShiftEditId(shift.id)
-                                setShiftMemberId(shift.staffMemberId)
-                                setShiftDate(toDateInput(shift.shiftDate))
-                                setShiftStart(shift.startTime)
-                                setShiftEnd(shift.endTime)
-                                setShiftBreak(String(shift.breakMinutes))
-                                setShiftStatus(shift.status)
-                                setShiftNote(shift.note || '')
-                                setError('')
-                                setSuccess('')
-                              }}
-                              className="rounded-lg bg-slate-900 px-2 py-1 text-xs font-medium text-white transition hover:bg-slate-800"
-                            >
-                              Bearbeiten
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => removeShift(shift.id)}
-                              className="rounded-lg bg-red-600 px-2 py-1 text-xs font-medium text-white transition hover:bg-red-700"
-                            >
-                              Loeschen
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
           </section>
-        </div>
-      ) : null}
 
-      {tab === 'evaluation' ? (
-        <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-          <h2 className="text-xl font-semibold">Auswertung</h2>
-          <p className="mt-1 text-sm text-rose-900/70">Stunden, Schichten und Kosten je Mitarbeiter.</p>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
-            <InputField label="Von" type="date" value={evalFrom} setValue={setEvalFrom} />
-            <InputField label="Bis" type="date" value={evalTo} setValue={setEvalTo} />
-            <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85">
-              <p>Mitarbeiter: {evaluation?.totals.employeeCount ?? 0}</p>
-              <p>Geplante Stunden: {evaluation?.totals.plannedHours.toFixed(2) ?? '0.00'}</p>
-              <p>Abgeschlossene Stunden: {evaluation?.totals.completedHours.toFixed(2) ?? '0.00'}</p>
-            </div>
-          </div>
-
-          <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)]">
-            <table className="w-full min-w-[1080px] border-collapse">
-              <thead>
-                <tr>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Mitarbeiter</th>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Position</th>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Geplant (h)</th>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Abgeschlossen (h)</th>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Storniert (h)</th>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Schichten</th>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Stundenlohn</th>
-                  <th className="bg-rose-50/60 px-3 py-2 text-left text-xs uppercase tracking-wide text-rose-900/75">Schaetzung Kosten</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td colSpan={8} className="px-3 py-3 text-sm text-rose-900/70">
-                      Lade Auswertung...
-                    </td>
-                  </tr>
-                ) : (evaluation?.rows.length || 0) === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="px-3 py-3 text-sm text-rose-900/70">
-                      Keine Daten im Zeitraum.
-                    </td>
-                  </tr>
-                ) : (
-                  evaluation?.rows.map((row) => (
-                    <tr key={row.employeeId}>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.name}</td>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.position || '-'}</td>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.plannedHours.toFixed(2)}</td>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.completedHours.toFixed(2)}</td>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">{row.canceledHours.toFixed(2)}</td>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">
-                        G:{row.plannedShifts} A:{row.completedShifts} S:{row.canceledShifts}
-                      </td>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">
-                        {row.hourlyRate === null ? '-' : `${row.hourlyRate.toFixed(2)} EUR`}
-                      </td>
-                      <td className="border-t border-slate-100 px-3 py-2 text-sm">
-                        {row.estimatedLaborCost === null ? '-' : `${row.estimatedLaborCost.toFixed(2)} EUR`}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
-
-      {tab === 'settings' ? (
-        <section className="max-w-2xl rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-          <h2 className="text-xl font-semibold">Einstellungen</h2>
-          <p className="mt-1 text-sm text-rose-900/70">Vorgaben fuer Planung und Auswertung.</p>
+          <section className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-[var(--brand-border)]">
+            <h2 className="text-xl font-semibold">Dienstplanung</h2>
+            <p className="mt-1 text-sm text-rose-900/70">Schichtregeln, Urlaub, Krankheit und Verfuegbarkeiten.</p>
 
           <form onSubmit={submitSettings} className="mt-4 space-y-3">
             <InputField
@@ -692,7 +662,8 @@ export default function AdminStaffPage() {
               {saving ? 'Speichert...' : 'Einstellungen speichern'}
             </button>
           </form>
-        </section>
+          </section>
+        </div>
       ) : null}
 
     </AdminLayout>
