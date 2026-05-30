@@ -196,23 +196,30 @@ export default function SuperadminPrivacyCenterPage() {
               <table className="min-w-full text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 text-slate-500">
-                    <th className="px-2 py-2">ID</th>
                     <th className="px-2 py-2">Name</th>
                     <th className="px-2 py-2">E-Mail</th>
-                    <th className="px-2 py-2">Telefon</th>
                     <th className="px-2 py-2">Status</th>
+                    <th className="px-2 py-2">Registriert</th>
+                    <th className="px-2 py-2">Letzter Login</th>
                     <th className="px-2 py-2">Bestellungen</th>
-                    <th className="px-2 py-2">Aktion</th>
+                    <th className="px-2 py-2">Aktionen</th>
                   </tr>
                 </thead>
                 <tbody>
+                  {!loading && customers.length === 0 ? (
+                    <tr>
+                      <td className="px-2 py-3 text-slate-500" colSpan={7}>
+                        Keine registrierten Kunden gefunden.
+                      </td>
+                    </tr>
+                  ) : null}
                   {customers.map((customer) => (
                     <tr key={customer.id} className="border-b border-slate-100">
-                      <td className="px-2 py-2 font-mono text-xs">{customer.id.slice(0, 8)}</td>
                       <td className="px-2 py-2">{customer.name}</td>
                       <td className="px-2 py-2">{customer.emailMasked || '-'}</td>
-                      <td className="px-2 py-2">{customer.phoneMasked || '-'}</td>
                       <td className="px-2 py-2">{customer.status}</td>
+                      <td className="px-2 py-2">{formatDate(customer.createdAt)}</td>
+                      <td className="px-2 py-2">{formatDate(customer.lastLoginAt)}</td>
                       <td className="px-2 py-2">{customer.orderCount}</td>
                       <td className="px-2 py-2">
                         <div className="flex gap-2">
