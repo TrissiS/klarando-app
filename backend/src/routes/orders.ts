@@ -480,6 +480,71 @@ function parseFiniteNumber(value: unknown) {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+async function geocodeOrderDeliveryCoordinates(input: {
+  zipCode: string
+  street?: string | null
+  city?: string | null
+}) {
+  const street = normalizeText(input.street)
+  const city = normalizeText(input.city)
+  const normalizeStreetInput = (value: string) =>
+    value
+      .trim()
+      .replace(/\s+/g, ' ')
+      .replace(/\bstr\.\b/gi, 'straße')
+      .replace(/\bstr\b/gi, 'straße')
+  const toStreetVariants = (value: string | null) => {
+    if (!value) return [] as string[]
+    const base = normalizeStreetInput(value)
+    const variants = new Set<string>([base])
+    if (base.includes('ß')) variants.add(base.replace(/ß/g, 'ss'))
+    if (base.toLowerCase().includes('ss')) variants.add(base.replace(/ss/gi, 'ß'))
+    if (base.toLowerCase().includes('straße')) variants.add(base.replace(/straße/gi, 'strasse'))
+    if (base.toLowerCase().includes('strasse')) variants.add(base.replace(/strasse/gi, 'straße'))
+    return Array.from(variants).slice(0, 6)
+  }
+  const streetVariants = toStreetVariants(street)
+  const queryVariants = (streetVariants.length > 0 ? streetVariants : [null]).map((streetVariant) =>
+    streetVariant
+      ? `${streetVariant}, ${input.zipCode}${city != null ? `, ${city}` : ''}, Germany`
+      : `${input.zipCode}${city != null ? `, ${city}` : ''}, Germany`
+  )
+  for (const query of queryVariants) {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(query)}`
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 4500)
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Klarando/1.0 (orders geocoding)',
+          Accept: 'application/json',
+        },
+        signal: controller.signal,
+      })
+      if (!response.ok) {
+        continue
+      }
+      const payload = (await response.json()) as Array<{ lat?: string; lon?: string }>
+      if (!Array.isArray(payload) || payload.length === 0) {
+        continue
+      }
+      const first = payload[0]
+      const latitude = parseFiniteNumber(first.lat)
+      const longitude = parseFiniteNumber(first.lon)
+      if (latitude === null || longitude === null) {
+        continue
+      }
+      return { latitude, longitude }
+    } catch {
+      // try next variant
+    } finally {
+      clearTimeout(timeout)
+    }
+  }
+  return null
+}
+
 function parseDriverLocationFromAuditMetadata(
   metadata: Prisma.JsonValue | null | undefined
 ): {
@@ -2519,6 +2584,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerAddress,
       customerZipCode,
       customerCity,
+      customerLat,
+      customerLng,
       customerLatitude,
       customerLongitude,
       branchId,
@@ -2544,6 +2611,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerAddress?: string | null
       customerZipCode?: string | null
       customerCity?: string | null
+      customerLat?: number | string | null
+      customerLng?: number | string | null
       customerLatitude?: number | string | null
       customerLongitude?: number | string | null
       branchId?: string | null
@@ -2569,8 +2638,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     const normalizedCustomerAddress = normalizeText(customerAddress)
     const normalizedCustomerZipCode = normalizeZipCode(customerZipCode)
     const normalizedCustomerCity = normalizeText(customerCity)
-    const normalizedCustomerLatitude = parseFiniteNumber(customerLatitude)
-    const normalizedCustomerLongitude = parseFiniteNumber(customerLongitude)
+    let normalizedCustomerLatitude =
+      parseFiniteNumber(customerLatitude) ?? parseFiniteNumber(customerLat)
+    let normalizedCustomerLongitude =
+      parseFiniteNumber(customerLongitude) ?? parseFiniteNumber(customerLng)
     const normalizedBranchId = normalizeText(branchId)
     const normalizedClientOrderId = normalizeText(clientOrderId)
     const normalizedTerminalDeviceId =
@@ -3001,6 +3072,22 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       }
 
       if (resolvedServiceType === 'DELIVERY') {
+        if (
+          (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null) &&
+          normalizedCustomerZipCode &&
+          normalizedCustomerAddress
+        ) {
+          const geocodedCoordinates = await geocodeOrderDeliveryCoordinates({
+            zipCode: normalizedCustomerZipCode,
+            street: normalizedCustomerAddress,
+            city: normalizedCustomerCity,
+          })
+          if (geocodedCoordinates) {
+            normalizedCustomerLatitude = geocodedCoordinates.latitude
+            normalizedCustomerLongitude = geocodedCoordinates.longitude
+          }
+        }
+
         const requiresPolygonCoordinates = settings.deliveryArea.strategy === 'POLYGON'
         if (
           requiresPolygonCoordinates &&

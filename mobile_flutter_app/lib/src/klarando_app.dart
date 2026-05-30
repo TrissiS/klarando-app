@@ -2771,6 +2771,8 @@ class _HomeShellState extends State<HomeShell> {
     required String? deliveryAddress,
     required String? deliveryZipCode,
     required String? deliveryCity,
+    double? deliveryLatitude,
+    double? deliveryLongitude,
   }) async {
     final tenant = _selectedTenant;
     if (tenant == null) {
@@ -2820,6 +2822,8 @@ class _HomeShellState extends State<HomeShell> {
     String? resolvedAddress;
     String? resolvedZipCode;
     String? resolvedCity;
+    double? resolvedCustomerLatitude = deliveryLatitude ?? _activeLatitude;
+    double? resolvedCustomerLongitude = deliveryLongitude ?? _activeLongitude;
 
     if (serviceType == _CheckoutServiceType.delivery) {
       resolvedAddress = deliveryAddress?.trim();
@@ -2834,6 +2838,17 @@ class _HomeShellState extends State<HomeShell> {
         throw const ApiException(
           'Für Lieferung bitte eine vollständige Adresse mit Straße, Hausnummer, PLZ und Ort eingeben.',
         );
+      }
+
+      if (resolvedCustomerLatitude == null || resolvedCustomerLongitude == null) {
+        try {
+          final location = await fetchCurrentLocation();
+          resolvedCustomerLatitude = location.latitude;
+          resolvedCustomerLongitude = location.longitude;
+          await _saveLocationCoordinates(location.latitude, location.longitude);
+        } catch (_) {
+          // Leave values null; backend can geocode from address as fallback.
+        }
       }
     }
 
@@ -2858,6 +2873,10 @@ class _HomeShellState extends State<HomeShell> {
       customerAddress: resolvedAddress,
       customerZipCode: resolvedZipCode,
       customerCity: resolvedCity,
+      customerLat: resolvedCustomerLatitude,
+      customerLng: resolvedCustomerLongitude,
+      customerLatitude: resolvedCustomerLatitude,
+      customerLongitude: resolvedCustomerLongitude,
       appAuthToken: _appAuthToken,
     );
   }
@@ -3640,6 +3659,8 @@ class _CheckoutFlowPage extends StatefulWidget {
     required String? deliveryAddress,
     required String? deliveryZipCode,
     required String? deliveryCity,
+    double? deliveryLatitude,
+    double? deliveryLongitude,
   })
   submitOrder;
 
@@ -3820,6 +3841,12 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
             : null,
         deliveryCity: _serviceType == _CheckoutServiceType.delivery
             ? _deliveryCityController.text.trim()
+            : null,
+        deliveryLatitude: _serviceType == _CheckoutServiceType.delivery
+            ? _checkoutLatitude
+            : null,
+        deliveryLongitude: _serviceType == _CheckoutServiceType.delivery
+            ? _checkoutLongitude
             : null,
       );
       if (!mounted) {
