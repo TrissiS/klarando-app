@@ -1561,7 +1561,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         final wide = constraints.maxWidth >= 980;
         final boardHeight = wide ? 560.0 : 920.0;
         return SingleChildScrollView(
-          child: Column(
+        child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -1732,6 +1732,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
