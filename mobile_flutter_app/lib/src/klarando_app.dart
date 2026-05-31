@@ -2168,6 +2168,9 @@ class _HomeShellState extends State<HomeShell> {
         baseUrl: _baseUrl,
         orderId: orderId,
         stars: stars,
+        appAuthToken: _appAuthToken,
+        publicOrderCode: _submittedOrders[index].order.publicOrderCode,
+        customerPhone: _submittedOrders[index].order.customerPhone,
       );
 
       if (!mounted) {
@@ -2184,8 +2187,13 @@ class _HomeShellState extends State<HomeShell> {
       if (!mounted) {
         return;
       }
+      final normalizedError = error.message.toLowerCase();
+      final customerMessage = normalizedError.contains('nicht eingeloggt') ||
+              normalizedError.contains('einloggen')
+          ? 'Bewertung für diese Bestellung ist nicht mehr möglich.'
+          : error.message;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
+        SnackBar(content: Text(customerMessage)),
       );
     }
   }

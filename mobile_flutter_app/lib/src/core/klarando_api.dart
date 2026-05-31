@@ -2450,6 +2450,9 @@ class KlarandoApi {
     required String orderId,
     required int stars,
     String? comment,
+    String? appAuthToken,
+    String? publicOrderCode,
+    String? customerPhone,
   }) async {
     if (stars < 1 || stars > 5) {
       throw const ApiException('Sterne muessen zwischen 1 und 5 liegen.');
@@ -2459,7 +2462,16 @@ class KlarandoApi {
       baseUrl: baseUrl,
       method: 'POST',
       path: '/api/orders/$orderId/rating',
-      body: {'stars': stars, 'comment': comment},
+      headers: {
+        if (appAuthToken != null && appAuthToken.trim().isNotEmpty)
+          'Authorization': 'Bearer $appAuthToken',
+      },
+      body: {
+        'stars': stars,
+        'comment': comment,
+        'publicOrderCode': publicOrderCode,
+        'customerPhone': customerPhone,
+      },
     );
   }
 

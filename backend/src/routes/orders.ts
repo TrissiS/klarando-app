@@ -200,6 +200,15 @@ function normalizeText(input?: string | null) {
   return trimmed.length > 0 ? trimmed : null
 }
 
+function normalizePhoneForComparison(input?: string | null) {
+  const normalized = normalizeText(input)
+  if (!normalized) {
+    return null
+  }
+  const digits = normalized.replace(/\D+/g, '')
+  return digits.length > 0 ? digits : null
+}
+
 function normalizeZipCode(value: unknown) {
   if (typeof value !== 'string') {
     return null
@@ -3720,9 +3729,8 @@ router.post('/:orderId/rating', async (req, res) => {
     const appAccount = await resolveAppAccountFromAuthorizationHeader(
       req.header('authorization') || undefined
     )
-    if (!appAccount) {
-      return res.status(401).json({ error: 'Bitte in der App einloggen, um zu bewerten' })
-    }
+    const publicOrderCode = normalizeText((req.body as { publicOrderCode?: string }).publicOrderCode)
+    const customerPhone = normalizeText((req.body as { customerPhone?: string }).customerPhone)
     if (!stars) {
       return res.status(400).json({ error: 'Sterne muessen als Wert von 1 bis 5 gesetzt sein' })
     }
@@ -3733,6 +3741,8 @@ router.post('/:orderId/rating', async (req, res) => {
         id: true,
         tenantId: true,
         sourceChannel: true,
+        publicOrderCode: true,
+        customerPhone: true,
         appCustomerAccountId: true,
         paymentStatus: true,
         paidAt: true,
@@ -3750,8 +3760,15 @@ router.post('/:orderId/rating', async (req, res) => {
     if (order.sourceChannel !== 'APP' && order.sourceChannel !== 'DELIVERY') {
       return res.status(400).json({ error: 'Nur App-Bestellungen koennen bewertet werden' })
     }
-    if (order.appCustomerAccountId !== appAccount.id) {
-      return res.status(403).json({ error: 'Diese Bestellung gehoert nicht zu deinem Konto' })
+
+    const hasAccountAccess = Boolean(appAccount && order.appCustomerAccountId === appAccount.id)
+    const hasPublicProofAccess =
+      normalizeText(publicOrderCode)?.toUpperCase() ===
+        normalizeText(order.publicOrderCode)?.toUpperCase() &&
+      normalizePhoneForComparison(customerPhone) === normalizePhoneForComparison(order.customerPhone)
+
+    if (!hasAccountAccess && !hasPublicProofAccess) {
+      return res.status(403).json({ error: 'Bewertung fuer diese Bestellung ist nicht mehr moeglich.' })
     }
 
     if (order.paymentStatus !== 'PAID' || !order.paidAt) {
