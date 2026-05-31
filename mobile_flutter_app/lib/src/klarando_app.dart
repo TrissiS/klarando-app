@@ -4905,6 +4905,55 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  Uri? _buildOrderOpenStreetMapUri() {
+    final location = _order.driverLocation;
+    if (location == null || !_hasValidCoordinates(location.latitude, location.longitude)) {
+      return null;
+    }
+    return Uri.parse(
+      'https://www.openstreetmap.org/?mlat=${location.latitude.toStringAsFixed(6)}&mlon=${location.longitude.toStringAsFixed(6)}#map=16/${location.latitude.toStringAsFixed(6)}/${location.longitude.toStringAsFixed(6)}',
+    );
+  }
+
+  Future<void> _openOrderLocationInOpenStreetMap() async {
+    final uri = _buildOrderOpenStreetMapUri();
+    if (uri == null) {
+      return;
+    }
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _copyOrderLocationOpenStreetMapLink() async {
+    final uri = _buildOrderOpenStreetMapUri();
+    if (uri == null) {
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: uri.toString()));
+    if (!mounted) {
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('OpenStreetMap-Link kopiert.')),
+    );
+  }
+
+  String _mapFailureReasonText(PublicOrderSummary order) {
+    if (order.status != 'out_for_delivery') {
+      return 'Die Live-Karte wird angezeigt, sobald der Fahrer unterwegs ist.';
+    }
+    final location = order.driverLocation;
+    if (location == null) {
+      return 'Fahrerposition wird geladen …';
+    }
+    if (!_hasValidCoordinates(location.latitude, location.longitude)) {
+      return 'Ungültige Fahrerkoordinaten empfangen.';
+    }
+    if ((_mapErrorDetails ?? '').trim().isNotEmpty) {
+      return 'Kartenfehler: ${_mapErrorDetails!}';
+    }
+    return 'Kartenansicht konnte vorübergehend nicht geladen werden.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final order = _order;
