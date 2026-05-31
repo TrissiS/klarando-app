@@ -164,6 +164,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   String? _lastHeartbeatEndpointUrl;
   int? _lastHeartbeatHttpStatus;
   String? _lastHeartbeatResponseBody;
+  int? _lastBindHttpStatus;
+  String? _lastBindResponseBody;
+  String? _lastStoredTokenType;
   bool _hasLoadedInitialFeed = false;
   final List<_OrderDeskLogEntry> _localErrorLog = <_OrderDeskLogEntry>[];
   final Map<String, String> _lastOrderStatusById = <String, String>{};
@@ -303,8 +306,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     _deviceAuthToken = deviceToken;
     _bindingId = bindingId;
+    _lastStoredTokenType = _detectStoredTokenType(deviceToken);
     _bindingLocked =
-        (deviceToken ?? '').trim().isNotEmpty || (bindingId ?? '').trim().isNotEmpty;
+        (bindingId ?? '').trim().isNotEmpty &&
+        (deviceToken ?? '').trim().isNotEmpty &&
+        _isSessionToken(deviceToken);
     _connectedTenantName = secureTenantName;
     if (secureAdmins != null) {
       final adminEmails = secureAdmins
@@ -412,6 +418,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if ((_deviceAuthToken ?? '').trim().isEmpty) {
       setState(() {
         _error = 'Bitte zuerst per QR-Code mit dem System verbinden.';
+      });
+      return;
+    }
+    if (!_isSessionToken(_deviceAuthToken)) {
+      setState(() {
+        _error =
+            'Kein gültiger Session-Token gespeichert. Bitte Gerät im Servicebereich neu koppeln.';
+      });
+      return;
+    }
+    if ((_bindingId ?? '').trim().isEmpty) {
+      setState(() {
+        _error = 'Keine Binding-ID gespeichert. Bitte Gerät im Servicebereich neu koppeln.';
       });
       return;
     }
@@ -924,6 +943,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _isReconnecting = false;
         _consecutiveHeartbeatFailures = 0;
         _lastHeartbeatError = null;
+        _lastStoredTokenType = _detectStoredTokenType(_deviceAuthToken);
         _bindingId = heartbeat.bindingId;
         _connectedTenantName = heartbeat.tenantName;
         _connectedAdmins = heartbeat.admins;
@@ -1155,6 +1175,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           appVersion: '$_cashierCurrentVersionName+$_cashierCurrentVersionCode',
         );
       } on ApiException catch (error) {
+        if (mounted) {
+          setState(() {
+            _lastBindHttpStatus = error.statusCode;
+            _lastBindResponseBody = error.responseBody == null
+                ? null
+                : jsonEncode(error.responseBody);
+          });
+        }
         throw _mapOrderDeskBindingError(error);
       }
 
@@ -1187,8 +1215,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _displayCodeController.text = response.displayCode;
         _deviceAuthToken = response.authToken;
         _bindingId = response.binding.id;
+        _lastStoredTokenType = _detectStoredTokenType(response.authToken);
         _bindingLocked = true;
         _connected = false;
+        _lastBindHttpStatus = 200;
+        _lastBindResponseBody = null;
         _lastSuccessfulSyncAt = null;
         _connectedTenantName = null;
         _connectedAdmins = const [];
@@ -1281,6 +1312,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _error =
           'Manuelle Verbindung fehlgeschlagen. Bitte gültigen Pairing-Code aus dem Admin verwenden.';
       _info = null;
+      _connected = false;
+      _bindingLocked = false;
     });
   }
 
@@ -1301,13 +1334,25 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   ApiException _mapOrderDeskBindingError(ApiException error) {
     final status = error.statusCode;
     if (status == 410) {
-      return const ApiException('Der QR-Code ist abgelaufen. Bitte neuen Code erzeugen.', statusCode: 410);
+      return ApiException(
+        'Der QR-Code ist abgelaufen. Bitte neuen Code erzeugen.',
+        statusCode: 410,
+        responseBody: error.responseBody,
+      );
     }
     if (status == 400 || status == 422) {
-      return ApiException('Der QR-Code oder Pairing-Token ist ungültig. ${error.message}', statusCode: status);
+      return ApiException(
+        'Der QR-Code oder Pairing-Token ist ungültig. ${error.message}',
+        statusCode: status,
+        responseBody: error.responseBody,
+      );
     }
     if (status == 401 || status == 403) {
-      return ApiException('Server hat den Token abgelehnt. Bitte neuen OrderDesk-Code erzeugen.', statusCode: status);
+      return ApiException(
+        'Server hat den Token abgelehnt. Bitte neuen OrderDesk-Code erzeugen.',
+        statusCode: status,
+        responseBody: error.responseBody,
+      );
     }
     if (status == null) {
       return const ApiException('Keine Verbindung zum Klarando-Server. Bitte Netzwerk prüfen.');
@@ -1569,10 +1614,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (!mounted) return;
     final health = _connectionHealth(_now);
     final status = _connectionStatusLabel(health);
-    final hasBinding = (_bindingId ?? '').trim().isNotEmpty;
+    final hasBinding =
+        (_bindingId ?? '').trim().isNotEmpty && _isSessionToken(_deviceAuthToken);
     final tokenStatus = (_deviceAuthToken ?? '').trim().isEmpty
         ? 'nein'
         : _truncateMiddle(_deviceAuthToken!, edge: 5);
+    final tokenType = _lastStoredTokenType ?? _detectStoredTokenType(_deviceAuthToken);
     final tenantId = _manualTenantIdController.text.trim();
     final apiBase = _normalizeBaseUrl(_baseUrlController.text);
     final displayCode = _displayCodeController.text.trim();
@@ -1604,6 +1651,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Text('Tenant-ID: ${tenantId.isEmpty ? '-' : _truncateMiddle(tenantId)}'),
                   Text('Device-Code: ${displayCode.isEmpty ? '-' : displayCode}'),
                   Text('Token: $tokenStatus'),
+                  Text('Gespeicherter Token-Typ: $tokenType'),
+                  Text('Letzter Bind HTTP Status: ${_lastBindHttpStatus?.toString() ?? '-'}'),
+                  Text(
+                    'Letzter Bind Response Body: ${_lastBindResponseBody == null || _lastBindResponseBody!.trim().isEmpty ? '-' : _lastBindResponseBody!}',
+                  ),
                   const SizedBox(height: 8),
                   Text('Letzter Orders-Load: ${_lastOrdersLoadAt?.toIso8601String() ?? '-'}'),
                   Text('Letzter Heartbeat: ${_lastHeartbeatAt?.toIso8601String() ?? '-'}'),
@@ -1845,6 +1897,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     setState(() {
       _deviceAuthToken = null;
       _bindingId = null;
+      _lastStoredTokenType = 'none';
       _bindingLocked = false;
       _connected = false;
       _connectedTenantName = null;
@@ -2156,6 +2209,25 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     return buffer.toString();
   }
 
+  String _detectStoredTokenType(String? token) {
+    final value = (token ?? '').trim();
+    if (value.isEmpty) {
+      return 'none';
+    }
+    if (value.startsWith('KOD') ||
+        value.startsWith('KLARANDO_ORDERDESK_PAIRING:') ||
+        value.startsWith('klarando-orderdesk-pair:')) {
+      return 'pairing';
+    }
+    final dotCount = '.'.allMatches(value).length;
+    if (dotCount == 2) {
+      return 'session';
+    }
+    return 'unknown';
+  }
+
+  bool _isSessionToken(String? token) => _detectStoredTokenType(token) == 'session';
+
   Future<int?> _askEtaMinutes({required int initial}) async {
     const etaOptions = <int>[15, 20, 30, 45, 60];
     var selected = etaOptions.first;
@@ -2460,7 +2532,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final statusText = _connectionStatusLabel(health);
     final statusColor = _connectionStatusColor(health);
     final hasStoredBinding =
-        _bindingLocked || (_deviceAuthToken ?? '').trim().isNotEmpty;
+        (_bindingId ?? '').trim().isNotEmpty && _isSessionToken(_deviceAuthToken);
     final isOperationalView = hasStoredBinding;
     final showOperationalActions = isOperationalView;
 
