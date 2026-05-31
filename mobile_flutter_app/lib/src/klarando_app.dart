@@ -5140,6 +5140,10 @@ String _statusLabel(String status) {
 }
 
 String _displayOrderNumber(PublicOrderSummary order) {
+  final publicOrderCode = order.publicOrderCode?.trim();
+  if (publicOrderCode != null && publicOrderCode.isNotEmpty) {
+    return publicOrderCode.toUpperCase();
+  }
   final pickupNumber = order.pickupNumber;
   if (pickupNumber != null && pickupNumber > 0) {
     return pickupNumber.toString().padLeft(3, '0');

@@ -5,6 +5,7 @@ import { getOrders, updateOrderStatus } from '@/lib/api'
 
 type KitchenOrder = {
   id: string
+  publicOrderCode?: string | null
   status: string
   total: string
   createdAt: string
@@ -221,7 +222,9 @@ function OrderCard({
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <p className="text-sm text-slate-400">Bestellung</p>
-          <h3 className="text-xl font-bold">#{order.id.slice(0, 6)}</h3>
+          <h3 className="text-xl font-bold">
+            #{(order.publicOrderCode?.trim() || order.id.slice(0, 6)).toUpperCase()}
+          </h3>
         </div>
         <div className="text-right">
           <p className="text-sm text-slate-400">Uhrzeit</p>

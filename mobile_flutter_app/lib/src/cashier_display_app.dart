@@ -2177,6 +2177,18 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
   }
 
+  String _orderDisplayCode(PublicOrderSummary order) {
+    final publicOrderCode = order.publicOrderCode?.trim();
+    if (publicOrderCode != null && publicOrderCode.isNotEmpty) {
+      return publicOrderCode.toUpperCase();
+    }
+    final pickup = order.pickupNumber;
+    if (pickup != null) {
+      return pickup.toString();
+    }
+    return order.id.length >= 8 ? order.id.substring(0, 8) : order.id;
+  }
+
   String _formatTimeAgo(DateTime timestamp) {
     final diff = DateTime.now().difference(timestamp);
     if (diff.inSeconds < 60) {
@@ -3088,7 +3100,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Bestellung ${order.pickupNumber?.toString() ?? order.id.substring(0, 8)}',
+              'Bestellung ${_orderDisplayCode(order)}',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 6),
@@ -3511,7 +3523,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       final hasDestination =
           payload.destinationLatitude != null && payload.destinationLongitude != null;
       final hasDriver = payload.driverLatitude != null && payload.driverLongitude != null;
-      final orderLabel = (order.pickupNumber?.toString() ?? order.id.substring(0, 8))
+      final orderLabel = _orderDisplayCode(order)
           .replaceAll("'", '');
       final customer = (order.customerName ?? 'Unbekannt').replaceAll("'", '');
       final status = _orderStatusLabel(order.status).replaceAll("'", '');

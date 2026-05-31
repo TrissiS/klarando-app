@@ -9,6 +9,7 @@ import { verifyAppAuthToken } from '../auth/app-token'
 import { hashPassword, needsPasswordRehash, verifyPassword } from '../auth/password'
 import { decodeStoredProductModifierName } from '../lib/product-modifiers'
 import { generateNextPickupNumberForTenant } from '../lib/pickup-number'
+import { createUniqueOrderPublicCode } from '../lib/order-public-code'
 import { resolveDisplayRouting } from '../lib/order-routing'
 import { signDriverDeviceToken, verifyDriverDeviceToken } from '../auth/driver-device-token'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
@@ -3302,48 +3303,51 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     let order = null as Awaited<ReturnType<typeof loadOrderForCreateResponse>> | null
     try {
       order = await prisma.$transaction(async (tx) => {
-        const created = await tx.order.create({
-          data: {
-            tenantId: resolvedTenantId,
-            terminalId: terminal?.id ?? null,
-            terminalDeviceId: normalizedTerminalDeviceId,
-            clientOrderId: normalizedClientOrderId,
-            idempotencyKey: requestIdempotencyKey,
-            appCustomerAccountId: appAccount?.id ?? null,
-            customerName: normalizedCustomerName ?? appAccount?.fullName ?? null,
-            customerPhone: normalizedCustomerPhone ?? appAccount?.phone ?? null,
-            customerAddress: normalizedCustomerAddress ?? appAccount?.street ?? null,
-            customerZipCode: normalizedCustomerZipCode ?? appAccount?.zipCode ?? null,
-            customerCity: normalizedCustomerCity ?? appAccount?.city ?? null,
-            serviceType: resolvedServiceType,
-            subtotal,
-            deliveryFee,
-            cashDisplayId: routedCashDisplayId,
-            kitchenDisplayId: routedKitchenDisplayId,
-            pickupDisplayId: routedPickupDisplayId,
-            pickupNumber: localPickupNumber,
-            total,
-            status: shouldForward ? 'open' : 'pending_payment',
-            sourceChannel: normalizedSourceChannel,
-            paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
-            paymentMethod: normalizedPaymentMethod,
-            paidAt: shouldMarkPaid ? new Date() : null,
-            forwardedToKitchenAt: shouldForward ? new Date() : null,
-            items: {
-              create: orderItemsData.map((item) => ({
-                quantity: item.quantity,
-                price: item.price,
-                unitBasePrice: item.unitBasePrice,
-                unitModifierDelta: item.unitModifierDelta,
-                modifierSnapshot: item.modifierSnapshot ?? undefined,
-                product: {
-                  connect: {
-                    id: item.productId,
-                  },
+        const publicOrderCode = await createUniqueOrderPublicCode(tx)
+        const createOrderData: any = {
+          publicOrderCode,
+          tenantId: resolvedTenantId,
+          terminalId: terminal?.id ?? null,
+          terminalDeviceId: normalizedTerminalDeviceId,
+          clientOrderId: normalizedClientOrderId,
+          idempotencyKey: requestIdempotencyKey,
+          appCustomerAccountId: appAccount?.id ?? null,
+          customerName: normalizedCustomerName ?? appAccount?.fullName ?? null,
+          customerPhone: normalizedCustomerPhone ?? appAccount?.phone ?? null,
+          customerAddress: normalizedCustomerAddress ?? appAccount?.street ?? null,
+          customerZipCode: normalizedCustomerZipCode ?? appAccount?.zipCode ?? null,
+          customerCity: normalizedCustomerCity ?? appAccount?.city ?? null,
+          serviceType: resolvedServiceType,
+          subtotal,
+          deliveryFee,
+          cashDisplayId: routedCashDisplayId,
+          kitchenDisplayId: routedKitchenDisplayId,
+          pickupDisplayId: routedPickupDisplayId,
+          pickupNumber: localPickupNumber,
+          total,
+          status: shouldForward ? 'open' : 'pending_payment',
+          sourceChannel: normalizedSourceChannel,
+          paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
+          paymentMethod: normalizedPaymentMethod,
+          paidAt: shouldMarkPaid ? new Date() : null,
+          forwardedToKitchenAt: shouldForward ? new Date() : null,
+          items: {
+            create: orderItemsData.map((item) => ({
+              quantity: item.quantity,
+              price: item.price,
+              unitBasePrice: item.unitBasePrice,
+              unitModifierDelta: item.unitModifierDelta,
+              modifierSnapshot: item.modifierSnapshot ?? undefined,
+              product: {
+                connect: {
+                  id: item.productId,
                 },
-              })),
-            },
+              },
+            })),
           },
+        }
+        const created = await tx.order.create({
+          data: createOrderData,
           select: {
             id: true,
           },

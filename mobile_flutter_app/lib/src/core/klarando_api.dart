@@ -1074,6 +1074,7 @@ class PublicOrderComplaint {
 class PublicOrderSummary {
   const PublicOrderSummary({
     required this.id,
+    required this.publicOrderCode,
     required this.tenantId,
     required this.tenantName,
     required this.customerName,
@@ -1114,6 +1115,7 @@ class PublicOrderSummary {
   });
 
   final String id;
+  final String? publicOrderCode;
   final String tenantId;
   final String? tenantName;
   final String? customerName;
@@ -1157,6 +1159,10 @@ class PublicOrderSummary {
     final tenant = _readNullableMap(json['tenant']);
     return PublicOrderSummary(
       id: _readString(json['id']),
+      publicOrderCode:
+          _readNullableString(json['publicOrderCode']) ??
+          _readNullableString(json['orderNumber']) ??
+          _readNullableString(json['publicCode']),
       tenantId: _readString(json['tenantId']),
       tenantName: tenant == null ? null : _readNullableString(tenant['name']),
       customerName: _readNullableString(json['customerName']),

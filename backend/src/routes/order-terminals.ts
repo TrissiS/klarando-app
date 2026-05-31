@@ -6,6 +6,7 @@ import { writeAuditLog } from '../lib/audit'
 import { decodeStoredProductModifierName } from '../lib/product-modifiers'
 import { resolveDisplayRouting } from '../lib/order-routing'
 import { generateNextPickupNumberForTenant } from '../lib/pickup-number'
+import { createUniqueOrderPublicCode } from '../lib/order-public-code'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { rateLimitPublicOrderCreate } from '../middleware/rate-limit'
 import {
@@ -1148,39 +1149,42 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
     let duplicatePrevented = false
     let order = null as Awaited<ReturnType<typeof loadTerminalOrderForCreateResponse>> | null
     try {
-      order = await prisma.order.create({
-        data: {
-          tenantId: terminal.tenantId,
-          terminalId: terminal.id,
-          terminalDeviceId: normalizedTerminalDeviceId,
-          clientOrderId: normalizedClientOrderId,
-          idempotencyKey: requestIdempotencyKey,
-          cashDisplayId: routedCashDisplayId,
-          kitchenDisplayId: routedKitchenDisplayId,
-          pickupDisplayId: routedPickupDisplayId,
-          pickupNumber: localPickupNumber,
-          total,
-          status,
-          sourceChannel: 'TERMINAL',
-          paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
-          paymentMethod: normalizedPaymentMethod,
-          paidAt: shouldMarkPaid ? new Date() : null,
-          forwardedToKitchenAt: shouldForward ? new Date() : null,
-          items: {
-            create: orderItemsData.map((item) => ({
-              quantity: item.quantity,
-              price: item.price,
-              unitBasePrice: item.unitBasePrice,
-              unitModifierDelta: item.unitModifierDelta,
-              modifierSnapshot: item.modifierSnapshot ?? undefined,
-              product: {
-                connect: {
-                  id: item.productId,
-                },
+      const publicOrderCode = await createUniqueOrderPublicCode(prisma)
+      const createOrderData: any = {
+        publicOrderCode,
+        tenantId: terminal.tenantId,
+        terminalId: terminal.id,
+        terminalDeviceId: normalizedTerminalDeviceId,
+        clientOrderId: normalizedClientOrderId,
+        idempotencyKey: requestIdempotencyKey,
+        cashDisplayId: routedCashDisplayId,
+        kitchenDisplayId: routedKitchenDisplayId,
+        pickupDisplayId: routedPickupDisplayId,
+        pickupNumber: localPickupNumber,
+        total,
+        status,
+        sourceChannel: 'TERMINAL',
+        paymentStatus: shouldMarkPaid ? 'PAID' : 'UNPAID',
+        paymentMethod: normalizedPaymentMethod,
+        paidAt: shouldMarkPaid ? new Date() : null,
+        forwardedToKitchenAt: shouldForward ? new Date() : null,
+        items: {
+          create: orderItemsData.map((item) => ({
+            quantity: item.quantity,
+            price: item.price,
+            unitBasePrice: item.unitBasePrice,
+            unitModifierDelta: item.unitModifierDelta,
+            modifierSnapshot: item.modifierSnapshot ?? undefined,
+            product: {
+              connect: {
+                id: item.productId,
               },
-            })),
-          },
+            },
+          })),
         },
+      }
+      order = await prisma.order.create({
+        data: createOrderData,
         include: {
           terminal: {
             select: {
