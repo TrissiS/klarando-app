@@ -173,6 +173,16 @@ export type OrderIntakeSettings = {
   services: OrderIntakeServiceOverrides
 }
 
+export type ServiceFeeMode = 'FIXED' | 'PERCENT'
+
+export type ServiceFeeSettings = {
+  enabled: boolean
+  mode: ServiceFeeMode
+  fixedAmount: string | null
+  percent: number | null
+  label: string | null
+}
+
 export type BusinessSettings = {
   businessName: string | null
   legalName: string | null
@@ -201,6 +211,7 @@ export type BusinessSettings = {
   payoutReference: string | null
   deliveryFeeNote: string | null
   minOrderValue: string | null
+  serviceFee: ServiceFeeSettings
   logoUrl: string | null
   coverImageUrl: string | null
   thumbnailUrl: string | null
@@ -748,6 +759,37 @@ export function defaultOrderIntakeSettings(): OrderIntakeSettings {
   }
 }
 
+export function defaultServiceFeeSettings(): ServiceFeeSettings {
+  return {
+    enabled: false,
+    mode: 'FIXED',
+    fixedAmount: null,
+    percent: null,
+    label: 'Servicegebühr',
+  }
+}
+
+function sanitizeServiceFeeSettings(value: unknown, fallback: ServiceFeeSettings): ServiceFeeSettings {
+  if (!value || typeof value !== 'object') {
+    return fallback
+  }
+  const source = value as Record<string, unknown>
+  const parsedMode = normalizeText(source.mode)?.toUpperCase()
+  const mode: ServiceFeeMode = parsedMode === 'PERCENT' ? 'PERCENT' : 'FIXED'
+  const percentRaw = normalizeNumeric(source.percent)
+  const percent =
+    percentRaw !== null && percentRaw >= 0 && percentRaw <= 100
+      ? Number(percentRaw.toFixed(2))
+      : null
+  return {
+    enabled: typeof source.enabled === 'boolean' ? source.enabled : fallback.enabled,
+    mode,
+    fixedAmount: normalizeText(source.fixedAmount),
+    percent,
+    label: normalizeText(source.label) ?? fallback.label,
+  }
+}
+
 function sanitizeDailyHours(value: unknown, fallback: DailyWindow[]) {
   if (!Array.isArray(value)) {
     return fallback
@@ -1241,6 +1283,7 @@ export function parseSettings(
   const defaultDeliveryScheduling = defaultDeliverySchedulingSettings()
   const defaultCompliance = defaultComplianceSettings()
   const defaultOrderIntake = defaultOrderIntakeSettings()
+  const defaultServiceFee = defaultServiceFeeSettings()
 
   return {
     businessName: normalizeText(source.businessName) ?? tenantDefaults.name,
@@ -1270,6 +1313,7 @@ export function parseSettings(
     payoutReference: normalizeText(source.payoutReference),
     deliveryFeeNote: normalizeText(source.deliveryFeeNote),
     minOrderValue: normalizeText(source.minOrderValue),
+    serviceFee: sanitizeServiceFeeSettings(source.serviceFee, defaultServiceFee),
     logoUrl: normalizeText(source.logoUrl),
     coverImageUrl: normalizeText(source.coverImageUrl),
     thumbnailUrl: normalizeText(source.thumbnailUrl),

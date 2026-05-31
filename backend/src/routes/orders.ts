@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { PermissionKey, Prisma, UserRole } from '@prisma/client'
+import { CouponDiscountType, CouponOrderType, PermissionKey, Prisma, UserRole } from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
@@ -233,6 +233,52 @@ function parseAmountFromText(value: string | null | undefined) {
   }
 
   return Number(parsed.toFixed(2))
+}
+
+function roundMoney(value: number) {
+  return Number(value.toFixed(2))
+}
+
+function parseTipAmount(value: unknown) {
+  const parsed = parseFiniteNumber(value)
+  if (parsed === null) return 0
+  return roundMoney(Math.max(0, parsed))
+}
+
+function resolveServiceFeeAmount(settings: ReturnType<typeof parseSettings>, subtotal: number) {
+  const serviceFee = settings.serviceFee
+  if (!serviceFee.enabled) {
+    return 0
+  }
+  if (serviceFee.mode === 'PERCENT') {
+    const percent = serviceFee.percent ?? 0
+    return roundMoney(Math.max(0, subtotal * (percent / 100)))
+  }
+  return Math.max(0, parseAmountFromText(serviceFee.fixedAmount) ?? 0)
+}
+
+function computeCouponDiscountAmount(params: {
+  coupon: {
+    discountType: CouponDiscountType
+    discountValueCents: number | null
+    discountPercent: Prisma.Decimal | null
+  }
+  subtotal: number
+  deliveryFee: number
+}) {
+  const subtotalCents = Math.round(params.subtotal * 100)
+  const deliveryFeeCents = Math.round(params.deliveryFee * 100)
+  let discountCents = 0
+  if (params.coupon.discountType === CouponDiscountType.AMOUNT) {
+    discountCents = params.coupon.discountValueCents ?? 0
+  } else if (params.coupon.discountType === CouponDiscountType.PERCENT) {
+    const percent = Number(params.coupon.discountPercent ?? 0)
+    discountCents = Math.round(subtotalCents * (percent / 100))
+  } else if (params.coupon.discountType === CouponDiscountType.FREE_DELIVERY) {
+    discountCents = deliveryFeeCents
+  }
+  const maxDiscountCents = subtotalCents + deliveryFeeCents
+  return Math.max(0, Math.min(discountCents, maxDiscountCents)) / 100
 }
 
 function readAppBearerToken(authorizationHeader: string | undefined) {
@@ -2643,6 +2689,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerLng,
       customerLatitude,
       customerLongitude,
+      tipAmount,
+      couponCode,
       branchId,
       clientOrderId,
       deviceCode,
@@ -2670,6 +2718,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       customerLng?: number | string | null
       customerLatitude?: number | string | null
       customerLongitude?: number | string | null
+      tipAmount?: number | string | null
+      couponCode?: string | null
       branchId?: string | null
       clientOrderId?: string | null
       deviceCode?: string | null
@@ -3117,6 +3167,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         ? terminal?.autoForwardToKitchen ?? true
         : Boolean(forwardToKitchen)
     let deliveryFee = 0
+    let serviceFee = 0
+    let discountAmount = 0
+    const normalizedTipAmount = parseTipAmount(tipAmount)
+    let appliedCouponCode: string | null = null
 
     if (isAppOrderChannel) {
       const tenant = await prisma.tenant.findUnique({
@@ -3281,6 +3335,78 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         }
         deliveryFee = parseAmountFromText(settings.deliveryFeeNote) ?? 0
       }
+
+      serviceFee = resolveServiceFeeAmount(settings, subtotal)
+
+      const normalizedCouponCode = normalizeText(couponCode)?.toUpperCase() ?? null
+      if (normalizedCouponCode) {
+        const coupon = await prisma.coupon.findFirst({
+          where: {
+            tenantId: resolvedTenantId,
+            code: normalizedCouponCode,
+          },
+        })
+        if (!coupon) {
+          return res.status(400).json({ error: 'Rabattcode nicht gefunden', code: 'COUPON_INVALID' })
+        }
+        const now = new Date()
+        if (!coupon.isActive) {
+          return res.status(400).json({ error: 'Rabattcode ist deaktiviert', code: 'COUPON_INACTIVE' })
+        }
+        if (coupon.validFrom && now < coupon.validFrom) {
+          return res.status(400).json({ error: 'Rabattcode ist noch nicht gültig', code: 'COUPON_NOT_STARTED' })
+        }
+        if (coupon.validUntil && now > coupon.validUntil) {
+          return res.status(400).json({ error: 'Rabattcode ist abgelaufen', code: 'COUPON_EXPIRED' })
+        }
+        if (coupon.maxUses !== null && coupon.usedCount >= coupon.maxUses) {
+          return res.status(400).json({ error: 'Rabattcode ist aufgebraucht', code: 'COUPON_DEPLETED' })
+        }
+        const resolvedCouponOrderType =
+          resolvedServiceType === 'DELIVERY' ? CouponOrderType.DELIVERY : CouponOrderType.PICKUP
+        if (
+          coupon.appliesToOrderType !== CouponOrderType.ALL &&
+          coupon.appliesToOrderType !== resolvedCouponOrderType
+        ) {
+          return res.status(400).json({
+            error: 'Rabattcode gilt nicht für diese Bestellart',
+            code: 'COUPON_ORDER_TYPE_MISMATCH',
+          })
+        }
+        if (
+          coupon.minOrderValueCents !== null &&
+          Math.round(subtotal * 100) < coupon.minOrderValueCents
+        ) {
+          return res.status(400).json({
+            error: 'Mindestbestellwert für Rabattcode nicht erreicht',
+            code: 'COUPON_MIN_ORDER_NOT_REACHED',
+          })
+        }
+        if (coupon.newCustomersOnly && appAccount) {
+          const previousOrderCount = await prisma.order.count({
+            where: {
+              appCustomerAccountId: appAccount.id,
+              tenantId: resolvedTenantId,
+            },
+          })
+          if (previousOrderCount > 0) {
+            return res.status(400).json({
+              error: 'Rabattcode gilt nur für Neukunden',
+              code: 'COUPON_NEW_CUSTOMERS_ONLY',
+            })
+          }
+        }
+        discountAmount = computeCouponDiscountAmount({
+          coupon: {
+            discountType: coupon.discountType,
+            discountValueCents: coupon.discountValueCents,
+            discountPercent: coupon.discountPercent,
+          },
+          subtotal,
+          deliveryFee,
+        })
+        appliedCouponCode = normalizedCouponCode
+      }
     }
 
     const fallbackRouting = await resolveDisplayRouting({
@@ -3297,7 +3423,9 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       ? await generateNextPickupNumberForTenant(resolvedTenantId)
       : null
 
-    const total = subtotal + deliveryFee
+    const total = roundMoney(
+      Math.max(0, subtotal + deliveryFee + serviceFee + normalizedTipAmount - discountAmount)
+    )
 
     let duplicatePrevented = false
     let order = null as Awaited<ReturnType<typeof loadOrderForCreateResponse>> | null
@@ -3320,6 +3448,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           serviceType: resolvedServiceType,
           subtotal,
           deliveryFee,
+          serviceFee,
+          tipAmount: normalizedTipAmount,
+          discountAmount,
+          couponCode: appliedCouponCode,
           cashDisplayId: routedCashDisplayId,
           kitchenDisplayId: routedKitchenDisplayId,
           pickupDisplayId: routedPickupDisplayId,
@@ -3354,6 +3486,20 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         })
 
         await applyInventoryConsumptionForOrder(tx, created.id)
+
+        if (appliedCouponCode) {
+          await tx.coupon.updateMany({
+            where: {
+              tenantId: resolvedTenantId,
+              code: appliedCouponCode,
+            },
+            data: {
+              usedCount: {
+                increment: 1,
+              },
+            },
+          })
+        }
 
         const hydrated = await tx.order.findUnique({
           where: {

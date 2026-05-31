@@ -282,6 +282,107 @@ export default function AppSettingsFields({
           />
         </label>
       </div>
+      <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
+          Servicegebühr
+        </h3>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+            <input
+              type="checkbox"
+              checked={settings.serviceFee.enabled}
+              disabled={disableDelivery}
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  serviceFee: {
+                    ...settings.serviceFee,
+                    enabled: event.target.checked,
+                  },
+                })
+              }
+            />
+            Servicegebühr aktiv
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-rose-900/85">Bezeichnung</span>
+            <input
+              value={settings.serviceFee.label || 'Servicegebühr'}
+              disabled={disableDelivery}
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  serviceFee: {
+                    ...settings.serviceFee,
+                    label: event.target.value || null,
+                  },
+                })
+              }
+              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-rose-900/85">Typ</span>
+            <select
+              value={settings.serviceFee.mode}
+              disabled={disableDelivery}
+              onChange={(event) =>
+                onChange({
+                  ...settings,
+                  serviceFee: {
+                    ...settings.serviceFee,
+                    mode: event.target.value === 'PERCENT' ? 'PERCENT' : 'FIXED',
+                  },
+                })
+              }
+              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+            >
+              <option value="FIXED">Fester Betrag (€)</option>
+              <option value="PERCENT">Prozent (%)</option>
+            </select>
+          </label>
+          {settings.serviceFee.mode === 'PERCENT' ? (
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-rose-900/85">Prozent</span>
+              <input
+                value={settings.serviceFee.percent ?? ''}
+                disabled={disableDelivery}
+                onChange={(event) =>
+                  onChange({
+                    ...settings,
+                    serviceFee: {
+                      ...settings.serviceFee,
+                      percent: event.target.value === '' ? null : Number(event.target.value),
+                    },
+                  })
+                }
+                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+                type="number"
+                min="0"
+                step="0.1"
+              />
+            </label>
+          ) : (
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-rose-900/85">Betrag</span>
+              <input
+                value={settings.serviceFee.fixedAmount || ''}
+                disabled={disableDelivery}
+                onChange={(event) =>
+                  onChange({
+                    ...settings,
+                    serviceFee: {
+                      ...settings.serviceFee,
+                      fixedAmount: event.target.value || null,
+                    },
+                  })
+                }
+                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+              />
+            </label>
+          )}
+        </div>
+      </section>
 
       {showDeliveryScheduling ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">

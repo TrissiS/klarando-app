@@ -154,6 +154,7 @@ function applyChainadminRestrictions(
     next.deliveryHours = requested.deliveryHours
     next.deliveryFeeNote = requested.deliveryFeeNote
     next.minOrderValue = requested.minOrderValue
+    next.serviceFee = requested.serviceFee
     next.driver = requested.driver
   }
 

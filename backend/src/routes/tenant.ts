@@ -1007,6 +1007,7 @@ router.get('/public/discovery', async (req, res) => {
           logoUrl: sanitizePublicAssetUrl(settings.logoUrl),
           deliveryFeeNote: settings.deliveryFeeNote,
           minOrderValue: settings.minOrderValue,
+          serviceFee: settings.serviceFee,
           customerApp: sanitizePublicCustomerApp(settings.customerApp),
           orderIntake: {
             enabled: intake.orderIntakeEnabled,
@@ -1412,6 +1413,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         logoUrl: sanitizePublicAssetUrl(settings.logoUrl),
         deliveryFeeNote: settings.deliveryFeeNote,
         minOrderValue: settings.minOrderValue,
+        serviceFee: settings.serviceFee,
       },
       customerApp: sanitizePublicCustomerApp(settings.customerApp),
       orderIntake: {

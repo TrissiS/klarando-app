@@ -501,6 +501,14 @@ export type BranchOrderIntakeStatus = {
   }
 }
 
+export type BusinessServiceFeeSettings = {
+  enabled: boolean
+  mode: 'FIXED' | 'PERCENT'
+  fixedAmount: string | null
+  percent: number | null
+  label: string | null
+}
+
 export type BusinessSettings = {
   businessName: string | null
   legalName: string | null
@@ -529,6 +537,7 @@ export type BusinessSettings = {
   payoutReference: string | null
   deliveryFeeNote: string | null
   minOrderValue: string | null
+  serviceFee: BusinessServiceFeeSettings
   logoUrl: string | null
   coverImageUrl: string | null
   thumbnailUrl: string | null
@@ -635,6 +644,7 @@ export type PublicTenantDiscoveryTenant = {
   logoUrl: string | null
   deliveryFeeNote: string | null
   minOrderValue: string | null
+  serviceFee: BusinessServiceFeeSettings
   customerApp: BusinessCustomerAppSettings
   orderIntake?: {
     enabled: boolean

@@ -2722,12 +2722,14 @@ class _HomeShellState extends State<HomeShell> {
     final placedOrder = await Navigator.of(context).push<PublicOrderSummary>(
       MaterialPageRoute(
         builder: (_) => _CheckoutFlowPage(
+          tenantId: tenant.tenantId,
           tenantName: tenant.tenantName,
           initialLines: _cart.values.toList(growable: false),
           allowDelivery: allowDelivery,
           allowPickup: allowPickup,
           minOrderValueAmount: _parseMoneyValue(tenant.minOrderValue),
           deliveryFeeAmount: _parseMoneyValue(tenant.deliveryFeeNote) ?? 0,
+          serviceFeeSettings: tenant.serviceFee,
           initialAddress:
               (_appCustomer?.street?.trim().isNotEmpty ?? false)
                   ? _appCustomer!.street!.trim()
@@ -2747,6 +2749,7 @@ class _HomeShellState extends State<HomeShell> {
           initialDeliveryLatitude: _activeLatitude,
           initialDeliveryLongitude: _activeLongitude,
           submitOrder: _submitOrder,
+          validateCoupon: _validateCouponForCheckout,
         ),
       ),
     );
@@ -2782,6 +2785,8 @@ class _HomeShellState extends State<HomeShell> {
     required String? deliveryCity,
     double? deliveryLatitude,
     double? deliveryLongitude,
+    double? tipAmount,
+    String? couponCode,
   }) async {
     final tenant = _selectedTenant;
     if (tenant == null) {
@@ -2891,7 +2896,31 @@ class _HomeShellState extends State<HomeShell> {
       customerLng: resolvedCustomerLongitude,
       customerLatitude: resolvedCustomerLatitude,
       customerLongitude: resolvedCustomerLongitude,
+      tipAmount: tipAmount,
+      couponCode: couponCode,
       appAuthToken: _appAuthToken,
+    );
+  }
+
+  Future<CouponValidationResult> _validateCouponForCheckout({
+    required String code,
+    required String orderType,
+    required int subtotalCents,
+    required int deliveryFeeCents,
+  }) async {
+    final tenant = _selectedTenant;
+    if (tenant == null) {
+      throw const ApiException('Keine Filiale ausgewählt.');
+    }
+    final customerOrdersCount = _submittedOrders.length;
+    return _api.validateCoupon(
+      baseUrl: _baseUrl,
+      tenantId: tenant.tenantId,
+      code: code,
+      orderType: orderType,
+      subtotalCents: subtotalCents,
+      deliveryFeeCents: deliveryFeeCents,
+      customerOrderCount: customerOrdersCount,
     );
   }
 
@@ -3625,12 +3654,14 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
 }
 class _CheckoutFlowPage extends StatefulWidget {
   const _CheckoutFlowPage({
+    required this.tenantId,
     required this.tenantName,
     required this.initialLines,
     required this.allowDelivery,
     required this.allowPickup,
     required this.minOrderValueAmount,
     required this.deliveryFeeAmount,
+    required this.serviceFeeSettings,
     required this.initialAddress,
     required this.initialZipCode,
     required this.initialCity,
@@ -3644,14 +3675,17 @@ class _CheckoutFlowPage extends StatefulWidget {
     required this.initialDeliveryLatitude,
     required this.initialDeliveryLongitude,
     required this.submitOrder,
+    required this.validateCoupon,
   });
 
+  final String tenantId;
   final String tenantName;
   final List<_CartLine> initialLines;
   final bool allowDelivery;
   final bool allowPickup;
   final double? minOrderValueAmount;
   final double deliveryFeeAmount;
+  final TenantServiceFeeSettings serviceFeeSettings;
   final String initialAddress;
   final String initialZipCode;
   final String? initialCity;
@@ -3675,8 +3709,17 @@ class _CheckoutFlowPage extends StatefulWidget {
     required String? deliveryCity,
     double? deliveryLatitude,
     double? deliveryLongitude,
+    double? tipAmount,
+    String? couponCode,
   })
   submitOrder;
+  final Future<CouponValidationResult> Function({
+    required String code,
+    required String orderType,
+    required int subtotalCents,
+    required int deliveryFeeCents,
+  })
+  validateCoupon;
 
   @override
   State<_CheckoutFlowPage> createState() => _CheckoutFlowPageState();
@@ -3702,18 +3745,38 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   late final TextEditingController _deliveryAddressController;
   late final TextEditingController _deliveryZipController;
   late final TextEditingController _deliveryCityController;
+  final TextEditingController _couponCodeController = TextEditingController();
+  final TextEditingController _customTipController = TextEditingController();
   double? _checkoutLatitude;
   double? _checkoutLongitude;
   final TextEditingController _secondaryAddressController = TextEditingController();
   final TextEditingController _secondaryZipController = TextEditingController();
   final TextEditingController _secondaryCityController = TextEditingController();
+  double _tipAmount = 0;
+  double _couponDiscountAmount = 0;
+  String? _appliedCouponCode;
+  bool _couponValidationBusy = false;
+  String? _couponFeedback;
+  bool _couponIsError = false;
 
   int get _itemsCount => _lines.fold<int>(0, (sum, line) => sum + line.quantity);
 
   double get _subtotal => _lines.fold<double>(0, (sum, line) => sum + line.lineTotal);
   double get _deliveryFee =>
       _serviceType == _CheckoutServiceType.delivery ? widget.deliveryFeeAmount : 0;
-  double get _total => _subtotal + _deliveryFee;
+  double get _serviceFee {
+    if (!widget.serviceFeeSettings.enabled) {
+      return 0;
+    }
+    if (widget.serviceFeeSettings.mode == 'PERCENT') {
+      final percent = widget.serviceFeeSettings.percent ?? 0;
+      return double.parse((_subtotal * percent / 100).toStringAsFixed(2));
+    }
+    return _parseMoneyValue(widget.serviceFeeSettings.fixedAmount) ?? 0;
+  }
+
+  double get _discount => _couponDiscountAmount;
+  double get _total => (_subtotal + _deliveryFee + _serviceFee + _tipAmount - _discount).clamp(0, double.infinity);
   bool get _containsAlcohol {
     const keywords = [
       'bier',
@@ -3739,6 +3802,25 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   String _formatCurrency(double value) {
     final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
     return '$normalized €';
+  }
+
+  double? _parseMoneyValue(String? raw) {
+    if (raw == null) {
+      return null;
+    }
+    final normalized = raw.trim().replaceAll(',', '.');
+    if (normalized.isEmpty) {
+      return null;
+    }
+    final match = RegExp(r'-?\d+(?:\.\d+)?').firstMatch(normalized);
+    if (match == null) {
+      return null;
+    }
+    final parsed = double.tryParse(match.group(0)!);
+    if (parsed == null || !parsed.isFinite) {
+      return null;
+    }
+    return double.parse(parsed.toStringAsFixed(2));
   }
 
   @override
@@ -3782,6 +3864,8 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     _deliveryAddressController.dispose();
     _deliveryZipController.dispose();
     _deliveryCityController.dispose();
+    _couponCodeController.dispose();
+    _customTipController.dispose();
     _secondaryAddressController.dispose();
     _secondaryZipController.dispose();
     _secondaryCityController.dispose();
@@ -3852,6 +3936,69 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     return true;
   }
 
+  void _setTipAmount(double amount) {
+    setState(() {
+      _tipAmount = amount < 0 ? 0 : double.parse(amount.toStringAsFixed(2));
+      _customTipController.text = _tipAmount > 0 ? _tipAmount.toStringAsFixed(2) : '';
+    });
+  }
+
+  Future<void> _applyCouponCode() async {
+    final code = _couponCodeController.text.trim();
+    if (code.isEmpty) {
+      setState(() {
+        _couponIsError = true;
+        _couponFeedback = 'Bitte einen Rabattcode eingeben.';
+      });
+      return;
+    }
+    setState(() {
+      _couponValidationBusy = true;
+      _couponFeedback = null;
+      _couponIsError = false;
+    });
+    try {
+      final result = await widget.validateCoupon(
+        code: code,
+        orderType: _serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'PICKUP',
+        subtotalCents: (_subtotal * 100).round(),
+        deliveryFeeCents: (_deliveryFee * 100).round(),
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (result.valid) {
+          _appliedCouponCode = code.toUpperCase();
+          _couponDiscountAmount = result.discountAmount;
+          _couponFeedback = 'Rabattcode wurde eingelöst.';
+          _couponIsError = false;
+        } else {
+          _appliedCouponCode = null;
+          _couponDiscountAmount = 0;
+          _couponFeedback = result.reason ?? 'Rabattcode konnte nicht eingelöst werden.';
+          _couponIsError = true;
+        }
+      });
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _appliedCouponCode = null;
+        _couponDiscountAmount = 0;
+        _couponFeedback = error.message;
+        _couponIsError = true;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _couponValidationBusy = false;
+        });
+      }
+    }
+  }
+
   Future<void> _sendOrder() async {
     if (_lines.isEmpty) {
       return;
@@ -3895,6 +4042,8 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
         deliveryLongitude: _serviceType == _CheckoutServiceType.delivery
             ? _checkoutLongitude
             : null,
+        tipAmount: _tipAmount,
+        couponCode: _appliedCouponCode,
       );
       if (!mounted) {
         return;
@@ -4076,6 +4225,94 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
             child: ListTile(
               title: Text(widget.tenantName),
               subtitle: Text('$_itemsCount Artikel | ${_formatCurrency(_total)}'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Rabattcode', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: _couponCodeController,
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: const InputDecoration(
+                            labelText: 'Rabattcode eingeben',
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: _couponValidationBusy ? null : _applyCouponCode,
+                        child: Text(_couponValidationBusy ? '...' : 'Einlösen'),
+                      ),
+                    ],
+                  ),
+                  if (_couponFeedback != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      _couponFeedback!,
+                      style: TextStyle(
+                        color: _couponIsError ? const Color(0xFFB91C1C) : const Color(0xFF166534),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Trinkgeld', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [0, 1, 2, 5]
+                        .map(
+                          (value) => ChoiceChip(
+                            selected: _tipAmount == value.toDouble(),
+                            label: Text(value == 0 ? '0 €' : '$value €'),
+                            onSelected: (_) => _setTipAmount(value.toDouble()),
+                          ),
+                        )
+                        .toList(growable: false),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _customTipController,
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    decoration: const InputDecoration(
+                      labelText: 'Eigener Betrag',
+                      hintText: 'z. B. 3,50',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (value) {
+                      final parsed = _parseMoneyValue(value);
+                      if (parsed == null) {
+                        return;
+                      }
+                      setState(() {
+                        _tipAmount = parsed;
+                      });
+                    },
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 8),
@@ -4268,6 +4505,14 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                   Text('Zwischensumme: ${_formatCurrency(_subtotal)}'),
                   if (_serviceType == _CheckoutServiceType.delivery)
                     Text('Liefergebühr: ${_formatCurrency(widget.deliveryFeeAmount)}'),
+                  if (_serviceFee > 0)
+                    Text(
+                      '${widget.serviceFeeSettings.label?.trim().isNotEmpty == true ? widget.serviceFeeSettings.label!.trim() : 'Servicegebühr'}: ${_formatCurrency(_serviceFee)}',
+                    ),
+                  if (_discount > 0)
+                    Text('Rabatt: -${_formatCurrency(_discount)}'),
+                  if (_tipAmount > 0)
+                    Text('Trinkgeld: ${_formatCurrency(_tipAmount)}'),
                   if (widget.minOrderValueAmount != null)
                     Text(
                       'Mindestbestellwert: ${_formatCurrency(widget.minOrderValueAmount!)}',

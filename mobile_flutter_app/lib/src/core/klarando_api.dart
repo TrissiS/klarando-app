@@ -371,6 +371,35 @@ class AccessContext {
 
 enum DiscoveryMode { all, delivery, pickup }
 
+class TenantServiceFeeSettings {
+  const TenantServiceFeeSettings({
+    required this.enabled,
+    required this.mode,
+    required this.fixedAmount,
+    required this.percent,
+    required this.label,
+  });
+
+  final bool enabled;
+  final String mode;
+  final String? fixedAmount;
+  final double? percent;
+  final String? label;
+
+  factory TenantServiceFeeSettings.fromJson(Object? json) {
+    final source = _readNullableMap(json);
+    return TenantServiceFeeSettings(
+      enabled: source == null ? false : _readBool(source['enabled']),
+      mode: source == null
+          ? 'FIXED'
+          : (_readNullableString(source['mode']) ?? 'FIXED').toUpperCase(),
+      fixedAmount: source == null ? null : _readNullableString(source['fixedAmount']),
+      percent: source == null ? null : _readNullableDouble(source['percent']),
+      label: source == null ? null : _readNullableString(source['label']),
+    );
+  }
+}
+
 class TenantDiscoveryTenant {
   const TenantDiscoveryTenant({
     required this.tenantId,
@@ -378,6 +407,7 @@ class TenantDiscoveryTenant {
     required this.chainName,
     required this.deliveryFeeNote,
     required this.minOrderValue,
+    required this.serviceFee,
     required this.logoUrl,
     required this.titleImageUrl,
     required this.localInfoTitle,
@@ -407,6 +437,7 @@ class TenantDiscoveryTenant {
   final String? chainName;
   final String? deliveryFeeNote;
   final String? minOrderValue;
+  final TenantServiceFeeSettings serviceFee;
   final String? logoUrl;
   final String? titleImageUrl;
   final String? localInfoTitle;
@@ -452,6 +483,7 @@ class TenantDiscoveryTenant {
       chainName: chain == null ? null : _readNullableString(chain['name']),
       deliveryFeeNote: _readNullableString(json['deliveryFeeNote']),
       minOrderValue: _readNullableString(json['minOrderValue']),
+      serviceFee: TenantServiceFeeSettings.fromJson(json['serviceFee']),
       logoUrl: _resolvePublicAssetUrl(
         baseUrl,
         _readNullableString(json['logoUrl']),
@@ -813,6 +845,7 @@ class TenantCatalog {
     required this.addressLine,
     required this.minOrderValue,
     required this.deliveryFeeNote,
+    required this.serviceFee,
     required this.orderIntake,
     required this.products,
   });
@@ -828,6 +861,7 @@ class TenantCatalog {
   final String? addressLine;
   final String? minOrderValue;
   final String? deliveryFeeNote;
+  final TenantServiceFeeSettings serviceFee;
   final TenantOrderIntakeInfo orderIntake;
   final List<TenantCatalogProduct> products;
 
@@ -867,6 +901,7 @@ class TenantCatalog {
       addressLine: _buildAddressLine(address),
       minOrderValue: _readNullableString(tenant['minOrderValue']),
       deliveryFeeNote: _readNullableString(tenant['deliveryFeeNote']),
+      serviceFee: TenantServiceFeeSettings.fromJson(tenant['serviceFee']),
       orderIntake: TenantOrderIntakeInfo.fromJson(orderIntake),
       products: productsRaw is List
           ? productsRaw
@@ -898,6 +933,29 @@ class CreateOrderItem {
       'quantity': quantity,
       if (modifierIds.isNotEmpty) 'modifierIds': modifierIds,
     };
+  }
+}
+
+class CouponValidationResult {
+  const CouponValidationResult({
+    required this.valid,
+    required this.reason,
+    required this.discountAmount,
+    required this.discountAmountCents,
+  });
+
+  final bool valid;
+  final String? reason;
+  final double discountAmount;
+  final int discountAmountCents;
+
+  factory CouponValidationResult.fromJson(Map<String, dynamic> json) {
+    return CouponValidationResult(
+      valid: _readBool(json['valid']),
+      reason: _readNullableString(json['reason']),
+      discountAmount: _readNullableDouble(json['discountAmount']) ?? 0,
+      discountAmountCents: _readNullableInt(json['discountAmountCents']) ?? 0,
+    );
   }
 }
 
@@ -1085,6 +1143,10 @@ class PublicOrderSummary {
     required this.serviceType,
     required this.subtotal,
     required this.deliveryFee,
+    required this.serviceFee,
+    required this.tipAmount,
+    required this.discountAmount,
+    required this.couponCode,
     required this.total,
     required this.status,
     required this.paymentStatus,
@@ -1126,6 +1188,10 @@ class PublicOrderSummary {
   final String? serviceType;
   final double subtotal;
   final double deliveryFee;
+  final double serviceFee;
+  final double tipAmount;
+  final double discountAmount;
+  final String? couponCode;
   final double total;
   final String status;
   final String paymentStatus;
@@ -1173,6 +1239,10 @@ class PublicOrderSummary {
       serviceType: _readNullableString(json['serviceType']),
       subtotal: _readDouble(json['subtotal']),
       deliveryFee: _readDouble(json['deliveryFee']),
+      serviceFee: _readNullableDouble(json['serviceFee']) ?? 0,
+      tipAmount: _readNullableDouble(json['tipAmount']) ?? 0,
+      discountAmount: _readNullableDouble(json['discountAmount']) ?? 0,
+      couponCode: _readNullableString(json['couponCode']),
       total: _readDouble(json['total']),
       status: _readString(json['status']),
       paymentStatus: _readString(json['paymentStatus']),
@@ -1932,6 +2002,8 @@ class KlarandoApi {
     double? customerLng,
     double? customerLatitude,
     double? customerLongitude,
+    double? tipAmount,
+    String? couponCode,
     String? appAuthToken,
     bool markPaid = false,
   }) async {
@@ -1961,9 +2033,37 @@ class KlarandoApi {
         if (customerLng != null) 'customerLng': customerLng,
         if (customerLatitude != null) 'customerLatitude': customerLatitude,
         if (customerLongitude != null) 'customerLongitude': customerLongitude,
+        if (tipAmount != null) 'tipAmount': tipAmount,
+        if (couponCode != null && couponCode.trim().isNotEmpty)
+          'couponCode': couponCode.trim(),
       },
     );
     return PublicOrderSummary.fromJson(response);
+  }
+
+  Future<CouponValidationResult> validateCoupon({
+    required String baseUrl,
+    required String tenantId,
+    required String code,
+    required String orderType,
+    required int subtotalCents,
+    required int deliveryFeeCents,
+    int? customerOrderCount,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/coupons/validate',
+      body: {
+        'tenantId': tenantId,
+        'code': code,
+        'orderType': orderType,
+        'subtotalCents': subtotalCents,
+        'deliveryFeeCents': deliveryFeeCents,
+        if (customerOrderCount != null) 'customerOrderCount': customerOrderCount,
+      },
+    );
+    return CouponValidationResult.fromJson(response);
   }
 
   Future<PaypalCheckoutOrderResponse> createPaypalCheckoutOrder({

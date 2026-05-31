@@ -409,10 +409,36 @@ router.post('/validate', async (req, res) => {
       return res.json({ valid: false, reason: 'Code gilt nur fuer Neukunden', checkoutReady: false })
     }
 
+    const normalizedSubtotalCents =
+      typeof subtotalCents === 'number' && Number.isFinite(subtotalCents)
+        ? Math.max(0, Math.round(subtotalCents))
+        : 0
+    const deliveryFeeCentsRaw = (req.body as { deliveryFeeCents?: unknown }).deliveryFeeCents
+    const normalizedDeliveryFeeCents =
+      typeof deliveryFeeCentsRaw === 'number' && Number.isFinite(deliveryFeeCentsRaw)
+        ? Math.max(0, Math.round(deliveryFeeCentsRaw))
+        : 0
+    let discountAmountCents = 0
+    if (coupon.discountType === CouponDiscountType.AMOUNT) {
+      discountAmountCents = coupon.discountValueCents ?? 0
+    } else if (coupon.discountType === CouponDiscountType.PERCENT) {
+      discountAmountCents = Math.round(
+        normalizedSubtotalCents * (Number(coupon.discountPercent ?? 0) / 100)
+      )
+    } else if (coupon.discountType === CouponDiscountType.FREE_DELIVERY) {
+      discountAmountCents = normalizedDeliveryFeeCents
+    }
+    discountAmountCents = Math.max(
+      0,
+      Math.min(discountAmountCents, normalizedSubtotalCents + normalizedDeliveryFeeCents)
+    )
+
     return res.json({
       valid: true,
-      checkoutReady: false,
-      note: 'Checkout-Verrechnung vorbereitet',
+      checkoutReady: true,
+      note: 'Checkout-Verrechnung aktiv',
+      discountAmountCents,
+      discountAmount: Number((discountAmountCents / 100).toFixed(2)),
       coupon: mapCouponOutput(coupon),
     })
   } catch (error) {
