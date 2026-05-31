@@ -61,6 +61,60 @@ const ORDER_MANAGEMENT_STATUS_FILTERS = new Set(['all', ...ORDER_STATUSES])
 const ORDER_PAYMENT_STATUSES = new Set(['PAID', 'UNPAID', 'FAILED', 'REFUNDED'])
 const ORDER_SERVICE_TYPES = new Set(['DELIVERY', 'PICKUP', 'DINE_IN'])
 
+function parseCoordinate(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+    const parsed = Number(trimmed.replace(',', '.'))
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return null
+}
+
+function normalizePolygonPointsFromUnknown(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as Array<{ lat: number; lng: number }>
+  }
+  return value
+    .map((point) => {
+      if (!point || typeof point !== 'object') {
+        return null
+      }
+      const source = point as Record<string, unknown>
+      const lat = parseCoordinate(source.lat ?? source.latitude ?? null)
+      const lng = parseCoordinate(source.lng ?? source.longitude ?? null)
+      if (lat === null || lng === null) {
+        return null
+      }
+      return { lat, lng }
+    })
+    .filter((point): point is { lat: number; lng: number } => point !== null)
+}
+
+function readRawDeliveryAreaFromBusinessSettings(raw: unknown) {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const source = raw as Record<string, unknown>
+  if (source.deliveryArea && typeof source.deliveryArea === 'object') {
+    return source.deliveryArea as Record<string, unknown>
+  }
+  if (source.settings && typeof source.settings === 'object') {
+    const nestedSettings = source.settings as Record<string, unknown>
+    if (nestedSettings.deliveryArea && typeof nestedSettings.deliveryArea === 'object') {
+      return nestedSettings.deliveryArea as Record<string, unknown>
+    }
+  }
+  return null
+}
+
 function sanitizeOrderManagementSource(value: string | null) {
   if (!value) return 'ALL'
   const normalized = value.toUpperCase()
@@ -3035,6 +3089,17 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         name: tenant.name,
         email: tenant.email,
       })
+      const rawDeliveryArea = readRawDeliveryAreaFromBusinessSettings(tenant.businessSettings)
+      const rawPolygonPath = normalizePolygonPointsFromUnknown(
+        rawDeliveryArea?.polygonPath ?? rawDeliveryArea?.polygonPoints ?? null
+      )
+      const effectiveDeliveryArea =
+        settings.deliveryArea.polygonPath.length >= 3 || rawPolygonPath.length < 3
+          ? settings.deliveryArea
+          : {
+              ...settings.deliveryArea,
+              polygonPath: rawPolygonPath,
+            }
 
       const intake = settings.orderIntake
       const serviceAllowed =
@@ -3088,7 +3153,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           }
         }
 
-        const requiresPolygonCoordinates = settings.deliveryArea.strategy === 'POLYGON'
+        const requiresPolygonCoordinates = effectiveDeliveryArea.strategy === 'POLYGON'
         if (
           requiresPolygonCoordinates &&
           (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null)
@@ -3096,9 +3161,9 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
             route: 'POST /api/orders',
             sourceFile: 'backend/src/routes/orders.ts',
-            strategy: settings.deliveryArea.strategy,
-            zipCodesCount: settings.deliveryArea.zipCodes.length,
-            polygonPointsCount: settings.deliveryArea.polygonPath.length,
+            strategy: effectiveDeliveryArea.strategy,
+            zipCodesCount: effectiveDeliveryArea.zipCodes.length,
+            polygonPointsCount: effectiveDeliveryArea.polygonPath.length,
             customerPostalCode: normalizedCustomerZipCode,
             customerLat: normalizedCustomerLatitude,
             customerLng: normalizedCustomerLongitude,
@@ -3113,35 +3178,35 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           })
         }
 
-        const deliveryAreaCheck = matchServiceArea(settings.deliveryArea, {
+        const deliveryAreaCheck = matchServiceArea(effectiveDeliveryArea, {
           zipCode: normalizedCustomerZipCode,
           street: normalizedCustomerAddress,
           latitude: normalizedCustomerLatitude,
           longitude: normalizedCustomerLongitude,
         })
         const usedCheck =
-          settings.deliveryArea.strategy === 'POLYGON'
+          effectiveDeliveryArea.strategy === 'POLYGON'
             ? 'POLYGON'
-            : settings.deliveryArea.strategy === 'RADIUS'
+            : effectiveDeliveryArea.strategy === 'RADIUS'
               ? 'RADIUS'
-              : settings.deliveryArea.strategy === 'ZIP_LIST'
+              : effectiveDeliveryArea.strategy === 'ZIP_LIST'
                 ? 'POSTAL_CODES'
-                : settings.deliveryArea.strategy === 'ZIP_OR_RADIUS' ||
-                    settings.deliveryArea.strategy === 'ZIP_AND_RADIUS'
+                : effectiveDeliveryArea.strategy === 'ZIP_OR_RADIUS' ||
+                    effectiveDeliveryArea.strategy === 'ZIP_AND_RADIUS'
                   ? deliveryAreaCheck.matchedByRadius
                     ? 'RADIUS'
                     : 'POSTAL_CODES'
                   : 'UNKNOWN'
         const strictPolygonResult =
-          settings.deliveryArea.strategy === 'POLYGON'
+          effectiveDeliveryArea.strategy === 'POLYGON'
             ? deliveryAreaCheck.matchedByPolygon
             : deliveryAreaCheck.matched
         console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
           route: 'POST /api/orders',
           sourceFile: 'backend/src/routes/orders.ts',
-          strategy: settings.deliveryArea.strategy,
-          zipCodesCount: settings.deliveryArea.zipCodes.length,
-          polygonPointsCount: settings.deliveryArea.polygonPath.length,
+          strategy: effectiveDeliveryArea.strategy,
+          zipCodesCount: effectiveDeliveryArea.zipCodes.length,
+          polygonPointsCount: effectiveDeliveryArea.polygonPath.length,
           customerPostalCode: normalizedCustomerZipCode,
           customerLat: normalizedCustomerLatitude,
           customerLng: normalizedCustomerLongitude,
