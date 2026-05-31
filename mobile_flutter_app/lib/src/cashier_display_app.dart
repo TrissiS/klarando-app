@@ -1538,15 +1538,28 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       showDragHandle: true,
       useSafeArea: true,
       builder: (sheetContext) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(
-              12,
-              8,
-              12,
-              12 + MediaQuery.of(sheetContext).padding.bottom,
+        final mediaQuery = MediaQuery.of(sheetContext);
+        final keyboardInset = mediaQuery.viewInsets.bottom;
+        final maxHeight = mediaQuery.size.height * 0.9;
+        return AnimatedPadding(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          padding: EdgeInsets.only(bottom: keyboardInset),
+          child: SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxHeight: maxHeight),
+              child: SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: EdgeInsets.fromLTRB(
+                  12,
+                  8,
+                  12,
+                  12 + mediaQuery.padding.bottom,
+                ),
+                child: _buildConnectionCard(),
+              ),
             ),
-            child: _buildConnectionCard(),
           ),
         );
       },
