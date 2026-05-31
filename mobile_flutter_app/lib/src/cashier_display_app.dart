@@ -163,6 +163,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   String? _lastApiError;
   String? _lastHeartbeatEndpointUrl;
   int? _lastHeartbeatHttpStatus;
+  String? _lastHeartbeatResponseBody;
   bool _hasLoadedInitialFeed = false;
   final List<_OrderDeskLogEntry> _localErrorLog = <_OrderDeskLogEntry>[];
   final Map<String, String> _lastOrderStatusById = <String, String>{};
@@ -918,16 +919,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _lastSuccessfulSyncAt = DateTime.now();
         _lastHeartbeatAt = DateTime.now();
         _lastHeartbeatHttpStatus = 200;
+        _lastHeartbeatResponseBody = null;
         _connected = true;
         _isReconnecting = false;
         _consecutiveHeartbeatFailures = 0;
         _lastHeartbeatError = null;
+        _bindingId = heartbeat.bindingId;
         _connectedTenantName = heartbeat.tenantName;
         _connectedAdmins = heartbeat.admins;
         _connectedChainadmins = heartbeat.chainadmins;
         _activeDriverDevices = heartbeat.activeDriverDevices;
         _onlineDriverDevices = heartbeat.onlineDriverDevices;
       });
+      await _secureWrite(_secureCashierBindingId, heartbeat.bindingId);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefsCashierBindingId, heartbeat.bindingId);
       _appendLocalLog('HEARTBEAT', 'ok');
       _appendStatusSnapshot();
     } on ApiException catch (error) {
@@ -944,6 +950,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _isReconnecting = true;
         _lastHeartbeatError = error.message;
         _lastHeartbeatHttpStatus = error.statusCode;
+        _lastHeartbeatResponseBody = error.responseBody == null
+            ? null
+            : jsonEncode(error.responseBody);
         _connected = _lastOrdersLoadAt != null;
       });
       _appendLocalLog('HEARTBEAT', 'failed: ${error.message}');
@@ -967,6 +976,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _isReconnecting = true;
         _lastHeartbeatError = 'Heartbeat-Timeout';
         _lastHeartbeatHttpStatus = null;
+        _lastHeartbeatResponseBody = null;
         _connected = _lastOrdersLoadAt != null;
         if (!silent) {
           _error = 'Verbindung zum Klarando-Server hat zu lange gedauert.';
@@ -983,6 +993,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _isReconnecting = true;
         _lastHeartbeatError = error.toString();
         _lastHeartbeatHttpStatus = null;
+        _lastHeartbeatResponseBody = null;
         _connected = _lastOrdersLoadAt != null;
         if (!silent) {
           _error = error.toString();
@@ -1249,7 +1260,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _baseUrlController.text = manualApiBaseUrl;
     });
 
-    // Try full pairing/bind first. If that fails, treat the manual token as an existing device auth token.
+    // Try full pairing/bind first. Pairing codes must be exchanged via bind to receive a SESSION auth token.
     await _bindWithPairingToken(manualToken);
     if (_bindingLocked && _connected) {
       if (mounted) {
@@ -1263,25 +1274,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return;
     }
 
-    await _runOrderMutation(() async {
-      _deviceAuthToken = manualToken;
-      _bindingLocked = true;
-      await _secureWrite(_secureCashierDeviceToken, manualToken);
-      await _savePrefs();
-      await _sendOrderDeskHeartbeatIfNeeded();
-      await _pollFeed();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _connected = true;
-        _showManualConnection = false;
-        _info = 'Manuelle Verbindung gespeichert.';
-      });
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Einstellungen gespeichert')),
-      );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _error =
+          'Manuelle Verbindung fehlgeschlagen. Bitte gültigen Pairing-Code aus dem Admin verwenden.';
+      _info = null;
     });
   }
 
@@ -1570,7 +1569,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (!mounted) return;
     final health = _connectionHealth(_now);
     final status = _connectionStatusLabel(health);
-    final hasBinding = _bindingLocked || (_deviceAuthToken ?? '').trim().isNotEmpty;
+    final hasBinding = (_bindingId ?? '').trim().isNotEmpty;
     final tokenStatus = (_deviceAuthToken ?? '').trim().isEmpty
         ? 'nein'
         : _truncateMiddle(_deviceAuthToken!, edge: 5);
@@ -1599,6 +1598,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Text('API-URL: $apiBase'),
                   Text('Heartbeat Endpoint: ${_lastHeartbeatEndpointUrl ?? '-'}'),
                   Text('Heartbeat HTTP Status: ${_lastHeartbeatHttpStatus?.toString() ?? '-'}'),
+                  Text(
+                    'Heartbeat Response Body: ${_lastHeartbeatResponseBody == null || _lastHeartbeatResponseBody!.trim().isEmpty ? '-' : _lastHeartbeatResponseBody!}',
+                  ),
                   Text('Tenant-ID: ${tenantId.isEmpty ? '-' : _truncateMiddle(tenantId)}'),
                   Text('Device-Code: ${displayCode.isEmpty ? '-' : displayCode}'),
                   Text('Token: $tokenStatus'),

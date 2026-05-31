@@ -7,10 +7,11 @@ const _connectionTimeout = Duration(seconds: 3);
 const _requestTimeout = Duration(seconds: 8);
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode});
+  const ApiException(this.message, {this.statusCode, this.responseBody});
 
   final String message;
   final int? statusCode;
+  final Map<String, dynamic>? responseBody;
 
   @override
   String toString() => message;
@@ -2393,10 +2394,11 @@ class KlarandoApi {
     final responseJson = _tryDecodeMap(response.body);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(
-        _resolveErrorMessage(responseJson, response.statusCode),
-        statusCode: response.statusCode,
-      );
+        throw ApiException(
+          _resolveErrorMessage(responseJson, response.statusCode),
+          statusCode: response.statusCode,
+          responseBody: responseJson,
+        );
     }
 
     return responseJson;
@@ -2424,10 +2426,11 @@ class KlarandoApi {
       final errorMap = responseJson is Map<String, dynamic>
           ? responseJson
           : <String, dynamic>{};
-      throw ApiException(
-        _resolveErrorMessage(errorMap, response.statusCode),
-        statusCode: response.statusCode,
-      );
+          throw ApiException(
+            _resolveErrorMessage(errorMap, response.statusCode),
+            statusCode: response.statusCode,
+            responseBody: errorMap,
+          );
     }
 
     if (responseJson is List) {
