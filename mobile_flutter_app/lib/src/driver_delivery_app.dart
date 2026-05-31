@@ -958,7 +958,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         baseUrl: _normalizedBaseUrl(_baseUrlController.text),
         authToken: token,
       );
-      if (!mounted) return;
+      if (!mounted) return false;
 
       var shouldSyncTracking = false;
       setState(() {
@@ -988,7 +988,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         await _handleUnauthorizedSession(error, source: 'ORDERS');
         return;
       }
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _lastApiError = error.message;
         _message = error.message;
@@ -1240,11 +1240,11 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
-  Future<void> _setSelectedOrderStatus(String status) async {
+  Future<bool> _setSelectedOrderStatus(String status) async {
     final token = _authToken;
     final order = _selectedOrder;
     if (token == null || order == null) {
-      return;
+      return false;
     }
 
     try {
@@ -1283,11 +1283,13 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       if (status == 'out_for_delivery') {
         await _sendLocationPing();
       }
+      return true;
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
         _message = error.message;
       });
+      return false;
     } finally {
       if (mounted) {
         setState(() {
@@ -1295,6 +1297,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         });
       }
     }
+    return false;
   }
 
   Future<_SignatureCaptureResult?> _captureSignatureForOrder(
@@ -1456,6 +1459,27 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       return;
     }
 
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Lieferung abschließen'),
+        content: const Text('Lieferung wirklich abschließen?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Ja, Lieferung abschließen'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) {
+      return;
+    }
+
     if ((order.serviceType ?? '').toUpperCase() == 'DELIVERY' &&
         !order.signatureCaptured) {
       setState(() {
@@ -1494,7 +1518,18 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       await _refreshOrders(forceMessage: false);
     }
 
-    await _setSelectedOrderStatus('done');
+    final updated = await _setSelectedOrderStatus('done');
+    if (!updated || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _orders = _orders.where((entry) => entry.id != order.id).toList(growable: false);
+      if (_selectedOrderId == order.id) {
+        _selectedOrderId = _orders.isNotEmpty ? _orders.first.id : null;
+      }
+      _message = 'Lieferung abgeschlossen';
+    });
     _appendDriverLog('ORDER', 'Lieferung abgeschlossen: ${order.id}');
   }
 
