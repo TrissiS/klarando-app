@@ -721,7 +721,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         return;
       }
       await player.stop();
-      await player.play(const AssetSource(_orderDeskNewOrderAudioSource));
+      await player.play(AssetSource(_orderDeskNewOrderAudioSource));
       _lastOrderTonePlayedAt = DateTime.now();
       _lastOrderToneError = null;
       _appendLocalLog('AUDIO', 'Bestellton abgespielt');
@@ -3673,7 +3673,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     order.assignedDriverName == null
                         ? 'Fahrer zuweisen'
                         : 'Fahrer wechseln',
-                    ),
+                  ),
                 ),
                 if (statusLower != 'open' && statusLower != 'pending_payment')
                   OutlinedButton.icon(
