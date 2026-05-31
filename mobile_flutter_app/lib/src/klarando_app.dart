@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -4719,6 +4720,7 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
   bool _followDriver = true;
   bool _mapLoadFailed = false;
   int _mapRefreshSeed = 0;
+  String? _mapErrorDetails;
 
   String _formatCurrency(double value) {
     final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
@@ -4799,6 +4801,7 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
         _order = resolvedOrder;
         _trackingError = null;
         _mapLoadFailed = false;
+        _mapErrorDetails = null;
       });
       if (resolvedOrder.status == 'done' ||
           resolvedOrder.status == 'cancelled' ||
@@ -4834,6 +4837,25 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
       return 'Letzte Fahrerposition vor $age Minute${age == 1 ? '' : 'n'}.';
     }
     return 'Fahrerposition live aktualisiert.';
+  }
+
+  bool _hasValidCoordinates(double? latitude, double? longitude) {
+    if (latitude == null || longitude == null) return false;
+    if (latitude == 0 && longitude == 0) return false;
+    if (latitude < -90 || latitude > 90) return false;
+    if (longitude < -180 || longitude > 180) return false;
+    return true;
+  }
+
+  String _buildDriverMapTileUrl(DriverLocationPoint location) {
+    final zoom = _followDriver ? 16 : 14;
+    final latRad = location.latitude * math.pi / 180;
+    final n = math.pow(2.0, zoom).toDouble();
+    final tileX = ((location.longitude + 180.0) / 360.0 * n).floor();
+    final tileY =
+        ((1.0 - math.log(math.tan(latRad) + (1 / math.cos(latRad))) / math.pi) / 2.0 * n)
+            .floor();
+    return 'https://tile.openstreetmap.org/$zoom/$tileX/$tileY.png';
   }
 
   String _buildDriverMapImageUrl(DriverLocationPoint location) {
@@ -4879,10 +4901,20 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
   Widget build(BuildContext context) {
     final order = _order;
     final location = order.driverLocation;
-    final mapPreviewUrl =
-        location == null ? null : _buildDriverMapImageUrl(location);
-    final mapPreviewFallbackUrl =
-        location == null ? null : _buildDriverMapFallbackImageUrl(location);
+    final hasValidDriverCoordinates =
+        location != null && _hasValidCoordinates(location.latitude, location.longitude);
+    final mapPreviewTileUrl = hasValidDriverCoordinates
+        ? _buildDriverMapTileUrl(location)
+        : null;
+    final mapPreviewUrl = hasValidDriverCoordinates
+        ? _buildDriverMapImageUrl(location)
+        : null;
+    final mapPreviewFallbackUrl = hasValidDriverCoordinates
+        ? _buildDriverMapFallbackImageUrl(location)
+        : null;
+    final mapPreviewTileUrlWithSeed = mapPreviewTileUrl == null
+        ? null
+        : '$mapPreviewTileUrl?retry=$_mapRefreshSeed';
     final mapPreviewUrlWithSeed = mapPreviewUrl == null
         ? null
         : '$mapPreviewUrl&retry=$_mapRefreshSeed';
@@ -4929,28 +4961,37 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
                 ClipRRect(
                   borderRadius: BorderRadius.circular(12),
                   child: Image.network(
-                    mapPreviewUrlWithSeed,
+                    mapPreviewTileUrlWithSeed!,
                     height: 190,
                     width: double.infinity,
                     fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => Image.network(
-                      mapFallbackUrlWithSeed!,
+                    errorBuilder: (_, tileError, ___) => Image.network(
+                      mapPreviewUrlWithSeed,
                       height: 190,
                       width: double.infinity,
                       fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) {
+                      errorBuilder: (_, googleError, ____) => Image.network(
+                        mapFallbackUrlWithSeed!,
+                        height: 190,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, osmStaticError, _____) {
+                        final errorSummary =
+                            'tile=${tileError.runtimeType}, google=${googleError.runtimeType}, osmStatic=${osmStaticError.runtimeType}';
                         debugPrint(
-                          'CUSTOMER_TRACKING_MAP_ERROR { orderId: ${order.id}, provider: openstreetmap, driverLocationPresent: ${location != null} }',
+                          'CUSTOMER_TRACKING_MAP_ERROR { orderId: ${order.id}, provider: tile.openstreetmap/google/osm-static, driverLocationPresent: ${location != null}, driverLat: ${location?.latitude}, driverLng: ${location?.longitude}, errorSummary: $errorSummary }',
                         );
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (mounted && !_mapLoadFailed) {
                             setState(() {
                               _mapLoadFailed = true;
+                              _mapErrorDetails = errorSummary;
                             });
                           }
                         });
                         return _buildMapFallbackCard();
-                      },
+                        },
+                      ),
                     ),
                   ),
                 )
@@ -4968,7 +5009,7 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
                   ),
                   child: Text(
                     order.status == 'out_for_delivery'
-                        ? 'Fahrerposition noch nicht verfügbar.'
+                        ? 'Fahrerposition wird geladen …'
                         : 'Lieferung noch nicht unterwegs.',
                     style: const TextStyle(color: Color(0xFF64748B)),
                   ),
@@ -4993,6 +5034,20 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
                     onPressed: location == null ? null : _openDriverRouteInMaps,
                     icon: const Icon(Icons.alt_route),
                     label: const Text('Route anzeigen'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: hasValidDriverCoordinates
+                        ? _openOrderLocationInOpenStreetMap
+                        : null,
+                    icon: const Icon(Icons.map_outlined),
+                    label: const Text('Karte extern öffnen'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: hasValidDriverCoordinates
+                        ? _copyOrderLocationOpenStreetMapLink
+                        : null,
+                    icon: const Icon(Icons.link),
+                    label: const Text('OSM-Link kopieren'),
                   ),
                   OutlinedButton.icon(
                     onPressed: _trackingBusy ? null : () => _refreshTracking(force: true),
@@ -5105,6 +5160,17 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
           Text(
             'Fahrerstatus: ${order.assignedDriverName?.trim().isNotEmpty == true ? 'zugewiesen (${order.assignedDriverName})' : 'noch nicht zugewiesen'}',
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Fahrerposition vorhanden: ${order.driverLocation != null ? 'ja' : 'nein'}',
+          ),
+          Text(
+            'Fahrerposition: ${order.driverLocation == null ? '-' : '${order.driverLocation!.latitude.toStringAsFixed(6)}, ${order.driverLocation!.longitude.toStringAsFixed(6)}'}',
+          ),
+          Text(
+            'Letztes Standort-Update: ${order.driverLocation?.updatedAt?.toIso8601String() ?? '-'}',
+            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          ),
         ],
       ),
     );
@@ -5124,20 +5190,39 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           const Text(
-            'Die Karte konnte nicht geladen werden. Du kannst Restaurants weiterhin in der Liste auswählen.',
+            'Die Karte konnte nicht geladen werden.',
             textAlign: TextAlign.center,
             style: TextStyle(color: Color(0xFF52525B)),
           ),
+          const SizedBox(height: 6),
+          Text(
+            _mapFailureReasonText(_order),
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+          ),
           const SizedBox(height: 10),
-          OutlinedButton.icon(
-            onPressed: () {
-              setState(() {
-                _mapLoadFailed = false;
-                _mapRefreshSeed += 1;
-              });
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('Karte erneut laden'),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            alignment: WrapAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () {
+                  setState(() {
+                    _mapLoadFailed = false;
+                    _mapErrorDetails = null;
+                    _mapRefreshSeed += 1;
+                  });
+                },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Karte erneut laden'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _openOrderLocationInOpenStreetMap,
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Karte extern öffnen'),
+              ),
+            ],
           ),
         ],
       ),
@@ -5390,6 +5475,50 @@ String _displayOrderNumber(PublicOrderSummary order) {
   final publicOrderCode = order.publicOrderCode?.trim();
   if (publicOrderCode != null && publicOrderCode.isNotEmpty) {
     return publicOrderCode.toUpperCase();
+  }
+
+  String _buildOpenStreetMapOrderUrl(DriverLocationPoint location) {
+    final zoom = _followDriver ? 16 : 14;
+    return 'https://www.openstreetmap.org/?mlat=${location.latitude.toStringAsFixed(6)}&mlon=${location.longitude.toStringAsFixed(6)}#map=$zoom/${location.latitude.toStringAsFixed(6)}/${location.longitude.toStringAsFixed(6)}';
+  }
+
+  Future<void> _openOrderLocationInOpenStreetMap() async {
+    final location = _order.driverLocation;
+    if (location == null || !_hasValidCoordinates(location.latitude, location.longitude)) {
+      return;
+    }
+    final uri = Uri.parse(_buildOpenStreetMapOrderUrl(location));
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _copyOrderLocationOpenStreetMapLink() async {
+    final location = _order.driverLocation;
+    if (location == null || !_hasValidCoordinates(location.latitude, location.longitude)) {
+      return;
+    }
+    final link = _buildOpenStreetMapOrderUrl(location);
+    await Clipboard.setData(ClipboardData(text: link));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('OpenStreetMap-Link kopiert')),
+    );
+  }
+
+  String _mapFailureReasonText(PublicOrderSummary order) {
+    if (order.status != 'out_for_delivery') {
+      return 'Lieferung noch nicht unterwegs.';
+    }
+    final location = order.driverLocation;
+    if (location == null) {
+      return 'Fahrerposition fehlt.';
+    }
+    if (!_hasValidCoordinates(location.latitude, location.longitude)) {
+      return 'Ungültige Fahrerkoordinaten.';
+    }
+    if (_mapErrorDetails != null && _mapErrorDetails!.trim().isNotEmpty) {
+      return 'Tile-Load-Fehler: ${_mapErrorDetails!}';
+    }
+    return 'Karten-Widget-Fehler oder Netzwerkproblem.';
   }
   final pickupNumber = order.pickupNumber;
   if (pickupNumber != null && pickupNumber > 0) {
