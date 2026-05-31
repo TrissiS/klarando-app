@@ -3376,20 +3376,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             ),
             const SizedBox(height: 6),
             Row(
-              children: List<Widget>.generate(5, (index) {
-                final active = index <= stepIndex;
-                return Expanded(
-                  child: Container(
-                    margin: EdgeInsets.only(right: index < 4 ? 4 : 0),
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color:
-                          active ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0),
-                      borderRadius: BorderRadius.circular(4),
+              children: [
+                for (var index = 0; index < 5; index++)
+                  Expanded(
+                    child: Container(
+                      margin: EdgeInsets.only(right: index < 4 ? 4 : 0),
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: index <= stepIndex
+                            ? const Color(0xFF2563EB)
+                            : const Color(0xFFE2E8F0),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                     ),
                   ),
-                ),
-              }),
+              ],
             ),
             const SizedBox(height: 4),
             const Text(
