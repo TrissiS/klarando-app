@@ -891,7 +891,6 @@ router.get('/context', requirePermission(PermissionKey.USERS_READ), async (req, 
         status: true,
         addressLine: true,
         createdAt: true,
-        separateDatabase: true,
       },
       orderBy: { createdAt: 'desc' },
     })
