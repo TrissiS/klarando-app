@@ -2938,7 +2938,54 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     )
 
     if (products.length !== productIds.length) {
-      return res.status(400).json({ error: 'Ein oder mehrere Produkte wurden nicht gefunden' })
+      const foundIds = new Set(products.map((entry) => entry.id))
+      const missingProductIds = productIds.filter((id) => !foundIds.has(id))
+      const uniqueMissingProductIds = Array.from(new Set(missingProductIds))
+
+      const productsWithoutTenantFilter =
+        uniqueMissingProductIds.length > 0
+          ? await prisma.product.findMany({
+              where: {
+                id: {
+                  in: uniqueMissingProductIds,
+                },
+              },
+              select: {
+                id: true,
+                tenantId: true,
+                available: true,
+              },
+            })
+          : []
+
+      const productsWithTenantFilterMap = new Map(products.map((entry) => [entry.id, entry]))
+      const existsWithoutTenantFilter = new Set(productsWithoutTenantFilter.map((entry) => entry.id))
+
+      console.log('PRODUCT_NOT_FOUND_CONTEXT', {
+        tenantId: resolvedTenantId,
+        branchId: normalizedBranchId ?? null,
+        sentProductIds: productIds,
+      })
+
+      for (const missingId of uniqueMissingProductIds) {
+        const tenantScopedProduct = productsWithTenantFilterMap.get(missingId)
+        const anyTenantProduct = productsWithoutTenantFilter.find((entry) => entry.id === missingId)
+        console.log('PRODUCT_NOT_FOUND', {
+          productId: missingId,
+          tenantId: resolvedTenantId,
+          branchId: normalizedBranchId ?? null,
+          existsWithoutTenantFilter: existsWithoutTenantFilter.has(missingId),
+          existsWithTenantFilter: Boolean(tenantScopedProduct),
+          isActive: tenantScopedProduct ? tenantScopedProduct.available : anyTenantProduct?.available ?? null,
+          productTenantId: anyTenantProduct?.tenantId ?? null,
+        })
+      }
+
+      return res.status(400).json({
+        error: 'Ein oder mehrere Produkte wurden nicht gefunden',
+        code: 'PRODUCT_NOT_FOUND',
+        missingProductIds: uniqueMissingProductIds,
+      })
     }
 
     const unavailable = products.filter((product) => !product.available)

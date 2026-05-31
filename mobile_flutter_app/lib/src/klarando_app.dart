@@ -3819,6 +3819,39 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     });
   }
 
+  bool _tryRemoveUnavailableProductsFromOrderError(ApiException error) {
+    final body = error.responseBody;
+    if (body == null) {
+      return false;
+    }
+
+    final code = body['code'] is String ? (body['code'] as String).trim().toUpperCase() : '';
+    final missingRaw = body['missingProductIds'];
+    if (code != 'PRODUCT_NOT_FOUND' || missingRaw is! List) {
+      return false;
+    }
+
+    final missingIds = missingRaw
+        .map((entry) => entry is String ? entry.trim() : '')
+        .where((entry) => entry.isNotEmpty)
+        .toSet();
+    if (missingIds.isEmpty) {
+      return false;
+    }
+
+    final originalCount = _lines.length;
+    final nextLines = _lines.where((line) => !missingIds.contains(line.product.id)).toList(growable: false);
+    if (nextLines.length == originalCount) {
+      return false;
+    }
+
+    setState(() {
+      _lines = nextLines;
+      _errorMessage = 'Ein Produkt ist nicht mehr verfügbar und wurde aus dem Warenkorb entfernt.';
+    });
+    return true;
+  }
+
   Future<void> _sendOrder() async {
     if (_lines.isEmpty) {
       return;
@@ -3872,6 +3905,10 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       });
     } on ApiException catch (error) {
       if (!mounted) {
+        return;
+      }
+      final handledUnavailableProduct = _tryRemoveUnavailableProductsFromOrderError(error);
+      if (handledUnavailableProduct) {
         return;
       }
       setState(() {
