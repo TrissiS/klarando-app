@@ -1205,6 +1205,16 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       return;
     }
 
+    final paymentMethod = (order.paymentMethod ?? '').trim().toUpperCase();
+    final paymentStatus = order.paymentStatus.trim().toUpperCase();
+    if (paymentMethod == 'CASH' && paymentStatus != 'PAID') {
+      if (!mounted) return;
+      setState(() {
+        _message = 'Bitte zuerst Betrag erhalten bestätigen.';
+      });
+      return;
+    }
+
     if ((order.serviceType ?? '').toUpperCase() == 'DELIVERY' &&
         !order.signatureCaptured) {
       setState(() {
@@ -1243,6 +1253,64 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     }
 
     await _setSelectedOrderStatus('done');
+  }
+
+  Future<void> _confirmCashPaymentReceived(PublicOrderSummary order) async {
+    final token = _authToken;
+    if (token == null) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Barzahlung bestätigen'),
+        content: const Text('Betrag wirklich erhalten?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Bestätigen'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      if (mounted) {
+        setState(() {
+          _statusBusy = true;
+        });
+      }
+      await _api.markDriverOrderPaid(
+        baseUrl: _normalizedBaseUrl(_baseUrlController.text),
+        authToken: token,
+        orderId: order.id,
+      );
+      await _refreshOrders(forceMessage: false);
+      if (!mounted) return;
+      setState(() {
+        _message = 'Barzahlung als erhalten bestätigt.';
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _message = error.message;
+      });
+    } finally {
+      if (mounted) {
+        setState(() {
+          _statusBusy = false;
+        });
+      }
+    }
   }
 
   @override
@@ -1684,7 +1752,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     final canSetOutForDelivery =
         order.status != 'out_for_delivery' && (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
     final canSetPickup = order.status == 'open' || order.status == 'preparing';
-    final canMarkDelivered = order.status == 'out_for_delivery';
+    final isCashPayment = (order.paymentMethod ?? '').trim().toUpperCase() == 'CASH';
+    final isPaid = order.paymentStatus.trim().toUpperCase() == 'PAID';
+    final canMarkDelivered = order.status == 'out_for_delivery' && (!isCashPayment || isPaid);
     final departedAt = order.driverDepartedAt;
     final driverRuntime = departedAt == null
         ? null
@@ -1759,8 +1829,8 @@ class _DriverHomePageState extends State<_DriverHomePage> {
             _detailRow('Status', _statusLabel(order.status)),
             if (driverRuntime != null)
               _detailRow('Seit Fahrerstart', driverRuntime),
-              if (order.paymentStatus.toUpperCase() != 'PAID')
-                Container(
+            if (!isPaid)
+              Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -1790,7 +1860,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                     ],
                   ),
                 ),
-            if (order.paymentStatus.toUpperCase() != 'PAID')
+            if (!isPaid)
               const Padding(
                 padding: EdgeInsets.only(bottom: 10),
                 child: Text(
@@ -1800,6 +1870,15 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                     fontWeight: FontWeight.w600,
                     color: Color(0xFF991B1B),
                   ),
+                ),
+              ),
+            if (isCashPayment && !isPaid)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: FilledButton.icon(
+                  onPressed: _statusBusy ? null : () => _confirmCashPaymentReceived(order),
+                  icon: const Icon(Icons.payments_outlined),
+                  label: const Text('Betrag erhalten'),
                 ),
               ),
             _detailRow(
@@ -1849,6 +1928,18 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                 ),
               ],
             ),
+            if (isCashPayment && !isPaid)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Bitte zuerst Betrag erhalten bestätigen.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFFB91C1C),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             const SizedBox(height: 12),
             Container(
               width: double.infinity,

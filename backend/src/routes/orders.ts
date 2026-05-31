@@ -4236,6 +4236,119 @@ router.post('/driver/route-start', async (req, res) => {
   }
 })
 
+router.post('/driver/orders/:orderId/mark-paid', async (req, res) => {
+  try {
+    const actor = await resolveDriverActor(req)
+    if (!actor) {
+      return res.status(401).json({ error: 'Fahrersitzung fehlt oder ist ungueltig' })
+    }
+
+    const orderId = normalizeText(
+      Array.isArray(req.params.orderId) ? req.params.orderId[0] : req.params.orderId
+    )
+    if (!orderId) {
+      return res.status(400).json({ error: 'orderId fehlt' })
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        tenantId: true,
+        assignedDriverId: true,
+        assignedDriverName: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paidAt: true,
+      },
+    })
+
+    if (!order) {
+      return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+    }
+
+    if (!isOrderAssignedToDriverActor(order, actor)) {
+      return res.status(403).json({ error: 'Bestellung ist nicht diesem Fahrer zugewiesen' })
+    }
+
+    const paymentMethod = (order.paymentMethod ?? '').trim().toUpperCase()
+    if (paymentMethod !== 'CASH') {
+      return res.status(400).json({ error: 'Nur Barzahlungs-Bestellungen koennen bestaetigt werden' })
+    }
+
+    if (order.paymentStatus === 'PAID' && order.paidAt) {
+      const existing = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: {
+          terminal: {
+            select: { id: true, name: true, terminalCode: true, location: true },
+          },
+          items: {
+            include: {
+              product: {
+                include: { category: true },
+              },
+            },
+          },
+        },
+      })
+      if (!existing) {
+        return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+      }
+      return res.json(existing)
+    }
+
+    const now = new Date()
+    await prisma.order.update({
+      where: { id: order.id },
+      data: {
+        paymentStatus: 'PAID',
+        paidAt: now,
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'driver_payment',
+      action: 'cash_received',
+      targetType: 'order',
+      targetId: order.id,
+      tenantId: order.tenantId,
+      metadata: {
+        actorType: actor.actorType,
+        driverUserId: actor.driverUserId,
+        driverName: actor.driverName,
+        deviceSessionId: actor.isDeviceActor ? actor.sessionId : null,
+      },
+    })
+
+    const updated = await prisma.order.findUnique({
+      where: { id: order.id },
+      include: {
+        terminal: {
+          select: { id: true, name: true, terminalCode: true, location: true },
+        },
+        items: {
+          include: {
+            product: {
+              include: { category: true },
+            },
+          },
+        },
+      },
+    })
+
+    if (!updated) {
+      return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+    }
+
+    return res.json(updated)
+  } catch (error) {
+    console.error('POST DRIVER MARK PAID ERROR:', error)
+    return res.status(500).json({ error: 'Zahlung konnte nicht bestaetigt werden' })
+  }
+})
+
 router.get('/driver/assigned', async (req, res) => {
   try {
     const actor = await resolveDriverActor(req)
