@@ -862,6 +862,58 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     _appendDriverLog('SESSION', 'Verbindung zurückgesetzt');
   }
 
+  Future<void> _showDriverStatusDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Status anzeigen'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Status: $_screenState'),
+              Text('Meldung: $_message'),
+              Text('Session ungültig: ${_sessionInvalid ? 'ja' : 'nein'}'),
+              Text('Device-Mode: ${_deviceSessionMode ? 'ja' : 'nein'}'),
+              Text('Display-Code: ${_deviceDisplayCode ?? '-'}'),
+              Text('Tenant-ID: ${_driverUser?.tenantId ?? '-'}'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Schließen'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showDriverErrorLogDialog() async {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Fehlerlog anzeigen'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: _buildDriverErrorLogCard(),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Schließen'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Future<void> _sendDeviceHeartbeatIfNeeded() async {
     final token = _authToken;
     if (!_deviceSessionMode || token == null) {
@@ -1419,6 +1471,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           signerName: signature.signerName,
           signatureImageDataUrl: signature.imageDataUrl,
         );
+        _appendDriverLog('SIGNATURE', 'Signatur gespeichert: ${order.id}');
       } on ApiException catch (error) {
         if (!mounted) return;
         setState(() {
@@ -1436,6 +1489,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     }
 
     await _setSelectedOrderStatus('done');
+    _appendDriverLog('ORDER', 'Lieferung abgeschlossen: ${order.id}');
   }
 
   Future<void> _confirmCashPaymentReceived(PublicOrderSummary order) async {
@@ -1511,21 +1565,38 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           ),
         ),
         actions: [
-          IconButton(
-            tooltip: 'Fehlerlog anzeigen',
-            onPressed: () {
-              setState(() {
-                _showDriverErrorLog = !_showDriverErrorLog;
-              });
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'status') {
+                unawaited(_showDriverStatusDialog());
+              } else if (value == 'errorlog') {
+                unawaited(_showDriverErrorLogDialog());
+              } else if (value == 'reset') {
+                unawaited(_logout());
+              } else if (value == 'logout') {
+                unawaited(_logout());
+              }
             },
-            icon: const Icon(Icons.bug_report_outlined),
+            itemBuilder: (context) => [
+              const PopupMenuItem<String>(
+                value: 'status',
+                child: Text('Status anzeigen'),
+              ),
+              const PopupMenuItem<String>(
+                value: 'errorlog',
+                child: Text('Fehlerlog anzeigen'),
+              ),
+              const PopupMenuItem<String>(
+                value: 'reset',
+                child: Text('Verbindung zurücksetzen'),
+              ),
+              if (token != null)
+                const PopupMenuItem<String>(
+                  value: 'logout',
+                  child: Text('Abmelden'),
+                ),
+            ],
           ),
-          if (token != null)
-            IconButton(
-              tooltip: 'Abmelden',
-              onPressed: _logout,
-              icon: const Icon(Icons.logout),
-            ),
         ],
       ),
       body: SafeArea(
@@ -1551,12 +1622,6 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _buildDriverStateCard(),
-                if (_showDriverErrorLog) ...[
-                  const SizedBox(height: 8),
-                  _buildDriverErrorLogCard(),
-                ],
-                const SizedBox(height: 8),
                 const Text(
                   'Fahrerzugang',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
@@ -1568,7 +1633,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'QR-Code scannen zum Verbinden.',
+                  'QR-Code im Admin/Superadmin erzeugen und hier scannen.',
                   style: TextStyle(fontSize: 13, color: Color(0xFF64748B)),
                 ),
                 const SizedBox(height: 8),
@@ -1582,115 +1647,11 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                   label: const Text('QR-Code scannen zum Verbinden'),
                 ),
                 const SizedBox(height: 8),
-                TextButton(
-                  onPressed: _isBusy
-                      ? null
-                      : () {
-                          setState(() {
-                            _showManualLoginFallback = !_showManualLoginFallback;
-                          });
-                        },
-                  child: Text(
-                    _showManualLoginFallback
-                        ? 'Manuellen Login ausblenden'
-                        : 'Manuellen Login anzeigen',
-                  ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Manuelle Verbindung ist deaktiviert. Kopplung erfolgt ausschließlich per QR-Code.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                 ),
-                if (_showManualLoginFallback) ...[
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _baseUrlController,
-                    decoration: const InputDecoration(
-                      labelText: 'Backend API URL',
-                      border: OutlineInputBorder(),
-                    ),
-                    onChanged: (_) {
-                      unawaited(_saveBaseUrlPreference());
-                    },
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _emailController,
-                    decoration: const InputDecoration(
-                      labelText: 'E-Mail',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Passwort',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  CheckboxListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    value: _rememberSession,
-                    onChanged: (value) {
-                      setState(() {
-                        _rememberSession = value ?? true;
-                      });
-                    },
-                    title: const Text('Sitzung auf diesem Gerät merken'),
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton(
-                    onPressed: _isBusy ? null : _login,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(42),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    child: Text(_isBusy ? 'Bitte warten...' : 'Als Fahrer einloggen'),
-                  ),
-                ],
-                TextButton(
-                  onPressed: _isBusy
-                      ? null
-                      : () {
-                          setState(() {
-                            _showManualPairingFallback = !_showManualPairingFallback;
-                          });
-                        },
-                  child: Text(
-                    _showManualPairingFallback
-                        ? 'Manuelle Eingabe ausblenden'
-                        : 'Manuelle Eingabe (Fallback) anzeigen',
-                  ),
-                ),
-                if (_showManualPairingFallback) ...[
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _pairingTokenController,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'QR-Pairing-Token / QR-Inhalt',
-                      hintText: 'klarando-driver-pair:DISPLAY:TOKEN',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _pairingDriverNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Fahrername (optional bei Gerätemodus)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  FilledButton.tonal(
-                    onPressed: _isBusy ? null : _loginWithPairing,
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(42),
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    ),
-                    child: Text(_isBusy ? 'Bitte warten...' : 'Mit manuellem Token verbinden'),
-                  ),
-                ],
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: (_isBusy || _checkingUpdate) ? null : _checkForAppUpdate,
@@ -1762,12 +1723,6 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildDriverStateCard(),
-              if (_showDriverErrorLog) ...[
-                const SizedBox(height: 8),
-                _buildDriverErrorLogCard(),
-              ],
-              const SizedBox(height: 8),
               Text(
                 'Angemeldet: ${_driverUser?.name ?? '-'}',
                 style: const TextStyle(fontWeight: FontWeight.w700),
