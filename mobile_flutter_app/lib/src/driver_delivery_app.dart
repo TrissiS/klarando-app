@@ -1266,7 +1266,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         );
       }
       await _refreshOrders(forceMessage: false);
-      if (!mounted) return;
+      if (!mounted) return false;
 
       await _syncLocationSharingState();
 
@@ -1285,7 +1285,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       }
       return true;
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _message = error.message;
       });
@@ -1573,12 +1573,12 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         orderId: order.id,
       );
       await _refreshOrders(forceMessage: false);
-      if (!mounted) return false;
+      if (!mounted) return;
       setState(() {
         _message = 'Barzahlung als erhalten bestätigt.';
       });
     } on ApiException catch (error) {
-      if (!mounted) return false;
+      if (!mounted) return;
       setState(() {
         _message = error.message;
       });
