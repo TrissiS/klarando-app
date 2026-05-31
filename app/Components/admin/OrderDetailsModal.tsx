@@ -65,9 +65,13 @@ function serviceLabel(serviceType: string | null | undefined) {
   return '-'
 }
 
-function shortOrderNumber(orderId: string) {
-  const compact = orderId.replace(/-/g, '').slice(-8).toUpperCase()
-  return compact || orderId
+function displayOrderNumber(order: Order) {
+  const publicCode = (order.publicOrderCode || '').trim().toUpperCase()
+  if (publicCode) {
+    return publicCode
+  }
+  const compact = order.id.replace(/-/g, '').slice(-8).toUpperCase()
+  return compact || order.id
 }
 
 export default function OrderDetailsModal({
@@ -79,7 +83,7 @@ export default function OrderDetailsModal({
   resolvingComplaintId,
 }: Props) {
   const [recipient, setRecipient] = useState(order.appCustomerAccount?.email || '')
-  const [subject, setSubject] = useState(`Bestellung ${shortOrderNumber(order.id)} - ${tenantName}`)
+  const [subject, setSubject] = useState(`Bestellung #${displayOrderNumber(order)} - ${tenantName}`)
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -93,7 +97,7 @@ export default function OrderDetailsModal({
 
   const orderMailBody = useMemo(() => {
     const lines: string[] = []
-    lines.push(`Bestelldetails ${shortOrderNumber(order.id)}`)
+    lines.push(`Bestelldetails #${displayOrderNumber(order)}`)
     lines.push('')
     lines.push(`Bestellung-ID: ${order.id}`)
     lines.push(`Zeit: ${formatDateTime(order.createdAt)}`)
@@ -157,7 +161,7 @@ export default function OrderDetailsModal({
     const trimmedRecipient = recipient.trim()
     if (!trimmedRecipient) return
     const mailto = `mailto:${encodeURIComponent(trimmedRecipient)}?subject=${encodeURIComponent(
-      subject.trim() || `Bestellung ${shortOrderNumber(order.id)}`
+      subject.trim() || `Bestellung #${displayOrderNumber(order)}`
     )}&body=${encodeURIComponent(orderMailBody)}`
     window.location.href = mailto
   }
@@ -169,7 +173,7 @@ export default function OrderDetailsModal({
           <div>
             <p className="text-xs uppercase tracking-wide text-rose-900/70">Bestell-Details</p>
             <h3 className="mt-1 text-xl font-bold text-[var(--brand-ink)]">
-              #{shortOrderNumber(order.id)} - {tenantName}
+              #{displayOrderNumber(order)} - {tenantName}
             </h3>
             <p className="mt-1 text-sm text-rose-900/75">
               {formatDateTime(order.createdAt)} | {statusLabel(order.status)} |{' '}

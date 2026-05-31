@@ -98,6 +98,15 @@ function sourceLabel(source: string) {
   }
 }
 
+function displayOrderNumber(order: Order) {
+  const publicCode = (order.publicOrderCode || '').trim().toUpperCase()
+  if (publicCode) {
+    return publicCode
+  }
+  const compact = order.id.replace(/-/g, '').slice(-8).toUpperCase()
+  return compact || order.id
+}
+
 export default function AdminOrdersPage() {
   const [role, setRole] = useState<RoleScope>('admin')
   const [token, setToken] = useState('')
@@ -260,6 +269,7 @@ export default function AdminOrdersPage() {
 
       const searchableText = [
         order.id,
+        order.publicOrderCode || '',
         order.customerName || '',
         order.customerPhone || '',
         order.customerAddress || '',
@@ -301,7 +311,7 @@ export default function AdminOrdersPage() {
       setError('')
       setSuccess('')
       await updateOrderStatus(order.id, 'archived')
-      setSuccess(`Bestellung ${order.id} wurde storniert.`)
+      setSuccess(`Bestellung #${displayOrderNumber(order)} wurde storniert.`)
       await loadOrders({ silent: true })
       if (selectedOrder?.id === order.id) {
         setSelectedOrder(null)
@@ -316,7 +326,7 @@ export default function AdminOrdersPage() {
   async function handleResolveComplaint(order: Order, complaintId: string) {
     if (!complaintId || resolvingComplaintId) return
     const confirmed = window.confirm(
-      `Reklamation wirklich als erledigt markieren?\n\nBestellung: ${order.id}\nReklamation: ${complaintId}`
+      `Reklamation wirklich als erledigt markieren?\n\nBestellung: #${displayOrderNumber(order)}\nReklamation: ${complaintId}`
     )
     if (!confirmed) return
 
@@ -538,6 +548,7 @@ export default function AdminOrdersPage() {
               <thead>
                 <tr>
                   <th className="th-ui">Zeit</th>
+                  <th className="th-ui">Bestellnr.</th>
                   <th className="th-ui">Filiale</th>
                   <th className="th-ui">Kette</th>
                   <th className="th-ui">Kanal</th>
@@ -583,6 +594,9 @@ export default function AdminOrdersPage() {
                       className="cursor-pointer transition hover:bg-rose-50/60"
                     >
                       <td className="border-t border-slate-100 px-3 py-2 text-sm">{formatDateTime(order.createdAt)}</td>
+                      <td className="border-t border-slate-100 px-3 py-2 text-sm font-semibold">
+                        #{displayOrderNumber(order)}
+                      </td>
                       <td className="border-t border-slate-100 px-3 py-2 text-sm">{tenantName}</td>
                       <td className="border-t border-slate-100 px-3 py-2 text-sm">{chainName}</td>
                       <td className="border-t border-slate-100 px-3 py-2 text-sm">{sourceLabel(order.sourceChannel)}</td>

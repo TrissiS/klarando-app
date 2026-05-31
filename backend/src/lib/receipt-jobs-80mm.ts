@@ -59,6 +59,7 @@ export type ReceiptOrderItem = {
 
 export type ReceiptOrder = {
   id: string
+  publicOrderCode?: string | null
   createdAt: Date
   sourceChannel: string
   serviceType: string | null
@@ -125,8 +126,12 @@ function labelSourceChannel(value: string | null | undefined) {
   return value
 }
 
-function resolveOrderShortId(orderId: string) {
-  return orderId.replace(/-/g, '').slice(0, 8).toUpperCase()
+function resolveOrderShortId(order: ReceiptOrder) {
+  const publicCode = toSafeString(order.publicOrderCode).toUpperCase()
+  if (publicCode) {
+    return publicCode
+  }
+  return order.id.replace(/-/g, '').slice(0, 8).toUpperCase()
 }
 
 function resolveCustomerAddressLine(order: ReceiptOrder) {
@@ -191,7 +196,7 @@ export function createReceiptJobContextFromOrder(
       phone: tenant.phone,
     },
     order: {
-      shortId: resolveOrderShortId(order.id),
+      shortId: resolveOrderShortId(order),
       createdAtLocal: formatDateTimeLocal(order.createdAt, options?.locale, options?.timeZone),
       sourceChannel: labelSourceChannel(order.sourceChannel),
       serviceType: labelServiceType(order.serviceType),

@@ -1301,6 +1301,7 @@ export type PublicOrderDeskBindResponse = {
 
 export type Order = {
   id: string
+  publicOrderCode?: string | null
   tenantId: string
   terminalId: string | null
   appCustomerAccountId: string | null

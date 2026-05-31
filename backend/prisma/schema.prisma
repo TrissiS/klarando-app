@@ -998,7 +998,7 @@ model ProductIngredient {
 
 model Order {
   id                   String               @id @default(uuid())
-  publicOrderCode      String?              @unique
+  publicOrderCode      String               @unique
   tenantId             String
   terminalId           String?
   terminalDeviceId     String?

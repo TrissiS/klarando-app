@@ -96,8 +96,12 @@ function labelSourceChannel(value: string | null | undefined) {
   return value
 }
 
-function resolveOrderShortId(orderId: string) {
-  return orderId.replace(/-/g, '').slice(0, 8).toUpperCase()
+function resolveOrderShortId(order: Order) {
+  const publicCode = (order.publicOrderCode || '').trim().toUpperCase()
+  if (publicCode) {
+    return publicCode
+  }
+  return order.id.replace(/-/g, '').slice(0, 8).toUpperCase()
 }
 
 function resolveCustomerAddressLine(order: Order) {
@@ -162,7 +166,7 @@ export function createReceiptJobContextFromOrder(
       phone: tenant.phone,
     },
     order: {
-      shortId: resolveOrderShortId(order.id),
+      shortId: resolveOrderShortId(order),
       createdAtLocal: formatDateTimeLocal(order.createdAt, options?.locale, options?.timeZone),
       sourceChannel: labelSourceChannel(order.sourceChannel),
       serviceType: labelServiceType(order.serviceType),
@@ -203,4 +207,3 @@ export function buildKitchenReceiptJob80mm(
     itemRows: mapKitchenItemRows(order),
   })
 }
-
