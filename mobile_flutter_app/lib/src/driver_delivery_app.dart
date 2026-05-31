@@ -958,7 +958,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         baseUrl: _normalizedBaseUrl(_baseUrlController.text),
         authToken: token,
       );
-      if (!mounted) return false;
+      if (!mounted) return;
 
       var shouldSyncTracking = false;
       setState(() {
@@ -988,7 +988,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         await _handleUnauthorizedSession(error, source: 'ORDERS');
         return;
       }
-      if (!mounted) return false;
+      if (!mounted) return;
       setState(() {
         _lastApiError = error.message;
         _message = error.message;
@@ -1573,12 +1573,12 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         orderId: order.id,
       );
       await _refreshOrders(forceMessage: false);
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _message = 'Barzahlung als erhalten bestätigt.';
       });
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted) return false;
       setState(() {
         _message = error.message;
       });
