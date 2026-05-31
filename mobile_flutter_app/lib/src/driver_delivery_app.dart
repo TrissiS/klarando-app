@@ -225,6 +225,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   bool _rememberSession = true;
   bool _showManualLoginFallback = false;
   bool _showManualPairingFallback = false;
+  bool _showDriverErrorLog = false;
 
   String _message = 'Bitte als Fahrer einloggen.';
   String? _updateInfo;
@@ -249,6 +250,23 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   Timer? _locationTimer;
   Timer? _clockTimer;
   DateTime _now = DateTime.now();
+  int? _lastBindHttpStatus;
+  String? _lastBindError;
+  String? _lastBindRoute;
+  String? _lastApiError;
+  final List<String> _driverLogEntries = <String>[];
+
+  String _screenState = 'LOGIN';
+
+  void _appendDriverLog(String category, String message) {
+    final now = DateTime.now();
+    final stamp =
+        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')}';
+    _driverLogEntries.insert(0, '[$stamp] $category: $message');
+    if (_driverLogEntries.length > 20) {
+      _driverLogEntries.removeRange(20, _driverLogEntries.length);
+    }
+  }
 
   @override
   void initState() {
@@ -297,6 +315,8 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         storedToken.trim().isNotEmpty &&
         storedRole != null &&
         storedRole.toUpperCase() == 'DRIVER') {
+      _screenState = 'RESTORING_SESSION';
+      _appendDriverLog('SESSION', 'Gespeicherte Sitzung gefunden');
       _authToken = storedToken;
       _deviceSessionMode = storedSessionMode.toUpperCase() == 'DEVICE';
       _deviceDisplayCode = storedDisplayCode;
@@ -316,6 +336,8 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _message = _deviceSessionMode
             ? 'Fahrergerät-Sitzung wiederhergestellt.'
             : 'Fahrersitzung wiederhergestellt.';
+        _screenState = 'DASHBOARD';
+        _appendDriverLog('SESSION', 'Sitzung wiederhergestellt');
       } on ApiException catch (error) {
         await _clearPersistedSession();
         _authToken = null;
@@ -324,6 +346,20 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _deviceDisplayCode = null;
         _deviceLabel = null;
         _message = error.message;
+        _lastApiError = error.message;
+        _screenState = 'SESSION_INVALID';
+        _appendDriverLog('SESSION', 'Wiederherstellung fehlgeschlagen: ${error.message}');
+      } catch (error) {
+        await _clearPersistedSession();
+        _authToken = null;
+        _driverUser = null;
+        _deviceSessionMode = false;
+        _deviceDisplayCode = null;
+        _deviceLabel = null;
+        _message = 'Sitzung konnte nicht geladen werden: $error';
+        _lastApiError = error.toString();
+        _screenState = 'SESSION_INVALID';
+        _appendDriverLog('SESSION', 'Unerwarteter Fehler: $error');
       }
     }
 
@@ -538,6 +574,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       setState(() {
         _isBusy = true;
         _message = 'Login läuft...';
+        _screenState = 'USER_LOGIN_IN_PROGRESS';
       });
       final response = await _api.login(baseUrl: baseUrl, email: email, password: password);
       if (response.user.role.toUpperCase() != 'DRIVER') {
@@ -560,7 +597,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _deviceSessionExpiresAt = null;
         _isBusy = false;
         _message = 'Eingeloggt als Fahrer.';
+        _screenState = 'DASHBOARD';
       });
+      _appendDriverLog('LOGIN', 'Manueller Fahrer-Login erfolgreich');
 
       await _refreshOrders(forceMessage: false);
       _startOrdersPolling();
@@ -568,7 +607,10 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       setState(() {
         _isBusy = false;
         _message = error.message;
+        _lastApiError = error.message;
+        _screenState = 'USER_LOGIN_FAILED';
       });
+      _appendDriverLog('LOGIN', 'Fehlgeschlagen: ${error.message}');
     }
   }
 
@@ -577,6 +619,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     if (rawPairingInput.isEmpty) {
       setState(() {
         _message = 'Bitte zuerst den QR-Code scannen.';
+        _screenState = 'PAIRING_INPUT_MISSING';
       });
       return;
     }
@@ -587,7 +630,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     if (parsedPairing == null) {
       setState(() {
         _message = 'Dieser QR-Code ist nicht für die Fahrer-App geeignet.';
+        _screenState = 'PAIRING_PARSE_FAILED';
       });
+      _appendDriverLog('PAIRING', 'QR-Payload ungültig');
       return;
     }
 
@@ -600,8 +645,11 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     try {
       setState(() {
         _isBusy = true;
-        _message = 'Fahrergerät wird verbunden...';
+        _message = 'Gerät wird verbunden …';
+        _screenState = 'BINDING_IN_PROGRESS';
       });
+      _lastBindRoute = '/api/orders/driver/device-login';
+      _appendDriverLog('BIND', 'Bind-Request gestartet');
 
       final response = await _api.loginDriverDevice(
         baseUrl: baseUrl,
@@ -633,16 +681,44 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _deviceLabel = response.session.deviceLabel;
         _deviceSessionExpiresAt = response.session.expiresAt;
         _isBusy = false;
-        _message = 'Fahrergerät verbunden.';
+        _message = 'Verbindung erfolgreich.';
+        _lastBindHttpStatus = 200;
+        _lastBindError = null;
+        _screenState = 'BINDING_SUCCESS';
       });
+      _appendDriverLog(
+        'BIND',
+        'Bind erfolgreich (tenant=${response.session.tenantId}, code=${response.session.displayCode})',
+      );
 
       await _refreshOrders(forceMessage: false);
       _startOrdersPolling();
+      if (mounted) {
+        setState(() {
+          _screenState = 'DASHBOARD';
+        });
+      }
     } on ApiException catch (error) {
       setState(() {
         _isBusy = false;
         _message = _mapPairingErrorMessage(error.message);
+        _screenState = 'BINDING_FAILED';
+        _lastBindHttpStatus = error.statusCode;
+        _lastBindError = error.message;
+        _lastApiError = error.message;
       });
+      _appendDriverLog(
+        'BIND',
+        'Bind fehlgeschlagen (status=${error.statusCode ?? '-'}): ${error.message}',
+      );
+    } catch (error) {
+      setState(() {
+        _isBusy = false;
+        _message = 'Verbindung fehlgeschlagen: $error';
+        _screenState = 'BINDING_FAILED';
+        _lastBindError = error.toString();
+      });
+      _appendDriverLog('BIND', 'Unerwarteter Bind-Fehler: $error');
     }
   }
 
@@ -666,7 +742,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     if (parsedPairing == null) {
       setState(() {
         _message = 'Dieser QR-Code ist nicht für die Fahrer-App geeignet.';
+        _screenState = 'PAIRING_PARSE_FAILED';
       });
+      _appendDriverLog('PAIRING', 'Scan lieferte ungültigen QR-Code');
       return;
     }
 
@@ -674,6 +752,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       _pairingTokenController.text = parsedPairing.rawPayload;
       _baseUrlController.text = parsedPairing.apiBaseUrl;
       _message = 'QR-Code erkannt. Verbindung wird gestartet ...';
+      _screenState = 'PAIRING_DETECTED';
     });
     await _loginWithPairing();
   }
@@ -711,7 +790,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       _pairingTokenController.clear();
       _pairingDriverNameController.clear();
       _message = 'Abgemeldet.';
+      _screenState = 'LOGIN';
     });
+    _appendDriverLog('SESSION', 'Verbindung zurückgesetzt');
   }
 
   Future<void> _sendDeviceHeartbeatIfNeeded() async {
@@ -725,7 +806,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         baseUrl: _normalizedBaseUrl(_baseUrlController.text),
         authToken: token,
       );
-    } on ApiException {
+    } on ApiException catch (error) {
+      _lastApiError = error.message;
+      _appendDriverLog('HEARTBEAT', 'Fehler: ${error.message}');
       // Heartbeat-Fehler soll den Hauptworkflow nicht blockieren.
     }
   }
@@ -743,31 +826,51 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       return;
     }
 
-    await _sendDeviceHeartbeatIfNeeded();
+    try {
+      await _sendDeviceHeartbeatIfNeeded();
 
-    final feed = await _api.fetchDriverAssignedFeed(
-      baseUrl: _normalizedBaseUrl(_baseUrlController.text),
-      authToken: token,
-    );
-    if (!mounted) return;
+      final feed = await _api.fetchDriverAssignedFeed(
+        baseUrl: _normalizedBaseUrl(_baseUrlController.text),
+        authToken: token,
+      );
+      if (!mounted) return;
 
-    var shouldSyncTracking = false;
-    setState(() {
-      _orders = feed.orders;
-      _locationTrackingEnabled = feed.locationTrackingEnabled;
-      _customerLiveTrackingEnabled = feed.customerLiveTrackingEnabled;
-      _locationIntervalSeconds = feed.locationUpdateSeconds;
-      if (_selectedOrderId == null || !_orders.any((entry) => entry.id == _selectedOrderId)) {
-        _selectedOrderId = _orders.isNotEmpty ? _orders.first.id : null;
+      var shouldSyncTracking = false;
+      setState(() {
+        _orders = feed.orders;
+        _locationTrackingEnabled = feed.locationTrackingEnabled;
+        _customerLiveTrackingEnabled = feed.customerLiveTrackingEnabled;
+        _locationIntervalSeconds = feed.locationUpdateSeconds;
+        if (_selectedOrderId == null || !_orders.any((entry) => entry.id == _selectedOrderId)) {
+          _selectedOrderId = _orders.isNotEmpty ? _orders.first.id : null;
+        }
+        shouldSyncTracking = true;
+        _screenState = 'DASHBOARD';
+
+        if (forceMessage) {
+          _message = '${feed.orders.length} Fahreraufträge geladen.';
+        }
+      });
+      _appendDriverLog('API', 'Orders geladen: ${feed.orders.length}');
+      if (shouldSyncTracking) {
+        await _syncLocationSharingState();
       }
-      shouldSyncTracking = true;
-
-      if (forceMessage) {
-        _message = '${feed.orders.length} Fahreraufträge geladen.';
-      }
-    });
-    if (shouldSyncTracking) {
-      await _syncLocationSharingState();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _lastApiError = error.message;
+        _message = error.message;
+        _screenState = 'API_ERROR';
+      });
+      _appendDriverLog('API', 'Fehler: ${error.message}');
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _lastApiError = error.toString();
+        _message = 'Fehler beim Laden der Fahreraufträge: $error';
+        _screenState = 'API_ERROR';
+      });
+      _appendDriverLog('API', 'Unerwarteter Fehler: $error');
     }
   }
 
@@ -1328,6 +1431,15 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           ),
         ),
         actions: [
+          IconButton(
+            tooltip: 'Fehlerlog anzeigen',
+            onPressed: () {
+              setState(() {
+                _showDriverErrorLog = !_showDriverErrorLog;
+              });
+            },
+            icon: const Icon(Icons.bug_report_outlined),
+          ),
           if (token != null)
             IconButton(
               tooltip: 'Abmelden',
@@ -1359,6 +1471,12 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                _buildDriverStateCard(),
+                if (_showDriverErrorLog) ...[
+                  const SizedBox(height: 8),
+                  _buildDriverErrorLogCard(),
+                ],
+                const SizedBox(height: 8),
                 const Text(
                   'Fahrerzugang',
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
@@ -1564,6 +1682,12 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              _buildDriverStateCard(),
+              if (_showDriverErrorLog) ...[
+                const SizedBox(height: 8),
+                _buildDriverErrorLogCard(),
+              ],
+              const SizedBox(height: 8),
               Text(
                 'Angemeldet: ${_driverUser?.name ?? '-'}',
                 style: const TextStyle(fontWeight: FontWeight.w700),
@@ -1639,11 +1763,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: SingleChildScrollView(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewPadding.bottom + 8,
-          ),
-          child: Column(
+        child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
             Text(
@@ -1733,6 +1853,97 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildDriverStateCard() {
+    final hasToken = _authToken != null && _authToken!.trim().isNotEmpty;
+    return Card(
+      color: const Color(0xFFF8FAFC),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _isBusy ? 'Gerät wird verbunden …' : 'Status: $_screenState',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _message,
+              style: const TextStyle(fontSize: 13, color: Color(0xFF334155)),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _isBusy ? null : _loginWithPairing,
+                  icon: const Icon(Icons.refresh, size: 16),
+                  label: const Text('Erneut versuchen'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _isBusy
+                      ? null
+                      : () {
+                          unawaited(_logout());
+                        },
+                  icon: const Icon(Icons.link_off, size: 16),
+                  label: const Text('Verbindung zurücksetzen'),
+                ),
+                Chip(label: Text('Token vorhanden: ${hasToken ? 'ja' : 'nein'}')),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDriverErrorLogCard() {
+    final token = _authToken;
+    final tenantId = _driverUser?.tenantId ?? '-';
+    final apiBase = _normalizedBaseUrl(_baseUrlController.text);
+    final deviceCode = _deviceDisplayCode ?? '-';
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Fehlerlog anzeigen',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Text('API-URL: $apiBase'),
+            Text('Tenant-ID: $tenantId'),
+            Text('Driver-Code: $deviceCode'),
+            Text('Token vorhanden: ${token == null || token.trim().isEmpty ? 'nein' : 'ja'}'),
+            Text('Letzter Bind-Status: ${_lastBindHttpStatus?.toString() ?? '-'}'),
+            Text('Letzter Bind-Fehler: ${_lastBindError ?? '-'}'),
+            Text('Letzter API-Fehler: ${_lastApiError ?? '-'}'),
+            Text('Aktueller Screen-State: $_screenState'),
+            Text('Bind-Route: ${_lastBindRoute ?? '-'}'),
+            const SizedBox(height: 8),
+            const Text(
+              'Letzte 20 Logeinträge',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            if (_driverLogEntries.isEmpty)
+              const Text('-', style: TextStyle(color: Color(0xFF64748B)))
+            else
+              ..._driverLogEntries.map(
+                (entry) => Text(
+                  entry,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
