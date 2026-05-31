@@ -5360,6 +5360,8 @@ export type ManagedChain = {
   id: string
   name: string
   code: string
+  status?: string
+  createdAt?: string
 }
 
 export type ManagedTenant = {
@@ -5367,7 +5369,10 @@ export type ManagedTenant = {
   name: string
   email: string | null
   chainId: string | null
+  status?: string
+  addressLine?: string | null
   createdAt?: string
+  updatedAt?: string
   separateDatabase?: {
     enabled: boolean
     created: boolean

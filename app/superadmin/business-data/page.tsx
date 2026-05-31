@@ -4,7 +4,13 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
-import { getAccessContext, getStoredAccessToken, type AccessContext } from '@/lib/api'
+import {
+  getAccessContext,
+  getAccessUsers,
+  getStoredAccessToken,
+  type AccessContext,
+  type AccessUser,
+} from '@/lib/api'
 
 function formatDate(value: string | null) {
   if (!value) return '-'
@@ -19,6 +25,10 @@ export default function SuperadminBusinessDataPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [copyInfo, setCopyInfo] = useState('')
+  const [users, setUsers] = useState<AccessUser[]>([])
+  const [searchTenantId, setSearchTenantId] = useState('')
+  const [searchAdminEmail, setSearchAdminEmail] = useState('')
+  const [searchBranchName, setSearchBranchName] = useState('')
 
   async function copyValue(value: string, label: string) {
     try {
@@ -47,9 +57,10 @@ export default function SuperadminBusinessDataPage() {
       try {
         setLoading(true)
         setError('')
-        const payload = await getAccessContext(token)
+        const [payload, loadedUsers] = await Promise.all([getAccessContext(token), getAccessUsers(token)])
         if (!active) return
         setContext(payload)
+        setUsers(loadedUsers)
       } catch (loadError) {
         if (!active) return
         setError(loadError instanceof Error ? loadError.message : 'Unternehmensübersicht konnte nicht geladen werden.')
@@ -67,6 +78,46 @@ export default function SuperadminBusinessDataPage() {
     () => new Map((context?.chains || []).map((entry) => [entry.id, entry.name])),
     [context]
   )
+
+  const primaryAdminByChainId = useMemo(() => {
+    const map = new Map<string, AccessUser>()
+    for (const user of users) {
+      if (!user.chainId) continue
+      if (user.role !== 'CHAINADMIN' && user.role !== 'ADMIN') continue
+      const existing = map.get(user.chainId)
+      if (!existing || new Date(user.createdAt).getTime() < new Date(existing.createdAt).getTime()) {
+        map.set(user.chainId, user)
+      }
+    }
+    return map
+  }, [users])
+
+  const adminByTenantId = useMemo(() => {
+    const map = new Map<string, AccessUser>()
+    for (const user of users) {
+      if (!user.tenantId) continue
+      if (user.role !== 'ADMIN' && user.role !== 'CHAINADMIN') continue
+      const existing = map.get(user.tenantId)
+      if (!existing || new Date(user.createdAt).getTime() < new Date(existing.createdAt).getTime()) {
+        map.set(user.tenantId, user)
+      }
+    }
+    return map
+  }, [users])
+
+  const filteredTenants = useMemo(() => {
+    const byTenant = searchTenantId.trim().toLowerCase()
+    const byEmail = searchAdminEmail.trim().toLowerCase()
+    const byBranch = searchBranchName.trim().toLowerCase()
+    return (context?.tenants || []).filter((tenant) => {
+      const admin = adminByTenantId.get(tenant.id)
+      const tenantMatch = byTenant.length === 0 || tenant.id.toLowerCase().includes(byTenant)
+      const emailMatch =
+        byEmail.length === 0 || (admin?.email || '').toLowerCase().includes(byEmail)
+      const branchMatch = byBranch.length === 0 || tenant.name.toLowerCase().includes(byBranch)
+      return tenantMatch && emailMatch && branchMatch
+    })
+  }, [context, adminByTenantId, searchTenantId, searchAdminEmail, searchBranchName])
 
   const activeTenants = useMemo(() => (context?.tenants || []).length, [context])
 
@@ -107,52 +158,91 @@ export default function SuperadminBusinessDataPage() {
         </section>
 
         <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
-          <h2 className="mb-3 text-lg font-semibold text-[var(--brand-ink)]">Filialübersicht</h2>
+          <h2 className="mb-3 text-lg font-semibold text-[var(--brand-ink)]">Unternehmen</h2>
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-slate-200 text-slate-500">
-                  <th className="px-2 py-2">Unternehmen</th>
-                  <th className="px-2 py-2">Unternehmens-ID</th>
-                  <th className="px-2 py-2">Filiale</th>
-                  <th className="px-2 py-2">Tenant-ID / Filial-ID</th>
+                  <th className="px-2 py-2">Name</th>
+                  <th className="px-2 py-2">chainId</th>
+                  <th className="px-2 py-2">tenantId (erste Filiale)</th>
+                  <th className="px-2 py-2">Primäre Admin-E-Mail</th>
                   <th className="px-2 py-2">Status</th>
-                  <th className="px-2 py-2">Erstellt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(context?.chains || []).map((chain) => {
+                  const firstTenant = (context?.tenants || []).find((tenant) => tenant.chainId === chain.id)
+                  const primaryAdmin = primaryAdminByChainId.get(chain.id)
+                  return (
+                    <tr key={chain.id} className="border-b border-slate-100">
+                      <td className="px-2 py-2">{chain.name}</td>
+                      <td className="px-2 py-2 font-mono text-xs">{chain.id}</td>
+                      <td className="px-2 py-2 font-mono text-xs">{firstTenant?.id || '-'}</td>
+                      <td className="px-2 py-2">{primaryAdmin?.email || '-'}</td>
+                      <td className="px-2 py-2">{(chain.status || 'ACTIVE') === 'ACTIVE' ? 'aktiv' : 'inaktiv'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+          <h2 className="mb-3 text-lg font-semibold text-[var(--brand-ink)]">Filialen / Mandanten</h2>
+          <div className="mb-3 grid gap-2 sm:grid-cols-3">
+            <input
+              value={searchTenantId}
+              onChange={(event) => setSearchTenantId(event.target.value)}
+              placeholder="Suche nach Tenant-ID"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+            <input
+              value={searchAdminEmail}
+              onChange={(event) => setSearchAdminEmail(event.target.value)}
+              placeholder="Suche nach Admin-E-Mail"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+            <input
+              value={searchBranchName}
+              onChange={(event) => setSearchBranchName(event.target.value)}
+              placeholder="Suche nach Filialname"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="px-2 py-2">Filialname</th>
+                  <th className="px-2 py-2">tenantId</th>
+                  <th className="px-2 py-2">branchId</th>
+                  <th className="px-2 py-2">Adresse</th>
+                  <th className="px-2 py-2">Admin-Benutzer</th>
+                  <th className="px-2 py-2">DB/Schema</th>
+                  <th className="px-2 py-2">createdAt</th>
+                  <th className="px-2 py-2">updatedAt</th>
                   <th className="px-2 py-2">Aktionen</th>
                 </tr>
               </thead>
               <tbody>
-                {!loading && (context?.tenants.length || 0) === 0 ? (
+                {!loading && filteredTenants.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-2 py-3 text-slate-500">
+                    <td colSpan={9} className="px-2 py-3 text-slate-500">
                       Keine Unternehmen/Filialen gefunden.
                     </td>
                   </tr>
                 ) : null}
-                {(context?.tenants || []).map((tenant) => (
+                {filteredTenants.map((tenant) => (
                   <tr key={tenant.id} className="border-b border-slate-100">
-                    <td className="px-2 py-2">{chainNameById.get(tenant.chainId || '') || '-'}</td>
-                    <td className="px-2 py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs">{tenant.chainId || '-'}</span>
-                        {tenant.chainId ? (
-                          <button
-                            type="button"
-                            onClick={() => void copyValue(tenant.chainId || '', 'Unternehmens-ID')}
-                            className="rounded border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
-                          >
-                            Copy
-                          </button>
-                        ) : null}
-                      </div>
-                    </td>
                     <td className="px-2 py-2">{tenant.name}</td>
                     <td className="px-2 py-2">
                       <div className="flex items-center gap-2">
                         <span className="font-mono text-xs">{tenant.id}</span>
                         <button
                           type="button"
-                          onClick={() => void copyValue(tenant.id, 'Tenant-ID')}
+                          onClick={() => void copyValue(tenant.id, 'tenantId')}
                           className="rounded border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
                         >
                           Copy
@@ -160,9 +250,26 @@ export default function SuperadminBusinessDataPage() {
                       </div>
                     </td>
                     <td className="px-2 py-2">
-                      {tenant.separateDatabase?.enabled ? 'AKTIV' : 'STANDARD'}
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-xs">{tenant.id}</span>
+                        <button
+                          type="button"
+                          onClick={() => void copyValue(tenant.id, 'branchId')}
+                          className="rounded border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2">{tenant.addressLine || '-'}</td>
+                    <td className="px-2 py-2">
+                      {adminByTenantId.get(tenant.id)?.email || adminByTenantId.get(tenant.id)?.name || '-'}
+                    </td>
+                    <td className="px-2 py-2">
+                      shared database
                     </td>
                     <td className="px-2 py-2">{formatDate(tenant.createdAt ?? null)}</td>
+                    <td className="px-2 py-2">{formatDate(tenant.updatedAt ?? null)}</td>
                     <td className="px-2 py-2">
                       <div className="flex gap-2">
                         <Link
@@ -184,6 +291,10 @@ export default function SuperadminBusinessDataPage() {
               </tbody>
             </table>
           </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Hinweis: Aktuell läuft Klarando im Shared-Database-Modell. branchId wird derzeit als tenantId geführt.
+            Unternehmen: {chainNameById.size}, Filialen gefiltert: {filteredTenants.length}
+          </p>
         </section>
       </div>
     </BackofficeLayout>
