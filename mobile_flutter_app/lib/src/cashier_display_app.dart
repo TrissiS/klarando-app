@@ -662,6 +662,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     return statusLower == 'open' || statusLower == 'pending_payment';
   }
 
+  void _markOrderAsHandledForTone(String orderId, {required String reason}) {
+    final removed = _pendingNewOrderIds.remove(orderId);
+    _appendLocalLog('ORDER', '$reason: $orderId');
+    if (removed) {
+      _appendLocalLog('TONE', 'TONE stopped for accepted order');
+    }
+    _appendLocalLog(
+      'TONE',
+      'pendingNewOrderIds count: ${_pendingNewOrderIds.length}',
+    );
+    _ensureOrderToneRepeatState();
+  }
+
   void _triggerOrderTone() {
     unawaited(_playNewOrderSound());
     _ensureOrderToneRepeatState();
@@ -857,6 +870,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         orderId: order.id,
         estimatedMinutes: eta,
       );
+      _markOrderAsHandledForTone(order.id, reason: 'ORDER accepted');
       await _pollFeed();
       _info = 'Bestellung angenommen (${eta} Min).';
     });
@@ -3366,7 +3380,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     String nextStepKey;
     if (statusLower == 'open' || statusLower == 'pending_payment') {
       nextStepKey = 'accept';
-    } else if (statusLower == 'preparing') {
+    } else if (statusLower == 'accepted' || statusLower == 'preparing') {
       nextStepKey = isDelivery ? 'ready_delivery' : 'ready_pickup';
     } else if (statusLower == 'ready_for_delivery') {
       nextStepKey = 'out_for_delivery';
@@ -3381,7 +3395,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     int stepIndex;
     if (statusLower == 'open' || statusLower == 'pending_payment') {
       stepIndex = 0;
-    } else if (statusLower == 'preparing') {
+    } else if (statusLower == 'accepted' || statusLower == 'preparing') {
       stepIndex = 1;
     } else if (statusLower == 'ready_for_delivery' ||
         statusLower == 'ready_for_pickup') {
@@ -3404,7 +3418,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     } else if (statusLower == 'ready_for_delivery' ||
         statusLower == 'ready_for_pickup') {
       statusBadgeColor = const Color(0xFF2563EB);
-    } else if (statusLower == 'preparing') {
+    } else if (statusLower == 'accepted' || statusLower == 'preparing') {
       statusBadgeColor = const Color(0xFFD97706);
     } else {
       statusBadgeColor = const Color(0xFF15803D);
@@ -3633,7 +3647,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   fontWeight: FontWeight.w700,
                 ),
               )
-            else if (statusLower == 'preparing' || statusLower == 'out_for_delivery')
+            else if (statusLower == 'accepted' ||
+                statusLower == 'preparing' ||
+                statusLower == 'out_for_delivery')
               Text(
                 'In Bearbeitung seit ${progressMinutes ?? 0} Min.',
                 style: const TextStyle(
