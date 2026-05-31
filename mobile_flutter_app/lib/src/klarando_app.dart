@@ -1136,6 +1136,15 @@ class _HomeShellState extends State<HomeShell> {
     });
   }
 
+  Future<void> _saveLocationCoordinates(double latitude, double longitude) async {
+    await _persistDiscoveryAddress(
+      address: _activeAddress,
+      zipCode: _activeZipCode,
+      latitude: latitude,
+      longitude: longitude,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
