@@ -53,6 +53,7 @@ const _orderDeskNewOrderAudioSource = 'audio/orderdesk_new_order.mp3';
 const _heartbeatFailureOfflineThreshold = 3;
 
 enum _DeskConnectionHealth { online, checking, degraded, offline }
+enum _OrderDeskViewMode { open, archive }
 
 class _OrderDeskLogEntry {
   const _OrderDeskLogEntry({
@@ -144,6 +145,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _connected = false;
   bool _bindingLocked = false;
   bool _showManualConnection = false;
+  _OrderDeskViewMode _viewMode = _OrderDeskViewMode.open;
   final Map<String, bool> _orderDetailExpandedById = <String, bool>{};
   String? _error;
   String? _info;
@@ -892,6 +894,76 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       );
       await _pollFeed();
       _info = 'Bestellung wurde abgelehnt.';
+    });
+  }
+
+  Future<void> _completeOrder(PublicOrderSummary order) async {
+    final isDelivery = (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
+    if (order.paymentStatus.toUpperCase() != 'PAID') {
+      await _markPaid(order);
+      return;
+    }
+    await _setOrderStatus(
+      order,
+      'done',
+      isDelivery
+          ? 'Lieferung als abgeschlossen markiert.'
+          : 'Bestellung als abgeholt markiert.',
+    );
+  }
+
+  Future<void> _cancelOrder(PublicOrderSummary order) async {
+    final reasonController = TextEditingController();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Bestellung stornieren?'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Bestellung wirklich stornieren?'),
+              const SizedBox(height: 12),
+              TextField(
+                controller: reasonController,
+                decoration: const InputDecoration(
+                  labelText: 'Grund (optional)',
+                  hintText: 'z. B. Kunde nicht erreichbar',
+                ),
+                maxLines: 2,
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Stornieren'),
+            ),
+          ],
+        );
+      },
+    );
+    if (confirm != true) {
+      reasonController.dispose();
+      return;
+    }
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+    await _runOrderMutation(() async {
+      await _api.updatePublicOrderDisplayOrderStatus(
+        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+        displayCode: _displayCodeController.text.trim(),
+        orderId: order.id,
+        status: 'cancelled',
+      );
+      await _pollFeed();
+      _info = reason.isEmpty
+          ? 'Bestellung wurde storniert.'
+          : 'Bestellung wurde storniert ($reason).';
     });
   }
 
@@ -2305,8 +2377,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         return 'Fahrer unterwegs';
       case 'delivered':
         return 'Geliefert';
+      case 'picked_up':
+        return 'Abgeholt';
+      case 'completed':
+        return 'Abgeschlossen';
       case 'done':
         return 'Fertig';
+      case 'cancelled':
+        return 'Storniert';
       case 'archived':
         return 'Archiviert';
       case 'rejected':
@@ -2326,6 +2404,21 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return pickup.toString();
     }
     return order.id.length >= 8 ? order.id.substring(0, 8) : order.id;
+  }
+
+  bool _isArchivedOrderStatus(String status) {
+    final normalized = status.trim().toLowerCase();
+    return normalized == 'done' ||
+        normalized == 'archived' ||
+        normalized == 'delivered' ||
+        normalized == 'completed' ||
+        normalized == 'picked_up' ||
+        normalized == 'cancelled' ||
+        normalized == 'rejected';
+  }
+
+  bool _isOpenOrderStatus(String status) {
+    return !_isArchivedOrderStatus(status);
   }
 
   String _formatTimeAgo(DateTime timestamp) {
@@ -2652,23 +2745,26 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   @override
   Widget build(BuildContext context) {
     final orders = _feed?.orders ?? const <PublicOrderSummary>[];
-    final visibleOrders = orders
-        .where((entry) => entry.status.trim().toLowerCase() != 'archived')
+    final openOrders = orders
+        .where((entry) => _isOpenOrderStatus(entry.status))
         .toList(growable: false);
-    final deliveryOrders = orders
+    final archivedOrders = orders
+        .where((entry) => _isArchivedOrderStatus(entry.status))
+        .toList(growable: false);
+    final visibleOrders =
+        _viewMode == _OrderDeskViewMode.open ? openOrders : archivedOrders;
+    final deliveryOrders = openOrders
         .where(
           (entry) =>
               (entry.serviceType ?? '').toUpperCase() == 'DELIVERY' &&
-              entry.status.trim().toLowerCase() != 'done' &&
-              entry.status.trim().toLowerCase() != 'archived',
+              _isOpenOrderStatus(entry.status),
         )
         .toList(growable: false);
-    final pickupOrders = orders
+    final pickupOrders = openOrders
         .where(
           (entry) =>
               (entry.serviceType ?? '').toUpperCase() == 'PICKUP' &&
-              entry.status.trim().toLowerCase() != 'done' &&
-              entry.status.trim().toLowerCase() != 'archived',
+              _isOpenOrderStatus(entry.status),
         )
         .toList(growable: false);
     PublicOrderSummary? firstDeliveryOrderWithAddress;
@@ -2848,7 +2944,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  Chip(label: Text('Bestellungen: ${visibleOrders.length}')),
+                  ChoiceChip(
+                    label: Text('Offen: ${openOrders.length}'),
+                    selected: _viewMode == _OrderDeskViewMode.open,
+                    onSelected: (_) {
+                      setState(() {
+                        _viewMode = _OrderDeskViewMode.open;
+                      });
+                    },
+                  ),
+                  ChoiceChip(
+                    label: Text('Archiv: ${archivedOrders.length}'),
+                    selected: _viewMode == _OrderDeskViewMode.archive,
+                    onSelected: (_) {
+                      setState(() {
+                        _viewMode = _OrderDeskViewMode.archive;
+                      });
+                    },
+                  ),
                   Chip(
                     label: Text('Lieferungen offen: ${deliveryOrders.length}'),
                   ),
@@ -2856,8 +2969,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ],
               ),
               const SizedBox(height: 8),
-              _buildOutForDeliveryStrip(orders),
-              if (deliveryOrders.isNotEmpty) ...[
+              if (_viewMode == _OrderDeskViewMode.open) _buildOutForDeliveryStrip(openOrders),
+              if (_viewMode == _OrderDeskViewMode.open && deliveryOrders.isNotEmpty) ...[
                 const SizedBox(height: 12),
                 _buildDeliveryMapCard(
                   firstDeliveryOrderWithAddress ?? deliveryOrders.first,
@@ -2865,6 +2978,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ],
               const SizedBox(height: 12),
+              if (visibleOrders.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      _viewMode == _OrderDeskViewMode.open
+                          ? 'Keine offenen Bestellungen.'
+                          : 'Keine abgeschlossenen oder stornierten Bestellungen im Archiv.',
+                    ),
+                  ),
+                ),
               ...visibleOrders.map(_buildOrderCard),
             ],
           ),
@@ -3235,6 +3359,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final paymentLabel = _paymentStatusLabel(order.paymentStatus);
     final paymentMethod = (order.paymentMethod ?? '').trim();
     final statusLabel = _orderStatusLabel(order.status);
+    final isTerminalStatus = _isArchivedOrderStatus(statusLower);
+    final isCancelledStatus =
+        statusLower == 'cancelled' || statusLower == 'rejected';
 
     String nextStepKey;
     if (statusLower == 'open' || statusLower == 'pending_payment') {
@@ -3261,14 +3388,16 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       stepIndex = 2;
     } else if (statusLower == 'out_for_delivery') {
       stepIndex = 3;
-    } else if (statusLower == 'done' || statusLower == 'archived') {
+    } else if (_isArchivedOrderStatus(statusLower)) {
       stepIndex = 4;
     } else {
       stepIndex = 0;
     }
 
     Color statusBadgeColor;
-    if (statusLower == 'done' || statusLower == 'archived') {
+    if (isCancelledStatus) {
+      statusBadgeColor = const Color(0xFF991B1B);
+    } else if (_isArchivedOrderStatus(statusLower)) {
       statusBadgeColor = const Color(0xFF166534);
     } else if (statusLower == 'out_for_delivery') {
       statusBadgeColor = const Color(0xFF6D28D9);
@@ -3384,7 +3513,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       height: 4,
                       decoration: BoxDecoration(
                         color: index <= stepIndex
-                            ? const Color(0xFF2563EB)
+                            ? (isCancelledStatus
+                                  ? const Color(0xFFB91C1C)
+                                  : const Color(0xFF2563EB))
                             : const Color(0xFFE2E8F0),
                         borderRadius: BorderRadius.circular(4),
                       ),
@@ -3393,9 +3524,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ],
             ),
             const SizedBox(height: 4),
-            const Text(
-              'Eingegangen → In Bearbeitung → Bereit → Unterwegs → Abgeschlossen',
-              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            Text(
+              isCancelledStatus
+                  ? 'Bestellung wurde storniert/abgelehnt'
+                  : 'Eingegangen → In Bearbeitung → Bereit → Unterwegs → Abgeschlossen',
+              style: TextStyle(
+                fontSize: 11,
+                color: isCancelledStatus
+                    ? const Color(0xFF991B1B)
+                    : const Color(0xFF64748B),
+                fontWeight: isCancelledStatus ? FontWeight.w700 : FontWeight.w400,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -3502,7 +3641,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   fontWeight: FontWeight.w600,
                 ),
               )
-            else if (statusLower == 'done')
+            else if (_isArchivedOrderStatus(statusLower))
               Text(
                 'Fertig seit ${doneMinutes ?? 0} Min.',
                 style: const TextStyle(
@@ -3565,7 +3704,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
             ],
             const SizedBox(height: 8),
-            if (nextStepKey == 'accept')
+            if (!isTerminalStatus && nextStepKey == 'accept')
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -3578,7 +3717,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   label: const Text('Bestellung annehmen'),
                 ),
               ),
-            if (nextStepKey == 'ready_delivery' || nextStepKey == 'ready_pickup')
+            if (!isTerminalStatus &&
+                (nextStepKey == 'ready_delivery' || nextStepKey == 'ready_pickup'))
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -3606,7 +3746,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   ),
                 ),
               ),
-            if (nextStepKey == 'out_for_delivery')
+            if (!isTerminalStatus && nextStepKey == 'out_for_delivery')
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
@@ -3625,11 +3765,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   label: const Text('Fahrer unterwegs'),
                 ),
               ),
-            if (nextStepKey == 'complete_delivery' || nextStepKey == 'complete_pickup')
+            if (!isTerminalStatus &&
+                (nextStepKey == 'complete_delivery' ||
+                    nextStepKey == 'complete_pickup'))
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                  onPressed: _loading ? null : () => _completeOrder(order),
                   style: FilledButton.styleFrom(
                     backgroundColor: const Color(0xFF166534),
                     foregroundColor: Colors.white,
@@ -3651,7 +3793,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.close, size: 16),
                     label: const Text('Ablehnen'),
                   ),
-                if (statusLower != 'open' &&
+                if (!isTerminalStatus &&
+                    statusLower != 'open' &&
                     statusLower != 'pending_payment' &&
                     statusLower != 'preparing')
                   FilledButton.tonalIcon(
@@ -3665,7 +3808,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.restaurant, size: 16),
                     label: const Text('In Vorbereitung'),
                   ),
-                OutlinedButton.icon(
+                if (!isTerminalStatus)
+                  OutlinedButton.icon(
                   onPressed: _loading || !isDelivery
                       ? null
                       : () => _dispatchOrder(order),
@@ -3676,13 +3820,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                         : 'Fahrer wechseln',
                   ),
                 ),
-                if (statusLower != 'open' && statusLower != 'pending_payment')
+                if (!isTerminalStatus &&
+                    statusLower != 'open' &&
+                    statusLower != 'pending_payment')
                   OutlinedButton.icon(
                     onPressed: _loading ? null : () => _acceptOrder(order),
                     icon: const Icon(Icons.schedule, size: 16),
                     label: const Text('Zeit aktualisieren'),
                   ),
-                if (isPickup && nextStepKey != 'ready_pickup')
+                if (!isTerminalStatus && isPickup && nextStepKey != 'ready_pickup')
                   OutlinedButton.icon(
                     onPressed: _loading
                         ? null
@@ -3694,13 +3840,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.storefront, size: 16),
                     label: const Text('Bereit zur Abholung'),
                   ),
-                if (isPickup && nextStepKey != 'complete_pickup')
+                if (!isTerminalStatus && isPickup && nextStepKey != 'complete_pickup')
                   OutlinedButton.icon(
-                    onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                    onPressed: _loading ? null : () => _completeOrder(order),
                     icon: const Icon(Icons.check_circle_outline, size: 16),
                     label: const Text('Bestellung abgeholt'),
                   ),
-                if (isDelivery && nextStepKey != 'ready_delivery')
+                if (!isTerminalStatus && isDelivery && nextStepKey != 'ready_delivery')
                   OutlinedButton.icon(
                     onPressed: _loading
                         ? null
@@ -3712,7 +3858,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.delivery_dining, size: 16),
                     label: const Text('Bereit für Lieferung'),
                   ),
-                if (isDelivery && nextStepKey != 'out_for_delivery')
+                if (!isTerminalStatus && isDelivery && nextStepKey != 'out_for_delivery')
                   OutlinedButton.icon(
                     onPressed: _loading
                         ? null
@@ -3724,11 +3870,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.local_shipping, size: 16),
                     label: const Text('Fahrer unterwegs'),
                   ),
-                if (isDelivery && nextStepKey != 'complete_delivery')
+                if (!isTerminalStatus && isDelivery && nextStepKey != 'complete_delivery')
                   OutlinedButton.icon(
-                    onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                    onPressed: _loading ? null : () => _completeOrder(order),
                     icon: const Icon(Icons.check_circle_outline, size: 16),
                     label: const Text('Lieferung abgeschlossen'),
+                  ),
+                if (!isTerminalStatus)
+                  OutlinedButton.icon(
+                    onPressed: _loading ? null : () => _cancelOrder(order),
+                    icon: const Icon(Icons.cancel, size: 16),
+                    label: const Text('Bestellung stornieren'),
                   ),
                 OutlinedButton.icon(
                   onPressed: _loading

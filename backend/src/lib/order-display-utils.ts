@@ -4,9 +4,17 @@ import { prisma } from './prisma'
 export const DISPLAY_STATUS_VALUES = new Set([
   'pending_payment',
   'open',
+  'accepted',
   'preparing',
+  'ready_for_pickup',
+  'ready_for_delivery',
   'out_for_delivery',
+  'picked_up',
+  'delivered',
+  'completed',
   'done',
+  'cancelled',
+  'rejected',
   'archived',
 ])
 
@@ -175,7 +183,22 @@ export function feedStatusesForDisplay(display: {
   pickupShowDone: boolean
 }) {
   if (display.displayRole === 'CASH') {
-    return ['pending_payment', 'open', 'preparing', 'out_for_delivery', 'done']
+    return [
+      'pending_payment',
+      'open',
+      'accepted',
+      'preparing',
+      'ready_for_pickup',
+      'ready_for_delivery',
+      'out_for_delivery',
+      'picked_up',
+      'delivered',
+      'completed',
+      'done',
+      'cancelled',
+      'rejected',
+      'archived',
+    ]
   }
 
   if (display.displayRole === 'PICKUP') {
