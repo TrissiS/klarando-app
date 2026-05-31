@@ -1571,9 +1571,13 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewPadding.bottom + 8,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Text(
               'Aktive Fahreraufträge (${_orders.length})',
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
@@ -1693,9 +1697,13 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewPadding.bottom + 8,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Text(
               'Auftrag #${_displayOrderNumber(order)}',
               style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
@@ -1751,37 +1759,37 @@ class _DriverHomePageState extends State<_DriverHomePage> {
             _detailRow('Status', _statusLabel(order.status)),
             if (driverRuntime != null)
               _detailRow('Seit Fahrerstart', driverRuntime),
-            if (order.paymentStatus.toUpperCase() != 'PAID')
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEE2E2),
-                  border: Border.all(color: const Color(0xFFDC2626)),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: Color(0xFF991B1B),
-                      size: 26,
-                    ),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Achtung: Zahlung noch offen',
-                        style: TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.w900,
-                          color: Color(0xFF991B1B),
+              if (order.paymentStatus.toUpperCase() != 'PAID')
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEE2E2),
+                    border: Border.all(color: const Color(0xFFDC2626)),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        color: Color(0xFF991B1B),
+                        size: 20,
+                      ),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Achtung: Zahlung noch offen',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF991B1B),
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
             if (order.paymentStatus.toUpperCase() != 'PAID')
               const Padding(
                 padding: EdgeInsets.only(bottom: 10),
@@ -1875,82 +1883,82 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
-            Expanded(
-              child: order.items.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Keine Positionen vorhanden.',
-                        style: TextStyle(color: Color(0xFF64748B)),
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: order.items.length,
-                      separatorBuilder: (_, __) => const Divider(height: 12),
-                      itemBuilder: (context, index) {
-                        final item = order.items[index];
-                        final modifiers = item.modifierNames.join(', ');
-                        return Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              width: 28,
-                              height: 28,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFFFEDD5),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                              child: Text(
-                                '${item.quantity}x',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
+            if (order.items.isEmpty)
+              const Text(
+                'Keine Positionen vorhanden.',
+                style: TextStyle(color: Color(0xFF64748B)),
+              )
+            else ...[
+              for (var index = 0; index < order.items.length; index++) ...[
+                if (index > 0) const Divider(height: 12),
+                Builder(
+                  builder: (context) {
+                    final item = order.items[index];
+                    final modifiers = item.modifierNames.join(', ');
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 28,
+                          height: 28,
+                          alignment: Alignment.center,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFEDD5),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '${item.quantity}x',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    item.productName,
-                                    style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                item.productName,
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              if (modifiers.isNotEmpty)
+                                Container(
+                                  margin: const EdgeInsets.only(top: 4),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFEF3C7),
+                                    borderRadius: BorderRadius.circular(8),
                                   ),
-                                  if (modifiers.isNotEmpty)
-                                    Container(
-                                      margin: const EdgeInsets.only(top: 4),
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFFEF3C7),
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      child: Text(
-                                        'Sonderwunsch: $modifiers',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF92400E),
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
+                                  child: Text(
+                                    'Sonderwunsch: $modifiers',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF92400E),
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              '${item.price.toStringAsFixed(2)} EUR',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF334155),
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-            ),
-          ],
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '${item.price.toStringAsFixed(2)} EUR',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF334155),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ],
+            ],
+          ),
         ),
       ),
     );
