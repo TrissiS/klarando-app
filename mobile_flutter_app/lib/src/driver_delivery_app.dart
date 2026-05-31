@@ -254,6 +254,11 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   String? _lastBindError;
   String? _lastBindRoute;
   String? _lastApiError;
+  int? _lastHttpStatus;
+  String? _lastResponseBody;
+  DateTime? _lastSuccessfulBindAt;
+  DateTime? _lastSuccessfulOrdersLoadAt;
+  bool _sessionInvalid = false;
   final List<String> _driverLogEntries = <String>[];
 
   String _screenState = 'LOGIN';
@@ -266,6 +271,54 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     if (_driverLogEntries.length > 20) {
       _driverLogEntries.removeRange(20, _driverLogEntries.length);
     }
+  }
+
+  String _tokenTypeLabel() {
+    final token = _authToken?.trim();
+    if (token == null || token.isEmpty) {
+      return 'unknown';
+    }
+    if (_deviceSessionMode) {
+      return 'session';
+    }
+    if (token.startsWith('KOD') || token.startsWith('{')) {
+      return 'pairing';
+    }
+    return 'unknown';
+  }
+
+  Future<void> _handleUnauthorizedSession(
+    ApiException error, {
+    required String source,
+  }) async {
+    _ordersPollTimer?.cancel();
+    _ordersPollTimer = null;
+    _locationTimer?.cancel();
+    _locationTimer = null;
+    await _clearPersistedSession();
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _authToken = null;
+      _driverUser = null;
+      _orders = const [];
+      _selectedOrderId = null;
+      _deviceSessionMode = false;
+      _deviceDisplayCode = null;
+      _deviceLabel = null;
+      _deviceSessionExpiresAt = null;
+      _sessionInvalid = true;
+      _lastApiError = error.message;
+      _lastHttpStatus = error.statusCode;
+      _lastResponseBody = error.responseBody?.toString();
+      _screenState = 'SESSION_EXPIRED';
+      _message = 'Fahrersitzung abgelaufen. Bitte neu koppeln.';
+    });
+    _appendDriverLog(
+      source,
+      'Session ungültig (401). Lokale Sitzung wurde entfernt.',
+    );
   }
 
   @override
@@ -598,6 +651,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _isBusy = false;
         _message = 'Eingeloggt als Fahrer.';
         _screenState = 'DASHBOARD';
+        _sessionInvalid = false;
+        _lastHttpStatus = 200;
+        _lastResponseBody = null;
       });
       _appendDriverLog('LOGIN', 'Manueller Fahrer-Login erfolgreich');
 
@@ -685,6 +741,10 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _lastBindHttpStatus = 200;
         _lastBindError = null;
         _screenState = 'BINDING_SUCCESS';
+        _sessionInvalid = false;
+        _lastHttpStatus = 200;
+        _lastResponseBody = null;
+        _lastSuccessfulBindAt = DateTime.now();
       });
       _appendDriverLog(
         'BIND',
@@ -699,6 +759,10 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         });
       }
     } on ApiException catch (error) {
+      if (error.statusCode == 401) {
+        await _handleUnauthorizedSession(error, source: 'BIND');
+        return;
+      }
       setState(() {
         _isBusy = false;
         _message = _mapPairingErrorMessage(error.message);
@@ -706,6 +770,8 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         _lastBindHttpStatus = error.statusCode;
         _lastBindError = error.message;
         _lastApiError = error.message;
+        _lastHttpStatus = error.statusCode;
+        _lastResponseBody = error.responseBody?.toString();
       });
       _appendDriverLog(
         'BIND',
@@ -791,6 +857,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       _pairingDriverNameController.clear();
       _message = 'Abgemeldet.';
       _screenState = 'LOGIN';
+      _sessionInvalid = false;
     });
     _appendDriverLog('SESSION', 'Verbindung zurückgesetzt');
   }
@@ -807,6 +874,12 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         authToken: token,
       );
     } on ApiException catch (error) {
+      _lastHttpStatus = error.statusCode;
+      _lastResponseBody = error.responseBody?.toString();
+      if (error.statusCode == 401) {
+        await _handleUnauthorizedSession(error, source: 'HEARTBEAT');
+        return;
+      }
       _lastApiError = error.message;
       _appendDriverLog('HEARTBEAT', 'Fehler: ${error.message}');
       // Heartbeat-Fehler soll den Hauptworkflow nicht blockieren.
@@ -846,6 +919,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         }
         shouldSyncTracking = true;
         _screenState = 'DASHBOARD';
+        _lastSuccessfulOrdersLoadAt = DateTime.now();
 
         if (forceMessage) {
           _message = '${feed.orders.length} Fahreraufträge geladen.';
@@ -856,6 +930,12 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         await _syncLocationSharingState();
       }
     } on ApiException catch (error) {
+      _lastHttpStatus = error.statusCode;
+      _lastResponseBody = error.responseBody?.toString();
+      if (error.statusCode == 401) {
+        await _handleUnauthorizedSession(error, source: 'ORDERS');
+        return;
+      }
       if (!mounted) return;
       setState(() {
         _lastApiError = error.message;
@@ -1858,6 +1938,11 @@ class _DriverHomePageState extends State<_DriverHomePage> {
 
   Widget _buildDriverStateCard() {
     final hasToken = _authToken != null && _authToken!.trim().isNotEmpty;
+    final tokenState = !hasToken
+        ? 'nein'
+        : _sessionInvalid
+        ? 'ja, aber ungültig'
+        : 'ja';
     return Card(
       color: const Color(0xFFF8FAFC),
       child: Padding(
@@ -1880,9 +1965,11 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               runSpacing: 8,
               children: [
                 OutlinedButton.icon(
-                  onPressed: _isBusy ? null : _loginWithPairing,
-                  icon: const Icon(Icons.refresh, size: 16),
-                  label: const Text('Erneut versuchen'),
+                  onPressed: _isBusy
+                      ? null
+                      : (_sessionInvalid ? _scanPairingTokenWithCamera : _loginWithPairing),
+                  icon: Icon(_sessionInvalid ? Icons.qr_code_scanner : Icons.refresh, size: 16),
+                  label: Text(_sessionInvalid ? 'Neu koppeln' : 'Erneut versuchen'),
                 ),
                 OutlinedButton.icon(
                   onPressed: _isBusy
@@ -1893,7 +1980,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                   icon: const Icon(Icons.link_off, size: 16),
                   label: const Text('Verbindung zurücksetzen'),
                 ),
-                Chip(label: Text('Token vorhanden: ${hasToken ? 'ja' : 'nein'}')),
+                Chip(label: Text('Token vorhanden: $tokenState')),
               ],
             ),
           ],
@@ -1907,6 +1994,8 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     final tenantId = _driverUser?.tenantId ?? '-';
     final apiBase = _normalizedBaseUrl(_baseUrlController.text);
     final deviceCode = _deviceDisplayCode ?? '-';
+    final hasToken = token != null && token.trim().isNotEmpty;
+    final sessionValid = hasToken && !_sessionInvalid;
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1921,10 +2010,22 @@ class _DriverHomePageState extends State<_DriverHomePage> {
             Text('API-URL: $apiBase'),
             Text('Tenant-ID: $tenantId'),
             Text('Driver-Code: $deviceCode'),
-            Text('Token vorhanden: ${token == null || token.trim().isEmpty ? 'nein' : 'ja'}'),
+            Text(
+              'Token vorhanden: ${!hasToken ? 'nein' : _sessionInvalid ? 'ja, aber ungültig' : 'ja'}',
+            ),
+            Text('Token-Typ: ${_tokenTypeLabel()}'),
+            Text('Session gültig: ${sessionValid ? 'ja' : 'nein'}'),
             Text('Letzter Bind-Status: ${_lastBindHttpStatus?.toString() ?? '-'}'),
             Text('Letzter Bind-Fehler: ${_lastBindError ?? '-'}'),
+            Text('Letzter HTTP-Status: ${_lastHttpStatus?.toString() ?? '-'}'),
+            Text('Letzter Response-Body: ${_lastResponseBody ?? '-'}'),
             Text('Letzter API-Fehler: ${_lastApiError ?? '-'}'),
+            Text(
+              'Letzter erfolgreicher Bind: ${_lastSuccessfulBindAt?.toIso8601String() ?? '-'}',
+            ),
+            Text(
+              'Letzter erfolgreicher Orders-Load: ${_lastSuccessfulOrdersLoadAt?.toIso8601String() ?? '-'}',
+            ),
             Text('Aktueller Screen-State: $_screenState'),
             Text('Bind-Route: ${_lastBindRoute ?? '-'}'),
             const SizedBox(height: 8),
