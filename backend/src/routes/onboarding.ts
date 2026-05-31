@@ -13,6 +13,9 @@ import { isDatabaseProvisioningBlockedError } from '../lib/database-provisioning
 const router = Router()
 
 type OnboardingErrorCode =
+  | 'VALIDATION_ERROR'
+  | 'UNAUTHORIZED'
+  | 'FORBIDDEN'
   | 'TENANT_NOT_FOUND'
   | 'TEMPLATE_IMPORT_FAILED'
   | 'EMAIL_ALREADY_EXISTS'
@@ -36,10 +39,25 @@ function onboardingErrorResponse(
   error: OnboardingError
 ) {
   return res.status(status).json({
+    success: false,
     code: error.code,
     message: error.message,
     details: error.details,
     error: error.message,
+  })
+}
+
+function logOnboardingValidationIssue(
+  req: Request,
+  code: OnboardingErrorCode,
+  message: string,
+  details?: string
+) {
+  console.warn('ONBOARDING BUSINESS VALIDATION ERROR', {
+    code,
+    message,
+    details: details ?? null,
+    body: req.body ?? null,
   })
 }
 
@@ -127,43 +145,74 @@ router.post('/business', requireAuth, async (req, res) => {
   try {
     const actor = req.authUser
     if (!actor || actor.role !== UserRole.SUPERADMIN) {
-      return res.status(403).json({ error: 'Nur SUPERADMIN darf den Onboarding-Assistenten nutzen.' })
+      logOnboardingValidationIssue(
+        req,
+        'FORBIDDEN',
+        'Nur SUPERADMIN darf den Onboarding-Assistenten nutzen.'
+      )
+      return onboardingErrorResponse(
+        res,
+        403,
+        new OnboardingError(
+          'FORBIDDEN',
+          'Nur SUPERADMIN darf den Onboarding-Assistenten nutzen.'
+        )
+      )
     }
 
     const payload = req.body as OnboardingPayload
     if (!payload?.company?.name?.trim()) {
-      return res.status(400).json({ error: 'Unternehmensname fehlt.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Unternehmensname fehlt.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Unternehmensname fehlt.'))
     }
     if (!payload?.company?.email?.trim()) {
-      return res.status(400).json({ error: 'Unternehmens-E-Mail fehlt.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Unternehmens-E-Mail fehlt.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Unternehmens-E-Mail fehlt.'))
     }
     if (!isValidEmail(payload.company.email)) {
-      return res.status(400).json({ error: 'Unternehmens-E-Mail ist ungültig.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Unternehmens-E-Mail ist ungültig.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Unternehmens-E-Mail ist ungültig.'))
     }
     if (!payload?.admin?.name?.trim() || !payload?.admin?.email?.trim() || !payload?.admin?.password?.trim()) {
-      return res.status(400).json({ error: 'Admin-Daten sind unvollständig.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Admin-Daten sind unvollständig.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Admin-Daten sind unvollständig.'))
     }
     if (!isValidEmail(payload.admin.email)) {
-      return res.status(400).json({ error: 'Admin-E-Mail ist ungültig.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Admin-E-Mail ist ungültig.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Admin-E-Mail ist ungültig.'))
     }
     const passwordValidationError = validatePassword(payload.admin.password)
     if (passwordValidationError) {
-      return res.status(400).json({ error: passwordValidationError })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', passwordValidationError)
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', passwordValidationError))
     }
     if (!payload?.branch?.name?.trim()) {
-      return res.status(400).json({ error: 'Filialname fehlt.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Filialname fehlt.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Filialname fehlt.'))
     }
     if (!['INDEPENDENT', 'CHAIN', 'FRANCHISE'].includes(payload.company.type)) {
-      return res.status(400).json({ error: 'Ungültiger Unternehmens-Typ.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Ungültiger Unternehmens-Typ.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Ungültiger Unternehmens-Typ.'))
     }
     if (!['CHAINADMIN', 'ADMIN'].includes(payload.admin.role)) {
-      return res.status(400).json({ error: 'Ungültige Admin-Rolle.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Ungültige Admin-Rolle.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Ungültige Admin-Rolle.'))
     }
     if (payload.company.type === 'INDEPENDENT' && payload.admin.role !== 'ADMIN') {
-      return res.status(400).json({ error: 'Bei Einzelunternehmen ist nur die Rolle ADMIN erlaubt.' })
+      logOnboardingValidationIssue(
+        req,
+        'VALIDATION_ERROR',
+        'Bei Einzelunternehmen ist nur die Rolle ADMIN erlaubt.'
+      )
+      return onboardingErrorResponse(
+        res,
+        400,
+        new OnboardingError('VALIDATION_ERROR', 'Bei Einzelunternehmen ist nur die Rolle ADMIN erlaubt.')
+      )
     }
     if (payload.branch.email && !isValidEmail(payload.branch.email)) {
-      return res.status(400).json({ error: 'Filial-E-Mail ist ungültig.' })
+      logOnboardingValidationIssue(req, 'VALIDATION_ERROR', 'Filial-E-Mail ist ungültig.')
+      return onboardingErrorResponse(res, 400, new OnboardingError('VALIDATION_ERROR', 'Filial-E-Mail ist ungültig.'))
     }
 
     const adminEmail = normalizeEmail(payload.admin.email)
@@ -173,6 +222,11 @@ router.post('/business', requireAuth, async (req, res) => {
       select: { id: true },
     })
     if (existingUser) {
+      logOnboardingValidationIssue(
+        req,
+        'EMAIL_ALREADY_EXISTS',
+        'Ein Benutzer mit dieser Admin-E-Mail existiert bereits.'
+      )
       return onboardingErrorResponse(
         res,
         409,
@@ -304,7 +358,12 @@ router.post('/business', requireAuth, async (req, res) => {
       templateImport: result.templateImportResult,
     })
   } catch (error) {
-    console.error('ONBOARDING BUSINESS ERROR:', error)
+    console.error('ONBOARDING BUSINESS ERROR:', {
+      error,
+      body: req.body ?? null,
+      validationHint:
+        'Prüfe Pflichtfelder, E-Mail-Konflikte, Tenant-Erstellung und DB-Provisionierung.',
+    })
     if (error instanceof OnboardingError) {
       const status = error.code === 'EMAIL_ALREADY_EXISTS' ? 409 : 400
       return onboardingErrorResponse(res, status, error)

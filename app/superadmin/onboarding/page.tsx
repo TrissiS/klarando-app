@@ -274,7 +274,9 @@ export default function SuperadminOnboardingPage() {
       setAdminPassword('')
       setCurrentStep(4)
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Onboarding fehlgeschlagen')
+      const backendMessage =
+        submitError instanceof Error ? submitError.message : 'Onboarding fehlgeschlagen'
+      setError(`Filiale konnte nicht erstellt werden: ${backendMessage}`)
     } finally {
       setSubmitting(false)
     }
