@@ -3092,6 +3092,56 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       order.customerZipCode,
       order.customerCity,
     ].where((entry) => entry != null && entry.trim().isNotEmpty).join(', ');
+    final orderNumber = _orderDisplayCode(order);
+    final paymentLabel = _paymentStatusLabel(order.paymentStatus);
+    final paymentMethod = (order.paymentMethod ?? '').trim();
+    final statusLabel = _orderStatusLabel(order.status);
+
+    String nextStepKey;
+    if (statusLower == 'open' || statusLower == 'pending_payment') {
+      nextStepKey = 'accept';
+    } else if (statusLower == 'preparing') {
+      nextStepKey = isDelivery ? 'ready_delivery' : 'ready_pickup';
+    } else if (statusLower == 'ready_for_delivery') {
+      nextStepKey = 'out_for_delivery';
+    } else if (statusLower == 'out_for_delivery') {
+      nextStepKey = 'complete_delivery';
+    } else if (statusLower == 'ready_for_pickup') {
+      nextStepKey = 'complete_pickup';
+    } else {
+      nextStepKey = 'none';
+    }
+
+    int stepIndex;
+    if (statusLower == 'open' || statusLower == 'pending_payment') {
+      stepIndex = 0;
+    } else if (statusLower == 'preparing') {
+      stepIndex = 1;
+    } else if (statusLower == 'ready_for_delivery' ||
+        statusLower == 'ready_for_pickup') {
+      stepIndex = 2;
+    } else if (statusLower == 'out_for_delivery') {
+      stepIndex = 3;
+    } else if (statusLower == 'done' || statusLower == 'archived') {
+      stepIndex = 4;
+    } else {
+      stepIndex = 0;
+    }
+
+    Color statusBadgeColor;
+    if (statusLower == 'done' || statusLower == 'archived') {
+      statusBadgeColor = const Color(0xFF166534);
+    } else if (statusLower == 'out_for_delivery') {
+      statusBadgeColor = const Color(0xFF6D28D9);
+    } else if (statusLower == 'ready_for_delivery' ||
+        statusLower == 'ready_for_pickup') {
+      statusBadgeColor = const Color(0xFF2563EB);
+    } else if (statusLower == 'preparing') {
+      statusBadgeColor = const Color(0xFFD97706);
+    } else {
+      statusBadgeColor = const Color(0xFF15803D);
+    }
+
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
@@ -3099,30 +3149,131 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Bestellung ${_orderDisplayCode(order)}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Bestellung #$orderNumber',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: [
+                          Text(
+                            isDelivery ? 'Lieferung' : 'Abholung',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF334155),
+                            ),
+                          ),
+                          Text(
+                            'Seit: ${waitMinutes == null ? '-' : '$waitMinutes Min.'}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF334155),
+                            ),
+                          ),
+                          Text(
+                            paymentMethod.isEmpty
+                                ? paymentLabel
+                                : '$paymentLabel ($paymentMethod)',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: isPaid
+                                  ? const Color(0xFF334155)
+                                  : const Color(0xFFB91C1C),
+                              fontWeight:
+                                  isPaid ? FontWeight.w500 : FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: statusBadgeColor,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        statusLabel.toUpperCase(),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${order.total.toStringAsFixed(2)} €',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 15,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
             const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: isDelivery
-                    ? const Color(0xFFF97316)
-                    : const Color(0xFF0EA5E9),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Text(
-                isDelivery ? 'LIEFERUNG' : 'ABHOLUNG',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 11,
+            Row(
+              children: List<Widget>.generate(5, (index) {
+                final active = index <= stepIndex;
+                return Expanded(
+                  child: Container(
+                    margin: EdgeInsets.only(right: index < 4 ? 4 : 0),
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color:
+                          active ? const Color(0xFF2563EB) : const Color(0xFFE2E8F0),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
                 ),
-              ),
+              }),
             ),
             const SizedBox(height: 4),
-            Text(order.customerName ?? '-'),
+            const Text(
+              'Eingegangen → In Bearbeitung → Bereit → Unterwegs → Abgeschlossen',
+              style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              order.customerName ?? '-',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            if (addressText.isNotEmpty)
+              Text(
+                addressText,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+              ),
+            if (order.customerPhone != null && order.customerPhone!.trim().isNotEmpty)
+              Text(
+                'Tel: ${order.customerPhone}',
+                style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+              ),
             if (order.assignedDriverName != null &&
                 order.assignedDriverName!.trim().isNotEmpty)
               Padding(
@@ -3146,9 +3297,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   ],
                 ),
               ),
-            Text(
-              '${isDelivery ? 'Lieferung' : 'Abholung'} • ${_orderStatusLabel(order.status)} • ${order.total.toStringAsFixed(2)} EUR',
-            ),
             TextButton.icon(
               onPressed: () {
                 setState(() {
@@ -3240,32 +3388,27 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
               ),
             if (order.items.isNotEmpty) ...[
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               ...order.items.take(5).map((item) {
                 return Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
+                  padding: const EdgeInsets.only(bottom: 4),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('- ${item.quantity}x ${item.productName}'),
+                      Text(
+                        '${item.quantity}x ${item.productName}',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
                       if (item.modifierNames.isNotEmpty)
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 4,
-                          children: item.modifierNames
-                              .map(
-                                (modifier) => Chip(
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                  visualDensity: VisualDensity.compact,
-                                  label: Text(
-                                    modifier,
-                                    style: const TextStyle(fontSize: 11),
-                                  ),
-                                  avatar: const Icon(Icons.edit_note, size: 14),
-                                ),
-                              )
-                              .toList(growable: false),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 1),
+                          child: Text(
+                            item.modifierNames.join(' · '),
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
                         ),
                     ],
                   ),
@@ -3281,24 +3424,96 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   ),
                 ),
             ],
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
+            if (nextStepKey == 'accept')
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loading ? null : () => _acceptOrder(order),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF15803D),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.check_circle, size: 18),
+                  label: const Text('Bestellung annehmen'),
+                ),
+              ),
+            if (nextStepKey == 'ready_delivery' || nextStepKey == 'ready_pickup')
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loading
+                      ? null
+                      : () => _setOrderStatus(
+                            order,
+                            isDelivery ? 'ready_for_delivery' : 'ready_for_pickup',
+                            isDelivery
+                                ? 'Bestellung ist bereit für die Lieferung.'
+                                : 'Bestellung ist bereit zur Abholung.',
+                          ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: isDelivery
+                        ? const Color(0xFF2563EB)
+                        : const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: Icon(
+                    isDelivery ? Icons.delivery_dining : Icons.storefront,
+                    size: 18,
+                  ),
+                  label: Text(
+                    isDelivery ? 'Bereit für Lieferung' : 'Bereit zur Abholung',
+                  ),
+                ),
+              ),
+            if (nextStepKey == 'out_for_delivery')
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loading
+                      ? null
+                      : () => _setOrderStatus(
+                            order,
+                            'out_for_delivery',
+                            'Fahrer ist unterwegs.',
+                          ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF5B21B6),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.local_shipping, size: 18),
+                  label: const Text('Fahrer unterwegs'),
+                ),
+              ),
+            if (nextStepKey == 'complete_delivery' || nextStepKey == 'complete_pickup')
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: _loading || isPaid ? null : () => _markPaid(order),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF166534),
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.done_all, size: 18),
+                  label: Text(
+                    isDelivery ? 'Lieferung abgeschlossen' : 'Bestellung abgeholt',
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
             Wrap(
               spacing: 8,
               runSpacing: 8,
               children: [
-                if (statusLower == 'open' || statusLower == 'pending_payment')
-                  FilledButton.icon(
-                    onPressed: _loading ? null : () => _acceptOrder(order),
-                    icon: const Icon(Icons.check_circle, size: 16),
-                    label: const Text('Annehmen'),
-                  ),
                 if (statusLower == 'open' || statusLower == 'pending_payment')
                   OutlinedButton.icon(
                     onPressed: _loading ? null : () => _rejectOrder(order),
                     icon: const Icon(Icons.close, size: 16),
                     label: const Text('Ablehnen'),
                   ),
-                if (statusLower != 'open' && statusLower != 'pending_payment')
+                if (statusLower != 'open' &&
+                    statusLower != 'pending_payment' &&
+                    statusLower != 'preparing')
                   FilledButton.tonalIcon(
                     onPressed: _loading
                         ? null
@@ -3310,7 +3525,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.restaurant, size: 16),
                     label: const Text('In Vorbereitung'),
                   ),
-                FilledButton.tonalIcon(
+                OutlinedButton.icon(
                   onPressed: _loading || !isDelivery
                       ? null
                       : () => _dispatchOrder(order),
@@ -3322,12 +3537,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     ),
                 ),
                 if (statusLower != 'open' && statusLower != 'pending_payment')
-                  FilledButton.tonalIcon(
+                  OutlinedButton.icon(
                     onPressed: _loading ? null : () => _acceptOrder(order),
                     icon: const Icon(Icons.schedule, size: 16),
                     label: const Text('Zeit aktualisieren'),
                   ),
-                if (isPickup)
+                if (isPickup && nextStepKey != 'ready_pickup')
                   OutlinedButton.icon(
                     onPressed: _loading
                         ? null
@@ -3339,13 +3554,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.storefront, size: 16),
                     label: const Text('Bereit zur Abholung'),
                   ),
-                if (isPickup)
+                if (isPickup && nextStepKey != 'complete_pickup')
                   OutlinedButton.icon(
                     onPressed: _loading || isPaid ? null : () => _markPaid(order),
                     icon: const Icon(Icons.check_circle_outline, size: 16),
                     label: const Text('Bestellung abgeholt'),
                   ),
-                if (isDelivery)
+                if (isDelivery && nextStepKey != 'ready_delivery')
                   OutlinedButton.icon(
                     onPressed: _loading
                         ? null
@@ -3357,7 +3572,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.delivery_dining, size: 16),
                     label: const Text('Bereit für Lieferung'),
                   ),
-                if (isDelivery)
+                if (isDelivery && nextStepKey != 'out_for_delivery')
                   OutlinedButton.icon(
                     onPressed: _loading
                         ? null
@@ -3369,7 +3584,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     icon: const Icon(Icons.local_shipping, size: 16),
                     label: const Text('Fahrer unterwegs'),
                   ),
-                if (isDelivery)
+                if (isDelivery && nextStepKey != 'complete_delivery')
                   OutlinedButton.icon(
                     onPressed: _loading || isPaid ? null : () => _markPaid(order),
                     icon: const Icon(Icons.check_circle_outline, size: 16),
