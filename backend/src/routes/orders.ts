@@ -1832,6 +1832,111 @@ router.get('/', async (req, res) => {
   }
 })
 
+router.get('/:orderId/live-tracking', async (req, res) => {
+  try {
+    const orderId = normalizeText(
+      Array.isArray(req.params.orderId) ? req.params.orderId[0] : req.params.orderId
+    )
+    if (!orderId) {
+      return res.status(400).json({ error: 'orderId fehlt' })
+    }
+
+    const tenantId = parseTenantIdQuery(req.query.tenantId)
+    const appAccount = await resolveAppAccountFromAuthorizationHeader(
+      req.header('authorization') || undefined
+    )
+    if (!appAccount) {
+      return res.status(401).json({ error: 'Nicht eingeloggt' })
+    }
+
+    const order = await prisma.order.findFirst({
+      where: {
+        id: orderId,
+        ...(tenantId ? { tenantId } : {}),
+        appCustomerAccountId: appAccount.id,
+        sourceChannel: {
+          in: ['APP', 'DELIVERY'],
+        },
+      },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        appCustomerAccount: {
+          select: {
+            id: true,
+            email: true,
+            fullName: true,
+          },
+        },
+        terminal: {
+          select: {
+            id: true,
+            name: true,
+            terminalCode: true,
+            location: true,
+          },
+        },
+        items: {
+          include: {
+            product: {
+              include: {
+                category: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    if (!order) {
+      return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+    }
+
+    const latestDriverLocations = await loadLatestDriverLocationByOrderId([order.id])
+    const issueStateByOrderId = await loadOrderIssueStateByOrderId([order.id])
+    const driverLocation = latestDriverLocations.get(order.id) ?? null
+    console.info('CUSTOMER_LIVE_TRACKING_RESPONSE', {
+      orderId: order.id,
+      tenantId: order.tenantId,
+      status: order.status,
+      driverLocationPresent: driverLocation !== null,
+      driverLocationUpdatedAt: driverLocation?.updatedAt ?? null,
+    })
+
+    return res.json({
+      ...order,
+      driverLocation,
+      tracking: {
+        driverLocationAvailable: driverLocation !== null,
+        lastDriverLocationAt: driverLocation?.updatedAt ?? null,
+        pollingRecommendedSeconds: 12,
+      },
+      complaintOpen: issueStateByOrderId.get(order.id)?.complaintOpen ?? false,
+      complaintCount: issueStateByOrderId.get(order.id)?.complaintCount ?? 0,
+      latestComplaintAt: issueStateByOrderId.get(order.id)?.latestComplaintAt ?? null,
+      latestComplaintMessage: issueStateByOrderId.get(order.id)?.latestComplaintMessage ?? null,
+      latestComplaintImageCount: issueStateByOrderId.get(order.id)?.latestComplaintImageCount ?? 0,
+      signatureCaptured: issueStateByOrderId.get(order.id)?.signatureCaptured ?? false,
+      signatureCapturedAt: issueStateByOrderId.get(order.id)?.signatureCapturedAt ?? null,
+      signatureSignerName: issueStateByOrderId.get(order.id)?.signatureSignerName ?? null,
+    })
+  } catch (error) {
+    const prismaCode =
+      typeof error === 'object' && error && 'code' in error
+        ? String((error as { code?: unknown }).code ?? '')
+        : ''
+    if (prismaCode === 'P2025') {
+      return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+    }
+    console.error('GET /api/orders/:orderId/live-tracking ERROR:', error)
+    return res.status(500).json({ error: 'Live-Tracking konnte nicht geladen werden' })
+  }
+})
+
 router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
   try {
     if (!req.authUser) {
@@ -4649,6 +4754,14 @@ router.post('/driver/location', async (req, res) => {
         driverName: actor.driverName,
         deviceSessionId: actor.isDeviceActor ? actor.sessionId : null,
       },
+    })
+
+    console.info('DRIVER_LOCATION_STORED', {
+      orderId: order.id,
+      tenantId: order.tenantId,
+      driverUserId: actor.driverUserId,
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
     })
 
     return res.json({

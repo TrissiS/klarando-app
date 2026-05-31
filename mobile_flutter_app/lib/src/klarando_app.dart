@@ -4710,7 +4710,7 @@ class _CustomerOrderTrackingSheet extends StatefulWidget {
 
 class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet>
     with WidgetsBindingObserver {
-  static const _trackingInterval = Duration(seconds: 5);
+  static const _trackingInterval = Duration(seconds: 12);
 
   late PublicOrderSummary _order;
   Timer? _trackingTimer;
@@ -4783,33 +4783,32 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
       });
     }
     try {
-      final orders = await widget.api.fetchOrders(
+      final updated = await widget.api.fetchOrderLiveTracking(
         baseUrl: widget.baseUrl,
+        orderId: _order.id,
         tenantId: widget.tenantId,
         appAuthToken: token,
       );
-      PublicOrderSummary? updated;
-      for (final entry in orders) {
-        if (entry.id == _order.id) {
-          updated = entry;
-          break;
-        }
-      }
       if (!mounted) return;
-      if (updated == null) {
-        setState(() {
-          _trackingError = 'Bestellung konnte nicht mehr geladen werden.';
-        });
-        return;
-      }
       final resolvedOrder = updated;
+      final resolvedLocation = resolvedOrder.driverLocation;
+      debugPrint(
+        'CUSTOMER_TRACKING_POLL { orderId: ${resolvedOrder.id}, status: ${resolvedOrder.status}, driverLocationPresent: ${resolvedLocation != null}, lastDriverLocationAt: ${resolvedLocation?.updatedAt?.toIso8601String() ?? '-'} }',
+      );
       setState(() {
         _order = resolvedOrder;
         _trackingError = null;
         _mapLoadFailed = false;
       });
+      if (resolvedOrder.status == 'done' ||
+          resolvedOrder.status == 'cancelled' ||
+          resolvedOrder.status == 'rejected') {
+        _trackingTimer?.cancel();
+        _trackingTimer = null;
+      }
     } on ApiException catch (error) {
       if (!mounted) return;
+      debugPrint('CUSTOMER_TRACKING_ERROR { message: ${error.message} }');
       setState(() {
         _trackingError = error.message;
       });
@@ -4940,6 +4939,9 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
                       width: double.infinity,
                       fit: BoxFit.cover,
                       errorBuilder: (_, __, ___) {
+                        debugPrint(
+                          'CUSTOMER_TRACKING_MAP_ERROR { orderId: ${order.id}, provider: openstreetmap, driverLocationPresent: ${location != null} }',
+                        );
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (mounted && !_mapLoadFailed) {
                             setState(() {

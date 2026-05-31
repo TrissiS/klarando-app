@@ -1124,6 +1124,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       );
       if (!mounted) return;
 
+      debugPrint(
+        'DRIVER_LOCATION_PING_SENT { orderId: ${order.id}, latitude: ${position.latitude}, longitude: ${position.longitude}, sentAt: ${DateTime.now().toIso8601String()} }',
+      );
       setState(() {
         _lastLocationSentAt = DateTime.now();
         _locationInfo =
@@ -1132,6 +1135,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       await _refreshOrders(forceMessage: false);
     } on ApiException catch (error) {
       if (!mounted) return;
+      debugPrint(
+        'DRIVER_LOCATION_PING_ERROR { orderId: ${order.id}, message: ${error.message} }',
+      );
       setState(() {
         _locationInfo = error.message;
       });

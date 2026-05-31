@@ -2134,6 +2134,31 @@ class KlarandoApi {
         .toList(growable: false);
   }
 
+  Future<PublicOrderSummary> fetchOrderLiveTracking({
+    required String baseUrl,
+    required String orderId,
+    String? tenantId,
+    String? appAuthToken,
+  }) async {
+    final token = appAuthToken?.trim();
+    if ((token ?? '').isEmpty) {
+      throw const ApiException('Nicht eingeloggt.');
+    }
+
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'GET',
+      path: '/api/orders/$orderId/live-tracking',
+      query: {
+        if (tenantId != null && tenantId.trim().isNotEmpty) 'tenantId': tenantId,
+      },
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+    return PublicOrderSummary.fromJson(response);
+  }
+
   Future<PublicOrderDisplayFeed> fetchPublicOrderDisplayFeed({
     required String baseUrl,
     required String displayCode,
