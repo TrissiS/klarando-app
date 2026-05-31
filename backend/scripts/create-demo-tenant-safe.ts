@@ -2,6 +2,7 @@ import { Prisma, UserRole, type PermissionKey } from '@prisma/client'
 import { prisma } from '../src/lib/prisma'
 import { DEFAULT_ROLE_PERMISSIONS } from '../src/auth/permissions'
 import { hashPassword } from '../src/auth/password'
+import { createUniqueOrderPublicCode } from '../src/lib/order-public-code'
 
 const MIN_PASSWORD_LENGTH = 12
 const DEMO_SOURCE_CHANNEL = 'DEMO_SAFE_SCRIPT'
@@ -291,9 +292,11 @@ async function ensureDemoData() {
       })
 
       if (firstProduct) {
+        const publicOrderCode = await createUniqueOrderPublicCode(prisma)
         await prisma.order.create({
           data: {
             tenantId: tenant.id,
+            publicOrderCode,
             customerName: 'Demo Kunde',
             customerPhone: '0000000',
             customerAddress: 'Musterstrasse 1',
