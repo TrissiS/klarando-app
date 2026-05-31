@@ -27,6 +27,8 @@ const _prefsCashierDeviceAlias = 'klarando_cashier_device_alias';
 const _prefsCashierPrinterMode = 'klarando_cashier_printer_mode';
 const _prefsCashierPrinterHost = 'klarando_cashier_printer_host';
 const _prefsCashierPrinterPort = 'klarando_cashier_printer_port';
+const _prefsCashierOrderToneRepeatSeconds =
+    'klarando_cashier_order_tone_repeat_seconds';
 const _secureCashierDeviceToken = 'klarando_cashier_secure_device_token';
 const _secureCashierBindingId = 'klarando_cashier_secure_binding_id';
 const _secureCashierDisplayCode = 'klarando_cashier_secure_display_code';
@@ -47,6 +49,7 @@ const _klarandoTermsUrl = 'https://www.klarando.com/agb';
 const _klarandoCookiesUrl = 'https://www.klarando.com/cookies';
 const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
 const _orderDeskNewOrderAudioAsset = 'assets/audio/orderdesk_new_order.mp3';
+const _orderDeskNewOrderAudioSource = 'audio/orderdesk_new_order.mp3';
 const _heartbeatFailureOfflineThreshold = 3;
 
 enum _DeskConnectionHealth { online, checking, degraded, offline }
@@ -134,6 +137,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   Timer? _pollTimer;
   Timer? _uiTicker;
+  Timer? _newOrderRepeatTimer;
   AudioPlayer? _newOrderAudioPlayer;
   bool _newOrderAudioPlaying = false;
   bool _loading = false;
@@ -170,6 +174,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _hasLoadedInitialFeed = false;
   final List<_OrderDeskLogEntry> _localErrorLog = <_OrderDeskLogEntry>[];
   final Map<String, String> _lastOrderStatusById = <String, String>{};
+  final Set<String> _pendingNewOrderIds = <String>{};
   final Set<String> _archivingOrderIds = <String>{};
   final Map<String, _GeoPoint> _destinationCoordinatesByOrderId =
       <String, _GeoPoint>{};
@@ -187,6 +192,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   String? _deviceAuthToken;
   String? _bindingId;
   Timer? _heartbeatTimer;
+  int _orderToneRepeatSeconds = 60;
+  DateTime? _lastOrderTonePlayedAt;
+  String? _lastOrderToneError;
 
   @override
   void initState() {
@@ -220,7 +228,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   void dispose() {
     _pollTimer?.cancel();
     _heartbeatTimer?.cancel();
+    _newOrderRepeatTimer?.cancel();
+    _newOrderRepeatTimer = null;
     _uiTicker?.cancel();
+    _newOrderRepeatTimer?.cancel();
     _baseUrlController.dispose();
     _displayCodeController.dispose();
     _pairingTokenController.dispose();
@@ -269,6 +280,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final printerModeRaw = prefs.getString(_prefsCashierPrinterMode);
     final printerHost = prefs.getString(_prefsCashierPrinterHost);
     final printerPort = prefs.getString(_prefsCashierPrinterPort);
+    final orderToneRepeatRaw =
+        prefs.getInt(_prefsCashierOrderToneRepeatSeconds) ?? 60;
 
     if (baseUrl != null && baseUrl.trim().isNotEmpty) {
       _baseUrlController.text = baseUrl;
@@ -303,6 +316,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         (entry) => entry.name == printerModeRaw,
         orElse: () => EscPosPrinterMode.debugLog,
       );
+    }
+    if (orderToneRepeatRaw == 0 ||
+        orderToneRepeatRaw == 30 ||
+        orderToneRepeatRaw == 60 ||
+        orderToneRepeatRaw == 120) {
+      _orderToneRepeatSeconds = orderToneRepeatRaw;
+    } else {
+      _orderToneRepeatSeconds = 60;
     }
     _deviceAuthToken = deviceToken;
     _bindingId = bindingId;
@@ -387,6 +408,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     await prefs.setString(
       _prefsCashierPrinterPort,
       _tcpPortController.text.trim(),
+    );
+    await prefs.setInt(
+      _prefsCashierOrderToneRepeatSeconds,
+      _orderToneRepeatSeconds,
     );
     await _secureWrite(
       _secureCashierManualTenantId,
@@ -594,11 +619,27 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return;
     }
 
-    final hasNewOrder = orders.any(
-      (order) => !_lastOrderStatusById.containsKey(order.id),
-    );
-    if (hasNewOrder) {
-      unawaited(_playNewOrderSound());
+    _pendingNewOrderIds.removeWhere((orderId) {
+      final status = nextStatusByOrderId[orderId];
+      if (status == null) {
+        return true;
+      }
+      return !_isUnacceptedOrderStatus(status);
+    });
+
+    final hasNewUnacceptedOrder = orders.any((order) {
+      final status = order.status.trim().toLowerCase();
+      final isNew = !_lastOrderStatusById.containsKey(order.id);
+      if (isNew && _isUnacceptedOrderStatus(status)) {
+        _pendingNewOrderIds.add(order.id);
+        return true;
+      }
+      return false;
+    });
+    if (hasNewUnacceptedOrder) {
+      _triggerOrderTone();
+    } else {
+      _ensureOrderToneRepeatState();
     }
 
     for (final order in orders) {
@@ -613,6 +654,52 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     _lastOrderStatusById
       ..clear()
       ..addAll(nextStatusByOrderId);
+  }
+
+  bool _isUnacceptedOrderStatus(String statusLower) {
+    return statusLower == 'open' || statusLower == 'pending_payment';
+  }
+
+  void _triggerOrderTone() {
+    unawaited(_playNewOrderSound());
+    _ensureOrderToneRepeatState();
+  }
+
+  void _ensureOrderToneRepeatState() {
+    if (_pendingNewOrderIds.isEmpty || _orderToneRepeatSeconds <= 0) {
+      _newOrderRepeatTimer?.cancel();
+      _newOrderRepeatTimer = null;
+      return;
+    }
+    if (_newOrderRepeatTimer != null) {
+      return;
+    }
+    _newOrderRepeatTimer = Timer.periodic(
+      Duration(seconds: _orderToneRepeatSeconds),
+      (_) {
+        if (_pendingNewOrderIds.isEmpty) {
+          _newOrderRepeatTimer?.cancel();
+          _newOrderRepeatTimer = null;
+          return;
+        }
+        unawaited(_playNewOrderSound());
+      },
+    );
+  }
+
+  Future<void> _updateOrderToneRepeatSeconds(int seconds) async {
+    if (seconds != 0 && seconds != 30 && seconds != 60 && seconds != 120) {
+      return;
+    }
+    setState(() {
+      _orderToneRepeatSeconds = seconds;
+    });
+    await _persistState();
+    _appendLocalLog(
+      'AUDIO',
+      'Bestellton Intervall: ${seconds == 0 ? 'aus' : '${seconds}s'}',
+    );
+    _ensureOrderToneRepeatState();
   }
 
   Future<void> _playNewOrderSound() async {
@@ -634,8 +721,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         return;
       }
       await player.stop();
-      await player.play(AssetSource('audio/orderdesk_new_order.mp3'));
-    } catch (_) {
+      await player.play(const AssetSource(_orderDeskNewOrderAudioSource));
+      _lastOrderTonePlayedAt = DateTime.now();
+      _lastOrderToneError = null;
+      _appendLocalLog('AUDIO', 'Bestellton abgespielt');
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (error) {
+      _lastOrderToneError = error.toString();
+      _appendLocalLog('AUDIO', 'Bestellton fehlgeschlagen: $error');
+      if (mounted) {
+        setState(() {});
+      }
       _newOrderAudioPlaying = false;
     }
   }
@@ -1652,6 +1750,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Text('Device-Code: ${displayCode.isEmpty ? '-' : displayCode}'),
                   Text('Token: $tokenStatus'),
                   Text('Gespeicherter Token-Typ: $tokenType'),
+                  Text('Audio-Asset: $_orderDeskNewOrderAudioAsset'),
+                  Text(
+                    'Bestellton zuletzt: ${_lastOrderTonePlayedAt?.toIso8601String() ?? '-'}',
+                  ),
+                  Text(
+                    'Bestellton Intervall: ${_orderToneRepeatSeconds == 0 ? 'Aus' : '${_orderToneRepeatSeconds}s'}',
+                  ),
+                  Text('Bestellton Fehler: ${_lastOrderToneError ?? '-'}'),
                   Text('Letzter Bind HTTP Status: ${_lastBindHttpStatus?.toString() ?? '-'}'),
                   Text(
                     'Letzter Bind Response Body: ${_lastBindResponseBody == null || _lastBindResponseBody!.trim().isEmpty ? '-' : _lastBindResponseBody!}',
@@ -1753,6 +1859,38 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 const Text(
                   'Nur für Support/Admin: Gerät zurücksetzen entfernt die OrderDesk-Bindung auf diesem Gerät.',
                   style: TextStyle(fontSize: 12, color: Color(0xFF52525B)),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Bestellton wiederholen',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      selected: _orderToneRepeatSeconds == 0,
+                      label: const Text('Aus'),
+                      onSelected: (_) => _updateOrderToneRepeatSeconds(0),
+                    ),
+                    ChoiceChip(
+                      selected: _orderToneRepeatSeconds == 30,
+                      label: const Text('30 Sek.'),
+                      onSelected: (_) => _updateOrderToneRepeatSeconds(30),
+                    ),
+                    ChoiceChip(
+                      selected: _orderToneRepeatSeconds == 60,
+                      label: const Text('60 Sek.'),
+                      onSelected: (_) => _updateOrderToneRepeatSeconds(60),
+                    ),
+                    ChoiceChip(
+                      selected: _orderToneRepeatSeconds == 120,
+                      label: const Text('120 Sek.'),
+                      onSelected: (_) => _updateOrderToneRepeatSeconds(120),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 FilledButton.tonalIcon(
@@ -1910,6 +2048,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _manualAdminCodeController.clear();
       _showManualConnection = false;
       _orderDetailExpandedById.clear();
+      _pendingNewOrderIds.clear();
       _info = 'Gerät wurde zurückgesetzt. Bitte erneut per QR-Code verbinden.';
       _error = null;
       _feed = null;

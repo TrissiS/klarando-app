@@ -81,6 +81,7 @@ flutter:
     - assets/klarando_logo_transparent.png
     - assets/klarando_icon.png
     - assets/klarando_logo_wordmark.png
+    - assets/audio/orderdesk_new_order.mp3
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
