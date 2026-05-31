@@ -5476,50 +5476,6 @@ String _displayOrderNumber(PublicOrderSummary order) {
   if (publicOrderCode != null && publicOrderCode.isNotEmpty) {
     return publicOrderCode.toUpperCase();
   }
-
-  String _buildOpenStreetMapOrderUrl(DriverLocationPoint location) {
-    final zoom = _followDriver ? 16 : 14;
-    return 'https://www.openstreetmap.org/?mlat=${location.latitude.toStringAsFixed(6)}&mlon=${location.longitude.toStringAsFixed(6)}#map=$zoom/${location.latitude.toStringAsFixed(6)}/${location.longitude.toStringAsFixed(6)}';
-  }
-
-  Future<void> _openOrderLocationInOpenStreetMap() async {
-    final location = _order.driverLocation;
-    if (location == null || !_hasValidCoordinates(location.latitude, location.longitude)) {
-      return;
-    }
-    final uri = Uri.parse(_buildOpenStreetMapOrderUrl(location));
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
-  }
-
-  Future<void> _copyOrderLocationOpenStreetMapLink() async {
-    final location = _order.driverLocation;
-    if (location == null || !_hasValidCoordinates(location.latitude, location.longitude)) {
-      return;
-    }
-    final link = _buildOpenStreetMapOrderUrl(location);
-    await Clipboard.setData(ClipboardData(text: link));
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OpenStreetMap-Link kopiert')),
-    );
-  }
-
-  String _mapFailureReasonText(PublicOrderSummary order) {
-    if (order.status != 'out_for_delivery') {
-      return 'Lieferung noch nicht unterwegs.';
-    }
-    final location = order.driverLocation;
-    if (location == null) {
-      return 'Fahrerposition fehlt.';
-    }
-    if (!_hasValidCoordinates(location.latitude, location.longitude)) {
-      return 'Ungültige Fahrerkoordinaten.';
-    }
-    if (_mapErrorDetails != null && _mapErrorDetails!.trim().isNotEmpty) {
-      return 'Tile-Load-Fehler: ${_mapErrorDetails!}';
-    }
-    return 'Karten-Widget-Fehler oder Netzwerkproblem.';
-  }
   final pickupNumber = order.pickupNumber;
   if (pickupNumber != null && pickupNumber > 0) {
     return pickupNumber.toString().padLeft(3, '0');
