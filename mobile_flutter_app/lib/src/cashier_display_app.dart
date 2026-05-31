@@ -2435,6 +2435,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     return !_isArchivedOrderStatus(status);
   }
 
+  int _openOrderSortPriority(String status) {
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'open' || normalized == 'pending_payment') return 0;
+    if (normalized == 'accepted' || normalized == 'preparing') return 1;
+    if (normalized == 'ready_for_delivery' || normalized == 'ready_for_pickup') {
+      return 2;
+    }
+    if (normalized == 'out_for_delivery') return 3;
+    return 4;
+  }
+
   String _formatTimeAgo(DateTime timestamp) {
     final diff = DateTime.now().difference(timestamp);
     if (diff.inSeconds < 60) {
@@ -2761,7 +2772,20 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final orders = _feed?.orders ?? const <PublicOrderSummary>[];
     final openOrders = orders
         .where((entry) => _isOpenOrderStatus(entry.status))
-        .toList(growable: false);
+        .toList(growable: true)
+      ..sort((a, b) {
+        final priorityCompare = _openOrderSortPriority(a.status)
+            .compareTo(_openOrderSortPriority(b.status));
+        if (priorityCompare != 0) {
+          return priorityCompare;
+        }
+        final aCreated = a.createdAt;
+        final bCreated = b.createdAt;
+        if (aCreated == null && bCreated == null) return 0;
+        if (aCreated == null) return 1;
+        if (bCreated == null) return -1;
+        return bCreated.compareTo(aCreated);
+      });
     final archivedOrders = orders
         .where((entry) => _isArchivedOrderStatus(entry.status))
         .toList(growable: false);
@@ -3376,6 +3400,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final isTerminalStatus = _isArchivedOrderStatus(statusLower);
     final isCancelledStatus =
         statusLower == 'cancelled' || statusLower == 'rejected';
+    final isOutForDelivery = statusLower == 'out_for_delivery';
+    final isCompactDriverCard = isOutForDelivery && !detailsExpanded;
 
     String nextStepKey;
     if (statusLower == 'open' || statusLower == 'pending_payment') {
@@ -3524,31 +3550,44 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Expanded(
                     child: Container(
                       margin: EdgeInsets.only(right: index < 4 ? 4 : 0),
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: index <= stepIndex
-                            ? (isCancelledStatus
-                                  ? const Color(0xFFB91C1C)
-                                  : const Color(0xFF2563EB))
-                            : const Color(0xFFE2E8F0),
-                        borderRadius: BorderRadius.circular(4),
+                      child: Column(
+                        children: [
+                          Container(
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: index <= stepIndex
+                                  ? (isCancelledStatus
+                                        ? const Color(0xFFB91C1C)
+                                        : const Color(0xFF2563EB))
+                                  : const Color(0xFFE2E8F0),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            const [
+                              'Eingegangen',
+                              'In Bearbeitung',
+                              'Bereit',
+                              'Unterwegs',
+                              'Abgeschlossen',
+                            ][index],
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isCancelledStatus
+                                  ? const Color(0xFF991B1B)
+                                  : const Color(0xFF64748B),
+                              fontWeight: index == stepIndex
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              isCancelledStatus
-                  ? 'Bestellung wurde storniert/abgelehnt'
-                  : 'Eingegangen → In Bearbeitung → Bereit → Unterwegs → Abgeschlossen',
-              style: TextStyle(
-                fontSize: 11,
-                color: isCancelledStatus
-                    ? const Color(0xFF991B1B)
-                    : const Color(0xFF64748B),
-                fontWeight: isCancelledStatus ? FontWeight.w700 : FontWeight.w400,
-              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -3590,6 +3629,18 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   ],
                 ),
               ),
+            if (isCompactDriverCard)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Seit Übergabe: ${progressMinutes ?? 0} Min.',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF334155),
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
             TextButton.icon(
               onPressed: () {
                 setState(() {
@@ -3625,6 +3676,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
                 ),
             ],
+            if (isCompactDriverCard) const SizedBox(height: 4),
+            if (isCompactDriverCard)
+              const Text(
+                'Fahrerauftrag minimiert, damit neue Bestellungen oben sichtbar bleiben.',
+                style: TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+              ),
+            if (!isCompactDriverCard) ...[
             if (isDelivery &&
                 (order.assignedDriverName == null ||
                     order.assignedDriverName!.trim().isEmpty))
@@ -3675,13 +3733,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ),
             ),
             if (!isPaid)
-              const Text(
-                'UNBEZAHLT',
-                style: TextStyle(
-                  color: Color(0xFFDC2626),
-                  fontWeight: FontWeight.w800,
+                const Text(
+                  'UNBEZAHLT',
+                  style: TextStyle(
+                    color: Color(0xFFDC2626),
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
-              ),
             if (order.items.isNotEmpty) ...[
               const SizedBox(height: 6),
               ...order.items.take(5).map((item) {
@@ -3920,6 +3978,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ],
             ),
             if (isDelivery) _buildOrderDeliveryMap(order),
+            ],
           ],
         ),
       ),
