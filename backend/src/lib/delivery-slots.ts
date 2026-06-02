@@ -37,6 +37,13 @@ function toIsoDate(date: Date) {
   return date.toISOString().slice(0, 10)
 }
 
+function toLocalIsoDate(date: Date) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 function atTime(base: Date, hhmm: string) {
   const [hoursRaw, minutesRaw] = hhmm.split(':')
   const copy = new Date(base)
@@ -81,16 +88,44 @@ function applyCutoff(now: Date, leadDays: number, cutoffTime: string | null) {
 function collectSlotsForDate(
   date: Date,
   settings: DeliverySchedulingSettings,
+  holidayHours: BusinessSettings['timeManagement']['holidayHours'],
   now: Date
 ): DeliverySlotOption[] {
   const day = WEEK_DAYS_BY_INDEX[date.getDay()]
-  if (!settings.allowedDeliveryDays.includes(day)) {
+  const holiday = holidayHours.find((entry) => entry.date === toLocalIsoDate(date)) || null
+  if (holiday?.isClosed) {
     return []
   }
 
   const dateIso = toIsoDate(date)
-  return settings.timeSlots
+  const holidayStart = holiday?.open ?? null
+  const holidayEnd = holiday?.close ?? null
+  const baseSlots = settings.timeSlots
     .filter((entry) => entry.day === day)
+    .filter((entry) => {
+      if (!holidayStart || !holidayEnd) {
+        return true
+      }
+      return entry.start < holidayEnd && entry.end > holidayStart
+    })
+    .map((entry) => ({
+      ...entry,
+      start: holidayStart && holidayStart > entry.start ? holidayStart : entry.start,
+      end: holidayEnd && holidayEnd < entry.end ? holidayEnd : entry.end,
+    }))
+    .filter((entry) => entry.start < entry.end)
+
+  const slotsForDay =
+    holiday && !holiday.isClosed && holidayStart && holidayEnd && baseSlots.length === 0
+      ? [{ day, start: holidayStart, end: holidayEnd, maxOrders: null }]
+      : baseSlots
+
+  const dayAllowed = holiday ? !holiday.isClosed : settings.allowedDeliveryDays.includes(day)
+  if (!dayAllowed) {
+    return []
+  }
+
+  return slotsForDay
     .filter((entry) => {
       if (toIsoDate(now) !== dateIso) return true
       return atTime(date, entry.start) > now
@@ -144,7 +179,9 @@ export function getAvailableDeliverySlotsFromSettings(
     }
   }
 
-  if (!settings.ordering.deliveryEnabled || !settings.customerApp.orderingEnabled) {
+  const timeManagement = settings.timeManagement
+
+  if (!timeManagement.ordering.deliveryEnabled || !settings.customerApp.orderingEnabled) {
     return {
       earliestDeliveryAt: null,
       availableDates: [],
@@ -154,7 +191,7 @@ export function getAvailableDeliverySlotsFromSettings(
     }
   }
 
-  if (settings.ordering.deliveryPauseEnabled) {
+  if (timeManagement.ordering.deliveryPauseEnabled) {
     return {
       earliestDeliveryAt: null,
       availableDates: [],
@@ -164,15 +201,16 @@ export function getAvailableDeliverySlotsFromSettings(
     }
   }
 
-  const scheduling = settings.deliveryScheduling
+  const scheduling = timeManagement.deliveryScheduling
   const leadDaysWithCutoff = applyCutoff(now, getBaseLeadDays(scheduling), scheduling.orderCutoffTime)
   const firstDay = startOfDay(addDays(now, leadDaysWithCutoff))
   const slotHorizonDays = Math.max(1, scheduling.maxPreorderDays)
+  const holidayHours = timeManagement.holidayHours
 
   const slots: DeliverySlotOption[] = []
   for (let offset = 0; offset <= slotHorizonDays; offset += 1) {
     const date = addDays(firstDay, offset)
-    slots.push(...collectSlotsForDate(date, scheduling, now))
+    slots.push(...collectSlotsForDate(date, scheduling, holidayHours, now))
   }
 
   const availableDates = Array.from(new Set(slots.map((entry) => entry.date)))

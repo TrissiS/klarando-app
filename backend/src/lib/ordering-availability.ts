@@ -41,6 +41,44 @@ function getWindowForDay(windows: DailyWindow[], day: WeekDay) {
   return windows.find((entry) => entry.day === day) || null
 }
 
+function toLocalIsoDate(value: Date) {
+  const year = value.getFullYear()
+  const month = String(value.getMonth() + 1).padStart(2, '0')
+  const day = String(value.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function getHolidayWindow(settings: BusinessSettings, now: Date) {
+  const currentDate = toLocalIsoDate(now)
+  return settings.timeManagement.holidayHours.find((entry) => entry.date === currentDate) || null
+}
+
+function applyHolidayOverride(
+  window: DailyWindow | null,
+  day: WeekDay,
+  holiday: BusinessSettings['timeManagement']['holidayHours'][number] | null
+): DailyWindow | null {
+  if (!holiday) {
+    return window
+  }
+
+  if (holiday.isClosed) {
+    return {
+      day,
+      isClosed: true,
+      open: null,
+      close: null,
+    }
+  }
+
+  return {
+    day,
+    isClosed: false,
+    open: holiday.open ?? window?.open ?? null,
+    close: holiday.close ?? window?.close ?? null,
+  }
+}
+
 function isWindowOpen(window: DailyWindow | null, nowMinutes: number) {
   if (!window || window.isClosed) return false
   const openMinutes = toMinutes(window.open)
@@ -68,30 +106,41 @@ export function getTenantOrderingAvailabilityFromSettings(
 ): TenantOrderingAvailability {
   const weekday = DAY_BY_INDEX[now.getDay()]
   const nowMinutes = minutesFromDate(now)
-  const openingWindow = getWindowForDay(settings.openingHours, weekday)
-  const serviceWindows = orderType === 'DELIVERY' ? settings.deliveryHours : settings.openingHours
-  const serviceWindow = getWindowForDay(serviceWindows, weekday)
+  const timeManagement = settings.timeManagement
+  const holidayWindow = getHolidayWindow(settings, now)
+  const openingWindow = applyHolidayOverride(
+    getWindowForDay(timeManagement.openingHours, weekday),
+    weekday,
+    holidayWindow
+  )
+  const serviceWindows =
+    orderType === 'DELIVERY' ? timeManagement.deliveryHours : timeManagement.openingHours
+  const serviceWindow = applyHolidayOverride(
+    getWindowForDay(serviceWindows, weekday),
+    weekday,
+    holidayWindow
+  )
   const isBusinessOpen = isWindowOpen(openingWindow, nowMinutes)
   const isServiceOpen = isWindowOpen(serviceWindow, nowMinutes)
   const isOpen = isBusinessOpen && isServiceOpen
 
+  const ordering = timeManagement.ordering
   const orderingSwitchOn = settings.customerApp.orderingEnabled
-  const modeEnabled =
-    orderType === 'DELIVERY' ? settings.ordering.deliveryEnabled : settings.ordering.pickupEnabled
-  const isPaused = orderType === 'DELIVERY' && settings.ordering.deliveryPauseEnabled
+  const modeEnabled = orderType === 'DELIVERY' ? ordering.deliveryEnabled : ordering.pickupEnabled
+  const isPaused = orderType === 'DELIVERY' && ordering.deliveryPauseEnabled
   const cutoffOffset =
     orderType === 'DELIVERY'
-      ? settings.ordering.deliveryCutoffMinutesBeforeClose
-      : settings.ordering.pickupCutoffMinutesBeforeClose
+      ? ordering.deliveryCutoffMinutesBeforeClose
+      : ordering.pickupCutoffMinutesBeforeClose
   const cutoffAt = cutoffMinutes(serviceWindow, cutoffOffset)
   const minutesUntilCutoff = cutoffAt === null ? null : cutoffAt - nowMinutes
   const beforeCutoff = cutoffAt === null ? true : nowMinutes < cutoffAt
   const canOrderNow = orderingSwitchOn && modeEnabled && !isPaused && isOpen && beforeCutoff
-  const canPreorder = orderingSwitchOn && modeEnabled && settings.ordering.preorderEnabled && !canOrderNow
+  const canPreorder = orderingSwitchOn && modeEnabled && ordering.preorderEnabled && !canOrderNow
   const closingSoon =
     Boolean(canOrderNow) &&
     minutesUntilCutoff !== null &&
-    minutesUntilCutoff <= settings.ordering.closingSoonThresholdMinutes
+    minutesUntilCutoff <= ordering.closingSoonThresholdMinutes
 
   let message = 'Bestellung aktuell nicht möglich.'
   if (!orderingSwitchOn) {
@@ -108,7 +157,7 @@ export function getTenantOrderingAvailabilityFromSettings(
   } else if (canOrderNow) {
     message = 'Bestellung ist möglich.'
   } else if (canPreorder) {
-    const nextTime = settings.ordering.preorderEarliestTime || formatNextTime(serviceWindow)
+    const nextTime = ordering.preorderEarliestTime || formatNextTime(serviceWindow)
     message = nextTime
       ? `Aktuell geschlossen. Du kannst vorbestellen. Erste ${orderType === 'DELIVERY' ? 'Lieferung' : 'Abholung'} ab ${nextTime} Uhr.`
       : 'Aktuell geschlossen. Du kannst vorbestellen.'
@@ -116,13 +165,13 @@ export function getTenantOrderingAvailabilityFromSettings(
     message = 'Aktuell geschlossen. Der Betrieb nimmt derzeit keine Bestellungen an.'
   }
 
-  if (settings.ordering.manualNoticeText) {
-    message = settings.ordering.manualNoticeText
+  if (ordering.manualNoticeText) {
+    message = ordering.manualNoticeText
   }
 
   const allowedOrderTypes: OrderingType[] = []
-  if (settings.ordering.deliveryEnabled) allowedOrderTypes.push('DELIVERY')
-  if (settings.ordering.pickupEnabled) allowedOrderTypes.push('PICKUP')
+  if (ordering.deliveryEnabled) allowedOrderTypes.push('DELIVERY')
+  if (ordering.pickupEnabled) allowedOrderTypes.push('PICKUP')
 
   return {
     isOpen,

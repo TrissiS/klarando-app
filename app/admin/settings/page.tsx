@@ -9,32 +9,10 @@ import {
   uploadBusinessSettingsImage,
   updateTenantPaypalPaymentConfig,
   updateBusinessSettings,
-  type BusinessDailyWindow,
-  type BusinessHolidayWindow,
   type BusinessSettings,
   type TenantPaypalPaymentConfig,
 } from '@/lib/api'
 import { resolveTenantId } from '@/lib/config'
-
-const DAY_LABELS: Record<BusinessDailyWindow['day'], string> = {
-  MONDAY: 'Montag',
-  TUESDAY: 'Dienstag',
-  WEDNESDAY: 'Mittwoch',
-  THURSDAY: 'Donnerstag',
-  FRIDAY: 'Freitag',
-  SATURDAY: 'Samstag',
-  SUNDAY: 'Sonntag',
-}
-
-function emptyHoliday(): BusinessHolidayWindow {
-  return {
-    date: '',
-    label: '',
-    isClosed: true,
-    open: null,
-    close: null,
-  }
-}
 
 function confirmDoubleSave() {
   const firstCheck = window.confirm('Einstellungen wirklich ändern?')
@@ -102,58 +80,6 @@ export default function AdminSettingsPage() {
           ...current.customerApp,
           [key]: value,
         },
-      }
-    })
-  }
-
-  function updateDailyWindow(
-    listKey: 'openingHours' | 'deliveryHours',
-    day: BusinessDailyWindow['day'],
-    patch: Partial<BusinessDailyWindow>
-  ) {
-    setSettings((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        [listKey]: current[listKey].map((entry) =>
-          entry.day === day ? { ...entry, ...patch } : entry
-        ),
-      }
-    })
-  }
-
-  function updateHoliday(index: number, patch: Partial<BusinessHolidayWindow>) {
-    setSettings((current) => {
-      if (!current) return current
-      const next = [...current.holidayHours]
-      const existing = next[index]
-      if (!existing) {
-        return current
-      }
-      next[index] = { ...existing, ...patch }
-      return {
-        ...current,
-        holidayHours: next,
-      }
-    })
-  }
-
-  function addHoliday() {
-    setSettings((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        holidayHours: [...current.holidayHours, emptyHoliday()],
-      }
-    })
-  }
-
-  function removeHoliday(index: number) {
-    setSettings((current) => {
-      if (!current) return current
-      return {
-        ...current,
-        holidayHours: current.holidayHours.filter((_, itemIndex) => itemIndex !== index),
       }
     })
   }
@@ -262,7 +188,7 @@ export default function AdminSettingsPage() {
   return (
     <AdminLayout
       title="Einstellungen"
-      subtitle="Geschäftsdaten, Steuer-IDs, Öffnungszeiten und Lieferdienst zentral verwalten"
+      subtitle="Geschäftsdaten, Medien und Abrechnung zentral verwalten"
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -611,158 +537,22 @@ export default function AdminSettingsPage() {
             </article>
           </section>
 
-          <section className="grid gap-6 xl:grid-cols-2">
-            <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-              <h2 className="text-xl font-semibold">Öffnungszeiten</h2>
-              <div className="mt-4 space-y-2">
-                {settings.openingHours.map((entry) => (
-                  <div key={`opening-${entry.day}`} className="grid grid-cols-[140px_120px_1fr_1fr] items-center gap-2">
-                    <span className="text-sm text-rose-900/85">{DAY_LABELS[entry.day]}</span>
-                    <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
-                      <input
-                        type="checkbox"
-                        checked={entry.isClosed}
-                        onChange={(event) =>
-                          updateDailyWindow('openingHours', entry.day, {
-                            isClosed: event.target.checked,
-                            open: event.target.checked ? null : entry.open || '10:00',
-                            close: event.target.checked ? null : entry.close || '22:00',
-                          })
-                        }
-                      />
-                      Geschlossen
-                    </label>
-                    <input
-                      type="time"
-                      disabled={entry.isClosed}
-                      value={entry.open || ''}
-                      onChange={(event) => updateDailyWindow('openingHours', entry.day, { open: event.target.value || null })}
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
-                    />
-                    <input
-                      type="time"
-                      disabled={entry.isClosed}
-                      value={entry.close || ''}
-                      onChange={(event) => updateDailyWindow('openingHours', entry.day, { close: event.target.value || null })}
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
-                    />
-                  </div>
-                ))}
-              </div>
-            </article>
-
-            <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-              <h2 className="text-xl font-semibold">Lieferdienstzeiten</h2>
-              <div className="mt-4 space-y-2">
-                {settings.deliveryHours.map((entry) => (
-                  <div key={`delivery-${entry.day}`} className="grid grid-cols-[140px_120px_1fr_1fr] items-center gap-2">
-                    <span className="text-sm text-rose-900/85">{DAY_LABELS[entry.day]}</span>
-                    <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
-                      <input
-                        type="checkbox"
-                        checked={entry.isClosed}
-                        onChange={(event) =>
-                          updateDailyWindow('deliveryHours', entry.day, {
-                            isClosed: event.target.checked,
-                            open: event.target.checked ? null : entry.open || '10:00',
-                            close: event.target.checked ? null : entry.close || '22:00',
-                          })
-                        }
-                      />
-                      Geschlossen
-                    </label>
-                    <input
-                      type="time"
-                      disabled={entry.isClosed}
-                      value={entry.open || ''}
-                      onChange={(event) => updateDailyWindow('deliveryHours', entry.day, { open: event.target.value || null })}
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
-                    />
-                    <input
-                      type="time"
-                      disabled={entry.isClosed}
-                      value={entry.close || ''}
-                      onChange={(event) => updateDailyWindow('deliveryHours', entry.day, { close: event.target.value || null })}
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
-                    />
-                  </div>
-                ))}
-              </div>
-            </article>
-          </section>
-
           <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-xl font-semibold">Feiertage / Sonderöffnungen</h2>
-              <button
-                type="button"
-                onClick={addHoliday}
-                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-              >
-                Feiertag hinzufügen
-              </button>
-            </div>
-            <div className="mt-4 space-y-2">
-              {settings.holidayHours.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-[var(--brand-border)] bg-rose-50/60 px-3 py-3 text-sm text-rose-900/75">
-                  Noch keine Feiertagseinträge vorhanden.
-                </p>
-              ) : (
-                settings.holidayHours.map((entry, index) => (
-                  <div
-                    key={`holiday-${index}`}
-                    className="grid grid-cols-[160px_1fr_120px_1fr_1fr_120px] items-center gap-2"
-                  >
-                    <input
-                      type="date"
-                      value={entry.date}
-                      onChange={(event) => updateHoliday(index, { date: event.target.value })}
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-                    />
-                    <input
-                      value={entry.label || ''}
-                      onChange={(event) => updateHoliday(index, { label: event.target.value || null })}
-                      placeholder="z. B. Weihnachten"
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-                    />
-                    <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
-                      <input
-                        type="checkbox"
-                        checked={entry.isClosed}
-                        onChange={(event) =>
-                          updateHoliday(index, {
-                            isClosed: event.target.checked,
-                            open: event.target.checked ? null : entry.open || '10:00',
-                            close: event.target.checked ? null : entry.close || '22:00',
-                          })
-                        }
-                      />
-                      Zu
-                    </label>
-                    <input
-                      type="time"
-                      disabled={entry.isClosed}
-                      value={entry.open || ''}
-                      onChange={(event) => updateHoliday(index, { open: event.target.value || null })}
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
-                    />
-                    <input
-                      type="time"
-                      disabled={entry.isClosed}
-                      value={entry.close || ''}
-                      onChange={(event) => updateHoliday(index, { close: event.target.value || null })}
-                      className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeHoliday(index)}
-                      className="rounded-xl border border-red-300 bg-white px-3 py-2 text-xs font-medium text-red-700 hover:bg-red-50"
-                    >
-                      Entfernen
-                    </button>
-                  </div>
-                ))
-              )}
+            <h2 className="text-xl font-semibold">Zeitverwaltung umgezogen</h2>
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+              <p className="font-semibold">
+                Öffnungszeiten, Lieferdienstzeiten sowie Feiertage & Sonderöffnungen werden nicht mehr hier gepflegt.
+              </p>
+              <p className="mt-2">
+                Die zentrale Master-Verwaltung liegt jetzt unter{' '}
+                <Link href="/admin/app-settings?section=delivery-area" className="font-semibold underline">
+                  Lieferung → Öffnungszeiten & Lieferzeiten
+                </Link>
+                .
+              </p>
+              <p className="mt-2">
+                Alle Bestellprüfungen, Vorbestellungen und Öffnungsstatus greifen künftig nur noch auf diese zentrale Zeitfensterverwaltung zu.
+              </p>
             </div>
           </section>
 

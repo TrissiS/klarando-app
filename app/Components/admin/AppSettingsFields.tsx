@@ -16,8 +16,10 @@ type Props = {
 }
 
 type ServiceMode = 'DELIVERY' | 'PICKUP' | 'BOTH'
-type DeliveryDay = BusinessSettings['deliveryScheduling']['allowedDeliveryDays'][number]
-type DeliverySlot = BusinessSettings['deliveryScheduling']['timeSlots'][number]
+type DeliveryDay = BusinessSettings['timeManagement']['deliveryScheduling']['allowedDeliveryDays'][number]
+type DeliverySlot = BusinessSettings['timeManagement']['deliveryScheduling']['timeSlots'][number]
+type BusinessDayWindow = BusinessSettings['timeManagement']['openingHours'][number]
+type BusinessHolidayWindow = BusinessSettings['timeManagement']['holidayHours'][number]
 const WEEK_DAYS: Array<{
   key: DeliveryDay
   label: string
@@ -30,6 +32,16 @@ const WEEK_DAYS: Array<{
   { key: 'SATURDAY', label: 'Sa' },
   { key: 'SUNDAY', label: 'So' },
 ]
+
+const DAY_LABELS: Record<DeliveryDay, string> = {
+  MONDAY: 'Montag',
+  TUESDAY: 'Dienstag',
+  WEDNESDAY: 'Mittwoch',
+  THURSDAY: 'Donnerstag',
+  FRIDAY: 'Freitag',
+  SATURDAY: 'Samstag',
+  SUNDAY: 'Sonntag',
+}
 
 const DEFAULT_SLOT_TEMPLATES: Array<{
   id: string
@@ -53,6 +65,27 @@ export default function AppSettingsFields({
   showServiceAreaEditor = true,
   showDeliveryScheduling = true,
 }: Props) {
+  function patchTimeManagement(next: Partial<BusinessSettings['timeManagement']>) {
+    onChange({
+      ...settings,
+      timeManagement: {
+        ...settings.timeManagement,
+        ...next,
+      },
+    })
+  }
+
+  function patchTimeManagementOrdering(
+    next: Partial<BusinessSettings['timeManagement']['ordering']>
+  ) {
+    patchTimeManagement({
+      ordering: {
+        ...settings.timeManagement.ordering,
+        ...next,
+      },
+    })
+  }
+
   function patchCustomerApp(next: Partial<BusinessSettings['customerApp']>) {
     onChange({
       ...settings,
@@ -110,14 +143,58 @@ export default function AppSettingsFields({
   }
 
   function patchDeliveryScheduling(
-    next: Partial<BusinessSettings['deliveryScheduling']>
+    next: Partial<BusinessSettings['timeManagement']['deliveryScheduling']>
   ) {
-    onChange({
-      ...settings,
+    patchTimeManagement({
       deliveryScheduling: {
-        ...settings.deliveryScheduling,
+        ...settings.timeManagement.deliveryScheduling,
         ...next,
       },
+    })
+  }
+
+  function updateDailyWindow(
+    listKey: 'openingHours' | 'deliveryHours',
+    day: BusinessDayWindow['day'],
+    patch: Partial<BusinessDayWindow>
+  ) {
+    patchTimeManagement({
+      [listKey]: settings.timeManagement[listKey].map((entry) =>
+        entry.day === day ? { ...entry, ...patch } : entry
+      ),
+    } as Pick<BusinessSettings['timeManagement'], typeof listKey>)
+  }
+
+  function updateHoliday(index: number, patch: Partial<BusinessHolidayWindow>) {
+    const next = [...settings.timeManagement.holidayHours]
+    const existing = next[index]
+    if (!existing) {
+      return
+    }
+    next[index] = { ...existing, ...patch }
+    patchTimeManagement({ holidayHours: next })
+  }
+
+  function addHoliday() {
+    patchTimeManagement({
+      holidayHours: [
+        ...settings.timeManagement.holidayHours,
+        {
+          date: '',
+          label: '',
+          isClosed: true,
+          open: null,
+          close: null,
+        },
+      ],
+    })
+  }
+
+  function removeHoliday(index: number) {
+    patchTimeManagement({
+      holidayHours: settings.timeManagement.holidayHours.filter(
+        (_, itemIndex) => itemIndex !== index
+      ),
     })
   }
 
@@ -125,11 +202,11 @@ export default function AppSettingsFields({
     index: number,
     next: Partial<BusinessSettings['deliveryScheduling']['timeSlots'][number]>
   ) {
-    const current = settings.deliveryScheduling.timeSlots[index]
+    const current = settings.timeManagement.deliveryScheduling.timeSlots[index]
     if (!current) {
       return
     }
-    const updated = settings.deliveryScheduling.timeSlots.map((slot, slotIndex) =>
+    const updated = settings.timeManagement.deliveryScheduling.timeSlots.map((slot, slotIndex) =>
       slotIndex === index ? { ...slot, ...next } : slot
     )
     patchDeliveryScheduling({ timeSlots: updated })
@@ -137,7 +214,7 @@ export default function AppSettingsFields({
 
   function addTimeSlot() {
     const next = [
-      ...settings.deliveryScheduling.timeSlots,
+      ...settings.timeManagement.deliveryScheduling.timeSlots,
       {
         day: 'MONDAY' as const,
         start: '11:00',
@@ -151,7 +228,7 @@ export default function AppSettingsFields({
   function addTimeSlotForDay(day: DeliveryDay) {
     patchDeliveryScheduling({
       timeSlots: [
-        ...settings.deliveryScheduling.timeSlots,
+        ...settings.timeManagement.deliveryScheduling.timeSlots,
         {
           day,
           start: '09:00',
@@ -163,12 +240,12 @@ export default function AppSettingsFields({
   }
 
   function removeTimeSlot(index: number) {
-    const next = settings.deliveryScheduling.timeSlots.filter((_, slotIndex) => slotIndex !== index)
+    const next = settings.timeManagement.deliveryScheduling.timeSlots.filter((_, slotIndex) => slotIndex !== index)
     patchDeliveryScheduling({ timeSlots: next })
   }
 
   function copyDaySlotsToAllDays(sourceDay: DeliveryDay) {
-    const source = settings.deliveryScheduling.timeSlots
+    const source = settings.timeManagement.deliveryScheduling.timeSlots
       .filter((slot) => slot.day === sourceDay)
       .map((slot) => ({
         start: slot.start,
@@ -194,7 +271,7 @@ export default function AppSettingsFields({
     day: DeliveryDay,
     template: Pick<DeliverySlot, 'start' | 'end'> | null
   ) {
-    const withoutDay = settings.deliveryScheduling.timeSlots.filter((slot) => slot.day !== day)
+    const withoutDay = settings.timeManagement.deliveryScheduling.timeSlots.filter((slot) => slot.day !== day)
     patchDeliveryScheduling({
       timeSlots: template
         ? [...withoutDay, { day, start: template.start, end: template.end, maxOrders: null }]
@@ -204,14 +281,14 @@ export default function AppSettingsFields({
 
   const slotsByDay = WEEK_DAYS.map((dayEntry) => ({
     ...dayEntry,
-    slots: settings.deliveryScheduling.timeSlots
+    slots: settings.timeManagement.deliveryScheduling.timeSlots
       .map((slot, index) => ({ slot, index }))
       .filter((entry) => entry.slot.day === dayEntry.key)
       .sort((left, right) => left.slot.start.localeCompare(right.slot.start)),
   }))
 
   function validateDaySlots(day: DeliveryDay) {
-    const daySlots = settings.deliveryScheduling.timeSlots
+    const daySlots = settings.timeManagement.deliveryScheduling.timeSlots
       .filter((slot) => slot.day === day)
       .map((slot) => ({
         start: slot.start?.trim() || '',
@@ -222,7 +299,7 @@ export default function AppSettingsFields({
 
     const errors: string[] = []
 
-    if (settings.deliveryScheduling.allowedDeliveryDays.includes(day) && daySlots.length === 0) {
+    if (settings.timeManagement.deliveryScheduling.allowedDeliveryDays.includes(day) && daySlots.length === 0) {
       errors.push('Tag ist aktiv, aber es gibt kein Zeitfenster.')
     }
 
@@ -457,6 +534,81 @@ export default function AppSettingsFields({
 
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
+          Bestellfenster & Vorbestellung
+        </h3>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+            <input
+              type="checkbox"
+              checked={settings.timeManagement.ordering.preorderEnabled}
+              onChange={(event) =>
+                patchTimeManagementOrdering({ preorderEnabled: event.target.checked })
+              }
+            />
+            Vorbestellungen erlauben
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+            <input
+              type="checkbox"
+              checked={!settings.timeManagement.ordering.deliveryPauseEnabled}
+              onChange={(event) =>
+                patchTimeManagementOrdering({ deliveryPauseEnabled: !event.target.checked })
+              }
+            />
+            Sofortbestellungen aktiv
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
+              Lieferannahmeschluss vor Feierabend (Minuten)
+            </span>
+            <input
+              type="number"
+              min={0}
+              max={240}
+              value={settings.timeManagement.ordering.deliveryCutoffMinutesBeforeClose}
+              onChange={(event) =>
+                patchTimeManagementOrdering({
+                  deliveryCutoffMinutesBeforeClose: Number(event.target.value || 0),
+                })
+              }
+              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
+              Max. Vorbestelltage
+            </span>
+            <input
+              type="number"
+              min={1}
+              max={90}
+              value={settings.timeManagement.ordering.preorderMaxDays}
+              onChange={(event) =>
+                patchTimeManagementOrdering({
+                  preorderMaxDays: Number(event.target.value || 1),
+                })
+              }
+              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+            />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
+              Hinweistext für Kunden
+            </span>
+            <input
+              value={settings.timeManagement.ordering.manualNoticeText || ''}
+              onChange={(event) =>
+                patchTimeManagementOrdering({ manualNoticeText: event.target.value || null })
+              }
+              placeholder="Optionaler Hinweis bei eingeschränkter Bestellannahme"
+              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+            />
+          </label>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Suchübersicht in App
         </h3>
         <p className="mt-2 text-xs text-rose-900/70">
@@ -538,8 +690,8 @@ export default function AppSettingsFields({
       {showServiceAreaEditor ? (
         <div className="mt-4 grid gap-4">
           <ServiceAreaEditor
-            title="Liefer- und Abholgebiet"
-            subtitle="PLZ, Radius und Straßen-Ausschlüsse (gilt für beide Modi)"
+            title="Öffnungszeiten & Lieferzeiten"
+            subtitle="Zentrale Master-Verwaltung für Liefergebiet, Zeiten und Ausnahmen."
             value={settings.deliveryArea}
             disabled={disableDelivery}
             onChange={(next) =>
@@ -551,6 +703,190 @@ export default function AppSettingsFields({
           />
         </div>
       ) : null}
+
+      <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
+          Öffnungszeiten
+        </h3>
+        <p className="mt-2 text-xs text-rose-900/70">
+          Diese Zeiten sind jetzt die zentrale Quelle für Ladenstatus, Bestellannahme und Kundenanzeige.
+        </p>
+        <div className="mt-4 space-y-2">
+          {settings.timeManagement.openingHours.map((entry) => (
+            <div
+              key={`opening-${entry.day}`}
+              className="grid gap-2 rounded-2xl border border-[var(--brand-border)] bg-white p-3 sm:grid-cols-[140px_120px_1fr_1fr]"
+            >
+              <span className="text-sm font-medium text-rose-900/85">{DAY_LABELS[entry.day]}</span>
+              <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+                <input
+                  type="checkbox"
+                  checked={entry.isClosed}
+                  onChange={(event) =>
+                    updateDailyWindow('openingHours', entry.day, {
+                      isClosed: event.target.checked,
+                      open: event.target.checked ? null : entry.open || '10:00',
+                      close: event.target.checked ? null : entry.close || '22:00',
+                    })
+                  }
+                />
+                Geschlossen
+              </label>
+              <input
+                type="time"
+                disabled={entry.isClosed}
+                value={entry.open || ''}
+                onChange={(event) =>
+                  updateDailyWindow('openingHours', entry.day, { open: event.target.value || null })
+                }
+                className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+              />
+              <input
+                type="time"
+                disabled={entry.isClosed}
+                value={entry.close || ''}
+                onChange={(event) =>
+                  updateDailyWindow('openingHours', entry.day, { close: event.target.value || null })
+                }
+                className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
+          Lieferdienstzeiten
+        </h3>
+        <p className="mt-2 text-xs text-rose-900/70">
+          Diese Zeiten bestimmen, wann Lieferungen aktiv angenommen werden dürfen.
+        </p>
+        <div className="mt-4 space-y-2">
+          {settings.timeManagement.deliveryHours.map((entry) => (
+            <div
+              key={`delivery-${entry.day}`}
+              className="grid gap-2 rounded-2xl border border-[var(--brand-border)] bg-white p-3 sm:grid-cols-[140px_120px_1fr_1fr]"
+            >
+              <span className="text-sm font-medium text-rose-900/85">{DAY_LABELS[entry.day]}</span>
+              <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+                <input
+                  type="checkbox"
+                  checked={entry.isClosed}
+                  onChange={(event) =>
+                    updateDailyWindow('deliveryHours', entry.day, {
+                      isClosed: event.target.checked,
+                      open: event.target.checked ? null : entry.open || '10:00',
+                      close: event.target.checked ? null : entry.close || '22:00',
+                    })
+                  }
+                />
+                Geschlossen
+              </label>
+              <input
+                type="time"
+                disabled={entry.isClosed}
+                value={entry.open || ''}
+                onChange={(event) =>
+                  updateDailyWindow('deliveryHours', entry.day, { open: event.target.value || null })
+                }
+                className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+              />
+              <input
+                type="time"
+                disabled={entry.isClosed}
+                value={entry.close || ''}
+                onChange={(event) =>
+                  updateDailyWindow('deliveryHours', entry.day, { close: event.target.value || null })
+                }
+                className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
+              Feiertage & Ausnahmen
+            </h3>
+            <p className="mt-1 text-xs text-rose-900/70">
+              Sonderöffnungen und geschlossene Feiertage überschreiben die normalen Tagesfenster.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={addHoliday}
+            className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Ausnahme hinzufügen
+          </button>
+        </div>
+        <div className="mt-4 space-y-2">
+          {settings.timeManagement.holidayHours.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-white px-3 py-3 text-sm text-rose-900/75">
+              Noch keine Feiertage oder Sonderöffnungen gepflegt.
+            </p>
+          ) : (
+            settings.timeManagement.holidayHours.map((entry, index) => (
+              <div
+                key={`holiday-${index}`}
+                className="grid gap-2 rounded-2xl border border-[var(--brand-border)] bg-white p-3 sm:grid-cols-[160px_1fr_120px_1fr_1fr_120px]"
+              >
+                <input
+                  type="date"
+                  value={entry.date}
+                  onChange={(event) => updateHoliday(index, { date: event.target.value })}
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                />
+                <input
+                  value={entry.label || ''}
+                  onChange={(event) => updateHoliday(index, { label: event.target.value || null })}
+                  placeholder="Kommentar"
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                />
+                <label className="inline-flex items-center gap-2 text-sm text-rose-900/85">
+                  <input
+                    type="checkbox"
+                    checked={entry.isClosed}
+                    onChange={(event) =>
+                      updateHoliday(index, {
+                        isClosed: event.target.checked,
+                        open: event.target.checked ? null : entry.open || '10:00',
+                        close: event.target.checked ? null : entry.close || '14:00',
+                      })
+                    }
+                  />
+                  Geschlossen
+                </label>
+                <input
+                  type="time"
+                  disabled={entry.isClosed}
+                  value={entry.open || ''}
+                  onChange={(event) => updateHoliday(index, { open: event.target.value || null })}
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+                />
+                <input
+                  type="time"
+                  disabled={entry.isClosed}
+                  value={entry.close || ''}
+                  onChange={(event) => updateHoliday(index, { close: event.target.value || null })}
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeHoliday(index)}
+                  className="rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                >
+                  Entfernen
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
 
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
@@ -566,7 +902,7 @@ export default function AppSettingsFields({
               Liefermodus
             </span>
             <select
-              value={settings.deliveryScheduling.deliveryMode}
+              value={settings.timeManagement.deliveryScheduling.deliveryMode}
               onChange={(event) =>
                 patchDeliveryScheduling({
                   deliveryMode: event.target.value as BusinessSettings['deliveryScheduling']['deliveryMode'],
@@ -586,7 +922,7 @@ export default function AppSettingsFields({
             </span>
             <input
               type="time"
-              value={settings.deliveryScheduling.orderCutoffTime || ''}
+              value={settings.timeManagement.deliveryScheduling.orderCutoffTime || ''}
               onChange={(event) =>
                 patchDeliveryScheduling({
                   orderCutoffTime: event.target.value || null,
@@ -603,7 +939,7 @@ export default function AppSettingsFields({
               type="number"
               min={0}
               max={30}
-              value={settings.deliveryScheduling.minDaysAhead}
+              value={settings.timeManagement.deliveryScheduling.minDaysAhead}
               onChange={(event) =>
                 patchDeliveryScheduling({
                   minDaysAhead: Number(event.target.value || 0),
@@ -620,7 +956,7 @@ export default function AppSettingsFields({
               type="number"
               min={1}
               max={90}
-              value={settings.deliveryScheduling.maxPreorderDays}
+              value={settings.timeManagement.deliveryScheduling.maxPreorderDays}
               onChange={(event) =>
                 patchDeliveryScheduling({
                   maxPreorderDays: Number(event.target.value || 1),
@@ -637,7 +973,7 @@ export default function AppSettingsFields({
           </h4>
           <div className="mt-2 flex flex-wrap gap-2">
             {WEEK_DAYS.map((entry) => {
-              const checked = settings.deliveryScheduling.allowedDeliveryDays.includes(entry.key)
+              const checked = settings.timeManagement.deliveryScheduling.allowedDeliveryDays.includes(entry.key)
               return (
                 <label
                   key={entry.key}
@@ -653,9 +989,9 @@ export default function AppSettingsFields({
                     onChange={(event) => {
                       const nextDays = event.target.checked
                         ? Array.from(
-                            new Set([...settings.deliveryScheduling.allowedDeliveryDays, entry.key])
+                            new Set([...settings.timeManagement.deliveryScheduling.allowedDeliveryDays, entry.key])
                           )
-                        : settings.deliveryScheduling.allowedDeliveryDays.filter((day) => day !== entry.key)
+                        : settings.timeManagement.deliveryScheduling.allowedDeliveryDays.filter((day) => day !== entry.key)
                       patchDeliveryScheduling({ allowedDeliveryDays: nextDays })
                     }}
                   />
@@ -692,7 +1028,7 @@ export default function AppSettingsFields({
             <div className="divide-y divide-rose-100">
               {slotsByDay.map((dayRow) => {
                 const dayErrors = validateDaySlots(dayRow.key)
-                const isActiveDay = settings.deliveryScheduling.allowedDeliveryDays.includes(dayRow.key)
+                const isActiveDay = settings.timeManagement.deliveryScheduling.allowedDeliveryDays.includes(dayRow.key)
 
                 return (
                   <div key={dayRow.key} className="p-3">
@@ -814,7 +1150,7 @@ export default function AppSettingsFields({
             </div>
           </div>
 
-          {settings.deliveryScheduling.timeSlots.length === 0 ? (
+          {settings.timeManagement.deliveryScheduling.timeSlots.length === 0 ? (
             <p className="mt-3 text-xs text-rose-900/70">
               Ohne Zeitfenster gelten nur die aktiven Tage. Für klare Liefertermine bitte Zeitfenster setzen.
             </p>

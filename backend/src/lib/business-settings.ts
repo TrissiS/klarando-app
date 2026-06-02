@@ -114,6 +114,14 @@ export type DeliverySchedulingSettings = {
   timeSlots: DeliveryTimeSlot[]
 }
 
+export type TimeManagementSettings = {
+  openingHours: DailyWindow[]
+  deliveryHours: DailyWindow[]
+  holidayHours: HolidayWindow[]
+  ordering: OrderingAvailabilitySettings
+  deliveryScheduling: DeliverySchedulingSettings
+}
+
 export type ComplianceSettings = {
   cookieConsentRequired: boolean
   requirePrivacyConsentAtSignup: boolean
@@ -219,6 +227,7 @@ export type BusinessSettings = {
   openingHours: DailyWindow[]
   holidayHours: HolidayWindow[]
   deliveryHours: DailyWindow[]
+  timeManagement: TimeManagementSettings
   deliveryArea: ServiceAreaSettings
   pickupArea: ServiceAreaSettings
   driver: DriverSettings
@@ -726,6 +735,16 @@ export function defaultDeliverySchedulingSettings(): DeliverySchedulingSettings 
       { day: 'MONDAY', start: '12:00', end: '15:00', maxOrders: null },
       { day: 'MONDAY', start: '15:00', end: '18:00', maxOrders: null },
     ],
+  }
+}
+
+export function defaultTimeManagementSettings(): TimeManagementSettings {
+  return {
+    openingHours: defaultDailyHours(),
+    deliveryHours: defaultDailyHours(),
+    holidayHours: [],
+    ordering: defaultOrderingAvailabilitySettings(),
+    deliveryScheduling: defaultDeliverySchedulingSettings(),
   }
 }
 
@@ -1258,6 +1277,45 @@ function sanitizeDeliverySchedulingSettings(
   }
 }
 
+function sanitizeTimeManagementSettings(
+  value: unknown,
+  fallback: TimeManagementSettings,
+  legacySource: Record<string, unknown>
+): TimeManagementSettings {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+
+  return {
+    openingHours: sanitizeDailyHours(
+      source.openingHours ?? legacySource.openingHours,
+      fallback.openingHours
+    ),
+    deliveryHours: sanitizeDailyHours(
+      source.deliveryHours ?? legacySource.deliveryHours,
+      fallback.deliveryHours
+    ),
+    holidayHours: sanitizeHolidayHours(source.holidayHours ?? legacySource.holidayHours),
+    ordering: sanitizeOrderingAvailabilitySettings(
+      source.ordering ?? legacySource.ordering,
+      fallback.ordering
+    ),
+    deliveryScheduling: sanitizeDeliverySchedulingSettings(
+      source.deliveryScheduling ?? legacySource.deliveryScheduling,
+      fallback.deliveryScheduling
+    ),
+  }
+}
+
+export function synchronizeLegacyTimeFields(settings: BusinessSettings): BusinessSettings {
+  return {
+    ...settings,
+    openingHours: settings.timeManagement.openingHours,
+    holidayHours: settings.timeManagement.holidayHours,
+    deliveryHours: settings.timeManagement.deliveryHours,
+    ordering: settings.timeManagement.ordering,
+    deliveryScheduling: settings.timeManagement.deliveryScheduling,
+  }
+}
+
 export function parseSettings(
   raw: unknown,
   tenantDefaults: { name: string; email: string | null }
@@ -1275,15 +1333,19 @@ export function parseSettings(
       source = {}
     }
   }
-  const defaultHours = defaultDailyHours()
   const defaultArea = defaultServiceArea()
   const defaultCustomerApp = defaultCustomerAppSettings()
   const defaultDriver = defaultDriverSettings()
-  const defaultOrdering = defaultOrderingAvailabilitySettings()
-  const defaultDeliveryScheduling = defaultDeliverySchedulingSettings()
+  const defaultTimeManagement = defaultTimeManagementSettings()
   const defaultCompliance = defaultComplianceSettings()
   const defaultOrderIntake = defaultOrderIntakeSettings()
   const defaultServiceFee = defaultServiceFeeSettings()
+
+  const timeManagement = sanitizeTimeManagementSettings(
+    source.timeManagement,
+    defaultTimeManagement,
+    source
+  )
 
   return {
     businessName: normalizeText(source.businessName) ?? tenantDefaults.name,
@@ -1318,17 +1380,15 @@ export function parseSettings(
     coverImageUrl: normalizeText(source.coverImageUrl),
     thumbnailUrl: normalizeText(source.thumbnailUrl),
     originalFileName: normalizeText(source.originalFileName),
-    openingHours: sanitizeDailyHours(source.openingHours, defaultHours),
-    holidayHours: sanitizeHolidayHours(source.holidayHours),
-    deliveryHours: sanitizeDailyHours(source.deliveryHours, defaultHours),
+    openingHours: timeManagement.openingHours,
+    holidayHours: timeManagement.holidayHours,
+    deliveryHours: timeManagement.deliveryHours,
+    timeManagement,
     deliveryArea: sanitizeServiceArea(source.deliveryArea, defaultArea),
     pickupArea: sanitizeServiceArea(source.pickupArea, defaultArea),
     driver: sanitizeDriverSettings(source.driver, defaultDriver),
-    ordering: sanitizeOrderingAvailabilitySettings(source.ordering, defaultOrdering),
-    deliveryScheduling: sanitizeDeliverySchedulingSettings(
-      source.deliveryScheduling,
-      defaultDeliveryScheduling
-    ),
+    ordering: timeManagement.ordering,
+    deliveryScheduling: timeManagement.deliveryScheduling,
     customerApp: sanitizeCustomerApp(source.customerApp, defaultCustomerApp),
     compliance: sanitizeCompliance(source.compliance, defaultCompliance),
     orderIntake: sanitizeOrderIntakeSettings(source.orderIntake, defaultOrderIntake),

@@ -484,6 +484,14 @@ export type BusinessDeliverySchedulingSettings = {
   timeSlots: BusinessDeliveryTimeSlot[]
 }
 
+export type BusinessTimeManagementSettings = {
+  openingHours: BusinessDailyWindow[]
+  deliveryHours: BusinessDailyWindow[]
+  holidayHours: BusinessHolidayWindow[]
+  ordering: BusinessOrderingSettings
+  deliveryScheduling: BusinessDeliverySchedulingSettings
+}
+
 export type BranchOrderIntakeStatus = {
   branchId: string
   tenantId: string
@@ -545,6 +553,7 @@ export type BusinessSettings = {
   openingHours: BusinessDailyWindow[]
   holidayHours: BusinessHolidayWindow[]
   deliveryHours: BusinessDailyWindow[]
+  timeManagement: BusinessTimeManagementSettings
   deliveryArea: BusinessServiceArea
   pickupArea: BusinessServiceArea
   driver: BusinessDriverSettings
@@ -2165,6 +2174,11 @@ export async function updateBusinessSettings(
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
   const normalizedSettings: BusinessSettings = {
     ...settings,
+    openingHours: settings.timeManagement.openingHours,
+    holidayHours: settings.timeManagement.holidayHours,
+    deliveryHours: settings.timeManagement.deliveryHours,
+    ordering: settings.timeManagement.ordering,
+    deliveryScheduling: settings.timeManagement.deliveryScheduling,
     deliveryArea: {
       ...settings.deliveryArea,
       polygonPath: normalizedPolygon,

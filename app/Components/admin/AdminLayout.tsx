@@ -143,7 +143,7 @@ const sectionNavSections: NavSection[] = [
     label: 'Lieferbetrieb',
     items: [
       { href: '/admin/delivery', label: 'Workspace', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings?section=delivery-area', label: 'Lieferzonen', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/app-settings?section=delivery-area', label: 'Öffnungszeiten & Lieferzeiten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/drivers', label: 'Fahrer', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/tours', label: 'Touren', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
     ],

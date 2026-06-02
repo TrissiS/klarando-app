@@ -1,6 +1,6 @@
 {
   "name": "klarando-app",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
@@ -63,6 +63,6 @@
     "@types/react-dom": "^18.3.7",
     "typescript": "^5.9.3"
   },
-  "klarandoVersion": "0.1.22",
-  "klarandoBuildDateUtc": "2026-05-15T07:10:00.000Z"
+  "klarandoVersion": "0.1.23",
+  "klarandoBuildDateUtc": "2026-06-02T00:00:00.000Z"
 }

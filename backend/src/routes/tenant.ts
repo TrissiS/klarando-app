@@ -218,7 +218,7 @@ function parseTimeToMinutes(value: string | null) {
 
 function resolveDeliveryScheduleState(settings: ReturnType<typeof parseSettings>) {
   const now = new Date()
-  const schedule = settings.deliveryScheduling
+  const schedule = settings.timeManagement.deliveryScheduling
   const dayIndex = now.getDay()
   const nowMinutes = now.getHours() * 60 + now.getMinutes()
   const todayKey = dayKeyFromIndex(dayIndex)
@@ -1117,7 +1117,7 @@ router.get('/public/discovery', async (req, res) => {
             customerMessage: intake.orderIntakeEnabled ? null : resolvedPauseReason,
           },
           deliveryScheduling: {
-            ...settings.deliveryScheduling,
+            ...settings.timeManagement.deliveryScheduling,
             availableNow: deliveryScheduleState.availableNow,
             nextAvailableAt: deliveryScheduleState.nextAvailableAt,
             hasSlots: deliveryScheduleState.hasSlots,

@@ -272,8 +272,12 @@ export default function AdminAppSettingsPage() {
 
   return (
     <AdminLayout
-      title="App-Einstellungen"
-      subtitle="Bestellmodus und gemeinsames Liefer-/Abholgebiet für diese Filiale verwalten"
+      title={isDeliveryAreaSection ? 'Öffnungszeiten & Lieferzeiten' : 'App-Einstellungen'}
+      subtitle={
+        isDeliveryAreaSection
+          ? 'Zentrale Master-Verwaltung für Lieferzonen, Öffnungszeiten, Lieferzeiten und Ausnahmen.'
+          : 'Bestellmodus und gemeinsames Liefer-/Abholgebiet für diese Filiale verwalten'
+      }
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -334,8 +338,8 @@ export default function AdminAppSettingsPage() {
               </div>
               {isSuperadminView ? (
                 <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  Lieferzonen werden vom Betreiber/Admin der Filiale gepflegt.
-                </div>
+                Lieferzonen, Öffnungszeiten und Lieferzeiten werden zentral auf dieser Seite gepflegt.
+              </div>
               ) : null}
               <AppSettingsFields
                 settings={settings}
@@ -345,7 +349,7 @@ export default function AdminAppSettingsPage() {
                 showDeliveryScheduling={!isDeliveryAreaSection}
               />
               <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
-                Änderungen werden erst nach dem Speichern übernommen.
+                Änderungen werden erst nach dem Speichern übernommen. Diese Seite ist die zentrale Zeit- und Lieferzonenverwaltung.
               </div>
             </>
           )}
@@ -354,7 +358,7 @@ export default function AdminAppSettingsPage() {
       {!loading && settings && !isTourSection ? (
         <div className="sticky bottom-0 z-20 mt-4 border border-slate-200 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-slate-700">Lieferzeiten und App-Einstellungen speichern</p>
+            <p className="text-xs text-slate-700">Zentrale Zeit- und Lieferzonenverwaltung speichern</p>
             <button
               type="button"
               onClick={() => void save()}

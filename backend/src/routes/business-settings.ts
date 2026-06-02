@@ -6,6 +6,7 @@ import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import {
   parseSettings,
+  synchronizeLegacyTimeFields,
   type BusinessSettings,
 } from '../lib/business-settings'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
@@ -151,7 +152,12 @@ function applyChainadminRestrictions(
 
   if (chainAccess.canManageDelivery) {
     next.deliveryArea = requested.deliveryArea
-    next.deliveryHours = requested.deliveryHours
+    next.timeManagement = requested.timeManagement
+    next.openingHours = requested.timeManagement.openingHours
+    next.holidayHours = requested.timeManagement.holidayHours
+    next.deliveryHours = requested.timeManagement.deliveryHours
+    next.ordering = requested.timeManagement.ordering
+    next.deliveryScheduling = requested.timeManagement.deliveryScheduling
     next.deliveryFeeNote = requested.deliveryFeeNote
     next.minOrderValue = requested.minOrderValue
     next.serviceFee = requested.serviceFee
@@ -616,6 +622,7 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
     const looksLikeDirectSettingsPayload =
       Boolean(bodyAsRecord) &&
       (Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'deliveryArea') ||
+        Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'timeManagement') ||
         Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'customerApp') ||
         Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'ordering') ||
         Object.prototype.hasOwnProperty.call(bodyAsRecord!, 'deliveryHours'))
@@ -780,7 +787,9 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
           ? applyAdminRestrictions(requestedSettings, currentSettings)
           : requestedSettings
 
-    const normalizedSettings = mirrorPickupAreaFromDelivery(settings)
+    const normalizedSettings = synchronizeLegacyTimeFields(
+      mirrorPickupAreaFromDelivery(settings)
+    )
 
     const finalInputDeliveryArea =
       settingsInput && typeof settingsInput === 'object'
