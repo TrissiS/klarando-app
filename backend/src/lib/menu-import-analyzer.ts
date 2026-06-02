@@ -44,6 +44,19 @@ export type MenuImportAnalysisResult = {
     weekday: string | null
     confidence: number
   }>
+  deliveryFees: Array<{
+    label: string
+    minOrderValue: number | null
+    fee: number | null
+    confidence: number
+  }>
+  openingHours: Array<{
+    dayLabel: string
+    opensAt: string | null
+    closesAt: string | null
+    isClosed: boolean
+    confidence: number
+  }>
   warnings: string[]
   debugRawResponsePreview?: string
 }
@@ -275,6 +288,69 @@ function normalizeAnalysis(result: Partial<MenuImportAnalysisResult>): MenuImpor
         .filter((warning) => warning.length > 0)
     : []
 
+  const normalizedDeliveryFees = Array.isArray(result.deliveryFees)
+    ? result.deliveryFees
+        .map((entry: any) => {
+          const label = typeof entry?.label === 'string' ? entry.label.trim() : ''
+          if (!label) return null
+          const minOrderValue =
+            entry?.minOrderValue === null || Number.isFinite(Number(entry?.minOrderValue))
+              ? Number(entry.minOrderValue)
+              : null
+          const fee = entry?.fee === null || Number.isFinite(Number(entry?.fee)) ? Number(entry.fee) : null
+          return {
+            label,
+            minOrderValue,
+            fee,
+            confidence: clampConfidence(entry?.confidence),
+          }
+        })
+        .filter(
+          (
+            entry
+          ): entry is {
+            label: string
+            minOrderValue: number | null
+            fee: number | null
+            confidence: number
+          } => Boolean(entry)
+        )
+    : []
+
+  const normalizedOpeningHours = Array.isArray(result.openingHours)
+    ? result.openingHours
+        .map((entry: any) => {
+          const dayLabel = typeof entry?.dayLabel === 'string' ? entry.dayLabel.trim() : ''
+          if (!dayLabel) return null
+          const opensAt =
+            typeof entry?.opensAt === 'string' && entry.opensAt.trim().length > 0
+              ? entry.opensAt.trim()
+              : null
+          const closesAt =
+            typeof entry?.closesAt === 'string' && entry.closesAt.trim().length > 0
+              ? entry.closesAt.trim()
+              : null
+          return {
+            dayLabel,
+            opensAt,
+            closesAt,
+            isClosed: Boolean(entry?.isClosed),
+            confidence: clampConfidence(entry?.confidence),
+          }
+        })
+        .filter(
+          (
+            entry
+          ): entry is {
+            dayLabel: string
+            opensAt: string | null
+            closesAt: string | null
+            isClosed: boolean
+            confidence: number
+          } => Boolean(entry)
+        )
+    : []
+
   return {
     restaurantName:
       typeof result.restaurantName === 'string' && result.restaurantName.trim().length > 0
@@ -283,6 +359,8 @@ function normalizeAnalysis(result: Partial<MenuImportAnalysisResult>): MenuImpor
     sourceLanguage: 'de',
     categories: normalizedCategories,
     promotions: normalizedPromotions,
+    deliveryFees: normalizedDeliveryFees,
+    openingHours: normalizedOpeningHours,
     warnings: normalizedWarnings,
     debugRawResponsePreview:
       typeof result.debugRawResponsePreview === 'string' && result.debugRawResponsePreview.trim().length > 0
@@ -557,6 +635,68 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   const uncategorizedProductLines: string[] = []
   const parserCategoryErrors: string[] = []
 
+  const parsePriceToken = (value: string): number | null => {
+    const match = value.match(/(\d+[,.]\d{2}|\d+,-)/)
+    if (!match?.[1]) return null
+    const normalized = match[1].replace(',-', '.00').replace(',', '.')
+    const parsed = Number(normalized)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+
+  const extractDeliveryFees = () => {
+    const feeLines = lines.filter((line) =>
+      /(liefergebühr|lieferkosten|min(?:dest)?bestellwert|versand|abholung)/i.test(line)
+    )
+    const entries: MenuImportAnalysisResult['deliveryFees'] = []
+    for (const line of feeLines) {
+      const normalizedLine = normalizeTypos(line)
+      const feeMatch =
+        normalizedLine.match(/(?:liefergebühr|lieferkosten|versand)[^0-9]{0,12}(\d+[,.]\d{2}|\d+,-)/i) ||
+        normalizedLine.match(/(\d+[,.]\d{2}|\d+,-)\s*€?\s*(?:liefergebühr|lieferkosten)/i)
+      const minMatch = normalizedLine.match(/min(?:dest)?bestellwert[^0-9]{0,12}(\d+[,.]\d{2}|\d+,-)/i)
+      const fee = feeMatch?.[1] ? parsePriceToken(feeMatch[1]) : null
+      const minOrderValue = minMatch?.[1] ? parsePriceToken(minMatch[1]) : null
+      const label =
+        normalizedLine.length > 140
+          ? `${normalizedLine.slice(0, 137).trim()}...`
+          : normalizedLine
+      if (fee === null && minOrderValue === null) continue
+      entries.push({
+        label,
+        minOrderValue,
+        fee,
+        confidence: 0.72,
+      })
+    }
+    return entries
+  }
+
+  const extractOpeningHours = () => {
+    const weekdayPattern =
+      /\b(mo(?:ntag)?|di(?:enstag)?|mi(?:ttwoch)?|do(?:nnerstag)?|fr(?:eitag)?|sa(?:mstag)?|so(?:nntag)?)\b/i
+    const hourLines = lines.filter((line) => weekdayPattern.test(line) || /öffnungs|uhr/i.test(line))
+    const entries: MenuImportAnalysisResult['openingHours'] = []
+    for (const line of hourLines) {
+      const normalizedLine = normalizeTypos(line)
+      if (!weekdayPattern.test(normalizedLine)) continue
+      const dayMatch = normalizedLine.match(
+        /(mo(?:ntag)?|di(?:enstag)?|mi(?:ttwoch)?|do(?:nnerstag)?|fr(?:eitag)?|sa(?:mstag)?|so(?:nntag)?)(?:\s*[-–]\s*(mo(?:ntag)?|di(?:enstag)?|mi(?:ttwoch)?|do(?:nnerstag)?|fr(?:eitag)?|sa(?:mstag)?|so(?:nntag)?))?/i
+      )
+      const timeMatch = normalizedLine.match(/(\d{1,2}[:.]\d{2})\s*[-–]\s*(\d{1,2}[:.]\d{2})/)
+      const closed = /geschlossen|ruhetag/i.test(normalizedLine)
+      const dayLabel = dayMatch?.[0]?.trim() || normalizedLine
+      const normalizeTime = (value: string | undefined) => (value ? value.replace('.', ':') : null)
+      entries.push({
+        dayLabel,
+        opensAt: closed ? null : normalizeTime(timeMatch?.[1]),
+        closesAt: closed ? null : normalizeTime(timeMatch?.[2]),
+        isClosed: closed,
+        confidence: 0.7,
+      })
+    }
+    return entries
+  }
+
   const normalizeTypos = (value: string) => {
     let next = value
     for (const [pattern, replacement] of correctionMap) next = next.replace(pattern, replacement)
@@ -743,11 +883,18 @@ function parseMenuText(ocrText: string): Partial<MenuImportAnalysisResult> {
   if (unrecognizedPriceLines.length > 0) warnings.push(`Parser konnte ${unrecognizedPriceLines.length} Preiszeilen nicht erkennen.`)
   if (uncategorizedProductLines.length > 0) warnings.push(`${uncategorizedProductLines.length} Produktzeilen ohne Kategorie wurden "Sonstiges" zugeordnet.`)
 
+  const deliveryFees = extractDeliveryFees()
+  const openingHours = extractOpeningHours()
+  if (deliveryFees.length === 0) warnings.push('Keine Liefergebühren eindeutig erkannt – bitte manuell prüfen.')
+  if (openingHours.length === 0) warnings.push('Keine Öffnungszeiten eindeutig erkannt – bitte manuell prüfen.')
+
   return {
     restaurantName: null,
     sourceLanguage: 'de',
     categories: categories.filter((category) => category.products.length > 0),
     promotions: [],
+    deliveryFees,
+    openingHours,
     warnings,
     debugRawResponsePreview: [
       'PARSER DEBUG',
@@ -931,6 +1078,8 @@ export async function analyzeMenuImages(
     sourceLanguage: 'de',
     categories: [],
     promotions: [],
+    deliveryFees: [],
+    openingHours: [],
     warnings: ['KI hat keine gültige JSON-Struktur geliefert. Bitte erneut analysieren.'],
   }
 
@@ -1077,6 +1226,8 @@ export async function analyzeMenuImages(
     sourceLanguage: 'de',
     categories: [],
     promotions: [],
+    deliveryFees: [],
+    openingHours: [],
     warnings: [],
   }
 
@@ -1084,6 +1235,22 @@ export async function analyzeMenuImages(
   for (const chunkResult of chunkResults) {
     for (const warning of chunkResult.warnings) {
       if (!merged.warnings.includes(warning)) merged.warnings.push(warning)
+    }
+    for (const fee of chunkResult.deliveryFees || []) {
+      const key = `${fee.label.toLocaleLowerCase('de-DE')}|${fee.fee ?? '-'}|${fee.minOrderValue ?? '-'}`
+      const exists = merged.deliveryFees.some(
+        (entry) =>
+          `${entry.label.toLocaleLowerCase('de-DE')}|${entry.fee ?? '-'}|${entry.minOrderValue ?? '-'}` === key
+      )
+      if (!exists) merged.deliveryFees.push(fee)
+    }
+    for (const openingHour of chunkResult.openingHours || []) {
+      const key = `${openingHour.dayLabel.toLocaleLowerCase('de-DE')}|${openingHour.opensAt ?? '-'}|${openingHour.closesAt ?? '-'}|${openingHour.isClosed ? 1 : 0}`
+      const exists = merged.openingHours.some(
+        (entry) =>
+          `${entry.dayLabel.toLocaleLowerCase('de-DE')}|${entry.opensAt ?? '-'}|${entry.closesAt ?? '-'}|${entry.isClosed ? 1 : 0}` === key
+      )
+      if (!exists) merged.openingHours.push(openingHour)
     }
     for (const category of chunkResult.categories) {
       const key = category.name.toLocaleLowerCase('de-DE')

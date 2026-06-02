@@ -19,6 +19,12 @@ function formatPrice(value: number | null) {
   return `${value.toFixed(2).replace('.', ',')} €`
 }
 
+function formatOpeningHourRange(opensAt: string | null, closesAt: string | null, isClosed: boolean) {
+  if (isClosed) return 'geschlossen'
+  if (!opensAt || !closesAt) return 'Zeit unklar'
+  return `${opensAt}–${closesAt}`
+}
+
 export default function SuperadminMenuImportPage() {
   const [preferredTenantId, setPreferredTenantId] = useState('')
   const [session, setSession] = useState<SessionUser | null>(null)
@@ -56,6 +62,11 @@ export default function SuperadminMenuImportPage() {
     finalSkuCount: number
     avgConfidence: number | null
   } | null>(null)
+
+  const sourceImagePreviews = useMemo(
+    () => files.map((file) => ({ name: file.name, url: URL.createObjectURL(file) })),
+    [files]
+  )
 
   const selectedTenant = useMemo(
     () => context?.tenants.find((entry) => entry.id === tenantId) || null,
@@ -99,6 +110,14 @@ export default function SuperadminMenuImportPage() {
       warning.toLocaleLowerCase('de-DE').includes('keine gültige json-struktur')
     )
   }, [editableResult])
+
+  useEffect(() => {
+    return () => {
+      for (const preview of sourceImagePreviews) {
+        URL.revokeObjectURL(preview.url)
+      }
+    }
+  }, [sourceImagePreviews])
 
   useEffect(() => {
     let parsed: SessionUser | null = null
@@ -653,6 +672,83 @@ export default function SuperadminMenuImportPage() {
           <p className="mt-1 text-sm text-rose-900/75">
             Restaurant: {result.restaurantName || 'Nicht sicher erkannt'} · Sprache: {result.sourceLanguage}
           </p>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <h3 className="text-sm font-semibold text-slate-900">Originalbild</h3>
+              <p className="mt-1 text-xs text-slate-600">
+                Quelle aus dem Flyer-Upload. Erst nach Prüfung auf der rechten Seite importieren.
+              </p>
+              <div className="mt-3 space-y-3">
+                {sourceImagePreviews.length > 0 ? (
+                  sourceImagePreviews.map((preview) => (
+                    <figure key={preview.url} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                      <img src={preview.url} alt={preview.name} className="h-auto w-full object-contain" />
+                      <figcaption className="truncate border-t border-slate-100 px-2 py-1 text-xs text-slate-500">
+                        {preview.name}
+                      </figcaption>
+                    </figure>
+                  ))
+                ) : (
+                  <p className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-xs text-slate-500">
+                    Keine Quelldatei verfügbar.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-3">
+              <h3 className="text-sm font-semibold text-emerald-900">Importiertes Menü (Vorschau)</h3>
+              <p className="mt-1 text-xs text-emerald-800/80">
+                Kategorien, Produkte, Preise, Optionen sowie erkannte Liefergebühren und Öffnungszeiten.
+              </p>
+              <div className="mt-3 grid gap-2 text-xs text-emerald-900/90 sm:grid-cols-2">
+                <div className="rounded-lg bg-white px-2 py-1 ring-1 ring-emerald-100">
+                  Kategorien: <span className="font-semibold">{resultCounters.categories}</span>
+                </div>
+                <div className="rounded-lg bg-white px-2 py-1 ring-1 ring-emerald-100">
+                  Produkte: <span className="font-semibold">{resultCounters.products}</span>
+                </div>
+                <div className="rounded-lg bg-white px-2 py-1 ring-1 ring-emerald-100">
+                  Varianten/Optionen: <span className="font-semibold">{resultCounters.variants}</span>
+                </div>
+                <div className="rounded-lg bg-white px-2 py-1 ring-1 ring-emerald-100">
+                  Zutaten: <span className="font-semibold">{resultCounters.ingredients}</span>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-2">
+                <p className="text-xs font-semibold text-emerald-900">Liefergebühren</p>
+                {(editableResult.deliveryFees || []).length > 0 ? (
+                  <ul className="mt-1 space-y-1 text-xs text-emerald-900/90">
+                    {(editableResult.deliveryFees || []).map((entry, index) => (
+                      <li key={`${entry.label}-${index}`}>
+                        {entry.label} · Gebühr {formatPrice(entry.fee)} · Mindestbestellwert{' '}
+                        {formatPrice(entry.minOrderValue)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-emerald-700/80">Keine eindeutigen Liefergebühren erkannt.</p>
+                )}
+              </div>
+
+              <div className="mt-2 rounded-xl border border-emerald-200 bg-white p-2">
+                <p className="text-xs font-semibold text-emerald-900">Öffnungszeiten</p>
+                {(editableResult.openingHours || []).length > 0 ? (
+                  <ul className="mt-1 space-y-1 text-xs text-emerald-900/90">
+                    {(editableResult.openingHours || []).map((entry, index) => (
+                      <li key={`${entry.dayLabel}-${index}`}>
+                        {entry.dayLabel}: {formatOpeningHourRange(entry.opensAt, entry.closesAt, entry.isClosed)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-xs text-emerald-700/80">Keine eindeutigen Öffnungszeiten erkannt.</p>
+                )}
+              </div>
+            </div>
+          </div>
 
           {hasJsonFallbackWarning ? (
             <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">

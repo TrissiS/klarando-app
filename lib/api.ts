@@ -8763,6 +8763,19 @@ export type MenuImportAnalysisResult = {
     weekday: string | null
     confidence: number
   }>
+  deliveryFees: Array<{
+    label: string
+    minOrderValue: number | null
+    fee: number | null
+    confidence: number
+  }>
+  openingHours: Array<{
+    dayLabel: string
+    opensAt: string | null
+    closesAt: string | null
+    isClosed: boolean
+    confidence: number
+  }>
   warnings: string[]
   debugRawResponsePreview?: string
 }
