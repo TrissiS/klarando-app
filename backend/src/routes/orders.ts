@@ -10,6 +10,7 @@ import { hashPassword, needsPasswordRehash, verifyPassword } from '../auth/passw
 import { decodeStoredProductModifierName } from '../lib/product-modifiers'
 import { generateNextPickupNumberForTenant } from '../lib/pickup-number'
 import { createUniqueOrderPublicCode } from '../lib/order-public-code'
+import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-availability'
 import { resolveDisplayRouting } from '../lib/order-routing'
 import { signDriverDeviceToken, verifyDriverDeviceToken } from '../auth/driver-device-token'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
@@ -218,6 +219,44 @@ function normalizeZipCode(value: unknown) {
     return null
   }
   return digits.slice(0, 5)
+}
+
+function resolveDeliveryValidationReason(input: {
+  areaMatched: boolean
+  configurationIncomplete: boolean
+  requiresLocation: boolean
+  orderIntakeEnabled: boolean
+  serviceEnabledNow: boolean
+  canOrderNow: boolean
+  canPreorder: boolean
+  isOpen: boolean
+}) {
+  if (!input.areaMatched) {
+    if (input.requiresLocation) {
+      return 'LOCATION_REQUIRED'
+    }
+    if (input.configurationIncomplete) {
+      return 'CONFIG_PENDING'
+    }
+    return 'OUT_OF_AREA'
+  }
+
+  if (!input.orderIntakeEnabled) {
+    return 'ORDER_INTAKE_PAUSED'
+  }
+  if (!input.serviceEnabledNow) {
+    return 'SERVICE_DISABLED_NOW'
+  }
+  if (input.canOrderNow) {
+    return null
+  }
+  if (input.canPreorder) {
+    return 'PREORDER_ONLY'
+  }
+  if (!input.isOpen) {
+    return 'CLOSED'
+  }
+  return 'OUTSIDE_SCHEDULE'
 }
 
 function isPrismaUniqueConstraintError(error: unknown) {
@@ -3318,15 +3357,36 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             }
 
       const intake = settings.orderIntake
-      const serviceAllowed =
+      const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
+        settings,
+        'DELIVERY',
+        new Date()
+      )
+      const pickupOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
+        settings,
+        'PICKUP',
+        new Date()
+      )
+      const serviceAvailability =
+        resolvedServiceType === 'DELIVERY'
+          ? deliveryOrderingAvailability
+          : resolvedServiceType === 'PICKUP'
+            ? pickupOrderingAvailability
+            : null
+      const intakeServiceEnabled =
         resolvedServiceType === 'DELIVERY'
           ? intake.services.deliveryEnabledNow
           : resolvedServiceType === 'PICKUP'
             ? intake.services.pickupEnabledNow
             : true
-      if (!intake.orderIntakeEnabled || !serviceAllowed) {
+      const serviceAllowed =
+        resolvedServiceType === 'DELIVERY' || resolvedServiceType === 'PICKUP'
+          ? intake.orderIntakeEnabled && intakeServiceEnabled && Boolean(serviceAvailability?.canOrderNow)
+          : true
+      if (!serviceAllowed) {
         return res.status(423).json({
           error:
+            serviceAvailability?.message ||
             intake.orderIntakePausedReason ||
             'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Bestellungen an. Bitte versuche es später erneut.',
           code: 'ORDER_INTAKE_PAUSED',
@@ -3336,6 +3396,16 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             delivery: intake.services.deliveryEnabledNow,
             pickup: intake.services.pickupEnabledNow,
             tableOrdering: intake.services.tableOrderingEnabledNow,
+          },
+          debug: {
+            serviceType: resolvedServiceType,
+            orderIntakeEnabled: intake.orderIntakeEnabled,
+            serviceEnabledNow: intakeServiceEnabled,
+            isOpen: serviceAvailability?.isOpen ?? null,
+            canOrderNow: serviceAvailability?.canOrderNow ?? null,
+            canPreorder: serviceAvailability?.canPreorder ?? null,
+            nextAvailableTime: serviceAvailability?.nextAvailableTime ?? null,
+            message: serviceAvailability?.message ?? null,
           },
         })
       }
@@ -3391,6 +3461,23 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             error:
               'Für Lieferungen im Polygon-Modus werden Koordinaten benötigt. Bitte Adresse erneut auswählen oder Standort freigeben.',
             code: 'DELIVERY_COORDINATES_REQUIRED',
+            debug: {
+              customerLatitude: normalizedCustomerLatitude,
+              customerLongitude: normalizedCustomerLongitude,
+              customerZipCode: normalizedCustomerZipCode,
+              customerAddress: normalizedCustomerAddress,
+              polygonPoints: effectiveDeliveryArea.polygonPath.length,
+              matchedByZip: false,
+              matchedByRadius: false,
+              matchedByPolygon: false,
+              openingStatus: deliveryOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
+              canOrderNow: deliveryOrderingAvailability.canOrderNow,
+              canPreorder: deliveryOrderingAvailability.canPreorder,
+              orderIntakeEnabled: intake.orderIntakeEnabled,
+              serviceEnabledNow: intake.services.deliveryEnabledNow,
+              rejectionReason: 'MISSING_COORDINATES',
+              debugMessage: deliveryOrderingAvailability.message,
+            },
           })
         }
 
@@ -3399,6 +3486,19 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           street: normalizedCustomerAddress,
           latitude: normalizedCustomerLatitude,
           longitude: normalizedCustomerLongitude,
+        })
+        const deliveryValidationReason = resolveDeliveryValidationReason({
+          areaMatched:
+            effectiveDeliveryArea.strategy === 'POLYGON'
+              ? deliveryAreaCheck.matchedByPolygon
+              : deliveryAreaCheck.matched,
+          configurationIncomplete: deliveryAreaCheck.configurationIncomplete,
+          requiresLocation: deliveryAreaCheck.requiresLocation,
+          orderIntakeEnabled: intake.orderIntakeEnabled,
+          serviceEnabledNow: intake.services.deliveryEnabledNow,
+          canOrderNow: deliveryOrderingAvailability.canOrderNow,
+          canPreorder: deliveryOrderingAvailability.canPreorder,
+          isOpen: deliveryOrderingAvailability.isOpen,
         })
         const usedCheck =
           effectiveDeliveryArea.strategy === 'POLYGON'
@@ -3426,6 +3526,19 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           customerPostalCode: normalizedCustomerZipCode,
           customerLat: normalizedCustomerLatitude,
           customerLng: normalizedCustomerLongitude,
+          matchedByZip: deliveryAreaCheck.matchedByZip,
+          matchedByRadius: deliveryAreaCheck.matchedByRadius,
+          matchedByPolygon: deliveryAreaCheck.matchedByPolygon,
+          openingStatus: {
+            isOpen: deliveryOrderingAvailability.isOpen,
+            canOrderNow: deliveryOrderingAvailability.canOrderNow,
+            canPreorder: deliveryOrderingAvailability.canPreorder,
+            nextAvailableTime: deliveryOrderingAvailability.nextAvailableTime,
+            message: deliveryOrderingAvailability.message,
+          },
+          orderIntakeEnabled: intake.orderIntakeEnabled,
+          deliveryEnabledNow: intake.services.deliveryEnabledNow,
+          rejectionReason: deliveryValidationReason,
           usedCheck,
           result: strictPolygonResult,
         })
@@ -3436,6 +3549,20 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
               'Die Lieferadresse liegt außerhalb des Liefergebiets. Bitte andere Adresse wählen oder Abholung nutzen.',
             code: 'DELIVERY_AREA_MISMATCH',
             deliveryAreaCheck,
+            debug: {
+              customerLatitude: normalizedCustomerLatitude,
+              customerLongitude: normalizedCustomerLongitude,
+              matchedByZip: deliveryAreaCheck.matchedByZip,
+              matchedByRadius: deliveryAreaCheck.matchedByRadius,
+              matchedByPolygon: deliveryAreaCheck.matchedByPolygon,
+              openingStatus: deliveryOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
+              canOrderNow: deliveryOrderingAvailability.canOrderNow,
+              canPreorder: deliveryOrderingAvailability.canPreorder,
+              orderIntakeEnabled: intake.orderIntakeEnabled,
+              serviceEnabledNow: intake.services.deliveryEnabledNow,
+              rejectionReason: deliveryValidationReason,
+              debugMessage: deliveryOrderingAvailability.message,
+            },
           })
         }
 

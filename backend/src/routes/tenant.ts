@@ -10,6 +10,7 @@ import {
   parseSettings,
   type WeekDay,
 } from '../lib/business-settings'
+import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-availability'
 import { resolveProductOffers } from '../lib/action-pricing'
 import {
   provisionTenantDatabase,
@@ -298,6 +299,44 @@ function resolveDeliveryScheduleState(settings: ReturnType<typeof parseSettings>
     hasSlots,
     todayKey,
   }
+}
+
+function resolveDiscoveryRejectionReason(input: {
+  areaMatched: boolean
+  configurationIncomplete: boolean
+  requiresLocation: boolean
+  orderIntakeEnabled: boolean
+  serviceEnabledNow: boolean
+  canOrderNow: boolean
+  canPreorder: boolean
+  isOpen: boolean
+}) {
+  if (!input.areaMatched) {
+    if (input.requiresLocation) {
+      return 'LOCATION_REQUIRED'
+    }
+    if (input.configurationIncomplete) {
+      return 'CONFIG_PENDING'
+    }
+    return 'OUT_OF_AREA'
+  }
+
+  if (!input.orderIntakeEnabled) {
+    return 'ORDER_INTAKE_PAUSED'
+  }
+  if (!input.serviceEnabledNow) {
+    return 'SERVICE_DISABLED_NOW'
+  }
+  if (input.canOrderNow) {
+    return null
+  }
+  if (input.canPreorder) {
+    return 'PREORDER_ONLY'
+  }
+  if (!input.isOpen) {
+    return 'CLOSED'
+  }
+  return 'OUTSIDE_SCHEDULE'
 }
 
 function parseAllergenCodes(raw: string | null) {
@@ -905,23 +944,63 @@ router.get('/public/discovery', async (req, res) => {
             : Boolean(pickupMatch?.matched)
 
         const deliveryScheduleState = resolveDeliveryScheduleState(settings)
-        const matchesDelivery = strictDeliveryMatch && deliveryScheduleState.availableNow
-        const matchesPickup = strictPickupMatch
+        const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
+          settings,
+          'DELIVERY',
+          new Date()
+        )
+        const pickupOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
+          settings,
+          'PICKUP',
+          new Date()
+        )
+        const deliveryIntakeEnabled =
+          intake.orderIntakeEnabled && intake.services.deliveryEnabledNow
+        const pickupIntakeEnabled =
+          intake.orderIntakeEnabled && intake.services.pickupEnabledNow
+        const matchesDelivery =
+          strictDeliveryMatch &&
+          deliveryIntakeEnabled &&
+          deliveryOrderingAvailability.canOrderNow
+        const matchesPickup =
+          strictPickupMatch &&
+          pickupIntakeEnabled &&
+          pickupOrderingAvailability.canOrderNow
         const outOfArea = !matchesDelivery && !matchesPickup
+        const deliveryRejectionReason = resolveDiscoveryRejectionReason({
+          areaMatched: strictDeliveryMatch,
+          configurationIncomplete: deliveryMatch?.configurationIncomplete ?? false,
+          requiresLocation: deliveryMatch?.requiresLocation ?? false,
+          orderIntakeEnabled: intake.orderIntakeEnabled,
+          serviceEnabledNow: intake.services.deliveryEnabledNow,
+          canOrderNow: deliveryOrderingAvailability.canOrderNow,
+          canPreorder: deliveryOrderingAvailability.canPreorder,
+          isOpen: deliveryOrderingAvailability.isOpen,
+        })
+        const pickupRejectionReason = resolveDiscoveryRejectionReason({
+          areaMatched: strictPickupMatch,
+          configurationIncomplete: pickupMatch?.configurationIncomplete ?? false,
+          requiresLocation: pickupMatch?.requiresLocation ?? false,
+          orderIntakeEnabled: intake.orderIntakeEnabled,
+          serviceEnabledNow: intake.services.pickupEnabledNow,
+          canOrderNow: pickupOrderingAvailability.canOrderNow,
+          canPreorder: pickupOrderingAvailability.canPreorder,
+          isOpen: pickupOrderingAvailability.isOpen,
+        })
         const deliveryStatus = matchesDelivery
           ? 'AVAILABLE'
-          : !deliveryScheduleState.availableNow
+          : deliveryRejectionReason === 'CLOSED' || deliveryRejectionReason === 'PREORDER_ONLY'
             ? 'OUTSIDE_SCHEDULE'
-          : deliveryMatch?.configurationIncomplete
+          : deliveryRejectionReason === 'CONFIG_PENDING'
             ? 'CONFIG_PENDING'
-            : deliveryMatch?.requiresLocation
+            : deliveryRejectionReason === 'LOCATION_REQUIRED'
               ? 'LOCATION_REQUIRED'
               : 'OUT_OF_AREA'
         const pickupStatus = matchesPickup
           ? 'AVAILABLE'
-          : pickupMatch?.configurationIncomplete
+          : pickupRejectionReason === 'CONFIG_PENDING'
             ? 'CONFIG_PENDING'
-            : pickupMatch?.requiresLocation
+            : pickupRejectionReason === 'LOCATION_REQUIRED'
               ? 'LOCATION_REQUIRED'
               : 'OUT_OF_AREA'
 
@@ -941,6 +1020,19 @@ router.get('/public/discovery', async (req, res) => {
           polygonPoints: effectiveDeliveryArea.polygonPath.length,
           customerLat: effectiveLatitude,
           customerLng: effectiveLongitude,
+          matchedByZip: deliveryMatch?.matchedByZip ?? false,
+          matchedByRadius: deliveryMatch?.matchedByRadius ?? false,
+          matchedByPolygon: deliveryMatch?.matchedByPolygon ?? false,
+          openingStatus: {
+            isOpen: deliveryOrderingAvailability.isOpen,
+            canOrderNow: deliveryOrderingAvailability.canOrderNow,
+            canPreorder: deliveryOrderingAvailability.canPreorder,
+            nextAvailableTime: deliveryOrderingAvailability.nextAvailableTime,
+            message: deliveryOrderingAvailability.message,
+          },
+          orderIntakeEnabled: intake.orderIntakeEnabled,
+          deliveryEnabledNow: intake.services.deliveryEnabledNow,
+          rejectionReason: deliveryRejectionReason,
           usedCheck:
             effectiveDeliveryArea.strategy === 'POLYGON'
               ? 'POLYGON'
@@ -1046,6 +1138,20 @@ router.get('/public/discovery', async (req, res) => {
               status: deliveryStatus,
               distanceKm: deliveryMatch?.distanceKm ?? null,
               nextAvailableAt: deliveryScheduleState.nextAvailableAt,
+              debug: {
+                customerLatitude: effectiveLatitude,
+                customerLongitude: effectiveLongitude,
+                matchedByZip: deliveryMatch?.matchedByZip ?? false,
+                matchedByRadius: deliveryMatch?.matchedByRadius ?? false,
+                matchedByPolygon: deliveryMatch?.matchedByPolygon ?? false,
+                openingStatus: deliveryOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
+                canOrderNow: deliveryOrderingAvailability.canOrderNow,
+                canPreorder: deliveryOrderingAvailability.canPreorder,
+                orderIntakeEnabled: intake.orderIntakeEnabled,
+                serviceEnabledNow: intake.services.deliveryEnabledNow,
+                rejectionReason: deliveryRejectionReason,
+                debugMessage: deliveryOrderingAvailability.message,
+              },
             },
             pickup: {
               available: matchesPickup,
@@ -1059,6 +1165,20 @@ router.get('/public/discovery', async (req, res) => {
               requiresLocation: pickupMatch?.requiresLocation ?? false,
               status: pickupStatus,
               distanceKm: pickupMatch?.distanceKm ?? null,
+              debug: {
+                customerLatitude: effectiveLatitude,
+                customerLongitude: effectiveLongitude,
+                matchedByZip: pickupMatch?.matchedByZip ?? false,
+                matchedByRadius: pickupMatch?.matchedByRadius ?? false,
+                matchedByPolygon: pickupMatch?.matchedByPolygon ?? false,
+                openingStatus: pickupOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
+                canOrderNow: pickupOrderingAvailability.canOrderNow,
+                canPreorder: pickupOrderingAvailability.canPreorder,
+                orderIntakeEnabled: intake.orderIntakeEnabled,
+                serviceEnabledNow: intake.services.pickupEnabledNow,
+                rejectionReason: pickupRejectionReason,
+                debugMessage: pickupOrderingAvailability.message,
+              },
             },
           },
         }

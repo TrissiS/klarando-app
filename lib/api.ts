@@ -684,6 +684,20 @@ export type PublicTenantDiscoveryTenant = {
       matchedByPolygon: boolean
       distanceKm: number | null
       nextAvailableAt?: string | null
+      debug?: {
+        customerLatitude: number | null
+        customerLongitude: number | null
+        matchedByZip: boolean
+        matchedByRadius: boolean
+        matchedByPolygon: boolean
+        openingStatus: 'OPEN' | 'CLOSED'
+        canOrderNow: boolean
+        canPreorder: boolean
+        orderIntakeEnabled: boolean
+        serviceEnabledNow: boolean
+        rejectionReason: string | null
+        debugMessage: string | null
+      }
     }
     pickup: {
       available: boolean
@@ -692,6 +706,20 @@ export type PublicTenantDiscoveryTenant = {
       matchedByRadius: boolean
       matchedByPolygon: boolean
       distanceKm: number | null
+      debug?: {
+        customerLatitude: number | null
+        customerLongitude: number | null
+        matchedByZip: boolean
+        matchedByRadius: boolean
+        matchedByPolygon: boolean
+        openingStatus: 'OPEN' | 'CLOSED'
+        canOrderNow: boolean
+        canPreorder: boolean
+        orderIntakeEnabled: boolean
+        serviceEnabledNow: boolean
+        rejectionReason: string | null
+        debugMessage: string | null
+      }
     }
   }
 }
