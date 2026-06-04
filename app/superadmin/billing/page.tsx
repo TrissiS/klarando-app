@@ -247,6 +247,7 @@ export default function SuperadminBillingPage() {
   }
 
   const summaryCards = useMemo(() => summary?.summary || null, [summary])
+  const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
 
   return (
     <BackofficeLayout brand="Superadmin" title="Billing & Finanzen" subtitle="Kanonische Masterseite fuer Gebuehrenquellen im Superadmin" navItems={SUPERADMIN_NAV_ITEMS}>
@@ -293,11 +294,48 @@ export default function SuperadminBillingPage() {
             </div>
           </div>
           <label className="mt-4 block text-sm text-slate-700"><span className="mb-1 block font-medium">Legacy-Notizen</span><textarea value={pricingForm?.legacyPlanNotesText || ''} onChange={(event) => pricingForm && setPricingForm({ ...pricingForm, legacyPlanNotesText: event.target.value })} rows={3} className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm" /></label>
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button type="button" onClick={() => void handleSave()} disabled={saving || !pricingForm} className="rounded-xl bg-[var(--brand-strong)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Serverseitige Gebuehrenquelle speichern</button>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">Keine Rechnungslogik geaendert. Keine Datenmigration ausgefuehrt.</div>
+          <div className="mt-6 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="text-sm text-slate-700">
+                <p className="font-semibold text-slate-900">Gebuehrenquelle abschliessen</p>
+                <p className="mt-1">
+                  Diese Aktion speichert die bearbeiteten Werte fuer Grundgebuehr, Module, Paket,
+                  Provisionen und Zahlungsziel serverseitig.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={!canSavePricing}
+                className="w-full rounded-xl bg-[var(--brand-strong)] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+              >
+                {saving ? 'Speichert...' : 'Gebuehren speichern'}
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-3">
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                {selectedTenantId
+                  ? 'Bestehende API-Funktion aktiv: updateTenantBillingConfig'
+                  : 'Bitte zuerst einen Tenant auswaehlen, um Gebuehren zu speichern.'}
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                Keine Rechnungslogik geaendert. Keine Datenmigration ausgefuehrt.
+              </div>
+            </div>
           </div>
         </section>
+        <div className="sticky bottom-4 z-20 md:hidden">
+          <div className="rounded-2xl border border-[var(--brand-border)] bg-white/95 p-3 shadow-lg backdrop-blur">
+            <button
+              type="button"
+              onClick={() => void handleSave()}
+              disabled={!canSavePricing}
+              className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? 'Speichert...' : 'Gebuehren speichern'}
+            </button>
+          </div>
+        </div>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen und Nutzung</h3>
           <p className="mt-1 text-sm text-slate-600">Read-only Uebersicht. Finalisierung, PDF, DATEV und Mahnungen bleiben Folgethemen.</p>
