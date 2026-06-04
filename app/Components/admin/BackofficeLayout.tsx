@@ -124,10 +124,10 @@ export default function BackofficeLayout({
               items: pickItemsByHref([
                 '/superadmin/orders',
                 '/superadmin/devices',
-                '/superadmin/fees',
+                '/superadmin/billing',
+                '/superadmin/payments',
                 '/superadmin/app-settings',
                 '/superadmin/misc-settings',
-                '/superadmin/module-billing',
               ]),
             },
           ].filter((group) => group.items.length > 0)
