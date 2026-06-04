@@ -8,18 +8,18 @@ import {
 
 export default function DeliveryWorkspacePage() {
   return (
-    <AdminLayout title="Delivery-Workspace" subtitle="Liefergebiet, Fahrer und Touren zentral verwalten.">
+    <AdminLayout title="Lieferbetrieb-Workspace" subtitle="Lieferzonen und Touren fachlich getrennt verwalten.">
       <div className="space-y-4">
         <WorkspaceHeader
           title="Workspace: Lieferung"
-          subtitle="Liefergebiet, Fahrer und Zonenregeln konsistent steuern."
+          subtitle="Lieferzonen definieren das Liefergebiet und die Konditionen. Touren planen danach die operative Zustellung."
         />
         <WorkspaceStats
           stats={[
-            { label: 'Liefergebiet', value: 'Aktiv' },
+            { label: 'Lieferzonen', value: 'Aktiv' },
+            { label: 'Kostenregeln', value: 'Aktiv' },
             { label: 'Fahrerbereich', value: 'Aktiv' },
-            { label: 'Touren', value: 'Verfügbar' },
-            { label: 'Zonenregeln', value: 'Aktiv' },
+            { label: 'Touren', value: 'Vorbereitet' },
           ]}
         />
       </div>

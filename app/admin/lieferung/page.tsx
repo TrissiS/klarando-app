@@ -5,17 +5,20 @@ import SectionOverview from '@/app/Components/admin/SectionOverview'
 export default function DeliveryOverviewPage() {
   return (
     <SectionOverview
-      title="Lieferung"
-      subtitle="Lieferzonen, Fahrer und Touren zentral organisieren."
+      title="Lieferzonen"
+      subtitle="Liefergebiet, Lieferkosten, Mindestbestellwert und Ausschlüsse getrennt von der Tourenplanung verwalten."
       metrics={[
-        { label: 'Lieferbereich', value: 'Aktiv' },
+        { label: 'Liefergebiet', value: 'Aktiv' },
+        { label: 'Kosten & Mindestwert', value: 'Aktiv' },
         { label: 'Fahrerbereich', value: 'Aktiv' },
         { label: 'Tourenplanung', value: 'Vorbereitet' },
-        { label: 'Offene Warnungen', value: 0 },
       ]}
-      warnings={['Erweiterte Tourenautomatik ist vorbereitet und wird schrittweise aktiviert.']}
+      warnings={[
+        'Lieferzonen steuern nur Gebiet, PLZ, Radius, Polygon, Ausschlüsse, Lieferkosten und Mindestbestellwert.',
+        'Tourenplanung ist davon getrennt und bündelt später nur offene Lieferbestellungen zu Fahrer-Routen.',
+      ]}
       quickActions={[
-        { href: '/admin/settings#delivery-area', label: 'Öffnungszeiten & Lieferzeiten' },
+        { href: '/admin/settings#delivery-area', label: 'Lieferzonen & Kosten öffnen' },
         { href: '/admin/drivers', label: 'Fahrer verwalten' },
         { href: '/admin/tours', label: 'Touren öffnen' },
       ]}

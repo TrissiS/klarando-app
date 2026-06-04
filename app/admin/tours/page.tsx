@@ -11,6 +11,10 @@ export default function AdminToursPage() {
           <p className="mt-1">
             Hier werden später offene Lieferbestellungen zu Touren gebündelt und Fahrern zugewiesen.
           </p>
+          <p className="mt-2 text-xs text-rose-900/80">
+            Liefergebiet, PLZ, Radius, Polygon, Lieferkosten und Mindestbestellwert gehören nicht in diese Ansicht,
+            sondern in den Bereich Lieferzonen.
+          </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <TourCard title="Offene Lieferungen" value="-" />
