@@ -145,9 +145,17 @@ function parseBillingPricingNotes(notes: string | null | undefined): BillingPric
         minimumMonthlyFeeCents?: unknown
         moduleFees?: unknown
       }
+      packageMonthlyFeeCents?: unknown
+      minimumMonthlyFeeCents?: unknown
+      moduleFees?: unknown
     }
 
-    const rawPricing = parsed?.pricing
+    const rawPricing =
+      parsed?.pricing && typeof parsed.pricing === 'object'
+        ? parsed.pricing
+        : parsed && typeof parsed === 'object'
+          ? parsed
+          : null
     const rawModuleFees = Array.isArray(rawPricing?.moduleFees) ? rawPricing.moduleFees : []
     return {
       packageMonthlyFeeCents: Math.max(0, Number(rawPricing?.packageMonthlyFeeCents || 0) || 0),
@@ -157,11 +165,13 @@ function parseBillingPricingNotes(notes: string | null | undefined): BillingPric
           if (!entry || typeof entry !== 'object') return null
           const candidate = entry as Record<string, unknown>
           const monthlyFeeCents = Math.max(0, Number(candidate.monthlyFeeCents || 0) || 0)
+          const enabled =
+            typeof candidate.enabled === 'boolean' ? candidate.enabled : monthlyFeeCents > 0
           return {
             key: typeof candidate.key === 'string' ? candidate.key : '',
             label: typeof candidate.label === 'string' ? candidate.label : '',
             monthlyFeeCents,
-            enabled: Boolean(candidate.enabled) || monthlyFeeCents > 0,
+            enabled,
           }
         })
         .filter(

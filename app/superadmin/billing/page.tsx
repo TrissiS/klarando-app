@@ -133,6 +133,41 @@ function normalizePricingFormState(state: PricingFormState | null) {
   })
 }
 
+function upsertModuleFee(
+  state: PricingFormState,
+  input: {
+    key: string
+    label: string
+    monthlyFeeCents?: number
+    enabled?: boolean
+  }
+) {
+  const existing = state.moduleFees.find((entry) => entry.key === input.key)
+  const monthlyFeeCents = Math.max(
+    0,
+    input.monthlyFeeCents ?? existing?.monthlyFeeCents ?? 0
+  )
+  const enabled =
+    typeof input.enabled === 'boolean'
+      ? input.enabled
+      : typeof existing?.enabled === 'boolean'
+        ? existing.enabled
+        : monthlyFeeCents > 0
+
+  return {
+    ...state,
+    moduleFees: [
+      ...state.moduleFees.filter((entry) => entry.key !== input.key),
+      {
+        key: input.key,
+        label: input.label,
+        monthlyFeeCents,
+        enabled,
+      },
+    ],
+  }
+}
+
 export default function SuperadminBillingPage() {
   const [token, setToken] = useState('')
   const [month, setMonth] = useState(currentMonth())
@@ -226,7 +261,7 @@ export default function SuperadminBillingPage() {
         .map((entry) => ({
           ...entry,
           monthlyFeeCents: Math.max(0, entry.monthlyFeeCents || 0),
-          enabled: entry.enabled || (entry.monthlyFeeCents || 0) > 0,
+          enabled: Boolean(entry.enabled),
         }))
         .filter((entry) => entry.enabled || entry.monthlyFeeCents > 0)
       await updateTenantBillingConfig(token, tenantConfig.tenant.id, {
@@ -398,8 +433,8 @@ export default function SuperadminBillingPage() {
                 return (
                   <div key={module.key} className="grid gap-3 md:grid-cols-[minmax(0,2fr)_120px_100px]">
                     <div><p className="text-sm font-medium text-slate-900">{module.name}</p><p className="text-xs text-slate-500">{module.description}</p></div>
-                    <input value={fee ? centsToInput(fee.monthlyFeeCents) : '0.00'} onChange={(event) => pricingForm && setPricingForm({ ...pricingForm, moduleFees: [...pricingForm.moduleFees.filter((entry) => entry.key !== module.key), { key: module.key, label: module.name, monthlyFeeCents: euroToCents(event.target.value), enabled: fee?.enabled || euroToCents(event.target.value) > 0 }] })} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
-                    <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"><input type="checkbox" checked={fee?.enabled || false} onChange={(event) => pricingForm && setPricingForm({ ...pricingForm, moduleFees: [...pricingForm.moduleFees.filter((entry) => entry.key !== module.key), { key: module.key, label: module.name, monthlyFeeCents: fee?.monthlyFeeCents || 0, enabled: event.target.checked }] })} />Aktiv</label>
+                    <input value={fee ? centsToInput(fee.monthlyFeeCents) : '0.00'} onChange={(event) => pricingForm && setPricingForm(upsertModuleFee(pricingForm, { key: module.key, label: module.name, monthlyFeeCents: euroToCents(event.target.value) }))} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm" />
+                    <label className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"><input type="checkbox" checked={fee?.enabled || false} onChange={(event) => pricingForm && setPricingForm(upsertModuleFee(pricingForm, { key: module.key, label: module.name, enabled: event.target.checked }))} />Aktiv</label>
                   </div>
                 )
               })}
