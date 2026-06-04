@@ -10,6 +10,7 @@ export type BillingMonthPeriod = {
 }
 
 export type TenantBillingCalculation = {
+  month: string
   tenantId: string
   tenantName: string
   chainId: string | null
@@ -17,6 +18,24 @@ export type TenantBillingCalculation = {
   planType: BillingPlanType
   monthlyFeeCents: number
   includedOrders: number
+  totalOrders: number
+  billableOrders: number
+  includedOrdersUsed: number
+  additionalOrders: number
+  canceledOrders: number
+  testOrders: number
+  refundedOrders: number
+  openOrders: number
+  nonBillableOrders: number
+  grossOrderValueCents: number
+  billableOrderValueCents: number
+  netOrderValueCents: number | null
+  countingMode: {
+    countOnlyPaidOrders: boolean
+    countOnlyCompletedOrders: boolean
+    excludeCanceledOrders: boolean
+  }
+  countingNotes: string[]
   ordersCounted: number
   extraOrders: number
   includedUsagePercent: number
@@ -103,13 +122,18 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
   })
 
   const includedOrders = Math.max(0, plan?.includedOrders ?? 0)
-  const ordersCounted = Math.max(0, usage.ordersCounted)
-  const extraOrders = Math.max(0, ordersCounted - includedOrders)
-  const includedUsagePercent = includedOrders > 0 ? Math.min(100, (ordersCounted / includedOrders) * 100) : ordersCounted > 0 ? 100 : 0
+  const totalOrders = Math.max(0, usage.ordersTotal)
+  const billableOrders = Math.max(0, usage.ordersBillable)
+  const includedOrdersUsed = Math.min(includedOrders, billableOrders)
+  const additionalOrders = Math.max(0, billableOrders - includedOrders)
+  const ordersCounted = billableOrders
+  const extraOrders = additionalOrders
+  const includedUsagePercent =
+    includedOrders > 0 ? Math.min(100, (billableOrders / includedOrders) * 100) : billableOrders > 0 ? 100 : 0
   const monthlyFeeCents = Math.max(0, plan?.monthlyFeeCents ?? 0)
   const commissionPercentApplied = normalizePercent(plan?.commissionAfterIncludedOrdersPercent ?? plan?.commissionPercent ?? 0)
   const countedRevenueCents = Math.max(0, usage.revenueCountedCents)
-  const avgOrderValueCents = ordersCounted > 0 ? Math.round(countedRevenueCents / ordersCounted) : 0
+  const avgOrderValueCents = billableOrders > 0 ? Math.round(countedRevenueCents / billableOrders) : 0
   const extraRevenueCents = avgOrderValueCents * extraOrders
   const commissionCents = Math.max(0, Math.round(extraRevenueCents * (commissionPercentApplied / 100)))
   const fixedFeePerOrderCents = Math.max(0, plan?.fixedFeePerOrderCents ?? 0)
@@ -133,12 +157,16 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
   if (!tenant.billingProfile?.invoiceEmail) warnings.push('Rechnungs-E-Mail fehlt.')
   if (!tenant.billingProfile?.vatId) warnings.push('USt-IdNr. fehlt (optional, aber empfohlen).')
   if (!plan?.isActive) warnings.push('Kein aktiver Billing-Plan hinterlegt.')
+  for (const note of usage.countingNotes) {
+    warnings.push(`Nutzungszaehlung: ${note}`)
+  }
 
   const invoiceStatus = invoiceStatusToBillingStatus(latestInvoice?.status ?? null)
   const usageStatus: TenantBillingCalculation['status'] =
     extraOrders > 0 ? 'CHARGEABLE' : includedUsagePercent >= 85 ? 'NEAR_INCLUDED_LIMIT' : 'WITHIN_INCLUDED'
 
   return {
+    month: period.key,
     tenantId: tenant.id,
     tenantName: tenant.name,
     chainId: tenant.chainId ?? null,
@@ -146,6 +174,20 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
     planType: plan?.planType ?? BillingPlanType.REVENUE_SHARE,
     monthlyFeeCents,
     includedOrders,
+    totalOrders,
+    billableOrders,
+    includedOrdersUsed,
+    additionalOrders,
+    canceledOrders: Math.max(0, usage.ordersCanceled),
+    testOrders: Math.max(0, usage.ordersTest),
+    refundedOrders: Math.max(0, usage.ordersRefunded),
+    openOrders: Math.max(0, usage.ordersOpen),
+    nonBillableOrders: Math.max(0, usage.ordersNonBillable),
+    grossOrderValueCents: Math.max(0, usage.grossOrderValueCents),
+    billableOrderValueCents: Math.max(0, usage.billableOrderValueCents),
+    netOrderValueCents: usage.netOrderValueCents,
+    countingMode: usage.countingMode,
+    countingNotes: usage.countingNotes,
     ordersCounted,
     extraOrders,
     includedUsagePercent,

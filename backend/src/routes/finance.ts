@@ -167,7 +167,6 @@ router.get('/usage/current', requirePermission(PermissionKey.ORDERS_READ), async
     const result = await calculateTenantBilling(scope.tenantId, period)
     if (!result) return res.status(404).json({ error: 'Filiale nicht gefunden' })
     return res.json({
-      month: period.key,
       ...result,
       remainingIncludedOrders: Math.max(0, result.includedOrders - result.ordersCounted),
       infoMessage: `Du hast ${result.ordersCounted} von ${result.includedOrders} Inklusivbestellungen verbraucht.`,

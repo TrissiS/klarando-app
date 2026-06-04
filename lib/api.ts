@@ -6226,10 +6226,28 @@ export type BillingUsageSnapshot = {
   periodStart: string
   periodEnd: string
   ordersTotal: number
+  ordersBillable: number
   ordersCounted: number
   ordersCanceled: number
+  ordersTest: number
+  ordersRefunded: number
+  ordersOpen: number
+  ordersCompleted: number
+  ordersPaid: number
+  ordersNonBillable: number
+  includedOrdersUsed: number
+  additionalOrders: number
   revenueGrossCents: number
+  grossOrderValueCents: number
+  billableOrderValueCents: number
   revenueCountedCents: number
+  netOrderValueCents: number | null
+  countingMode: {
+    countOnlyPaidOrders: boolean
+    countOnlyCompletedOrders: boolean
+    excludeCanceledOrders: boolean
+  }
+  countingNotes: string[]
 }
 
 export type BillingModuleFeeConfig = {
@@ -6858,6 +6876,7 @@ export async function getChainFinanceInvoices(
 }
 
 export type BillingTenantRow = {
+  month: string
   tenantId: string
   tenantName: string
   chainId: string | null
@@ -6865,6 +6884,24 @@ export type BillingTenantRow = {
   planType: string
   monthlyFeeCents: number
   includedOrders: number
+  totalOrders: number
+  billableOrders: number
+  includedOrdersUsed: number
+  additionalOrders: number
+  canceledOrders: number
+  testOrders: number
+  refundedOrders: number
+  openOrders: number
+  nonBillableOrders: number
+  grossOrderValueCents: number
+  billableOrderValueCents: number
+  netOrderValueCents: number | null
+  countingMode: {
+    countOnlyPaidOrders: boolean
+    countOnlyCompletedOrders: boolean
+    excludeCanceledOrders: boolean
+  }
+  countingNotes: string[]
   ordersCounted: number
   extraOrders: number
   includedUsagePercent: number

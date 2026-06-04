@@ -17,6 +17,7 @@ import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import {
+  type BillingUsageSnapshot,
   calculateBillingUsageSnapshot,
   FEATURE_MODULE_REGISTRY,
   FEATURE_PACKAGES,
@@ -3009,10 +3010,28 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
       billingProfile: null,
       usage: {
         ordersTotal: 0,
+        ordersBillable: 0,
         ordersCounted: 0,
         ordersCanceled: 0,
+        ordersTest: 0,
+        ordersRefunded: 0,
+        ordersOpen: 0,
+        ordersCompleted: 0,
+        ordersPaid: 0,
+        ordersNonBillable: 0,
+        includedOrdersUsed: 0,
+        additionalOrders: 0,
         revenueGrossCents: 0,
+        grossOrderValueCents: 0,
+        billableOrderValueCents: 0,
         revenueCountedCents: 0,
+        netOrderValueCents: null,
+        countingMode: {
+          countOnlyPaidOrders: true,
+          countOnlyCompletedOrders: true,
+          excludeCanceledOrders: true,
+        },
+        countingNotes: [],
       },
       commissionRules: [],
     }
@@ -3043,12 +3062,32 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     const periodStart = new Date(now.getFullYear(), now.getMonth(), 1)
     const periodEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1)
 
-    let usage = {
+    let usage: BillingUsageSnapshot = {
+      periodStart: periodStart.toISOString(),
+      periodEnd: periodEnd.toISOString(),
       ordersTotal: 0,
+      ordersBillable: 0,
       ordersCounted: 0,
       ordersCanceled: 0,
+      ordersTest: 0,
+      ordersRefunded: 0,
+      ordersOpen: 0,
+      ordersCompleted: 0,
+      ordersPaid: 0,
+      ordersNonBillable: 0,
+      includedOrdersUsed: 0,
+      additionalOrders: 0,
       revenueGrossCents: 0,
+      grossOrderValueCents: 0,
+      billableOrderValueCents: 0,
       revenueCountedCents: 0,
+      netOrderValueCents: null,
+      countingMode: {
+        countOnlyPaidOrders: tenant.tenantBillingSettings?.countOnlyPaidOrders ?? true,
+        countOnlyCompletedOrders: tenant.tenantBillingSettings?.countOnlyCompletedOrders ?? true,
+        excludeCanceledOrders: tenant.tenantBillingSettings?.excludeCanceledOrders ?? true,
+      },
+      countingNotes: [],
     }
     try {
       usage = await calculateBillingUsageSnapshot({

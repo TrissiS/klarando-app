@@ -14,6 +14,7 @@ import {
   updateTenantBillingConfig,
   type BillingModuleFeeConfig,
   type BillingSummaryResponse,
+  type BillingTenantRow,
   type FeatureModuleDefinition,
   type TenantBillingPricingSource,
 } from '@/lib/api'
@@ -67,6 +68,16 @@ type PricingFormState = {
 
 type TenantBillingConfig = Awaited<ReturnType<typeof getTenantBillingConfig>>
 
+function usageCounterLabel(row: BillingTenantRow) {
+  const modeParts = [
+    row.countingMode.excludeCanceledOrders ? 'ohne Stornos' : 'mit Stornos',
+    row.countingMode.countOnlyCompletedOrders ? 'nur abgeschlossen' : 'auch offene Status',
+    row.countingMode.countOnlyPaidOrders ? 'nur bezahlt' : 'auch unbezahlt',
+  ]
+
+  return modeParts.join(' • ')
+}
+
 function buildFormState(pricingSource: TenantBillingPricingSource): PricingFormState {
   return {
     monthlyBaseFeeEuro: centsToInput(pricingSource.monthlyBaseFeeCents),
@@ -96,7 +107,7 @@ export default function SuperadminBillingPage() {
   const [token, setToken] = useState('')
   const [month, setMonth] = useState(currentMonth())
   const [summary, setSummary] = useState<BillingSummaryResponse | null>(null)
-  const [tenantRows, setTenantRows] = useState<Array<{ tenantId: string; tenantName: string }>>([])
+  const [tenantRows, setTenantRows] = useState<BillingTenantRow[]>([])
   const [tenantOptions, setTenantOptions] = useState<Array<{ id: string; name: string }>>([])
   const [moduleCatalog, setModuleCatalog] = useState<FeatureModuleDefinition[]>([])
   const [selectedTenantId, setSelectedTenantId] = useState('')
@@ -133,7 +144,7 @@ export default function SuperadminBillingPage() {
             getBillingInvoices(token, {}),
           ])
         setSummary(summaryResult)
-        setTenantRows(tenantsResult.rows.map((row) => ({ tenantId: row.tenantId, tenantName: row.tenantName })))
+        setTenantRows(tenantsResult.rows)
         setTenantOptions(contextResult.tenants.map((tenant) => ({ id: tenant.id, name: tenant.name })))
         setModuleCatalog(catalogResult.modules)
         setRecentInvoices(invoiceResult.slice(0, 8))
@@ -248,6 +259,38 @@ export default function SuperadminBillingPage() {
 
   const summaryCards = useMemo(() => summary?.summary || null, [summary])
   const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
+  const usageRows = useMemo(() => tenantRows, [tenantRows])
+  const usageSummary = useMemo(() => {
+    return usageRows.reduce(
+      (acc, row) => {
+        acc.totalOrders += row.totalOrders
+        acc.billableOrders += row.billableOrders
+        acc.includedOrders += row.includedOrders
+        acc.includedOrdersUsed += row.includedOrdersUsed
+        acc.additionalOrders += row.additionalOrders
+        acc.nonBillableOrders += row.nonBillableOrders
+        acc.canceledOrders += row.canceledOrders
+        acc.testOrders += row.testOrders
+        acc.refundedOrders += row.refundedOrders
+        acc.grossOrderValueCents += row.grossOrderValueCents
+        acc.billableOrderValueCents += row.billableOrderValueCents
+        return acc
+      },
+      {
+        totalOrders: 0,
+        billableOrders: 0,
+        includedOrders: 0,
+        includedOrdersUsed: 0,
+        additionalOrders: 0,
+        nonBillableOrders: 0,
+        canceledOrders: 0,
+        testOrders: 0,
+        refundedOrders: 0,
+        grossOrderValueCents: 0,
+        billableOrderValueCents: 0,
+      }
+    )
+  }, [usageRows])
 
   return (
     <BackofficeLayout brand="Superadmin" title="Billing & Finanzen" subtitle="Kanonische Masterseite fuer Gebuehrenquellen im Superadmin" navItems={SUPERADMIN_NAV_ITEMS}>
@@ -337,7 +380,112 @@ export default function SuperadminBillingPage() {
           </div>
         </div>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen und Nutzung</h3>
+          <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Nutzung im Monat</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Live-Auswertung fuer Inklusivbestellungen, Zusatzbestellungen und spaetere Rechnungsvorschau.
+            Es wird bewusst noch keine Rechnung erzeugt oder finalisiert.
+          </p>
+          {loading ? (
+            <p className="mt-4 text-sm text-slate-600">Lade Nutzungszaehlung...</p>
+          ) : (
+            <>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Bestellungen gesamt</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{usageSummary.totalOrders}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Abrechnungsrelevant</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{usageSummary.billableOrders}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Inklusiv verbraucht</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{usageSummary.includedOrdersUsed}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Zusatzbestellungen</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{usageSummary.additionalOrders}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Nicht abrechenbar</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{usageSummary.nonBillableOrders}</p>
+                </div>
+              </div>
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Statuslogik: Es werden nur echte Bestellungen zaehlbar gemacht. Stornierte, erkannte Test-/Demo-
+                Bestellungen und erstattete Bestellungen werden defensiv ausgeschlossen. Offene oder unklare Status
+                werden nur dann mitgezaehlt, wenn der Tenant dies ueber seine Billing-Einstellungen ausdruecklich
+                erlaubt.
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-2 py-2">Tenant</th>
+                      <th className="px-2 py-2">Monat</th>
+                      <th className="px-2 py-2">Gesamt</th>
+                      <th className="px-2 py-2">Abrechenbar</th>
+                      <th className="px-2 py-2">Inklusiv</th>
+                      <th className="px-2 py-2">Verbraucht</th>
+                      <th className="px-2 py-2">Zusatz</th>
+                      <th className="px-2 py-2">Storniert</th>
+                      <th className="px-2 py-2">Test</th>
+                      <th className="px-2 py-2">Nicht abrechenbar</th>
+                      <th className="px-2 py-2">Brutto</th>
+                      <th className="px-2 py-2">Zaehllogik</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usageRows.map((row) => (
+                      <tr key={row.tenantId} className="border-b border-slate-100 align-top">
+                        <td className="px-2 py-2">
+                          <div className="font-medium text-slate-900">{row.tenantName}</div>
+                          <div className="text-xs text-slate-500">{row.chainName || 'Ohne Chain'}</div>
+                        </td>
+                        <td className="px-2 py-2 text-slate-700">{row.month}</td>
+                        <td className="px-2 py-2 text-slate-700">{row.totalOrders}</td>
+                        <td className="px-2 py-2 font-medium text-slate-900">{row.billableOrders}</td>
+                        <td className="px-2 py-2 text-slate-700">{row.includedOrders}</td>
+                        <td className="px-2 py-2 text-slate-700">{row.includedOrdersUsed}</td>
+                        <td className="px-2 py-2 text-slate-700">{row.additionalOrders}</td>
+                        <td className="px-2 py-2 text-slate-700">{row.canceledOrders}</td>
+                        <td className="px-2 py-2 text-slate-700">{row.testOrders}</td>
+                        <td className="px-2 py-2 text-slate-700">
+                          <div>{row.nonBillableOrders}</div>
+                          <div className="text-xs text-slate-500">
+                            Offen {row.openOrders} • Refunds {row.refundedOrders}
+                          </div>
+                        </td>
+                        <td className="px-2 py-2 text-slate-700">{centsToEuro(row.grossOrderValueCents)}</td>
+                        <td className="px-2 py-2 text-xs text-slate-600">
+                          <div>{usageCounterLabel(row)}</div>
+                          {row.countingNotes.length ? (
+                            <div className="mt-1 space-y-1">
+                              {row.countingNotes.map((note, index) => (
+                                <p key={`${row.tenantId}-note-${index}`}>{note}</p>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="mt-1 text-slate-500">Keine zusaetzlichen Hinweise.</div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {usageRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={12} className="px-2 py-6 text-center text-slate-500">
+                          Noch keine Tenant-Nutzungsdaten fuer diesen Monat vorhanden.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </section>
+        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>
           <p className="mt-1 text-sm text-slate-600">Read-only Uebersicht. Finalisierung, PDF, DATEV und Mahnungen bleiben Folgethemen.</p>
           {loading ? <p className="mt-4 text-sm text-slate-600">Lade Billing-Uebersicht...</p> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Marge (MVP)</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards ? centsToEuro(summaryCards.estimatedMarginNetCents) : '-'}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Im Kontingent</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.includedTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Kostenpflichtig</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.chargeableTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Letzte Rechnungen</p><p className="mt-1 text-lg font-semibold text-slate-900">{recentInvoices.length}</p></div></div>}
           <div className="mt-4 overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="px-2 py-2">Rechnung</th><th className="px-2 py-2">Tenant</th><th className="px-2 py-2">Betrag</th><th className="px-2 py-2">Status</th></tr></thead><tbody>{recentInvoices.map((invoice) => <tr key={invoice.id} className="border-b border-slate-100"><td className="px-2 py-2">{invoice.invoiceNumber}</td><td className="px-2 py-2">{invoice.tenant?.name || '-'}</td><td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td><td className="px-2 py-2">{invoice.status}</td></tr>)}</tbody></table></div>

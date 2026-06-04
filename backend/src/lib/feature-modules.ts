@@ -179,10 +179,28 @@ export type BillingUsageSnapshot = {
   periodStart: string
   periodEnd: string
   ordersTotal: number
+  ordersBillable: number
   ordersCounted: number
   ordersCanceled: number
+  ordersTest: number
+  ordersRefunded: number
+  ordersOpen: number
+  ordersCompleted: number
+  ordersPaid: number
+  ordersNonBillable: number
+  includedOrdersUsed: number
+  additionalOrders: number
   revenueGrossCents: number
+  grossOrderValueCents: number
+  billableOrderValueCents: number
   revenueCountedCents: number
+  netOrderValueCents: number | null
+  countingMode: {
+    countOnlyPaidOrders: boolean
+    countOnlyCompletedOrders: boolean
+    excludeCanceledOrders: boolean
+  }
+  countingNotes: string[]
 }
 
 export async function calculateBillingUsageSnapshot(params: {
@@ -207,17 +225,29 @@ export async function calculateBillingUsageSnapshot(params: {
       id: true,
       status: true,
       paymentStatus: true,
+      sourceChannel: true,
+      clientOrderId: true,
+      idempotencyKey: true,
       total: true,
     },
   })
 
   const canceledStatus = new Set(['CANCELED', 'CANCELLED', 'STORNO'])
+  const refundedPaymentStatus = new Set(['REFUNDED', 'PARTIALLY_REFUNDED'])
+  const paidPaymentStatus = new Set(['PAID', 'PAYED'])
   const completedStatus = new Set(['DONE', 'DELIVERED', 'COMPLETED', 'FINISHED'])
+  const testSourceChannels = new Set(['TEST', 'DEMO', 'SANDBOX'])
+  const uncertainStatuses = new Set<string>()
 
   let ordersCounted = 0
   let revenueCountedCents = 0
   let ordersCanceled = 0
   let revenueGrossCents = 0
+  let ordersTest = 0
+  let ordersRefunded = 0
+  let ordersOpen = 0
+  let ordersCompleted = 0
+  let ordersPaid = 0
 
   for (const order of allOrders) {
     const totalCents = Math.round(Number(order.total) * 100)
@@ -225,43 +255,129 @@ export async function calculateBillingUsageSnapshot(params: {
 
     const statusUpper = String(order.status || '').toUpperCase()
     const paymentStatusUpper = String(order.paymentStatus || '').toUpperCase()
+    const sourceChannelUpper = String(order.sourceChannel || '').toUpperCase()
+    const testMarker = `${order.clientOrderId || ''} ${order.idempotencyKey || ''}`.toUpperCase()
+    const isCanceled = canceledStatus.has(statusUpper)
+    const isCompleted = completedStatus.has(statusUpper)
+    const isPaid = paidPaymentStatus.has(paymentStatusUpper)
+    const isRefunded = refundedPaymentStatus.has(paymentStatusUpper)
+    const isTestOrder =
+      testSourceChannels.has(sourceChannelUpper) ||
+      testMarker.includes('TEST') ||
+      testMarker.includes('DEMO') ||
+      testMarker.includes('SANDBOX')
 
-    if (canceledStatus.has(statusUpper)) {
+    if (isCanceled) {
       ordersCanceled += 1
+    }
+    if (isCompleted) {
+      ordersCompleted += 1
+    }
+    if (isPaid) {
+      ordersPaid += 1
+    }
+    if (isRefunded) {
+      ordersRefunded += 1
+    }
+    if (isTestOrder) {
+      ordersTest += 1
     }
 
     let include = true
+    let excludedAsOpen = false
 
-    if (params.excludeCanceledOrders && canceledStatus.has(statusUpper)) {
+    if (params.excludeCanceledOrders && isCanceled) {
       include = false
     }
 
-    if (include && params.countOnlyCompletedOrders && !completedStatus.has(statusUpper)) {
+    if (include && isRefunded) {
       include = false
     }
 
-    if (
-      include &&
-      params.countOnlyPaidOrders &&
-      paymentStatusUpper !== 'PAID' &&
-      paymentStatusUpper !== 'PAYED'
-    ) {
+    if (include && isTestOrder) {
       include = false
+    }
+
+    if (include && params.countOnlyCompletedOrders && !isCompleted) {
+      include = false
+      excludedAsOpen = true
+      if (statusUpper && statusUpper !== 'ARCHIVED') {
+        uncertainStatuses.add(statusUpper)
+      }
+    }
+
+    if (include && params.countOnlyPaidOrders && !isPaid) {
+      include = false
+      excludedAsOpen = true
     }
 
     if (include) {
       ordersCounted += 1
       revenueCountedCents += Number.isFinite(totalCents) ? totalCents : 0
+    } else if (
+      !isCanceled &&
+      !isTestOrder &&
+      !isRefunded &&
+      excludedAsOpen
+    ) {
+      ordersOpen += 1
     }
   }
+
+  const countingNotes: string[] = []
+  if (ordersTest > 0) {
+    countingNotes.push(
+      `${ordersTest} Test-/Demo-Bestellungen wurden anhand von sourceChannel oder technischen IDs ausgeschlossen.`
+    )
+  }
+  if (ordersRefunded > 0) {
+    countingNotes.push(
+      `${ordersRefunded} erstattete oder teilweise erstattete Bestellungen wurden nicht als abrechnungsrelevant gewertet.`
+    )
+  }
+  if (ordersOpen > 0) {
+    countingNotes.push(
+      `${ordersOpen} offene oder unvollstaendige Bestellungen wurden defensiv nicht abgerechnet.`
+    )
+  }
+  if (uncertainStatuses.size > 0) {
+    countingNotes.push(
+      `Status ausserhalb der sicheren Abschlusslogik wurden defensiv ausgeschlossen: ${Array.from(
+        uncertainStatuses
+      )
+        .sort()
+        .join(', ')}.`
+    )
+  }
+
+  const ordersBillable = ordersCounted
+  const ordersNonBillable = Math.max(0, allOrders.length - ordersBillable)
 
   return {
     periodStart: params.periodStart.toISOString(),
     periodEnd: params.periodEnd.toISOString(),
     ordersTotal: allOrders.length,
+    ordersBillable,
     ordersCounted,
     ordersCanceled,
+    ordersTest,
+    ordersRefunded,
+    ordersOpen,
+    ordersCompleted,
+    ordersPaid,
+    ordersNonBillable,
+    includedOrdersUsed: 0,
+    additionalOrders: 0,
     revenueGrossCents,
+    grossOrderValueCents: revenueGrossCents,
+    billableOrderValueCents: revenueCountedCents,
     revenueCountedCents,
+    netOrderValueCents: null,
+    countingMode: {
+      countOnlyPaidOrders: params.countOnlyPaidOrders,
+      countOnlyCompletedOrders: params.countOnlyCompletedOrders,
+      excludeCanceledOrders: params.excludeCanceledOrders,
+    },
+    countingNotes,
   } satisfies BillingUsageSnapshot
 }
