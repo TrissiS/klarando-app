@@ -260,6 +260,10 @@ export default function SuperadminBillingPage() {
   const summaryCards = useMemo(() => summary?.summary || null, [summary])
   const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
   const usageRows = useMemo(() => tenantRows, [tenantRows])
+  const topRevenueRows = useMemo(
+    () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
+    [tenantRows]
+  )
   const usageSummary = useMemo(() => {
     return usageRows.reduce(
       (acc, row) => {
@@ -483,6 +487,162 @@ export default function SuperadminBillingPage() {
               </div>
             </>
           )}
+        </section>
+        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Klarando-Marge</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Live-Berechnung auf Basis der serverseitigen Gebuehrenquelle und der monatlichen Nutzungszaehlung.
+            Rechnungen, PDFs und Finalisierung bleiben bewusst ausserhalb dieses Tickets.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Gesamtumsatz Plattform</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {summaryCards ? centsToEuro(summaryCards.platformMonthlyTotalRevenueCents) : '-'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Grundgebuehren</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {summaryCards ? centsToEuro(summaryCards.platformMonthlyRevenueCents) : '-'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Modulgebuehren</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {summaryCards ? centsToEuro(summaryCards.platformMonthlyModuleRevenueCents) : '-'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Provisionen</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {summaryCards ? centsToEuro(summaryCards.platformMonthlyCommissionRevenueCents) : '-'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Zusatzbestellungen</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {summaryCards ? centsToEuro(summaryCards.platformMonthlyOrderRevenueCents) : '-'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Mindestgebuehr-Korrektur</p>
+              <p className="mt-1 text-lg font-semibold text-slate-900">
+                {summaryCards ? centsToEuro(summaryCards.platformMonthlyMinimumFeeAdjustmentCents) : '-'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            Grundgebuehr enthält hier die monatliche Basisgebuehr sowie gepflegte Paketpreise. Die Mindestgebuehr-
+            Korrektur greift nur dann, wenn Grundgebuehr, Module, Provisionen und Zusatzbestellungsgebuehren die
+            hinterlegte Monatsuntergrenze noch nicht erreichen.
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-2">Tenant</th>
+                  <th className="px-2 py-2">Monat</th>
+                  <th className="px-2 py-2">Grundgebuehr</th>
+                  <th className="px-2 py-2">Modulgebuehren</th>
+                  <th className="px-2 py-2">Provisionen</th>
+                  <th className="px-2 py-2">Zusatzbestellungen</th>
+                  <th className="px-2 py-2">Mindestgebuehr-Korrektur</th>
+                  <th className="px-2 py-2">Gesamtumsatz</th>
+                  <th className="px-2 py-2">Abrechenbare Bestellungen</th>
+                  <th className="px-2 py-2">Inklusiv / Zusatz</th>
+                  <th className="px-2 py-2">Effektiv pro Bestellung</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tenantRows.map((row) => (
+                  <tr key={`${row.tenantId}-revenue`} className="border-b border-slate-100">
+                    <td className="px-2 py-2">
+                      <div className="font-medium text-slate-900">{row.tenantName}</div>
+                      <div className="text-xs text-slate-500">{row.chainName || 'Ohne Chain'}</div>
+                    </td>
+                    <td className="px-2 py-2 text-slate-700">{row.month}</td>
+                    <td className="px-2 py-2 text-slate-700">{centsToEuro(row.monthlyRevenueCents)}</td>
+                    <td className="px-2 py-2 text-slate-700">{centsToEuro(row.monthlyModuleRevenueCents)}</td>
+                    <td className="px-2 py-2 text-slate-700">{centsToEuro(row.monthlyCommissionRevenueCents)}</td>
+                    <td className="px-2 py-2 text-slate-700">{centsToEuro(row.monthlyOrderRevenueCents)}</td>
+                    <td className="px-2 py-2 text-slate-700">{centsToEuro(row.monthlyMinimumFeeAdjustmentCents)}</td>
+                    <td className="px-2 py-2 font-medium text-slate-900">{centsToEuro(row.monthlyTotalRevenueCents)}</td>
+                    <td className="px-2 py-2 text-slate-700">{row.billableOrders}</td>
+                    <td className="px-2 py-2 text-slate-700">
+                      {row.includedOrdersUsed} / {row.additionalOrders}
+                    </td>
+                    <td className="px-2 py-2 text-slate-700">{centsToEuro(row.effectiveRevenuePerOrderCents)}</td>
+                  </tr>
+                ))}
+                {tenantRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={11} className="px-2 py-6 text-center text-slate-500">
+                      Noch keine Margendaten fuer diesen Monat vorhanden.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-5 grid gap-4 xl:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h4 className="text-sm font-semibold text-slate-900">Top 10 Umsatz-Tenants</h4>
+              <div className="mt-3 space-y-3">
+                {topRevenueRows.map((row, index) => (
+                  <div key={`${row.tenantId}-top-${index}`} className="flex items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">
+                        {index + 1}. {row.tenantName}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {row.billableOrders} abrechenbare Bestellungen • {row.additionalOrders} Zusatzbestellungen
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-900">{centsToEuro(row.monthlyTotalRevenueCents)}</p>
+                  </div>
+                ))}
+                {topRevenueRows.length === 0 ? (
+                  <p className="text-sm text-slate-500">Noch keine Umsatz-Tenants vorhanden.</p>
+                ) : null}
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4">
+              <h4 className="text-sm font-semibold text-slate-900">Umsatz nach Gebuehrenart</h4>
+              <div className="mt-3 space-y-3 text-sm text-slate-700">
+                <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <span>Grundgebuehr</span>
+                  <span className="font-semibold text-slate-900">
+                    {summaryCards ? centsToEuro(summaryCards.platformMonthlyRevenueCents) : '-'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <span>Module</span>
+                  <span className="font-semibold text-slate-900">
+                    {summaryCards ? centsToEuro(summaryCards.platformMonthlyModuleRevenueCents) : '-'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <span>Provisionen</span>
+                  <span className="font-semibold text-slate-900">
+                    {summaryCards ? centsToEuro(summaryCards.platformMonthlyCommissionRevenueCents) : '-'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <span>Zusatzbestellungen</span>
+                  <span className="font-semibold text-slate-900">
+                    {summaryCards ? centsToEuro(summaryCards.platformMonthlyOrderRevenueCents) : '-'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
+                  <span>Mindestgebuehr-Korrektur</span>
+                  <span className="font-semibold text-slate-900">
+                    {summaryCards ? centsToEuro(summaryCards.platformMonthlyMinimumFeeAdjustmentCents) : '-'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
         </section>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>

@@ -36,6 +36,13 @@ export type TenantBillingCalculation = {
     excludeCanceledOrders: boolean
   }
   countingNotes: string[]
+  monthlyRevenueCents: number
+  monthlyModuleRevenueCents: number
+  monthlyCommissionRevenueCents: number
+  monthlyOrderRevenueCents: number
+  monthlyMinimumFeeAdjustmentCents: number
+  monthlyTotalRevenueCents: number
+  effectiveRevenuePerOrderCents: number
   ordersCounted: number
   extraOrders: number
   includedUsagePercent: number
@@ -67,6 +74,63 @@ function toCents(value: unknown) {
 function normalizePercent(value: Prisma.Decimal | number | null | undefined) {
   const numeric = Number(value || 0)
   return Number.isFinite(numeric) ? Math.max(0, numeric) : 0
+}
+
+type BillingPricingNotesMeta = {
+  packageMonthlyFeeCents: number
+  moduleFees: Array<{ key: string; label: string; monthlyFeeCents: number; enabled: boolean }>
+  minimumMonthlyFeeCents: number
+}
+
+function parseBillingPricingNotes(notes: string | null | undefined): BillingPricingNotesMeta {
+  if (!notes) {
+    return {
+      packageMonthlyFeeCents: 0,
+      moduleFees: [],
+      minimumMonthlyFeeCents: 0,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(notes) as {
+      pricing?: {
+        packageMonthlyFeeCents?: unknown
+        minimumMonthlyFeeCents?: unknown
+        moduleFees?: unknown
+      }
+    }
+
+    const rawPricing = parsed?.pricing
+    const rawModuleFees = Array.isArray(rawPricing?.moduleFees) ? rawPricing.moduleFees : []
+    return {
+      packageMonthlyFeeCents: Math.max(0, Number(rawPricing?.packageMonthlyFeeCents || 0) || 0),
+      minimumMonthlyFeeCents: Math.max(0, Number(rawPricing?.minimumMonthlyFeeCents || 0) || 0),
+      moduleFees: rawModuleFees
+        .map((entry) => {
+          if (!entry || typeof entry !== 'object') return null
+          const candidate = entry as Record<string, unknown>
+          const monthlyFeeCents = Math.max(0, Number(candidate.monthlyFeeCents || 0) || 0)
+          return {
+            key: typeof candidate.key === 'string' ? candidate.key : '',
+            label: typeof candidate.label === 'string' ? candidate.label : '',
+            monthlyFeeCents,
+            enabled: Boolean(candidate.enabled) || monthlyFeeCents > 0,
+          }
+        })
+        .filter(
+          (
+            entry
+          ): entry is { key: string; label: string; monthlyFeeCents: number; enabled: boolean } =>
+            Boolean(entry && entry.enabled && entry.monthlyFeeCents > 0)
+        ),
+    }
+  } catch {
+    return {
+      packageMonthlyFeeCents: 0,
+      moduleFees: [],
+      minimumMonthlyFeeCents: 0,
+    }
+  }
 }
 
 function monthPeriod(monthKey: string): BillingMonthPeriod | null {
@@ -112,6 +176,7 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
 
   const plan = tenant.tenantBillingPlan
   const settings = tenant.tenantBillingSettings
+  const pricingMeta = parseBillingPricingNotes(plan?.notes)
   const usage = await calculateBillingUsageSnapshot({
     tenantId: tenant.id,
     periodStart: period.periodStart,
@@ -138,6 +203,19 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
   const commissionCents = Math.max(0, Math.round(extraRevenueCents * (commissionPercentApplied / 100)))
   const fixedFeePerOrderCents = Math.max(0, plan?.fixedFeePerOrderCents ?? 0)
   const fixedFeesCents = fixedFeePerOrderCents * extraOrders
+  const monthlyRevenueCents = monthlyFeeCents + pricingMeta.packageMonthlyFeeCents
+  const monthlyModuleRevenueCents = pricingMeta.moduleFees.reduce((sum, entry) => sum + Math.max(0, entry.monthlyFeeCents), 0)
+  const monthlyCommissionRevenueCents = commissionCents
+  const monthlyOrderRevenueCents = fixedFeesCents
+  const monthlyRevenueBeforeMinimumCents =
+    monthlyRevenueCents + monthlyModuleRevenueCents + monthlyCommissionRevenueCents + monthlyOrderRevenueCents
+  const monthlyMinimumFeeAdjustmentCents = Math.max(
+    0,
+    pricingMeta.minimumMonthlyFeeCents - monthlyRevenueBeforeMinimumCents
+  )
+  const monthlyTotalRevenueCents = monthlyRevenueBeforeMinimumCents + monthlyMinimumFeeAdjustmentCents
+  const effectiveRevenuePerOrderCents =
+    billableOrders > 0 ? Math.round(monthlyTotalRevenueCents / billableOrders) : monthlyTotalRevenueCents
   const totalFeeNetCents = monthlyFeeCents + commissionCents + fixedFeesCents
   const vatRatePercent = 19
   const vatCents = Math.round(totalFeeNetCents * (vatRatePercent / 100))
@@ -188,6 +266,13 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
     netOrderValueCents: usage.netOrderValueCents,
     countingMode: usage.countingMode,
     countingNotes: usage.countingNotes,
+    monthlyRevenueCents,
+    monthlyModuleRevenueCents,
+    monthlyCommissionRevenueCents,
+    monthlyOrderRevenueCents,
+    monthlyMinimumFeeAdjustmentCents,
+    monthlyTotalRevenueCents,
+    effectiveRevenuePerOrderCents,
     ordersCounted,
     extraOrders,
     includedUsagePercent,
@@ -222,6 +307,12 @@ export async function calculateBillingSummary(period: BillingMonthPeriod, tenant
       acc.platformRevenueNetCents += entry.totalFeeNetCents
       acc.platformRevenueGrossCents += entry.totalFeeGrossCents
       acc.estimatedMarginNetCents += entry.marginNetCents
+      acc.platformMonthlyRevenueCents += entry.monthlyRevenueCents
+      acc.platformMonthlyModuleRevenueCents += entry.monthlyModuleRevenueCents
+      acc.platformMonthlyCommissionRevenueCents += entry.monthlyCommissionRevenueCents
+      acc.platformMonthlyOrderRevenueCents += entry.monthlyOrderRevenueCents
+      acc.platformMonthlyMinimumFeeAdjustmentCents += entry.monthlyMinimumFeeAdjustmentCents
+      acc.platformMonthlyTotalRevenueCents += entry.monthlyTotalRevenueCents
       acc.openInvoices += entry.status === 'INVOICE_OPEN' ? 1 : 0
       acc.paidInvoices += entry.status === 'INVOICE_PAID' ? 1 : 0
       acc.includedTenants += entry.status === 'WITHIN_INCLUDED' || entry.status === 'NEAR_INCLUDED_LIMIT' ? 1 : 0
@@ -233,6 +324,12 @@ export async function calculateBillingSummary(period: BillingMonthPeriod, tenant
       platformRevenueNetCents: 0,
       platformRevenueGrossCents: 0,
       estimatedMarginNetCents: 0,
+      platformMonthlyRevenueCents: 0,
+      platformMonthlyModuleRevenueCents: 0,
+      platformMonthlyCommissionRevenueCents: 0,
+      platformMonthlyOrderRevenueCents: 0,
+      platformMonthlyMinimumFeeAdjustmentCents: 0,
+      platformMonthlyTotalRevenueCents: 0,
       openInvoices: 0,
       paidInvoices: 0,
       includedTenants: 0,

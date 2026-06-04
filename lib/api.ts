@@ -6902,6 +6902,13 @@ export type BillingTenantRow = {
     excludeCanceledOrders: boolean
   }
   countingNotes: string[]
+  monthlyRevenueCents: number
+  monthlyModuleRevenueCents: number
+  monthlyCommissionRevenueCents: number
+  monthlyOrderRevenueCents: number
+  monthlyMinimumFeeAdjustmentCents: number
+  monthlyTotalRevenueCents: number
+  effectiveRevenuePerOrderCents: number
   ordersCounted: number
   extraOrders: number
   includedUsagePercent: number
@@ -6928,6 +6935,12 @@ export type BillingSummaryResponse = {
     platformRevenueNetCents: number
     platformRevenueGrossCents: number
     estimatedMarginNetCents: number
+    platformMonthlyRevenueCents: number
+    platformMonthlyModuleRevenueCents: number
+    platformMonthlyCommissionRevenueCents: number
+    platformMonthlyOrderRevenueCents: number
+    platformMonthlyMinimumFeeAdjustmentCents: number
+    platformMonthlyTotalRevenueCents: number
     openInvoices: number
     paidInvoices: number
     includedTenants: number
