@@ -6,12 +6,14 @@ import ImplementationNotice from '@/app/Components/admin/ImplementationNotice'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   getAccessContext,
+  getBillingInvoicePreview,
   getBillingInvoices,
   getBillingSummary,
   getBillingTenants,
   getFeatureModuleCatalog,
   getTenantBillingConfig,
   updateTenantBillingConfig,
+  type BillingInvoicePreview,
   type BillingModuleFeeConfig,
   type BillingSummaryResponse,
   type BillingTenantRow,
@@ -111,10 +113,14 @@ export default function SuperadminBillingPage() {
   const [tenantOptions, setTenantOptions] = useState<Array<{ id: string; name: string }>>([])
   const [moduleCatalog, setModuleCatalog] = useState<FeatureModuleDefinition[]>([])
   const [selectedTenantId, setSelectedTenantId] = useState('')
+  const [previewTenantId, setPreviewTenantId] = useState('')
+  const [previewMonth, setPreviewMonth] = useState(currentMonth())
+  const [invoicePreview, setInvoicePreview] = useState<BillingInvoicePreview | null>(null)
   const [tenantConfig, setTenantConfig] = useState<TenantBillingConfig | null>(null)
   const [pricingForm, setPricingForm] = useState<PricingFormState | null>(null)
   const [recentInvoices, setRecentInvoices] = useState<Array<{ id: string; invoiceNumber: string; totalGrossCents: number; status: string; tenant?: { name: string } | null }>>([])
   const [loading, setLoading] = useState(false)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -151,6 +157,9 @@ export default function SuperadminBillingPage() {
         if (!selectedTenantId) {
           setSelectedTenantId(tenantsResult.rows[0]?.tenantId || contextResult.tenants[0]?.id || '')
         }
+        if (!previewTenantId) {
+          setPreviewTenantId(tenantsResult.rows[0]?.tenantId || contextResult.tenants[0]?.id || '')
+        }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Billing-Daten konnten nicht geladen werden')
       } finally {
@@ -158,6 +167,10 @@ export default function SuperadminBillingPage() {
       }
     })()
   }, [token, month])
+
+  useEffect(() => {
+    setPreviewMonth(month)
+  }, [month])
 
   useEffect(() => {
     if (!token || !selectedTenantId) return
@@ -257,8 +270,26 @@ export default function SuperadminBillingPage() {
     }
   }
 
+  async function handleLoadInvoicePreview() {
+    if (!token || !previewTenantId) return
+    try {
+      setPreviewLoading(true)
+      setError('')
+      const preview = await getBillingInvoicePreview(token, {
+        tenantId: previewTenantId,
+        month: previewMonth,
+      })
+      setInvoicePreview(preview)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rechnungsvorschau konnte nicht geladen werden')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   const summaryCards = useMemo(() => summary?.summary || null, [summary])
   const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
+  const canLoadPreview = Boolean(token && previewTenantId) && !previewLoading
   const usageRows = useMemo(() => tenantRows, [tenantRows])
   const topRevenueRows = useMemo(
     () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
@@ -643,6 +674,160 @@ export default function SuperadminBillingPage() {
               </div>
             </div>
           </div>
+        </section>
+        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungsvorschau</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Unverbindliche Monatsvorschau pro Tenant. Es wird nichts gespeichert, keine Rechnungsnummer vergeben und
+            keine finale Rechnung erzeugt.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Tenant</span>
+              <select
+                value={previewTenantId}
+                onChange={(event) => setPreviewTenantId(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">Bitte waehlen</option>
+                {tenantOptions.map((tenant) => (
+                  <option key={`preview-${tenant.id}`} value={tenant.id}>
+                    {tenant.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Monat</span>
+              <input
+                type="month"
+                value={previewMonth}
+                onChange={(event) => setPreviewMonth(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => void handleLoadInvoicePreview()}
+                disabled={!canLoadPreview}
+                className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {previewLoading ? 'Laedt Vorschau...' : 'Vorschau laden'}
+              </button>
+            </div>
+          </div>
+          {invoicePreview ? (
+            <>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Tenant</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{invoicePreview.tenant.name}</p>
+                  <p className="text-xs text-slate-500">{invoicePreview.tenant.chainName || 'Ohne Chain'}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Leistungszeitraum</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{invoicePreview.period.month}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Netto-Summe</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{centsToEuro(invoicePreview.totals.netAmountCents)}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Brutto-Summe</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{centsToEuro(invoicePreview.totals.grossAmountCents)}</p>
+                </div>
+              </div>
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                      <th className="px-2 py-2">Position</th>
+                      <th className="px-2 py-2">Menge</th>
+                      <th className="px-2 py-2">Einzelpreis</th>
+                      <th className="px-2 py-2">Netto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoicePreview.positions.map((position, index) => (
+                      <tr key={`${position.key}-${index}`} className="border-b border-slate-100">
+                        <td className="px-2 py-2 text-slate-900">{position.title}</td>
+                        <td className="px-2 py-2 text-slate-700">{position.quantity}</td>
+                        <td className="px-2 py-2 text-slate-700">{centsToEuro(position.unitPriceCents)}</td>
+                        <td className="px-2 py-2 text-slate-700">{centsToEuro(position.netAmountCents)}</td>
+                      </tr>
+                    ))}
+                    {invoicePreview.positions.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-2 py-6 text-center text-slate-500">
+                          Keine abrechenbaren Vorschaupositionen vorhanden.
+                        </td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-slate-200 bg-slate-50">
+                      <td className="px-2 py-2 font-medium text-slate-900">Netto-Summe</td>
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2 font-medium text-slate-900">{centsToEuro(invoicePreview.totals.netAmountCents)}</td>
+                    </tr>
+                    <tr className="bg-slate-50">
+                      <td className="px-2 py-2 text-slate-700">MwSt. ({invoicePreview.totals.vatRatePercent.toFixed(2)}%)</td>
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2 text-slate-700">{centsToEuro(invoicePreview.totals.vatAmountCents)}</td>
+                    </tr>
+                    <tr className="bg-slate-50">
+                      <td className="px-2 py-2 font-semibold text-slate-900">Brutto-Summe</td>
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2" />
+                      <td className="px-2 py-2 font-semibold text-slate-900">{centsToEuro(invoicePreview.totals.grossAmountCents)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Inklusivbestellungen</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{invoicePreview.usage.includedOrders}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Verbrauchte Inklusivbestellungen</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{invoicePreview.usage.includedOrdersUsed}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Zusatzbestellungen</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{invoicePreview.usage.additionalOrders}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Abrechnungsrelevante Bestellungen</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">{invoicePreview.usage.billableOrders}</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Effektiv pro Bestellung</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-900">
+                    {centsToEuro(invoicePreview.usage.effectiveRevenuePerOrderCents)}
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">Hinweise & Warnungen</p>
+                <div className="mt-2 space-y-2 text-sm text-amber-900">
+                  {invoicePreview.warnings.map((warning, index) => (
+                    <p key={`warning-${index}`}>{warning}</p>
+                  ))}
+                  {invoicePreview.warnings.length === 0 ? (
+                    <p>Keine Warnungen fuer diese Vorschau erkannt.</p>
+                  ) : null}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              Vorschau noch nicht geladen.
+            </div>
+          )}
         </section>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>

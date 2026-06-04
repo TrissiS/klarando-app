@@ -6948,6 +6948,48 @@ export type BillingSummaryResponse = {
   }
 }
 
+export type BillingInvoicePreview = {
+  tenant: {
+    id: string
+    name: string
+    chainId: string | null
+    chainName: string | null
+  }
+  period: {
+    month: string
+    periodStart: string
+    periodEnd: string
+  }
+  positions: Array<{
+    key:
+      | 'BASE_FEE'
+      | 'PACKAGE_FEE'
+      | 'MODULE_FEE'
+      | 'ADDITIONAL_ORDER_FEE'
+      | 'COMMISSION_FEE'
+      | 'MINIMUM_FEE_ADJUSTMENT'
+    title: string
+    quantity: number
+    unitPriceCents: number
+    netAmountCents: number
+    metadata?: Record<string, unknown>
+  }>
+  totals: {
+    netAmountCents: number
+    vatRatePercent: number
+    vatAmountCents: number
+    grossAmountCents: number
+  }
+  usage: {
+    billableOrders: number
+    includedOrders: number
+    includedOrdersUsed: number
+    additionalOrders: number
+    effectiveRevenuePerOrderCents: number
+  }
+  warnings: string[]
+}
+
 export type BillingTenantsResponse = {
   month: string
   rows: BillingTenantRow[]
@@ -7037,6 +7079,18 @@ export async function getBillingTenants(
     buildApiUrl(`/api/billing/tenants?${query.toString()}`),
     { headers: authHeaders(token) },
     'Tenant-Abrechnung konnte nicht geladen werden'
+  )
+}
+
+export async function getBillingInvoicePreview(
+  token: string,
+  params: { tenantId: string; month: string }
+): Promise<BillingInvoicePreview> {
+  const query = new URLSearchParams({ tenantId: params.tenantId, month: params.month })
+  return apiJson<BillingInvoicePreview>(
+    buildApiUrl(`/api/billing/invoice-preview?${query.toString()}`),
+    { headers: authHeaders(token) },
+    'Rechnungsvorschau konnte nicht geladen werden'
   )
 }
 

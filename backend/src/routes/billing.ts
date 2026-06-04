@@ -6,6 +6,7 @@ import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
 import { isMailConfigured, sendMail } from '../lib/mail'
 import {
+  buildBillingInvoicePreview,
   calculateBillingSummary,
   calculateTenantBilling,
   canFinalizeInvoice,
@@ -319,6 +320,30 @@ router.get('/tenants', requireAuth, async (req, res) => {
       rows: [],
       warning: 'Noch keine Abrechnungsdaten vorhanden.',
     })
+  }
+})
+
+router.get('/invoice-preview', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+
+    const tenantId = asString(req.query?.tenantId)
+    if (!tenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+
+    const period = monthPeriodFromReq(req)
+    const preview = await buildBillingInvoicePreview(tenantId, period)
+    if (!preview) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    return res.json(preview)
+  } catch (error) {
+    logBillingApiError('/api/billing/invoice-preview', error)
+    return res.status(500).json({ error: 'Rechnungsvorschau konnte nicht geladen werden' })
   }
 })
 

@@ -37,6 +37,9 @@ export type TenantBillingCalculation = {
   }
   countingNotes: string[]
   monthlyRevenueCents: number
+  packageMonthlyFeeCents: number
+  minimumMonthlyFeeCents: number
+  moduleFees: Array<{ key: string; label: string; monthlyFeeCents: number; enabled: boolean }>
   monthlyModuleRevenueCents: number
   monthlyCommissionRevenueCents: number
   monthlyOrderRevenueCents: number
@@ -62,6 +65,50 @@ export type TenantBillingCalculation = {
     | 'CHARGEABLE'
     | 'INVOICE_OPEN'
     | 'INVOICE_PAID'
+  warnings: string[]
+}
+
+export type BillingInvoicePreviewLineItem = {
+  key:
+    | 'BASE_FEE'
+    | 'PACKAGE_FEE'
+    | 'MODULE_FEE'
+    | 'ADDITIONAL_ORDER_FEE'
+    | 'COMMISSION_FEE'
+    | 'MINIMUM_FEE_ADJUSTMENT'
+  title: string
+  quantity: number
+  unitPriceCents: number
+  netAmountCents: number
+  metadata?: Record<string, unknown>
+}
+
+export type BillingInvoicePreview = {
+  tenant: {
+    id: string
+    name: string
+    chainId: string | null
+    chainName: string | null
+  }
+  period: {
+    month: string
+    periodStart: string
+    periodEnd: string
+  }
+  positions: BillingInvoicePreviewLineItem[]
+  totals: {
+    netAmountCents: number
+    vatRatePercent: number
+    vatAmountCents: number
+    grossAmountCents: number
+  }
+  usage: {
+    billableOrders: number
+    includedOrders: number
+    includedOrdersUsed: number
+    additionalOrders: number
+    effectiveRevenuePerOrderCents: number
+  }
   warnings: string[]
 }
 
@@ -267,6 +314,9 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
     countingMode: usage.countingMode,
     countingNotes: usage.countingNotes,
     monthlyRevenueCents,
+    packageMonthlyFeeCents: pricingMeta.packageMonthlyFeeCents,
+    minimumMonthlyFeeCents: pricingMeta.minimumMonthlyFeeCents,
+    moduleFees: pricingMeta.moduleFees,
     monthlyModuleRevenueCents,
     monthlyCommissionRevenueCents,
     monthlyOrderRevenueCents,
@@ -338,6 +388,140 @@ export async function calculateBillingSummary(period: BillingMonthPeriod, tenant
   )
 
   return { rows, summary }
+}
+
+export async function buildBillingInvoicePreview(
+  tenantId: string,
+  period: BillingMonthPeriod
+): Promise<BillingInvoicePreview | null> {
+  const calculation = await calculateTenantBilling(tenantId, period)
+  if (!calculation) return null
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    include: {
+      chain: { select: { id: true, name: true } },
+      billingProfile: true,
+    },
+  })
+  if (!tenant) return null
+
+  const positions: BillingInvoicePreviewLineItem[] = []
+  if (calculation.monthlyFeeCents > 0) {
+    positions.push({
+      key: 'BASE_FEE',
+      title: 'Grundgebuehr',
+      quantity: 1,
+      unitPriceCents: calculation.monthlyFeeCents,
+      netAmountCents: calculation.monthlyFeeCents,
+    })
+  }
+  if (calculation.packageMonthlyFeeCents > 0) {
+    positions.push({
+      key: 'PACKAGE_FEE',
+      title: 'Paketgebuehr',
+      quantity: 1,
+      unitPriceCents: calculation.packageMonthlyFeeCents,
+      netAmountCents: calculation.packageMonthlyFeeCents,
+    })
+  }
+  for (const moduleFee of calculation.moduleFees) {
+    positions.push({
+      key: 'MODULE_FEE',
+      title: `Modulgebuehr ${moduleFee.label}`,
+      quantity: 1,
+      unitPriceCents: moduleFee.monthlyFeeCents,
+      netAmountCents: moduleFee.monthlyFeeCents,
+      metadata: { moduleKey: moduleFee.key },
+    })
+  }
+  if (calculation.additionalOrders > 0 && calculation.fixedFeePerOrderCents > 0) {
+    positions.push({
+      key: 'ADDITIONAL_ORDER_FEE',
+      title: 'Fixbetrag Zusatzbestellungen',
+      quantity: calculation.additionalOrders,
+      unitPriceCents: calculation.fixedFeePerOrderCents,
+      netAmountCents: calculation.monthlyOrderRevenueCents,
+      metadata: { additionalOrders: calculation.additionalOrders },
+    })
+  }
+  if (calculation.monthlyCommissionRevenueCents > 0) {
+    positions.push({
+      key: 'COMMISSION_FEE',
+      title: 'Provision auf Zusatzbestellungen',
+      quantity: 1,
+      unitPriceCents: calculation.monthlyCommissionRevenueCents,
+      netAmountCents: calculation.monthlyCommissionRevenueCents,
+      metadata: {
+        additionalOrders: calculation.additionalOrders,
+        commissionPercentApplied: calculation.commissionPercentApplied,
+      },
+    })
+  }
+  if (calculation.monthlyMinimumFeeAdjustmentCents > 0) {
+    positions.push({
+      key: 'MINIMUM_FEE_ADJUSTMENT',
+      title: 'Mindestgebuehr-Korrektur',
+      quantity: 1,
+      unitPriceCents: calculation.monthlyMinimumFeeAdjustmentCents,
+      netAmountCents: calculation.monthlyMinimumFeeAdjustmentCents,
+      metadata: { minimumMonthlyFeeCents: calculation.minimumMonthlyFeeCents },
+    })
+  }
+
+  const warnings = [...calculation.warnings]
+  if (!tenant.billingProfile?.companyName || !tenant.billingProfile?.street || !tenant.billingProfile?.zipCode || !tenant.billingProfile?.city) {
+    warnings.push('Rechnungsadresse fehlt oder ist unvollstaendig.')
+  }
+  if ((tenant.billingProfile?.countryCode || 'DE').toUpperCase() === 'DE' && !tenant.billingProfile?.vatId) {
+    warnings.push('USt-ID fehlt oder ist noch nicht gepflegt.')
+  }
+  if (!tenant.billingProfile?.paymentMethod) {
+    warnings.push('Zahlungsart fehlt im Billing-Profil.')
+  }
+  if (!tenant.billingProfile?.paymentTermsDays || tenant.billingProfile.paymentTermsDays <= 0) {
+    warnings.push('Zahlungsziel fehlt im Billing-Profil.')
+  }
+  if (calculation.countingNotes.length > 0) {
+    warnings.push('Order-Zaehllogik enthaelt defensive Ausschluesse oder unklare Status.')
+  }
+  if (calculation.billableOrders === 0) {
+    warnings.push('Keine abrechnungsrelevanten Bestellungen im gewaelten Zeitraum.')
+  }
+  if (calculation.netOrderValueCents === null) {
+    warnings.push('Netto aus Orderdaten ist derzeit nicht sicher berechenbar.')
+  }
+
+  return {
+    tenant: {
+      id: tenant.id,
+      name: tenant.name,
+      chainId: tenant.chainId ?? null,
+      chainName: tenant.chain?.name ?? null,
+    },
+    period: {
+      month: period.key,
+      periodStart: period.periodStart.toISOString(),
+      periodEnd: new Date(period.periodEnd.getTime() - 1).toISOString(),
+    },
+    positions,
+    totals: {
+      netAmountCents: calculation.monthlyTotalRevenueCents,
+      vatRatePercent: calculation.vatRatePercent,
+      vatAmountCents: Math.round(calculation.monthlyTotalRevenueCents * (calculation.vatRatePercent / 100)),
+      grossAmountCents:
+        calculation.monthlyTotalRevenueCents +
+        Math.round(calculation.monthlyTotalRevenueCents * (calculation.vatRatePercent / 100)),
+    },
+    usage: {
+      billableOrders: calculation.billableOrders,
+      includedOrders: calculation.includedOrders,
+      includedOrdersUsed: calculation.includedOrdersUsed,
+      additionalOrders: calculation.additionalOrders,
+      effectiveRevenuePerOrderCents: calculation.effectiveRevenuePerOrderCents,
+    },
+    warnings: Array.from(new Set(warnings)),
+  }
 }
 
 export async function getOrCreateInvoiceSequence(scopeKey: string, issueDate: Date) {
