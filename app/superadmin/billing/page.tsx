@@ -105,6 +105,34 @@ function buildFormState(pricingSource: TenantBillingPricingSource): PricingFormS
   }
 }
 
+function normalizePricingFormState(state: PricingFormState | null) {
+  if (!state) return null
+  return JSON.stringify({
+    monthlyBaseFeeEuro: state.monthlyBaseFeeEuro,
+    includedOrders: state.includedOrders,
+    commissionPercent: state.commissionPercent,
+    commissionAfterIncludedOrdersPercent: state.commissionAfterIncludedOrdersPercent,
+    fixedFeePerAdditionalOrderEuro: state.fixedFeePerAdditionalOrderEuro,
+    minimumMonthlyFeeEuro: state.minimumMonthlyFeeEuro,
+    vatRatePercent: state.vatRatePercent,
+    paymentTermsDays: state.paymentTermsDays,
+    packageKey: state.packageKey,
+    packageLabel: state.packageLabel,
+    packageMonthlyFeeEuro: state.packageMonthlyFeeEuro,
+    activeFrom: state.activeFrom,
+    activeUntil: state.activeUntil,
+    legacyPlanNotesText: state.legacyPlanNotesText,
+    moduleFees: [...state.moduleFees]
+      .map((entry) => ({
+        key: entry.key,
+        label: entry.label,
+        monthlyFeeCents: Math.max(0, entry.monthlyFeeCents || 0),
+        enabled: Boolean(entry.enabled),
+      }))
+      .sort((left, right) => left.key.localeCompare(right.key)),
+  })
+}
+
 export default function SuperadminBillingPage() {
   const [token, setToken] = useState('')
   const [month, setMonth] = useState(currentMonth())
@@ -262,7 +290,7 @@ export default function SuperadminBillingPage() {
       const refreshed = await getTenantBillingConfig(token, tenantConfig.tenant.id)
       setTenantConfig(refreshed)
       setPricingForm(buildFormState(refreshed.pricingSource))
-      setInfo('Gebuehrenquelle serverseitig gespeichert.')
+      setInfo('Gebühren gespeichert.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Gebuehrenquelle konnte nicht gespeichert werden')
     } finally {
@@ -288,6 +316,12 @@ export default function SuperadminBillingPage() {
   }
 
   const summaryCards = useMemo(() => summary?.summary || null, [summary])
+  const pricingBaseline = useMemo(
+    () => normalizePricingFormState(tenantConfig ? buildFormState(tenantConfig.pricingSource) : null),
+    [tenantConfig]
+  )
+  const pricingCurrent = useMemo(() => normalizePricingFormState(pricingForm), [pricingForm])
+  const hasPricingChanges = Boolean(selectedTenantId && pricingCurrent && pricingBaseline && pricingCurrent !== pricingBaseline)
   const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
   const canLoadPreview = Boolean(token && previewTenantId) && !previewLoading
   const usageRows = useMemo(() => tenantRows, [tenantRows])
@@ -375,19 +409,30 @@ export default function SuperadminBillingPage() {
           <div className="mt-6 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="text-sm text-slate-700">
-                <p className="font-semibold text-slate-900">Gebuehrenquelle abschliessen</p>
+                <p className="font-semibold text-slate-900">Gebührenformular speichern</p>
                 <p className="mt-1">
                   Diese Aktion speichert die bearbeiteten Werte fuer Grundgebuehr, Module, Paket,
                   Provisionen und Zahlungsziel serverseitig.
+                </p>
+                <p className={`mt-2 text-xs ${hasPricingChanges ? 'font-semibold text-emerald-700' : 'text-slate-500'}`}>
+                  {hasPricingChanges
+                    ? 'Ungespeicherte Änderungen erkannt.'
+                    : selectedTenantId
+                      ? 'Keine ungespeicherten Änderungen.'
+                      : 'Bitte zuerst einen Tenant auswählen.'}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => void handleSave()}
                 disabled={!canSavePricing}
-                className="w-full rounded-xl bg-[var(--brand-strong)] px-5 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+                className={`w-full rounded-xl px-5 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 md:w-auto ${
+                  hasPricingChanges
+                    ? 'bg-emerald-600 shadow-lg shadow-emerald-200'
+                    : 'bg-[var(--brand-strong)]'
+                }`}
               >
-                {saving ? 'Speichert...' : 'Gebuehren speichern'}
+                {saving ? 'Speichert…' : 'Gebühren speichern'}
               </button>
             </div>
             <div className="mt-3 flex flex-wrap gap-3">
@@ -402,16 +447,27 @@ export default function SuperadminBillingPage() {
             </div>
           </div>
         </section>
-        <div className="sticky bottom-4 z-20 md:hidden">
-          <div className="rounded-2xl border border-[var(--brand-border)] bg-white/95 p-3 shadow-lg backdrop-blur">
+        <div className="sticky bottom-4 z-20">
+          <div className="mx-auto max-w-3xl rounded-2xl border border-[var(--brand-border)] bg-white/95 p-3 shadow-lg backdrop-blur">
             <button
               type="button"
               onClick={() => void handleSave()}
               disabled={!canSavePricing}
-              className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                hasPricingChanges
+                  ? 'bg-emerald-600 shadow-lg shadow-emerald-200'
+                  : 'bg-[var(--brand-strong)]'
+              }`}
             >
-              {saving ? 'Speichert...' : 'Gebuehren speichern'}
+              {saving ? 'Speichert…' : 'Gebühren speichern'}
             </button>
+            <p className="mt-2 text-center text-xs text-slate-600">
+              {selectedTenantId
+                ? hasPricingChanges
+                  ? 'Änderungen können jetzt gespeichert werden.'
+                  : 'Gebührenwerte sind aktuell gespeichert.'
+                : 'Bitte zuerst einen Tenant auswählen.'}
+            </p>
           </div>
         </div>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
