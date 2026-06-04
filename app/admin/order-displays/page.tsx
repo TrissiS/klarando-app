@@ -21,12 +21,17 @@ export default function AdminOrderDisplaysPage() {
 
   return (
     <AdminLayout
-      title="Order Displays"
-      subtitle="Die Verwaltung von Order- und Pickup-Displays läuft jetzt über das Bildschirmstudio."
+      title="Bestellanzeigen & Abholmonitore"
+      subtitle="Dieser Bereich ist nur noch für Bestellanzeigen, Pickup-Monitore und Legacy-Zuordnung relevant."
     >
       <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
         <p className="text-sm text-slate-700">
-          Modus-Auswahl (Menü, Pickup, Promotion, Easy-Order-Preview), Gerätekopplung und Vorschau sind dort zentral gebündelt.
+          Menübildschirme und TV-Vorschauen laufen ausschließlich über das Bildschirmstudio und
+          die Route <span className="font-mono">/screen/[deviceCode]</span>.
+        </p>
+        <p className="mt-2 text-sm text-slate-700">
+          Diese Seite dient nur noch als fachlicher Einstieg für Bestellanzeigen,
+          Abholmonitore und bestehende Legacy-Konfigurationen rund um CASH, KITCHEN und PICKUP.
         </p>
         <button
           type="button"
@@ -35,7 +40,7 @@ export default function AdminOrderDisplaysPage() {
           }}
           className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
         >
-          Zum Bildschirmstudio (Geräte)
+          Zum Bildschirmstudio (Menübildschirme)
         </button>
       </div>
     </AdminLayout>
