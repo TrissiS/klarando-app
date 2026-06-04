@@ -50,6 +50,10 @@ function toDeDate(value: string | null) {
   return new Date(value).toLocaleString('de-DE')
 }
 
+function isCanonicalScreenPreviewPath(path: string | null | undefined) {
+  return typeof path === 'string' && path.startsWith('/screen/')
+}
+
 export default function SuperadminDevicesPage() {
   const [token, setToken] = useState('')
   const [context, setContext] = useState<AccessContext | null>(null)
@@ -328,7 +332,7 @@ export default function SuperadminDevicesPage() {
 
         {(tab === 'ALL' || tab === 'DISPLAYS' || tab === 'OFFLINE') ? (
           <DeviceSection title="Displays & Menübildschirme">
-            <DesktopTable headers={['Name', 'Typ', 'Status', 'Filiale', 'Kette', 'Code', 'Plattform', 'App-Version', 'Zuletzt aktiv']}>
+            <DesktopTable headers={['Name', 'Typ', 'Status', 'Filiale', 'Kette', 'Code', 'Plattform', 'App-Version', 'Zuletzt aktiv', 'Aktionen']}>
               {displayFiltered
                 .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
                 .map((row) => {
@@ -344,6 +348,17 @@ export default function SuperadminDevicesPage() {
                       <td>{row.deviceInfo?.platform || '—'}</td>
                       <td>{row.deviceInfo?.appVersion || '—'}</td>
                       <td>{toDeDate(row.lastSeenAt)}</td>
+                      <td>
+                        {isCanonicalScreenPreviewPath(row.previewPath) ? (
+                          <ActionButton
+                            label="Vorschau öffnen"
+                            tone="primary"
+                            onClick={() => window.open(row.previewPath, '_blank', 'noopener,noreferrer')}
+                          />
+                        ) : (
+                          <span className="text-xs text-slate-400">Kein /screen-Link</span>
+                        )}
+                      </td>
                     </tr>
                   )
                 })}
@@ -366,6 +381,17 @@ export default function SuperadminDevicesPage() {
                         `App-Version: ${row.deviceInfo?.appVersion || '—'}`,
                         `Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`,
                       ]}
+                      actions={
+                        isCanonicalScreenPreviewPath(row.previewPath) ? (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <ActionButton
+                              label="Vorschau öffnen"
+                              tone="primary"
+                              onClick={() => window.open(row.previewPath, '_blank', 'noopener,noreferrer')}
+                            />
+                          </div>
+                        ) : undefined
+                      }
                     />
                   )
                 })}

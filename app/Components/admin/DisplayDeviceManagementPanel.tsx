@@ -8,7 +8,6 @@ import {
   deleteDisplayDevice,
   getAccessContext,
   getDisplayDeviceOverview,
-  getDisplayDevicePreview,
   regenerateDisplayPairingCode,
   updateDisplayDeviceActiveState,
   type DisplayDeviceStatus,
@@ -81,6 +80,10 @@ function formatDateTime(value: string | null) {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
   return parsed.toLocaleString('de-DE')
+}
+
+function isCanonicalScreenPreviewPath(path: string | null | undefined) {
+  return typeof path === 'string' && path.startsWith('/screen/')
 }
 
 export default function DisplayDeviceManagementPanel({
@@ -255,9 +258,11 @@ export default function DisplayDeviceManagementPanel({
   async function handlePreview(row: DisplayDeviceOverviewRow) {
     try {
       setBusyDisplayRef(row.id)
-      const preview = await getDisplayDevicePreview(token, row.id)
+      if (!isCanonicalScreenPreviewPath(row.previewPath)) {
+        throw new Error('Für dieses Display ist nur die Legacy-Vorschau verfügbar und sie wird hier nicht mehr als TV-Menüvorschau angeboten.')
+      }
       const origin = typeof window !== 'undefined' ? window.location.origin : ''
-      window.open(`${origin}${preview.previewUrl}`, '_blank', 'noopener,noreferrer')
+      window.open(`${origin}${row.previewPath}`, '_blank', 'noopener,noreferrer')
     } catch (previewError) {
       setError(previewError instanceof Error ? previewError.message : 'Vorschau konnte nicht geöffnet werden')
     } finally {
@@ -1009,7 +1014,7 @@ export default function DisplayDeviceManagementPanel({
                         >
                           Einstellungen
                         </AdminButton>
-                        {!isAdminScope ? <AdminButton
+                        {isCanonicalScreenPreviewPath(row.previewPath) ? <AdminButton
                           type="button"
                           onClick={() => void handlePreview(row)}
                           disabled={busyDisplayRef === row.id}

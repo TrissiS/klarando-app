@@ -217,6 +217,10 @@ function deriveCardPadding(cardPadding: number): string {
   return '0.75rem'
 }
 
+function isCanonicalScreenPreviewPath(path: string | null | undefined) {
+  return typeof path === 'string' && path.startsWith('/screen/')
+}
+
 function buildPreviewBackground(
   mode: BackgroundModeUi,
   primaryColor: string,
@@ -2064,6 +2068,15 @@ export default function AdminScreenStudioPage() {
                     Fullscreen: {row.deviceInfo?.diagnostics?.fullscreenSupported === null || row.deviceInfo?.diagnostics?.fullscreenSupported === undefined ? '-' : row.deviceInfo?.diagnostics?.fullscreenSupported ? 'Ja' : 'Nein'}
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    {isCanonicalScreenPreviewPath(row.previewPath) ? (
+                      <button
+                        type="button"
+                        onClick={() => window.open(row.previewPath, '_blank', 'noopener,noreferrer')}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"
+                      >
+                        Vorschau öffnen
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setSelectedDeviceIdForSettings(row.entityId)}
