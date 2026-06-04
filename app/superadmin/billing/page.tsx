@@ -15,6 +15,7 @@ import {
   getTenantBillingConfig,
   updateTenantBillingConfig,
   type BillingInvoicePreview,
+  type BillingInvoice,
   type BillingModuleFeeConfig,
   type BillingSummaryResponse,
   type BillingTenantRow,
@@ -182,7 +183,7 @@ export default function SuperadminBillingPage() {
   const [invoicePreview, setInvoicePreview] = useState<BillingInvoicePreview | null>(null)
   const [tenantConfig, setTenantConfig] = useState<TenantBillingConfig | null>(null)
   const [pricingForm, setPricingForm] = useState<PricingFormState | null>(null)
-  const [recentInvoices, setRecentInvoices] = useState<Array<{ id: string; invoiceNumber: string; totalGrossCents: number; status: string; tenant?: { name: string } | null }>>([])
+  const [finalizedInvoices, setFinalizedInvoices] = useState<BillingInvoice[]>([])
   const [loading, setLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewFinalizing, setPreviewFinalizing] = useState(false)
@@ -212,13 +213,13 @@ export default function SuperadminBillingPage() {
             getBillingTenants(token, { month }),
             getAccessContext(token),
             getFeatureModuleCatalog(token),
-            getBillingInvoices(token, {}),
+            getBillingInvoices(token, { month }),
           ])
         setSummary(summaryResult)
         setTenantRows(tenantsResult.rows)
         setTenantOptions(contextResult.tenants.map((tenant) => ({ id: tenant.id, name: tenant.name })))
         setModuleCatalog(catalogResult.modules)
-        setRecentInvoices(invoiceResult.slice(0, 8))
+        setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
         if (!selectedTenantId) {
           setSelectedTenantId(tenantsResult.rows[0]?.tenantId || contextResult.tenants[0]?.id || '')
         }
@@ -369,11 +370,11 @@ export default function SuperadminBillingPage() {
       const [summaryResult, tenantsResult, invoiceResult] = await Promise.all([
         getBillingSummary(token, { month }),
         getBillingTenants(token, { month }),
-        getBillingInvoices(token, {}),
+        getBillingInvoices(token, { month }),
       ])
       setSummary(summaryResult)
       setTenantRows(tenantsResult.rows)
-      setRecentInvoices(invoiceResult.slice(0, 8))
+      setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
       setInfo(`Rechnung finalisiert: ${result.invoiceNumber}`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Rechnung konnte nicht finalisiert werden')
@@ -391,7 +392,21 @@ export default function SuperadminBillingPage() {
   const hasPricingChanges = Boolean(selectedTenantId && pricingCurrent && pricingBaseline && pricingCurrent !== pricingBaseline)
   const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
   const canLoadPreview = Boolean(token && previewTenantId) && !previewLoading
-  const canFinalizePreview = Boolean(token && previewTenantId && invoicePreview) && !previewFinalizing
+  const currentFinalizedInvoice = useMemo(
+    () =>
+      finalizedInvoices.find(
+        (invoice) =>
+          invoice.tenantId === previewTenantId &&
+          invoice.periodStart.slice(0, 7) === previewMonth &&
+          invoice.status !== 'DRAFT'
+      ) || null,
+    [finalizedInvoices, previewMonth, previewTenantId]
+  )
+  const canFinalizePreview =
+    Boolean(token && previewTenantId && invoicePreview) &&
+    !previewFinalizing &&
+    !invoicePreview?.hasCriticalWarnings &&
+    !currentFinalizedInvoice
   const usageRows = useMemo(() => tenantRows, [tenantRows])
   const topRevenueRows = useMemo(
     () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
@@ -946,12 +961,25 @@ export default function SuperadminBillingPage() {
                   ) : null}
                 </div>
               </div>
+              {currentFinalizedInvoice ? (
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                  Für diesen Tenant und Monat wurde bereits eine Rechnung finalisiert: {currentFinalizedInvoice.invoiceNumber}
+                </div>
+              ) : null}
+              {invoicePreview.hasCriticalWarnings ? (
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  Kritische Warnungen blockieren die Finalisierung: {invoicePreview.criticalWarnings.join(' • ')}
+                </div>
+              ) : null}
               <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
                 <div className="text-sm text-slate-700">
                   <p className="font-semibold text-slate-900">Finalisierte Rechnung erzeugen</p>
                   <p className="mt-1">
                     Beim Finalisieren wird die Rechnung persistent gespeichert, die Rechnungsnummer vergeben und der
                     aktuelle Tenant-/Leistungszeitraum unveränderbar festgeschrieben.
+                  </p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Aktiv nur bei geladener Vorschau, ohne kritische Warnungen und ohne bereits finalisierte Rechnung.
                   </p>
                 </div>
                 <button
@@ -972,9 +1000,9 @@ export default function SuperadminBillingPage() {
         </section>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>
-          <p className="mt-1 text-sm text-slate-600">Read-only Uebersicht. PDF, DATEV und Mahnungen bleiben Folgethemen.</p>
-          {loading ? <p className="mt-4 text-sm text-slate-600">Lade Billing-Uebersicht...</p> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Marge (MVP)</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards ? centsToEuro(summaryCards.estimatedMarginNetCents) : '-'}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Im Kontingent</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.includedTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Kostenpflichtig</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.chargeableTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Letzte Rechnungen</p><p className="mt-1 text-lg font-semibold text-slate-900">{recentInvoices.length}</p></div></div>}
-          <div className="mt-4 overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="px-2 py-2">Rechnung</th><th className="px-2 py-2">Tenant</th><th className="px-2 py-2">Betrag</th><th className="px-2 py-2">Status</th></tr></thead><tbody>{recentInvoices.map((invoice) => <tr key={invoice.id} className="border-b border-slate-100"><td className="px-2 py-2">{invoice.invoiceNumber}</td><td className="px-2 py-2">{invoice.tenant?.name || '-'}</td><td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td><td className="px-2 py-2">{invoice.status}</td></tr>)}</tbody></table></div>
+          <p className="mt-1 text-sm text-slate-600">Finalisierte Monatsrechnungen als Snapshot. PDF, Versand, DATEV und Mahnungen bleiben Folgethemen.</p>
+          {loading ? <p className="mt-4 text-sm text-slate-600">Lade Billing-Uebersicht...</p> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Marge (MVP)</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards ? centsToEuro(summaryCards.estimatedMarginNetCents) : '-'}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Im Kontingent</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.includedTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Kostenpflichtig</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.chargeableTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Finalisierte Rechnungen</p><p className="mt-1 text-lg font-semibold text-slate-900">{finalizedInvoices.length}</p></div></div>}
+          <div className="mt-4 overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="px-2 py-2">Rechnungsnummer</th><th className="px-2 py-2">Tenant</th><th className="px-2 py-2">Monat</th><th className="px-2 py-2">Netto</th><th className="px-2 py-2">MwSt.</th><th className="px-2 py-2">Brutto</th><th className="px-2 py-2">Status</th><th className="px-2 py-2">Erstellt am</th><th className="px-2 py-2">Positionen</th></tr></thead><tbody>{finalizedInvoices.map((invoice) => <tr key={invoice.id} className="border-b border-slate-100 align-top"><td className="px-2 py-2 font-medium text-slate-900">{invoice.invoiceNumber}</td><td className="px-2 py-2">{invoice.tenant?.name || '-'}</td><td className="px-2 py-2">{invoice.periodStart.slice(0, 7)}</td><td className="px-2 py-2">{centsToEuro(invoice.subTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.taxTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td><td className="px-2 py-2">{invoice.lifecycleStatus || invoice.status}</td><td className="px-2 py-2">{new Date(invoice.finalizedAt || invoice.issuedAt || invoice.createdAt).toLocaleDateString('de-DE')}</td><td className="px-2 py-2 text-xs text-slate-600">{invoice.items?.length ? invoice.items.map((item) => `${item.title}: ${centsToEuro(item.netAmountCents)}`).join(' • ') : 'Keine Positionen'}</td></tr>)}{finalizedInvoices.length === 0 ? <tr><td colSpan={9} className="px-2 py-6 text-center text-slate-500">Noch keine finalisierten Rechnungen fuer diesen Monat vorhanden.</td></tr> : null}</tbody></table></div>
         </section>
       </div>
     </BackofficeLayout>

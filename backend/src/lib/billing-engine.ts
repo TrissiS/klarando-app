@@ -110,6 +110,8 @@ export type BillingInvoicePreview = {
     effectiveRevenuePerOrderCents: number
   }
   warnings: string[]
+  criticalWarnings: string[]
+  hasCriticalWarnings: boolean
 }
 
 type InvoiceDraftLineItem = {
@@ -510,6 +512,14 @@ export async function buildBillingInvoicePreview(
     warnings.push('Netto aus Orderdaten ist derzeit nicht sicher berechenbar.')
   }
 
+  const criticalWarnings = warnings.filter((warning) =>
+    warning.includes('Rechnungsadresse fehlt') ||
+    warning.includes('Rechnungsadresse ist unvollständig') ||
+    warning.includes('Zahlungsart fehlt') ||
+    warning.includes('Zahlungsziel fehlt') ||
+    warning.includes('Keine abrechnungsrelevanten Bestellungen')
+  )
+
   return {
     tenant: {
       id: tenant.id,
@@ -539,20 +549,23 @@ export async function buildBillingInvoicePreview(
       effectiveRevenuePerOrderCents: calculation.effectiveRevenuePerOrderCents,
     },
     warnings: Array.from(new Set(warnings)),
+    criticalWarnings: Array.from(new Set(criticalWarnings)),
+    hasCriticalWarnings: criticalWarnings.length > 0,
   }
 }
 
 export async function getOrCreateInvoiceSequence(scopeKey: string, issueDate: Date) {
+  const prefix = `KL-${issueDate.getUTCFullYear()}-${String(issueDate.getUTCMonth() + 1).padStart(2, '0')}`
   const sequence = await prisma.invoiceSequence.upsert({
     where: { scopeKey },
     update: { lastNumber: { increment: 1 } },
     create: {
       scopeKey,
-      prefix: 'KLR',
+      prefix,
       lastNumber: 1,
     },
   })
-  return `${sequence.prefix}-${issueDate.getUTCFullYear()}-${String(sequence.lastNumber).padStart(6, '0')}`
+  return `${sequence.prefix}-${String(sequence.lastNumber).padStart(4, '0')}`
 }
 
 function createDraftInvoiceNumber() {
@@ -805,6 +818,16 @@ export async function finalizeInvoiceFromPreview(input: {
   finalizedByUserId?: string | null
 }) {
   const { tenantId, period } = input
+  const preview = await buildBillingInvoicePreview(tenantId, period)
+  if (!preview) {
+    return null
+  }
+  if (preview.hasCriticalWarnings) {
+    const error = new Error('Rechnung kann wegen kritischer Warnungen nicht finalisiert werden.')
+    ;(error as Error & { code?: string; warnings?: string[] }).code = 'CRITICAL_WARNINGS'
+    ;(error as Error & { code?: string; warnings?: string[] }).warnings = preview.criticalWarnings
+    throw error
+  }
   const tenantCalculation = await calculateTenantBilling(tenantId, period)
   if (!tenantCalculation) {
     return null
@@ -847,19 +870,21 @@ export async function finalizeInvoiceFromPreview(input: {
     tenantCalculation,
   })
 
-  const finalizedInvoiceNumber = await getOrCreateInvoiceSequence('GLOBAL', new Date())
+  const finalizedAt = new Date()
+  const finalizedInvoiceNumber = await getOrCreateInvoiceSequence(`GLOBAL:${period.key}`, finalizedAt)
   const updated = await prisma.invoice.update({
     where: { id: draft.id },
     data: {
       invoiceNumber: finalizedInvoiceNumber,
       status: InvoiceStatus.ISSUED,
-      issuedAt: new Date(),
+      issuedAt: finalizedAt,
       metadata: {
         ...((draft.metadata as Record<string, unknown> | null) || {}),
-        lifecycleStatus: 'APPROVED',
-        paymentStatus: 'PENDING',
+        lifecycleStatus: 'OPEN',
+        paymentStatus: 'OPEN',
         finalizationLocked: true,
         finalizationSource: 'PREVIEW',
+        finalizedAt: finalizedAt.toISOString(),
         finalizedByUserId: input.finalizedByUserId ?? null,
       },
     },

@@ -6988,6 +6988,8 @@ export type BillingInvoicePreview = {
     effectiveRevenuePerOrderCents: number
   }
   warnings: string[]
+  criticalWarnings: string[]
+  hasCriticalWarnings: boolean
 }
 
 export type BillingTenantsResponse = {
@@ -7004,12 +7006,28 @@ export type BillingInvoice = {
   status: string
   totalGrossCents: number
   openAmountCents: number
+  subTotalCents: number
+  taxTotalCents: number
   currency: string
   periodStart: string
   periodEnd: string
+  issuedAt?: string | null
+  finalizedAt?: string | null
   createdAt: string
   tenant?: { id: string; name: string } | null
   chain?: { id: string; name: string } | null
+  items?: Array<{
+    id: string
+    lineNo: number
+    title: string
+    description: string | null
+    quantity: string | number
+    unitPriceCents: number
+    taxRatePercent: string | number
+    netAmountCents: number
+    taxAmountCents: number
+    grossAmountCents: number
+  }>
   lifecycleStatus?: string
   latestCollection?: {
     id: string
@@ -7117,7 +7135,7 @@ export async function finalizeBillingInvoicePreview(
     totalGrossCents: number
     itemsCount: number
   }>(
-    buildApiUrl('/api/billing/invoice-preview/finalize'),
+    buildApiUrl('/api/billing/invoices/finalize'),
     {
       method: 'POST',
       headers: authHeaders(token),
@@ -7171,10 +7189,11 @@ export async function finalizeBillingInvoice(
   )
 }
 
-export async function getBillingInvoices(token: string, params: { tenantId?: string; chainId?: string } = {}): Promise<BillingInvoice[]> {
+export async function getBillingInvoices(token: string, params: { tenantId?: string; chainId?: string; month?: string } = {}): Promise<BillingInvoice[]> {
   const query = new URLSearchParams()
   if (params.tenantId) query.set('tenantId', params.tenantId)
   if (params.chainId) query.set('chainId', params.chainId)
+  if (params.month) query.set('month', params.month)
   const suffix = query.toString() ? `?${query.toString()}` : ''
   return apiJson<BillingInvoice[]>(
     buildApiUrl(`/api/billing/invoices${suffix}`),

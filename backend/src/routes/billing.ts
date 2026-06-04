@@ -349,7 +349,7 @@ router.get('/invoice-preview', requireAuth, async (req, res) => {
   }
 })
 
-router.post('/invoice-preview/finalize', requireAuth, async (req, res) => {
+router.post('/invoices/finalize', requireAuth, async (req, res) => {
   try {
     if (req.authUser?.role !== UserRole.SUPERADMIN) {
       return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
@@ -396,12 +396,18 @@ router.post('/invoice-preview/finalize', requireAuth, async (req, res) => {
       itemsCount: invoice.items.length,
     })
   } catch (error) {
-    const typedError = error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }
+    const typedError = error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string; warnings?: string[] }
     if (typedError?.code === 'FINAL_INVOICE_EXISTS') {
       return res.status(409).json({
         error: typedError.message,
         invoiceId: typedError.invoiceId,
         invoiceNumber: typedError.invoiceNumber,
+      })
+    }
+    if (typedError?.code === 'CRITICAL_WARNINGS') {
+      return res.status(409).json({
+        error: typedError.message,
+        warnings: typedError.warnings || [],
       })
     }
     console.error('POST FINALIZE INVOICE PREVIEW ERROR:', error)
@@ -696,6 +702,7 @@ router.get('/invoices', requirePermission(PermissionKey.ORDERS_READ), async (req
   try {
     const authUser = req.authUser
     if (!authUser) return res.status(401).json({ error: 'Nicht eingeloggt' })
+    const period = asString(req.query.month) ? monthPeriodFromReq(req) : null
 
     let tenantId: string | null = null
     if (authUser.role === UserRole.ADMIN || authUser.role === UserRole.CHAINADMIN) {
@@ -712,12 +719,33 @@ router.get('/invoices', requirePermission(PermissionKey.ORDERS_READ), async (req
       where: {
         ...(tenantId ? { tenantId } : {}),
         ...(chainId ? { chainId } : {}),
+        ...(period
+          ? {
+              periodStart: period.periodStart,
+              periodEnd: new Date(period.periodEnd.getTime() - 1),
+            }
+          : {}),
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
       include: {
         tenant: { select: { id: true, name: true } },
         chain: { select: { id: true, name: true } },
+        items: {
+          orderBy: { lineNo: 'asc' },
+          select: {
+            id: true,
+            lineNo: true,
+            title: true,
+            description: true,
+            quantity: true,
+            unitPriceCents: true,
+            taxRatePercent: true,
+            netAmountCents: true,
+            taxAmountCents: true,
+            grossAmountCents: true,
+          },
+        },
         paymentCollections: {
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -737,6 +765,10 @@ router.get('/invoices', requirePermission(PermissionKey.ORDERS_READ), async (req
         return {
           ...invoice,
           lifecycleStatus,
+          finalizedAt:
+            typeof (invoice.metadata as Record<string, unknown> | null)?.finalizedAt === 'string'
+              ? ((invoice.metadata as Record<string, unknown>).finalizedAt as string)
+              : invoice.issuedAt?.toISOString() || null,
           latestCollection,
           paymentCollections: undefined,
         }
