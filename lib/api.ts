@@ -7094,6 +7094,39 @@ export async function getBillingInvoicePreview(
   )
 }
 
+export async function finalizeBillingInvoicePreview(
+  token: string,
+  params: { tenantId: string; month: string }
+): Promise<{
+  ok: boolean
+  invoiceId: string
+  invoiceNumber: string
+  status: string
+  periodStart: string
+  periodEnd: string
+  totalGrossCents: number
+  itemsCount: number
+}> {
+  return apiJson<{
+    ok: boolean
+    invoiceId: string
+    invoiceNumber: string
+    status: string
+    periodStart: string
+    periodEnd: string
+    totalGrossCents: number
+    itemsCount: number
+  }>(
+    buildApiUrl('/api/billing/invoice-preview/finalize'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(params),
+    },
+    'Rechnung konnte nicht finalisiert werden'
+  )
+}
+
 export async function createBillingRunPreview(
   token: string,
   params: { month: string; chainId?: string; tenantId?: string }

@@ -5,6 +5,7 @@ import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import ImplementationNotice from '@/app/Components/admin/ImplementationNotice'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
+  finalizeBillingInvoicePreview,
   getAccessContext,
   getBillingInvoicePreview,
   getBillingInvoices,
@@ -184,6 +185,7 @@ export default function SuperadminBillingPage() {
   const [recentInvoices, setRecentInvoices] = useState<Array<{ id: string; invoiceNumber: string; totalGrossCents: number; status: string; tenant?: { name: string } | null }>>([])
   const [loading, setLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [previewFinalizing, setPreviewFinalizing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -234,6 +236,10 @@ export default function SuperadminBillingPage() {
   useEffect(() => {
     setPreviewMonth(month)
   }, [month])
+
+  useEffect(() => {
+    setInvoicePreview(null)
+  }, [previewTenantId, previewMonth])
 
   useEffect(() => {
     if (!token || !selectedTenantId) return
@@ -350,6 +356,32 @@ export default function SuperadminBillingPage() {
     }
   }
 
+  async function handleFinalizeInvoicePreview() {
+    if (!token || !previewTenantId || !invoicePreview) return
+    try {
+      setPreviewFinalizing(true)
+      setError('')
+      setInfo('')
+      const result = await finalizeBillingInvoicePreview(token, {
+        tenantId: previewTenantId,
+        month: previewMonth,
+      })
+      const [summaryResult, tenantsResult, invoiceResult] = await Promise.all([
+        getBillingSummary(token, { month }),
+        getBillingTenants(token, { month }),
+        getBillingInvoices(token, {}),
+      ])
+      setSummary(summaryResult)
+      setTenantRows(tenantsResult.rows)
+      setRecentInvoices(invoiceResult.slice(0, 8))
+      setInfo(`Rechnung finalisiert: ${result.invoiceNumber}`)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rechnung konnte nicht finalisiert werden')
+    } finally {
+      setPreviewFinalizing(false)
+    }
+  }
+
   const summaryCards = useMemo(() => summary?.summary || null, [summary])
   const pricingBaseline = useMemo(
     () => normalizePricingFormState(tenantConfig ? buildFormState(tenantConfig.pricingSource) : null),
@@ -359,6 +391,7 @@ export default function SuperadminBillingPage() {
   const hasPricingChanges = Boolean(selectedTenantId && pricingCurrent && pricingBaseline && pricingCurrent !== pricingBaseline)
   const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
   const canLoadPreview = Boolean(token && previewTenantId) && !previewLoading
+  const canFinalizePreview = Boolean(token && previewTenantId && invoicePreview) && !previewFinalizing
   const usageRows = useMemo(() => tenantRows, [tenantRows])
   const topRevenueRows = useMemo(
     () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
@@ -614,7 +647,7 @@ export default function SuperadminBillingPage() {
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Klarando-Marge</h3>
           <p className="mt-1 text-sm text-slate-600">
             Live-Berechnung auf Basis der serverseitigen Gebuehrenquelle und der monatlichen Nutzungszaehlung.
-            Rechnungen, PDFs und Finalisierung bleiben bewusst ausserhalb dieses Tickets.
+            PDFs, DATEV und Mahnungen bleiben bewusst ausserhalb dieses Tickets.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -770,7 +803,7 @@ export default function SuperadminBillingPage() {
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungsvorschau</h3>
           <p className="mt-1 text-sm text-slate-600">
             Unverbindliche Monatsvorschau pro Tenant. Es wird nichts gespeichert, keine Rechnungsnummer vergeben und
-            keine finale Rechnung erzeugt.
+            erst beim Finalisieren eine echte Rechnung erzeugt.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm text-slate-700">
@@ -913,6 +946,23 @@ export default function SuperadminBillingPage() {
                   ) : null}
                 </div>
               </div>
+              <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
+                <div className="text-sm text-slate-700">
+                  <p className="font-semibold text-slate-900">Finalisierte Rechnung erzeugen</p>
+                  <p className="mt-1">
+                    Beim Finalisieren wird die Rechnung persistent gespeichert, die Rechnungsnummer vergeben und der
+                    aktuelle Tenant-/Leistungszeitraum unveränderbar festgeschrieben.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void handleFinalizeInvoicePreview()}
+                  disabled={!canFinalizePreview}
+                  className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+                >
+                  {previewFinalizing ? 'Finalisiert…' : 'Rechnung finalisieren'}
+                </button>
+              </div>
             </>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
@@ -922,7 +972,7 @@ export default function SuperadminBillingPage() {
         </section>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>
-          <p className="mt-1 text-sm text-slate-600">Read-only Uebersicht. Finalisierung, PDF, DATEV und Mahnungen bleiben Folgethemen.</p>
+          <p className="mt-1 text-sm text-slate-600">Read-only Uebersicht. PDF, DATEV und Mahnungen bleiben Folgethemen.</p>
           {loading ? <p className="mt-4 text-sm text-slate-600">Lade Billing-Uebersicht...</p> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Marge (MVP)</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards ? centsToEuro(summaryCards.estimatedMarginNetCents) : '-'}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Im Kontingent</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.includedTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Kostenpflichtig</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.chargeableTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Letzte Rechnungen</p><p className="mt-1 text-lg font-semibold text-slate-900">{recentInvoices.length}</p></div></div>}
           <div className="mt-4 overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="px-2 py-2">Rechnung</th><th className="px-2 py-2">Tenant</th><th className="px-2 py-2">Betrag</th><th className="px-2 py-2">Status</th></tr></thead><tbody>{recentInvoices.map((invoice) => <tr key={invoice.id} className="border-b border-slate-100"><td className="px-2 py-2">{invoice.invoiceNumber}</td><td className="px-2 py-2">{invoice.tenant?.name || '-'}</td><td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td><td className="px-2 py-2">{invoice.status}</td></tr>)}</tbody></table></div>
         </section>

@@ -11,6 +11,8 @@ import {
   calculateTenantBilling,
   canFinalizeInvoice,
   createInvoiceDraftFromCalculation,
+  finalizeInvoiceFromPreview,
+  getOrCreateInvoiceSequence,
   parseBillingMonthOrCurrent,
 } from '../lib/billing-engine'
 
@@ -347,6 +349,66 @@ router.get('/invoice-preview', requireAuth, async (req, res) => {
   }
 })
 
+router.post('/invoice-preview/finalize', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+
+    const tenantId = asString(req.body?.tenantId)
+    if (!tenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+
+    const period = monthPeriodFromReq(req)
+    const invoice = await finalizeInvoiceFromPreview({
+      tenantId,
+      period,
+      finalizedByUserId: req.authUser?.id ?? null,
+    })
+
+    if (!invoice) {
+      return res.status(404).json({ error: 'Filiale nicht gefunden' })
+    }
+
+    await writeAuditLog({
+      req,
+      module: 'billing',
+      action: 'INVOICE_PREVIEW_FINALIZED',
+      targetType: 'Invoice',
+      targetId: invoice.id,
+      tenantId: invoice.tenantId || undefined,
+      chainId: invoice.chainId || undefined,
+      metadata: {
+        invoiceNumber: invoice.invoiceNumber,
+        month: period.key,
+      },
+    })
+
+    return res.status(201).json({
+      ok: true,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      status: invoice.status,
+      periodStart: invoice.periodStart.toISOString(),
+      periodEnd: invoice.periodEnd.toISOString(),
+      totalGrossCents: invoice.totalGrossCents,
+      itemsCount: invoice.items.length,
+    })
+  } catch (error) {
+    const typedError = error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }
+    if (typedError?.code === 'FINAL_INVOICE_EXISTS') {
+      return res.status(409).json({
+        error: typedError.message,
+        invoiceId: typedError.invoiceId,
+        invoiceNumber: typedError.invoiceNumber,
+      })
+    }
+    console.error('POST FINALIZE INVOICE PREVIEW ERROR:', error)
+    return res.status(500).json({ error: 'Rechnungsvorschau konnte nicht finalisiert werden' })
+  }
+})
+
 router.post('/runs/preview', requireAuth, async (req, res) => {
   try {
     if (req.authUser?.role !== UserRole.SUPERADMIN) {
@@ -481,6 +543,7 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
     const updated = await prisma.invoice.update({
       where: { id: invoice.id },
       data: {
+        invoiceNumber: await getOrCreateInvoiceSequence('GLOBAL', new Date()),
         status: InvoiceStatus.ISSUED,
         issuedAt: new Date(),
         metadata: {

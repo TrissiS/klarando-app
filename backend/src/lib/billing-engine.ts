@@ -1,4 +1,4 @@
-import { BillingPeriodType, BillingPlanType, InvoiceRecipientType, Prisma, type InvoiceStatus, type UserRole } from '@prisma/client'
+import { BillingPeriodType, BillingPlanType, InvoiceRecipientType, InvoiceStatus, Prisma, type UserRole } from '@prisma/client'
 import crypto from 'node:crypto'
 import { prisma } from './prisma'
 import { calculateBillingUsageSnapshot } from './feature-modules'
@@ -110,6 +110,14 @@ export type BillingInvoicePreview = {
     effectiveRevenuePerOrderCents: number
   }
   warnings: string[]
+}
+
+type InvoiceDraftLineItem = {
+  title: string
+  quantity: Prisma.Decimal
+  unitPriceCents: number
+  netAmountCents: number
+  metadata?: Record<string, unknown>
 }
 
 function toCents(value: unknown) {
@@ -547,89 +555,215 @@ export async function getOrCreateInvoiceSequence(scopeKey: string, issueDate: Da
   return `${sequence.prefix}-${issueDate.getUTCFullYear()}-${String(sequence.lastNumber).padStart(6, '0')}`
 }
 
+function createDraftInvoiceNumber() {
+  return `DRAFT-${crypto.randomUUID()}`
+}
+
+function buildInvoiceDraftLineItems(
+  tenantCalculation: TenantBillingCalculation
+): InvoiceDraftLineItem[] {
+  const items: InvoiceDraftLineItem[] = []
+
+  if (tenantCalculation.monthlyFeeCents > 0) {
+    items.push({
+      title: 'Grundgebuehr Klarando',
+      quantity: new Prisma.Decimal(1),
+      unitPriceCents: tenantCalculation.monthlyFeeCents,
+      netAmountCents: tenantCalculation.monthlyFeeCents,
+    })
+  }
+
+  if (tenantCalculation.packageMonthlyFeeCents > 0) {
+    items.push({
+      title: 'Paketgebuehr',
+      quantity: new Prisma.Decimal(1),
+      unitPriceCents: tenantCalculation.packageMonthlyFeeCents,
+      netAmountCents: tenantCalculation.packageMonthlyFeeCents,
+    })
+  }
+
+  for (const moduleFee of tenantCalculation.moduleFees) {
+    items.push({
+      title: `Modulgebuehr ${moduleFee.label}`,
+      quantity: new Prisma.Decimal(1),
+      unitPriceCents: moduleFee.monthlyFeeCents,
+      netAmountCents: moduleFee.monthlyFeeCents,
+      metadata: { moduleKey: moduleFee.key },
+    })
+  }
+
+  if (tenantCalculation.additionalOrders > 0 && tenantCalculation.fixedFeePerOrderCents > 0) {
+    items.push({
+      title: 'Fixbetrag Zusatzbestellungen',
+      quantity: new Prisma.Decimal(tenantCalculation.additionalOrders),
+      unitPriceCents: tenantCalculation.fixedFeePerOrderCents,
+      netAmountCents: tenantCalculation.monthlyOrderRevenueCents,
+      metadata: { additionalOrders: tenantCalculation.additionalOrders },
+    })
+  }
+
+  if (tenantCalculation.monthlyCommissionRevenueCents > 0) {
+    items.push({
+      title: 'Provision auf Zusatzbestellungen',
+      quantity: new Prisma.Decimal(1),
+      unitPriceCents: tenantCalculation.monthlyCommissionRevenueCents,
+      netAmountCents: tenantCalculation.monthlyCommissionRevenueCents,
+      metadata: {
+        additionalOrders: tenantCalculation.additionalOrders,
+        commissionPercentApplied: tenantCalculation.commissionPercentApplied,
+      },
+    })
+  }
+
+  if (tenantCalculation.monthlyMinimumFeeAdjustmentCents > 0) {
+    items.push({
+      title: 'Mindestgebuehr-Korrektur',
+      quantity: new Prisma.Decimal(1),
+      unitPriceCents: tenantCalculation.monthlyMinimumFeeAdjustmentCents,
+      netAmountCents: tenantCalculation.monthlyMinimumFeeAdjustmentCents,
+      metadata: { minimumMonthlyFeeCents: tenantCalculation.minimumMonthlyFeeCents },
+    })
+  }
+
+  return items
+}
+
 export async function createInvoiceDraftFromCalculation(input: {
-  billingRunId: string
+  billingRunId?: string | null
   period: BillingMonthPeriod
   tenantCalculation: TenantBillingCalculation
+  existingInvoiceId?: string | null
   finalizedByUserId?: string
 }) {
-  const { billingRunId, period, tenantCalculation } = input
+  const { billingRunId, period, tenantCalculation, existingInvoiceId } = input
   const issueDate = new Date()
-  const invoiceNumber = await getOrCreateInvoiceSequence('GLOBAL', issueDate)
-  const dueAt = new Date(issueDate.getTime() + 14 * 24 * 60 * 60 * 1000)
   const periodEndInclusive = new Date(period.periodEnd.getTime() - 1)
+  const invoiceItems = buildInvoiceDraftLineItems(tenantCalculation)
+  const subTotalCents = tenantCalculation.monthlyTotalRevenueCents
+  const taxTotalCents = Math.round(subTotalCents * (tenantCalculation.vatRatePercent / 100))
+  const totalGrossCents = subTotalCents + taxTotalCents
   const calcSnapshot = {
     periodKey: period.key,
     tenantId: tenantCalculation.tenantId,
     includedOrders: tenantCalculation.includedOrders,
     ordersCounted: tenantCalculation.ordersCounted,
     extraOrders: tenantCalculation.extraOrders,
+    packageMonthlyFeeCents: tenantCalculation.packageMonthlyFeeCents,
+    moduleFees: tenantCalculation.moduleFees,
+    monthlyModuleRevenueCents: tenantCalculation.monthlyModuleRevenueCents,
+    monthlyOrderRevenueCents: tenantCalculation.monthlyOrderRevenueCents,
+    monthlyCommissionRevenueCents: tenantCalculation.monthlyCommissionRevenueCents,
+    monthlyMinimumFeeAdjustmentCents: tenantCalculation.monthlyMinimumFeeAdjustmentCents,
+    monthlyTotalRevenueCents: tenantCalculation.monthlyTotalRevenueCents,
     commissionPercentApplied: tenantCalculation.commissionPercentApplied,
     monthlyFeeCents: tenantCalculation.monthlyFeeCents,
     commissionCents: tenantCalculation.commissionCents,
     fixedFeePerOrderCents: tenantCalculation.fixedFeePerOrderCents,
     fixedFeesCents: tenantCalculation.fixedFeesCents,
-    totalFeeNetCents: tenantCalculation.totalFeeNetCents,
+    totalFeeNetCents: subTotalCents,
     vatRatePercent: tenantCalculation.vatRatePercent,
-    vatCents: tenantCalculation.vatCents,
-    totalFeeGrossCents: tenantCalculation.totalFeeGrossCents,
+    vatCents: taxTotalCents,
+    totalFeeGrossCents: totalGrossCents,
+    warnings: tenantCalculation.warnings,
   }
   const calcHash = crypto.createHash('sha256').update(JSON.stringify(calcSnapshot)).digest('hex')
   return prisma.$transaction(async (tx) => {
-    const invoice = await tx.invoice.create({
-      data: {
-        invoiceNumber,
-        tenantId: tenantCalculation.tenantId,
-        chainId: tenantCalculation.chainId,
-        billingRunId,
-        recipientType: InvoiceRecipientType.TENANT,
-        status: 'DRAFT',
-        periodStart: period.periodStart,
-        periodEnd: periodEndInclusive,
-        dueAt,
-        subTotalCents: tenantCalculation.totalFeeNetCents,
-        taxTotalCents: tenantCalculation.vatCents,
-        totalGrossCents: tenantCalculation.totalFeeGrossCents,
-        openAmountCents: tenantCalculation.totalFeeGrossCents,
-        metadata: {
-          calculationSnapshot: calcSnapshot,
-          calculationHash: calcHash,
-          draftLocked: true,
-          historyVersion: 1,
+    const tenant = await tx.tenant.findUnique({
+      where: { id: tenantCalculation.tenantId },
+      select: {
+        billingProfile: {
+          select: {
+            id: true,
+            companyName: true,
+            street: true,
+            zipCode: true,
+            city: true,
+            countryCode: true,
+            vatId: true,
+            invoiceEmail: true,
+            contactEmail: true,
+            paymentMethod: true,
+            paymentTermsDays: true,
+          },
         },
       },
     })
+    const paymentTermsDays = Math.max(1, tenant?.billingProfile?.paymentTermsDays ?? 14)
+    const dueAt = new Date(issueDate.getTime() + paymentTermsDays * 24 * 60 * 60 * 1000)
+    const billingProfileSnapshot = tenant?.billingProfile
+      ? {
+          companyName: tenant.billingProfile.companyName,
+          street: tenant.billingProfile.street,
+          zipCode: tenant.billingProfile.zipCode,
+          city: tenant.billingProfile.city,
+          countryCode: tenant.billingProfile.countryCode,
+          vatId: tenant.billingProfile.vatId,
+          invoiceEmail: tenant.billingProfile.invoiceEmail,
+          contactEmail: tenant.billingProfile.contactEmail,
+          paymentMethod: tenant.billingProfile.paymentMethod,
+          paymentTermsDays: tenant.billingProfile.paymentTermsDays,
+        }
+      : null
 
-    const invoiceItems = [
-      {
-        lineNo: 1,
-        title: 'Monatsgebühr Klarando',
-        quantity: new Prisma.Decimal(1),
-        unitPriceCents: tenantCalculation.monthlyFeeCents,
-        netAmountCents: tenantCalculation.monthlyFeeCents,
+    const invoiceData = {
+      tenantId: tenantCalculation.tenantId,
+      chainId: tenantCalculation.chainId,
+      billingProfileId: tenant?.billingProfile?.id ?? null,
+      billingRunId: billingRunId ?? null,
+      recipientType: InvoiceRecipientType.TENANT,
+      status: InvoiceStatus.DRAFT,
+      periodStart: period.periodStart,
+      periodEnd: periodEndInclusive,
+      dueAt,
+      subTotalCents,
+      taxTotalCents,
+      totalGrossCents,
+      openAmountCents: totalGrossCents,
+      metadata: {
+        calculationSnapshot: calcSnapshot,
+        calculationHash: calcHash,
+        billingProfileSnapshot,
+        draftLocked: true,
+        finalizationLocked: false,
+        historyVersion: 1,
       },
-      {
-        lineNo: 2,
-        title: `Provision auf Zusatzbestellungen (${tenantCalculation.extraOrders} Bestellungen)`,
-        quantity: new Prisma.Decimal(1),
-        unitPriceCents: tenantCalculation.commissionCents,
-        netAmountCents: tenantCalculation.commissionCents,
-      },
-      {
-        lineNo: 3,
-        title: `Fixbetrag pro Zusatzbestellung (${tenantCalculation.fixedFeePerOrderCents} Cent x ${tenantCalculation.extraOrders})`,
-        quantity: new Prisma.Decimal(1),
-        unitPriceCents: tenantCalculation.fixedFeesCents,
-        netAmountCents: tenantCalculation.fixedFeesCents,
-      },
-    ]
+    }
 
-    for (const row of invoiceItems) {
+    const invoice = existingInvoiceId
+      ? await tx.invoice.update({
+          where: { id: existingInvoiceId },
+          data: invoiceData,
+        })
+      : await tx.invoice.create({
+          data: {
+            invoiceNumber: createDraftInvoiceNumber(),
+            tenantId: invoiceData.tenantId,
+            chainId: invoiceData.chainId,
+            billingProfileId: invoiceData.billingProfileId,
+            billingRunId: invoiceData.billingRunId,
+            recipientType: invoiceData.recipientType,
+            status: invoiceData.status,
+            periodStart: invoiceData.periodStart,
+            periodEnd: invoiceData.periodEnd,
+            dueAt: invoiceData.dueAt,
+            subTotalCents: invoiceData.subTotalCents,
+            taxTotalCents: invoiceData.taxTotalCents,
+            totalGrossCents: invoiceData.totalGrossCents,
+            openAmountCents: invoiceData.openAmountCents,
+            metadata: invoiceData.metadata,
+          },
+        })
+
+    await tx.invoiceItem.deleteMany({
+      where: { invoiceId: invoice.id },
+    })
+
+    for (const [index, row] of invoiceItems.entries()) {
       const taxAmountCents = Math.round(row.netAmountCents * (tenantCalculation.vatRatePercent / 100))
       await tx.invoiceItem.create({
         data: {
           invoiceId: invoice.id,
-          lineNo: row.lineNo,
+          lineNo: index + 1,
           title: row.title,
           quantity: row.quantity,
           unitPriceCents: Math.max(0, row.unitPriceCents),
@@ -637,22 +771,25 @@ export async function createInvoiceDraftFromCalculation(input: {
           netAmountCents: Math.max(0, row.netAmountCents),
           taxAmountCents: Math.max(0, taxAmountCents),
           grossAmountCents: Math.max(0, row.netAmountCents + taxAmountCents),
+          ...(row.metadata ? { metadata: row.metadata as Prisma.InputJsonValue } : {}),
         },
       })
     }
 
-    await tx.klarandoMailboxMessage.create({
-      data: {
-        tenantId: tenantCalculation.tenantId,
-        chainId: tenantCalculation.chainId,
-        invoiceId: invoice.id,
-        messageType: 'INVOICE_ISSUED',
-        title: `Neue Rechnung ${invoice.invoiceNumber}`,
-        body: `Für den Zeitraum ${period.key} wurde eine Rechnung als Entwurf erstellt.`,
-        status: 'DRAFT',
-        actionUrl: `/admin/finanzen?invoice=${invoice.id}`,
-      },
-    })
+    if (billingRunId) {
+      await tx.klarandoMailboxMessage.create({
+        data: {
+          tenantId: tenantCalculation.tenantId,
+          chainId: tenantCalculation.chainId,
+          invoiceId: invoice.id,
+          messageType: 'INVOICE_ISSUED',
+          title: `Neue Rechnung ${invoice.invoiceNumber}`,
+          body: `Für den Zeitraum ${period.key} wurde eine Rechnung als Entwurf erstellt.`,
+          status: 'DRAFT',
+          actionUrl: `/admin/finanzen?invoice=${invoice.id}`,
+        },
+      })
+    }
 
     return invoice
   })
@@ -660,6 +797,78 @@ export async function createInvoiceDraftFromCalculation(input: {
 
 export function canFinalizeInvoice(status: InvoiceStatus) {
   return status === 'DRAFT'
+}
+
+export async function finalizeInvoiceFromPreview(input: {
+  tenantId: string
+  period: BillingMonthPeriod
+  finalizedByUserId?: string | null
+}) {
+  const { tenantId, period } = input
+  const tenantCalculation = await calculateTenantBilling(tenantId, period)
+  if (!tenantCalculation) {
+    return null
+  }
+
+  const periodEndInclusive = new Date(period.periodEnd.getTime() - 1)
+  const existingFinalInvoice = await prisma.invoice.findFirst({
+    where: {
+      tenantId,
+      periodStart: period.periodStart,
+      periodEnd: periodEndInclusive,
+      status: { not: InvoiceStatus.DRAFT },
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (existingFinalInvoice) {
+    const error = new Error('Für diesen Tenant und Monat existiert bereits eine finalisierte Rechnung.')
+    ;(error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }).code = 'FINAL_INVOICE_EXISTS'
+    ;(error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }).invoiceId = existingFinalInvoice.id
+    ;(error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }).invoiceNumber =
+      existingFinalInvoice.invoiceNumber
+    throw error
+  }
+
+  const existingDraftInvoice = await prisma.invoice.findFirst({
+    where: {
+      tenantId,
+      periodStart: period.periodStart,
+      periodEnd: periodEndInclusive,
+      status: InvoiceStatus.DRAFT,
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  const draft = await createInvoiceDraftFromCalculation({
+    billingRunId: existingDraftInvoice?.billingRunId ?? null,
+    existingInvoiceId: existingDraftInvoice?.id ?? null,
+    period,
+    tenantCalculation,
+  })
+
+  const finalizedInvoiceNumber = await getOrCreateInvoiceSequence('GLOBAL', new Date())
+  const updated = await prisma.invoice.update({
+    where: { id: draft.id },
+    data: {
+      invoiceNumber: finalizedInvoiceNumber,
+      status: InvoiceStatus.ISSUED,
+      issuedAt: new Date(),
+      metadata: {
+        ...((draft.metadata as Record<string, unknown> | null) || {}),
+        lifecycleStatus: 'APPROVED',
+        paymentStatus: 'PENDING',
+        finalizationLocked: true,
+        finalizationSource: 'PREVIEW',
+        finalizedByUserId: input.finalizedByUserId ?? null,
+      },
+    },
+    include: {
+      items: { orderBy: { lineNo: 'asc' } },
+    },
+  })
+
+  return updated
 }
 
 export function recipientTypeForRole(role: UserRole) {
