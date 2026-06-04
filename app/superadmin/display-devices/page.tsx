@@ -1,14 +1,11 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import type { SessionUser } from '@/lib/app-data'
 
 export default function SuperadminDisplayDevicesPage() {
-  const [session, setSession] = useState<SessionUser | null>(null)
-  const [token, setToken] = useState('')
-
   useEffect(() => {
     const rawSession = localStorage.getItem('sessionUser')
     const parsed = rawSession ? (JSON.parse(rawSession) as SessionUser) : null
@@ -18,36 +15,34 @@ export default function SuperadminDisplayDevicesPage() {
       return
     }
 
-    setSession(parsed)
-    setToken(parsed.accessToken || localStorage.getItem('accessToken') || '')
-  }, [])
+    const timer = window.setTimeout(() => {
+      window.location.replace('/superadmin/devices')
+    }, 250)
 
-  if (!session || !token) {
-    return null
-  }
+    return () => window.clearTimeout(timer)
+  }, [])
 
   return (
     <BackofficeLayout
       brand="Superadmin"
       title="Display-Geräteverwaltung"
-      subtitle="Dieser Bereich wurde in die zentrale Geräteübersicht verschoben."
+      subtitle="Diese Legacy-Seite verweist nur noch auf die zentrale Geräteübersicht."
       navItems={SUPERADMIN_NAV_ITEMS}
     >
       <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
         <p className="text-sm text-slate-700">
-          Bitte nutze ab sofort die zentrale Seite „Geräte“ für Display-, OrderDesk- und Fahrergeräte.
+          Du wirst zur zentralen Geräteverwaltung unter <code>/superadmin/devices</code> weitergeleitet.
         </p>
         <button
           type="button"
           onClick={() => {
-            window.location.href = '/superadmin/devices'
+            window.location.replace('/superadmin/devices')
           }}
           className="mt-3 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
         >
-          Zur Geräteübersicht
+          Jetzt zur Geräteübersicht
         </button>
       </div>
     </BackofficeLayout>
   )
 }
-

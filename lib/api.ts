@@ -1306,6 +1306,30 @@ export type OrderDeskDeviceBinding = {
   } | null
 }
 
+export type DriverDeviceOverviewRow = {
+  sessionId: string
+  tenantId: string
+  tenantName: string
+  chainId: string | null
+  chainName: string | null
+  displayCode: string
+  displayId: string | null
+  deviceLabel: string
+  issuedAt: string
+  expiresAt: string
+  lastHeartbeatAt: string | null
+  revokedAt: string | null
+  driverUserId: string | null
+  driverName: string | null
+  isActive: boolean
+  isOnline: boolean
+}
+
+export type DriverDeviceOverviewResponse = {
+  generatedAt: string
+  rows: DriverDeviceOverviewRow[]
+}
+
 export type OrderDeskPairingSessionCreateResponse = {
   ok: true
   sessionId: string
@@ -2950,6 +2974,23 @@ export async function deleteScreenDevice(id: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/api/screen/devices/${id}?${query.toString()}`, {
     method: 'DELETE',
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Bildschirm konnte nicht geloescht werden')
+  }
+}
+
+export async function deleteScreenDeviceForScope(
+  token: string,
+  id: string,
+  tenantId: string
+): Promise<void> {
+  const query = new URLSearchParams({ tenantId })
+  const res = await fetch(`${API_BASE_URL}/api/screen/devices/${id}?${query.toString()}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
   })
 
   if (!res.ok) {
@@ -4786,6 +4827,23 @@ export async function deleteOrderDisplay(id: string): Promise<void> {
   const res = await fetch(`${API_BASE_URL}/api/order-displays/${id}?${query.toString()}`, {
     method: 'DELETE',
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Bestell-Display konnte nicht geloescht werden')
+  }
+}
+
+export async function deleteOrderDisplayForScope(
+  token: string,
+  id: string,
+  tenantId: string
+): Promise<void> {
+  const query = new URLSearchParams({ tenantId })
+  const res = await fetch(`${API_BASE_URL}/api/order-displays/${id}?${query.toString()}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
   })
 
   if (!res.ok) {
@@ -8480,6 +8538,46 @@ export async function deleteDisplayDevice(
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
     throw new Error(errorData?.message || errorData?.error || 'Display konnte nicht gelöscht werden')
+  }
+
+  return res.json()
+}
+
+export async function getDriverDeviceOverview(
+  token: string,
+  params?: {
+    tenantId?: string
+    chainId?: string
+  }
+): Promise<DriverDeviceOverviewResponse> {
+  const query = new URLSearchParams()
+  if (params?.tenantId) query.set('tenantId', params.tenantId)
+  if (params?.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString().length > 0 ? `?${query.toString()}` : ''
+  const res = await fetch(`${API_BASE_URL}/api/access/driver-devices/overview${suffix}`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Fahrergeraete konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function getOrderTerminalsForTenant(
+  token: string,
+  tenantId: string
+): Promise<OrderTerminal[]> {
+  const query = new URLSearchParams({ tenantId })
+  const res = await fetch(`${API_BASE_URL}/api/order-terminals?${query.toString()}`, {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Bestellterminals konnten nicht geladen werden')
   }
 
   return res.json()

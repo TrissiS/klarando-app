@@ -24,6 +24,7 @@ import {
   resolveEffectiveFeatureSetForTenant,
 } from '../lib/feature-modules'
 import { parseDisplayMetaFromNotes } from '../lib/display-performance-mode'
+import { listDriverDeviceSessionsForTenant } from '../lib/driver-device-sessions'
 
 const router = Router()
 const ALL_PERMISSIONS = Object.values(PermissionKey)
@@ -1035,6 +1036,106 @@ router.get('/displays/overview', requirePermission(PermissionKey.SETTINGS_READ),
     }
     console.error('GET DISPLAY OVERVIEW ERROR:', error)
     return res.status(500).json({ error: 'Display-Uebersicht konnte nicht geladen werden' })
+  }
+})
+
+router.get('/driver-devices/overview', requirePermission(PermissionKey.USERS_READ), async (req, res) => {
+  try {
+    const requestedTenantId = parseScopedId(req.query.tenantId)
+    const requestedChainId = parseScopedId(req.query.chainId)
+
+    let tenantScope
+    if (requestedTenantId) {
+      tenantScope = await resolveTenantScope(req, requestedTenantId)
+    } else {
+      tenantScope = await resolveTenantScope(req, null, { allowMissingTenant: true })
+    }
+
+    let tenantIds = tenantScope.tenantId
+      ? [tenantScope.tenantId]
+      : [...tenantScope.allowedTenantIds]
+
+    if (requestedChainId) {
+      const actor = req.authUser
+      if (!actor) {
+        return res.status(401).json({ error: 'Nicht eingeloggt' })
+      }
+      if (actor.role === UserRole.CHAINADMIN && actor.chainId !== requestedChainId) {
+        return res.status(403).json({ error: 'Keine Berechtigung fuer diese Kette' })
+      }
+
+      const chainTenantIds = await prisma.tenant.findMany({
+        where: { chainId: requestedChainId },
+        select: { id: true },
+      })
+      const chainTenantIdSet = new Set(chainTenantIds.map((entry) => entry.id))
+      tenantIds = tenantIds.filter((id) => chainTenantIdSet.has(id))
+    }
+
+    if (tenantIds.length === 0) {
+      return res.json({
+        generatedAt: new Date().toISOString(),
+        rows: [],
+      })
+    }
+
+    const tenants = await prisma.tenant.findMany({
+      where: {
+        id: {
+          in: tenantIds,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        chainId: true,
+        chain: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ name: 'asc' }],
+    })
+
+    const rowsNested = await Promise.all(
+      tenants.map(async (tenant) => {
+        const sessions = await listDriverDeviceSessionsForTenant(tenant.id, {
+          includeExpired: true,
+        })
+        return sessions.map((session) => ({
+          sessionId: session.sessionId,
+          tenantId: tenant.id,
+          tenantName: tenant.name,
+          chainId: tenant.chainId,
+          chainName: tenant.chain?.name ?? null,
+          displayCode: session.displayCode,
+          displayId: session.displayId,
+          deviceLabel: session.deviceLabel,
+          issuedAt: session.issuedAt,
+          expiresAt: session.expiresAt,
+          lastHeartbeatAt: session.lastHeartbeatAt,
+          revokedAt: session.revokedAt,
+          driverUserId: session.driverUserId,
+          driverName: session.driverName,
+          isActive: session.isActive,
+          isOnline: session.isOnline,
+        }))
+      })
+    )
+
+    return res.json({
+      generatedAt: new Date().toISOString(),
+      rows: rowsNested.flat(),
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET DRIVER DEVICE OVERVIEW ERROR:', error)
+    return res.status(500).json({ error: 'Fahrergeraete konnten nicht geladen werden' })
   }
 })
 

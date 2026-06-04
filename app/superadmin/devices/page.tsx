@@ -1,26 +1,60 @@
 'use client'
 
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   createPublicDriverDeviceSession,
-  deleteOrderDeskDeviceBinding,
   deactivateOrderDeskDeviceBinding,
+  deleteDisplayDevice,
+  deleteOrderDeskDeviceBinding,
+  deleteOrderDisplayForScope,
+  deleteScreenDeviceForScope,
   getAccessContext,
   getDisplayDeviceOverview,
+  getDriverDeviceOverview,
   getOrderDeskDeviceBindingsForScope,
-  getSuperadminDriverOverview,
+  getOrderTerminalsForTenant,
+  regenerateDisplayPairingCode,
   resetOrderDeskDevicePairing,
+  updateDisplayDeviceActiveState,
   type AccessContext,
-  type DriverDeviceSessionCreateResponse,
   type DisplayDeviceOverviewRow,
+  type DriverDeviceOverviewRow,
+  type DriverDeviceSessionCreateResponse,
   type OrderDeskDeviceBinding,
+  type OrderTerminal,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
-type DeviceTab = 'ALL' | 'DISPLAYS' | 'ORDERDESK' | 'DRIVER' | 'OFFLINE'
-type StatusKind = 'online' | 'instabil' | 'offline' | 'inactive'
+type DeviceTab = 'ALL' | 'DISPLAYS' | 'ORDERDESK' | 'DRIVERS' | 'TERMINALS' | 'OFFLINE'
+type StatusKind = 'online' | 'instabil' | 'offline' | 'inactive' | 'unknown'
+
+type TerminalOverviewRow = OrderTerminal & {
+  tenantName: string | null
+  chainId: string | null
+  chainName: string | null
+}
+
+type EnrichedOrderDeskBinding = OrderDeskDeviceBinding & {
+  tenantName: string | null
+  chainName: string | null
+}
+
+type DetailState =
+  | { kind: 'display'; row: DisplayDeviceOverviewRow }
+  | { kind: 'orderdesk'; row: EnrichedOrderDeskBinding }
+  | { kind: 'driver'; row: DriverDeviceOverviewRow }
+  | { kind: 'terminal'; row: TerminalOverviewRow }
+  | null
+
+type PairingState = {
+  title: string
+  qrImageUrl: string
+  expiresAt: string
+  payload: string
+  token?: string | null
+} | null
 
 function normalizedStatus(lastSeenAt: string | null, isActive = true): StatusKind {
   if (!isActive) return 'inactive'
@@ -31,27 +65,56 @@ function normalizedStatus(lastSeenAt: string | null, isActive = true): StatusKin
   return 'offline'
 }
 
-function statusStyle(status: StatusKind) {
-  if (status === 'online') return 'bg-emerald-100 text-emerald-800 border-emerald-200'
-  if (status === 'instabil') return 'bg-amber-100 text-amber-800 border-amber-200'
-  if (status === 'inactive') return 'bg-slate-100 text-slate-700 border-slate-200'
-  return 'bg-rose-100 text-rose-800 border-rose-200'
-}
-
 function statusLabel(status: StatusKind) {
   if (status === 'online') return 'Online'
   if (status === 'instabil') return 'Instabil'
-  if (status === 'inactive') return 'Inaktiv'
+  if (status === 'inactive') return 'Deaktiviert'
+  if (status === 'unknown') return 'Keine Live-Quelle'
   return 'Offline'
 }
 
-function toDeDate(value: string | null) {
+function statusClass(status: StatusKind) {
+  if (status === 'online') return 'border-emerald-200 bg-emerald-100 text-emerald-800'
+  if (status === 'instabil') return 'border-amber-200 bg-amber-100 text-amber-800'
+  if (status === 'inactive') return 'border-slate-200 bg-slate-100 text-slate-700'
+  if (status === 'unknown') return 'border-sky-200 bg-sky-100 text-sky-800'
+  return 'border-rose-200 bg-rose-100 text-rose-800'
+}
+
+function fmt(value: string | null) {
   if (!value) return '—'
   return new Date(value).toLocaleString('de-DE')
 }
 
 function isCanonicalScreenPreviewPath(path: string | null | undefined) {
   return typeof path === 'string' && path.startsWith('/screen/')
+}
+
+function isOperationalDisplay(row: DisplayDeviceOverviewRow) {
+  return row.sourceKind === 'ORDER_DISPLAY' || row.displayType === 'KITCHEN' || row.displayType === 'PICKUP_NUMBERS'
+}
+
+function displayTypeLabel(row: DisplayDeviceOverviewRow) {
+  if (row.sourceKind === 'ORDER_DISPLAY') {
+    if (row.displayType === 'KITCHEN') return 'Kitchen Display'
+    if (row.displayType === 'PICKUP_NUMBERS') return 'Pickup Display'
+    return 'Cashier Display'
+  }
+  if (row.displayType === 'MENU') return 'Menübildschirm'
+  if (row.displayType === 'OFFERS') return 'Aktionsbildschirm'
+  if (row.displayType === 'ADVERTISING') return 'Werbebildschirm'
+  return 'Display'
+}
+
+function sourceLabel(row: DisplayDeviceOverviewRow) {
+  if (row.sourceKind === 'ORDER_DISPLAY') return 'Order Display'
+  if (row.sourceKind === 'SCREEN_DEVICE') return 'Screen Device'
+  return 'Display Device Legacy'
+}
+
+function matchesSearch(parts: Array<string | null | undefined>, search: string) {
+  if (!search.trim()) return true
+  return parts.filter(Boolean).join(' ').toLowerCase().includes(search.trim().toLowerCase())
 }
 
 export default function SuperadminDevicesPage() {
@@ -63,14 +126,16 @@ export default function SuperadminDevicesPage() {
   const [search, setSearch] = useState('')
   const [displayRows, setDisplayRows] = useState<DisplayDeviceOverviewRow[]>([])
   const [orderdeskRows, setOrderdeskRows] = useState<OrderDeskDeviceBinding[]>([])
-  const [driverRows, setDriverRows] = useState<Array<{ id: string; name: string; tenantName: string | null; lastSeenAt: string | null; isActive: boolean }>>([])
+  const [driverRows, setDriverRows] = useState<DriverDeviceOverviewRow[]>([])
+  const [terminalRows, setTerminalRows] = useState<TerminalOverviewRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
-  const [showInactiveSection, setShowInactiveSection] = useState(false)
   const [copyInfo, setCopyInfo] = useState('')
+  const [busyRef, setBusyRef] = useState<string | null>(null)
+  const [detail, setDetail] = useState<DetailState>(null)
+  const [pairing, setPairing] = useState<PairingState>(null)
   const [driverPairingDisplayCode, setDriverPairingDisplayCode] = useState('')
-  const [driverPairing, setDriverPairing] = useState<DriverDeviceSessionCreateResponse | null>(null)
 
   async function copyValue(value: string, label: string) {
     try {
@@ -79,7 +144,7 @@ export default function SuperadminDevicesPage() {
       window.setTimeout(() => setCopyInfo(''), 1800)
     } catch {
       setCopyInfo(`Kopieren fehlgeschlagen (${label})`)
-      window.setTimeout(() => setCopyInfo(''), 2200)
+      window.setTimeout(() => setCopyInfo(''), 1800)
     }
   }
 
@@ -101,46 +166,69 @@ export default function SuperadminDevicesPage() {
   useEffect(() => {
     if (!token) return
     void (async () => {
-      const ctx = await getAccessContext(token)
-      setContext(ctx)
-      setChainId(ctx.chains[0]?.id || '')
-      setTenantId(ctx.tenants[0]?.id || '')
-    })().catch((cause) => setError(cause instanceof Error ? cause.message : 'Kontext konnte nicht geladen werden'))
+      try {
+        setContext(await getAccessContext(token))
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Kontext konnte nicht geladen werden')
+      }
+    })()
   }, [token])
 
+  const tenantNameById = useMemo(() => new Map((context?.tenants || []).map((entry) => [entry.id, entry.name])), [context])
+  const tenantChainById = useMemo(() => new Map((context?.tenants || []).map((entry) => [entry.id, entry.chainId || null])), [context])
+  const chainNameById = useMemo(() => new Map((context?.chains || []).map((entry) => [entry.id, entry.name])), [context])
+
   useEffect(() => {
-    if (!token) return
+    if (!token || !context) return
     void loadData()
-  }, [token, tenantId, chainId])
+  }, [token, context, tenantId, chainId])
 
   useEffect(() => {
     if (driverPairingDisplayCode) return
-    const firstDisplayCode = displayRows[0]?.code || ''
-    if (firstDisplayCode) {
-      setDriverPairingDisplayCode(firstDisplayCode)
-    }
+    const firstDisplayCode = displayRows.find((row) => isCanonicalScreenPreviewPath(row.previewPath))?.code || ''
+    if (firstDisplayCode) setDriverPairingDisplayCode(firstDisplayCode)
   }, [displayRows, driverPairingDisplayCode])
 
   async function loadData() {
+    if (!context) return
     try {
       setLoading(true)
       setError('')
-      const [displayOverview, orderdeskOverview, driverOverview] = await Promise.all([
-        getDisplayDeviceOverview(token, { tenantId: tenantId || undefined, chainId: chainId || undefined, status: 'all' }),
-        getOrderDeskDeviceBindingsForScope(token, { tenantId: tenantId || undefined, includeInactive: true }),
-        getSuperadminDriverOverview(token, { tenantId: tenantId || undefined, chainId: chainId || undefined, includeInactive: true, limit: 500 }),
+      const visibleTenants = context.tenants.filter((entry) => (!chainId || entry.chainId === chainId) && (!tenantId || entry.id === tenantId))
+      const visibleTenantIds = visibleTenants.map((entry) => entry.id)
+      const [displayOverview, orderdeskOverview, driverOverview, terminalMatrix] = await Promise.all([
+        getDisplayDeviceOverview(token, {
+          tenantId: tenantId || undefined,
+          chainId: tenantId ? undefined : chainId || undefined,
+          status: 'all',
+        }),
+        getOrderDeskDeviceBindingsForScope(token, {
+          tenantId: tenantId || undefined,
+          includeInactive: true,
+        }),
+        getDriverDeviceOverview(token, {
+          tenantId: tenantId || undefined,
+          chainId: tenantId ? undefined : chainId || undefined,
+        }),
+        visibleTenantIds.length > 0
+          ? Promise.all(
+              visibleTenantIds.map(async (currentTenantId) => {
+                const rows = await getOrderTerminalsForTenant(token, currentTenantId)
+                return rows.map((row) => ({
+                  ...row,
+                  tenantName: tenantNameById.get(currentTenantId) || null,
+                  chainId: tenantChainById.get(currentTenantId) || null,
+                  chainName: chainNameById.get(tenantChainById.get(currentTenantId) || '') || null,
+                }))
+              })
+            )
+          : Promise.resolve([]),
       ])
+      const allowedTenantIds = new Set(visibleTenantIds)
       setDisplayRows(displayOverview.rows)
-      setOrderdeskRows(orderdeskOverview.bindings)
-      setDriverRows(
-        driverOverview.rows.map((row) => ({
-          id: row.id,
-          name: row.name,
-          tenantName: row.tenant?.name || null,
-          lastSeenAt: row.stats.lastAssignmentAt || null,
-          isActive: row.isActive,
-        }))
-      )
+      setOrderdeskRows(orderdeskOverview.bindings.filter((row) => allowedTenantIds.has(row.tenantId)))
+      setDriverRows(driverOverview.rows.filter((row) => allowedTenantIds.has(row.tenantId)))
+      setTerminalRows(terminalMatrix.flat())
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Geräte konnten nicht geladen werden')
     } finally {
@@ -148,559 +236,442 @@ export default function SuperadminDevicesPage() {
     }
   }
 
-  const displayFiltered = useMemo(() => {
-    return displayRows.filter((row) => {
-      const haystack = `${row.name} ${row.code} ${row.tenantName || ''} ${row.chainName || ''}`.toLowerCase()
-      return haystack.includes(search.toLowerCase())
-    })
-  }, [displayRows, search])
+  const orderdesk = useMemo<EnrichedOrderDeskBinding[]>(() => orderdeskRows.map((row) => ({
+    ...row,
+    tenantName: tenantNameById.get(row.tenantId) || null,
+    chainName: chainNameById.get(tenantChainById.get(row.tenantId) || '') || null,
+  })), [orderdeskRows, tenantNameById, chainNameById, tenantChainById])
 
-  const orderdeskFiltered = useMemo(() => {
-    return orderdeskRows.filter((row) => {
-      const haystack = `${row.deviceAlias || ''} ${row.deviceSerial} ${row.displayCode}`.toLowerCase()
-      return haystack.includes(search.toLowerCase())
-    })
-  }, [orderdeskRows, search])
+  const displayFiltered = useMemo(() => displayRows.filter((row) => matchesSearch([
+    row.name, row.code, row.tenantName, row.chainName, row.displayType, displayTypeLabel(row), sourceLabel(row),
+  ], search)), [displayRows, search])
 
-  const driverFiltered = useMemo(() => {
-    return driverRows.filter((row) => `${row.name} ${row.tenantName || ''}`.toLowerCase().includes(search.toLowerCase()))
-  }, [driverRows, search])
+  const orderdeskFiltered = useMemo(() => orderdesk.filter((row) => matchesSearch([
+    row.deviceAlias, row.deviceSerial, row.displayCode, row.tenantName, row.chainName, row.devicePlatform,
+  ], search)), [orderdesk, search])
+
+  const driverFiltered = useMemo(() => driverRows.filter((row) => matchesSearch([
+    row.deviceLabel, row.displayCode, row.driverName, row.tenantName, row.chainName,
+  ], search)), [driverRows, search])
+
+  const terminalFiltered = useMemo(() => terminalRows.filter((row) => matchesSearch([
+    row.name, row.terminalCode, row.location, row.tenantName, row.chainName,
+    row.cashDisplay?.displayCode || null, row.kitchenDisplay?.displayCode || null, row.pickupDisplay?.displayCode || null,
+  ], search)), [terminalRows, search])
 
   const summary = useMemo(() => {
-    const merged = [
+    const statuses = [
       ...displayRows.map((row) => normalizedStatus(row.lastSeenAt, row.isActive)),
-      ...orderdeskRows.map((row) => normalizedStatus(row.lastSeenAt, row.isActive)),
-      ...driverRows.map((row) => normalizedStatus(row.lastSeenAt, row.isActive)),
+      ...orderdesk.map((row) => normalizedStatus(row.lastSeenAt, row.isActive)),
+      ...driverRows.map((row) => normalizedStatus(row.lastHeartbeatAt, row.isActive)),
     ]
     return {
-      total: merged.length,
-      online: merged.filter((entry) => entry === 'online').length,
-      unstable: merged.filter((entry) => entry === 'instabil').length,
-      offline: merged.filter((entry) => entry === 'offline').length,
-      inactive: merged.filter((entry) => entry === 'inactive').length,
+      total: statuses.length + terminalRows.length,
+      online: statuses.filter((entry) => entry === 'online').length,
+      unstable: statuses.filter((entry) => entry === 'instabil').length,
+      offline: statuses.filter((entry) => entry === 'offline').length,
+      inactive: statuses.filter((entry) => entry === 'inactive').length,
+      terminals: terminalRows.length,
     }
-  }, [displayRows, orderdeskRows, driverRows])
+  }, [displayRows, orderdesk, driverRows, terminalRows])
 
-  const inactiveCount = useMemo(() => {
-    return (
-      displayRows.filter((row) => normalizedStatus(row.lastSeenAt, row.isActive) === 'inactive').length +
-      orderdeskRows.filter((row) => normalizedStatus(row.lastSeenAt, row.isActive) === 'inactive').length +
-      driverRows.filter((row) => normalizedStatus(row.lastSeenAt, row.isActive) === 'inactive').length
-    )
-  }, [displayRows, orderdeskRows, driverRows])
+  const offlineOnly = tab === 'OFFLINE'
+  const menuDisplays = displayFiltered.filter((row) => !isOperationalDisplay(row) && (!offlineOnly || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online'))
+  const operationalDisplays = displayFiltered.filter((row) => isOperationalDisplay(row) && (!offlineOnly || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online'))
+  const visibleOrderdesk = orderdeskFiltered.filter((row) => !offlineOnly || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
+  const visibleDrivers = driverFiltered.filter((row) => !offlineOnly || normalizedStatus(row.lastHeartbeatAt, row.isActive) !== 'online')
 
-  async function disconnectOrderdesk(bindingId: string, hardDelete: boolean) {
-    if (!window.confirm('OrderDesk-Gerät wirklich entkoppeln? Dieses Gerät muss danach neu gekoppelt werden.')) return
-    if (!window.confirm('Zweite Bestätigung: Aktion wirklich durchführen?')) return
+  async function handleDisplayPreview(row: DisplayDeviceOverviewRow) {
+    if (!isCanonicalScreenPreviewPath(row.previewPath)) {
+      setError('Für dieses Display ist nur eine Legacy-Vorschau vorhanden. Moderne Menübildschirme laufen ausschließlich über /screen/[deviceCode].')
+      return
+    }
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    window.open(`${origin}${row.previewPath}`, '_blank', 'noopener,noreferrer')
+  }
+
+  async function handleDisplayToggle(row: DisplayDeviceOverviewRow) {
+    if (row.sourceKind === 'DISPLAY_DEVICE') {
+      setInfo('Legacy-Display-Geräte können hier nicht zentral aktiviert oder deaktiviert werden.')
+      return
+    }
     try {
-      if (hardDelete) {
-        await deleteOrderDeskDeviceBinding(token, bindingId)
-      } else {
-        await deactivateOrderDeskDeviceBinding(token, bindingId)
-      }
-      setInfo(hardDelete ? 'OrderDesk-Gerät wurde gelöscht.' : 'OrderDesk-Gerät wurde entkoppelt.')
+      setBusyRef(row.id)
+      setError('')
+      await updateDisplayDeviceActiveState(token, row.id, !row.isActive)
       await loadData()
+      setInfo(row.isActive ? 'Display wurde deaktiviert.' : 'Display wurde aktiviert.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Aktion fehlgeschlagen')
+      setError(cause instanceof Error ? cause.message : 'Display-Status konnte nicht geändert werden')
+    } finally {
+      setBusyRef(null)
     }
   }
 
-  async function refreshOrderdeskPairing(bindingId: string) {
+  async function handleDisplayPairing(row: DisplayDeviceOverviewRow) {
+    if (!row.pairingSupported) {
+      setInfo('Für dieses Display ist kein Pairing-Code verfügbar.')
+      return
+    }
     try {
-      const next = await resetOrderDeskDevicePairing(token, bindingId)
-      setInfo(`Neuer Pairing-Code erstellt (gültig bis ${new Date(next.expiresAt).toLocaleTimeString('de-DE')}).`)
+      setBusyRef(row.id)
+      const result = await regenerateDisplayPairingCode(token, row.id)
+      setPairing({ title: `Pairing-Code für ${row.name}`, qrImageUrl: result.qrImageUrl, expiresAt: result.expiresAt, payload: result.pairingPayload })
+      setInfo('Neuer Pairing-Code wurde erzeugt.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Pairing konnte nicht zurückgesetzt werden')
+      setError(cause instanceof Error ? cause.message : 'Pairing-Code konnte nicht erzeugt werden')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
+  async function handleDisplayDelete(row: DisplayDeviceOverviewRow) {
+    if (!window.confirm(`Gerät "${row.name}" wirklich löschen?`)) return
+    if (!window.confirm('Diese Aktion ist endgültig. Das Gerät muss danach neu gekoppelt oder neu angelegt werden.')) return
+    try {
+      setBusyRef(row.id)
+      setError('')
+      if (row.sourceKind === 'ORDER_DISPLAY') {
+        await deleteOrderDisplayForScope(token, row.entityId, row.tenantId)
+      } else if (row.sourceKind === 'SCREEN_DEVICE') {
+        await deleteScreenDeviceForScope(token, row.entityId, row.tenantId)
+      } else {
+        await deleteDisplayDevice(token, row.entityId, row.tenantId)
+      }
+      await loadData()
+      setInfo('Gerät wurde gelöscht.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Gerät konnte nicht gelöscht werden')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
+  async function handleOrderdeskDeactivate(row: EnrichedOrderDeskBinding) {
+    if (!window.confirm('Dieses OrderDesk-Gerät deaktivieren?')) return
+    try {
+      setBusyRef(row.id)
+      await deactivateOrderDeskDeviceBinding(token, row.id)
+      await loadData()
+      setInfo('OrderDesk-Gerät wurde deaktiviert.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'OrderDesk-Gerät konnte nicht deaktiviert werden')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
+  async function handleOrderdeskUnpair(row: EnrichedOrderDeskBinding) {
+    if (!window.confirm('Dieses OrderDesk-Gerät entkoppeln?')) return
+    if (!window.confirm('Dieses OrderDesk-Gerät muss danach neu gekoppelt werden.')) return
+    try {
+      setBusyRef(row.id)
+      await deleteOrderDeskDeviceBinding(token, row.id)
+      await loadData()
+      setInfo('OrderDesk-Gerät wurde entkoppelt.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'OrderDesk-Gerät konnte nicht entkoppelt werden')
+    } finally {
+      setBusyRef(null)
+    }
+  }
+
+  async function handleOrderdeskPairingReset(row: EnrichedOrderDeskBinding) {
+    if (!window.confirm('Pairing für dieses OrderDesk-Gerät neu starten?')) return
+    if (!window.confirm('Dieses OrderDesk-Gerät muss danach neu gekoppelt werden.')) return
+    try {
+      setBusyRef(row.id)
+      const result = await resetOrderDeskDevicePairing(token, row.id)
+      setPairing({
+        title: `OrderDesk Pairing für ${row.deviceAlias || row.deviceSerial}`,
+        qrImageUrl: result.qrImageUrl,
+        expiresAt: result.expiresAt,
+        payload: result.pairingPayload,
+      })
+      await loadData()
+      setInfo('OrderDesk-Pairing wurde neu gestartet.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Pairing konnte nicht neu gestartet werden')
+    } finally {
+      setBusyRef(null)
     }
   }
 
   async function createDriverPairingCode() {
-    const displayCode = driverPairingDisplayCode.trim()
-    if (!displayCode) {
-      setError('Bitte zuerst ein Display für Driver-Pairing auswählen.')
+    if (!driverPairingDisplayCode) {
+      setError('Bitte zuerst einen Menübildschirm für das Fahrer-Pairing auswählen.')
       return
     }
     try {
-      setLoading(true)
-      setError('')
-      const response = await createPublicDriverDeviceSession(displayCode, {
-        accessHours: 24,
-        deviceLabel: 'Driver-App',
+      setBusyRef('driver-pairing')
+      const result: DriverDeviceSessionCreateResponse = await createPublicDriverDeviceSession(driverPairingDisplayCode, {
+        deviceLabel: 'Superadmin Pairing',
       })
-      setDriverPairing(response)
-      setInfo(`Driver-Kopplungscode für ${displayCode} wurde erstellt.`)
+      setPairing({
+        title: `Fahrergeräte-Pairing für ${driverPairingDisplayCode}`,
+        qrImageUrl: result.qrImageUrl,
+        expiresAt: result.expiresAt,
+        payload: result.pairingPayload,
+        token: result.pairingToken,
+      })
+      setInfo('Fahrergeräte-Pairing wurde erzeugt.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Driver-Pairing konnte nicht erstellt werden')
+      setError(cause instanceof Error ? cause.message : 'Fahrergeräte-Pairing konnte nicht erzeugt werden')
     } finally {
-      setLoading(false)
+      setBusyRef(null)
     }
   }
 
+  function renderStatus(status: StatusKind) {
+    return <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusClass(status)}`}>{statusLabel(status)}</span>
+  }
+
+  function renderDetailRows() {
+    if (!detail) return null
+    if (detail.kind === 'display') {
+      const row = detail.row
+      return [
+        ['Typ', displayTypeLabel(row)], ['Quelle', sourceLabel(row)], ['Tenant', row.tenantName || '—'], ['Chain', row.chainName || '—'],
+        ['DeviceCode', row.code], ['Status', statusLabel(normalizedStatus(row.lastSeenAt, row.isActive))], ['Letzte Verbindung', fmt(row.lastSeenAt)],
+        ['Letzter Sync', fmt(row.lastSyncAt)], ['App-Version', row.deviceInfo?.appVersion || '—'], ['Plattform', row.deviceInfo?.platform || '—'], ['IP / User-Agent', 'Noch nicht verfügbar'],
+      ]
+    }
+    if (detail.kind === 'orderdesk') {
+      const row = detail.row
+      return [
+        ['Gerät', row.deviceAlias || row.deviceSerial], ['Serial', row.deviceSerial], ['Tenant', row.tenantName || '—'], ['Chain', row.chainName || '—'],
+        ['DisplayCode', row.displayCode], ['Status', statusLabel(normalizedStatus(row.lastSeenAt, row.isActive))], ['Letzte Verbindung', fmt(row.lastSeenAt)],
+        ['Gebunden seit', fmt(row.boundAt)], ['App-Version', row.appVersion || '—'], ['Plattform', row.devicePlatform || '—'], ['Modell', row.deviceModel || '—'], ['IP / User-Agent', 'Noch nicht verfügbar'],
+      ]
+    }
+    if (detail.kind === 'driver') {
+      const row = detail.row
+      return [
+        ['Gerät', row.deviceLabel], ['Tenant', row.tenantName], ['Chain', row.chainName || '—'], ['DisplayCode', row.displayCode], ['Fahrer', row.driverName || 'Nicht zugewiesen'],
+        ['Status', statusLabel(normalizedStatus(row.lastHeartbeatAt, row.isActive))], ['Letzter Heartbeat', fmt(row.lastHeartbeatAt)], ['Issued At', fmt(row.issuedAt)], ['Expires At', fmt(row.expiresAt)], ['Revoked At', fmt(row.revokedAt)], ['Session ID', row.sessionId], ['IP / User-Agent', 'Noch nicht verfügbar'],
+      ]
+    }
+    const row = detail.row
+    return [
+      ['Terminal', row.name], ['Tenant', row.tenantName || '—'], ['Chain', row.chainName || '—'], ['TerminalCode', row.terminalCode], ['Standort', row.location || '—'],
+      ['Status', row.isActive ? 'Aktive Konfiguration' : 'Deaktivierte Konfiguration'], ['Cash Display', row.cashDisplay?.displayCode || '—'], ['Kitchen Display', row.kitchenDisplay?.displayCode || '—'], ['Pickup Display', row.pickupDisplay?.displayCode || '—'], ['Kartenzahlung', row.allowCardPayment ? 'Ja' : 'Nein'], ['Barzahlung', row.allowCashPayment ? 'Ja' : 'Nein'], ['Live-Gerätestatus', 'Noch keine Gerätequelle angebunden'],
+    ]
+  }
+
+  if (!token) return null
+
+  const showDisplays = tab === 'ALL' || tab === 'DISPLAYS' || tab === 'OFFLINE'
+  const showOrderdesk = tab === 'ALL' || tab === 'ORDERDESK' || tab === 'OFFLINE'
+  const showDrivers = tab === 'ALL' || tab === 'DRIVERS' || tab === 'OFFLINE'
+  const showTerminals = tab === 'ALL' || tab === 'TERMINALS'
+
   return (
-    <BackofficeLayout
-      brand="Superadmin"
-      title="Geräte"
-      subtitle="Displays, OrderDesk, Fahrergeräte und Status zentral verwalten"
-      navItems={SUPERADMIN_NAV_ITEMS}
-    >
-      <div className="space-y-5">
-        {error ? (
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-            <div className="font-semibold">Geräte konnten nicht geladen werden</div>
-            <div className="mt-1">{error}</div>
-            <button type="button" onClick={() => void loadData()} className="mt-3 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white">
-              Erneut laden
-            </button>
-          </div>
-        ) : null}
-        {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{info}</div> : null}
-        {copyInfo ? <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">{copyInfo}</div> : null}
+    <BackofficeLayout brand="Superadmin" title="Zentrale Geräteverwaltung" subtitle="Master-Übersicht für Displays, OrderDesk, Fahrergeräte und Terminal-Konfigurationen." navItems={SUPERADMIN_NAV_ITEMS}>
+      <div className="space-y-6">
+        <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          {[
+            ['Alle Quellen', summary.total], ['Online', summary.online], ['Instabil', summary.unstable], ['Offline', summary.offline], ['Deaktiviert', summary.inactive], ['Terminale', summary.terminals],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+              <div className="text-sm text-slate-500">{label}</div>
+              <div className="mt-2 text-2xl font-semibold text-slate-900">{value}</div>
+            </div>
+          ))}
+        </div>
 
-        <section className="grid gap-3 md:grid-cols-5">
-          <StatCard title="Geräte gesamt" value={summary.total} hint="Alle verbundenen und inaktiven Geräte" tone="slate" />
-          <StatCard title="Online" value={summary.online} hint="Stabil verbunden" tone="emerald" />
-          <StatCard title="Instabil" value={summary.unstable} hint="Heartbeat unregelmäßig" tone="amber" />
-          <StatCard title="Offline" value={summary.offline} hint="Nicht erreichbar" tone="rose" />
-          <StatCard title="Inaktiv" value={summary.inactive} hint="Entkoppelt oder deaktiviert" tone="zinc" />
-        </section>
-
-        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
-          <div className="grid gap-3 md:grid-cols-4">
-            <select className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5" value={chainId} onChange={(event) => setChainId(event.target.value)}>
-              <option value="">Alle Unternehmen</option>
-              {(context?.chains || []).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
+        <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+          <div className="grid gap-3 xl:grid-cols-4">
+            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Gerätename, Tenant, Code ..." className="rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-400" />
+            <select value={chainId} onChange={(event) => { setChainId(event.target.value); setTenantId('') }} className="rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-400">
+              <option value="">Alle Chains</option>
+              {(context?.chains || []).map((chain) => <option key={chain.id} value={chain.id}>{chain.name}</option>)}
             </select>
-            <select className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5" value={tenantId} onChange={(event) => setTenantId(event.target.value)}>
-              <option value="">Alle Filialen</option>
-              {(context?.tenants || []).filter((entry) => !chainId || entry.chainId === chainId).map((entry) => (
-                <option key={entry.id} value={entry.id}>{entry.name}</option>
-              ))}
+            <select value={tenantId} onChange={(event) => setTenantId(event.target.value)} className="rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-slate-400">
+              <option value="">Alle Tenants</option>
+              {(context?.tenants || []).filter((tenant) => !chainId || tenant.chainId === chainId).map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}
             </select>
-            <input className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5" placeholder="Suche nach Name, Code, Plattform ..." value={search} onChange={(event) => setSearch(event.target.value)} />
-            <button type="button" className="rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60" onClick={() => void loadData()} disabled={loading}>
-              {loading ? 'Geräte werden geladen …' : 'Aktualisieren'}
-            </button>
+            <button type="button" onClick={() => void loadData()} disabled={loading} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400">{loading ? 'Lädt ...' : 'Neu laden'}</button>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
-            {(['ALL', 'DISPLAYS', 'ORDERDESK', 'DRIVER', 'OFFLINE'] as DeviceTab[]).map((entry) => (
-              <button
-                key={entry}
-                type="button"
-                onClick={() => setTab(entry)}
-                className={`rounded-xl px-3 py-1.5 text-sm font-medium transition ${tab === entry ? 'bg-slate-900 text-white' : 'border border-[var(--brand-border)] bg-white text-slate-700 hover:bg-slate-50'}`}
-              >
-                {entry === 'ALL' ? 'Alle Geräte' : entry === 'DISPLAYS' ? 'Displays' : entry === 'ORDERDESK' ? 'OrderDesk' : entry === 'DRIVER' ? 'Fahrergeräte' : 'Offline Geräte'}
+            {[
+              ['ALL', 'Alle Geräte'], ['DISPLAYS', 'Displays'], ['ORDERDESK', 'OrderDesk'], ['DRIVERS', 'Fahrergeräte'], ['TERMINALS', 'Terminals / Kasse'], ['OFFLINE', 'Offline Geräte'],
+            ].map(([value, label]) => (
+              <button key={value} type="button" onClick={() => setTab(value as DeviceTab)} className={`rounded-full border px-4 py-2 text-sm font-semibold ${tab === value ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300'}`}>
+                {label}
               </button>
             ))}
           </div>
-        </section>
+          {error ? <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div> : null}
+          {info ? <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">{info}</div> : null}
+          {copyInfo ? <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">{copyInfo}</div> : null}
+        </div>
 
-        <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-800">Driver-App koppeln</h3>
-          <p className="mt-1 text-xs text-slate-600">
-            Kopplungscode für Driver-App erzeugen (QR + manuelle Daten).
-          </p>
-          <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto]">
-            <select
-              className="rounded-xl border border-[var(--brand-border)] px-3 py-2.5 text-sm"
-              value={driverPairingDisplayCode}
-              onChange={(event) => setDriverPairingDisplayCode(event.target.value)}
-            >
-              <option value="">Display auswählen</option>
-              {displayRows.map((row) => (
-                <option key={row.id} value={row.code}>
-                  {row.name} ({row.code})
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={() => void createDriverPairingCode()}
-              disabled={loading || !driverPairingDisplayCode.trim()}
-              className="rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-60"
-            >
-              Driver-App koppeln
-            </button>
-          </div>
-        </section>
-
-        {loading ? (
-          <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 text-sm text-slate-600">Geräte werden geladen …</div>
-        ) : null}
-
-        {(tab === 'ALL' || tab === 'DISPLAYS' || tab === 'OFFLINE') ? (
-          <DeviceSection title="Displays & Menübildschirme">
-            <DesktopTable headers={['Name', 'Typ', 'Status', 'Filiale', 'Kette', 'Code', 'Plattform', 'App-Version', 'Zuletzt aktiv', 'Aktionen']}>
-              {displayFiltered
-                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                .map((row) => {
-                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
-                  return (
-                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
-                      <td className="py-2.5 font-medium text-slate-800">{row.name}</td>
-                      <td>{row.displayType}</td>
-                      <td><StatusBadge status={status} /></td>
-                      <td>{row.tenantName || '—'}</td>
-                      <td>{row.chainName || '—'}</td>
-                      <td className="font-mono text-xs">{row.code}</td>
-                      <td>{row.deviceInfo?.platform || '—'}</td>
-                      <td>{row.deviceInfo?.appVersion || '—'}</td>
-                      <td>{toDeDate(row.lastSeenAt)}</td>
-                      <td>
-                        {isCanonicalScreenPreviewPath(row.previewPath) ? (
-                          <ActionButton
-                            label="Vorschau öffnen"
-                            tone="primary"
-                            onClick={() => window.open(row.previewPath, '_blank', 'noopener,noreferrer')}
-                          />
-                        ) : (
-                          <span className="text-xs text-slate-400">Kein /screen-Link</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-            </DesktopTable>
-            <MobileCards>
-              {displayFiltered
-                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                .map((row) => {
-                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
-                  return (
-                    <DeviceCard
-                      key={row.id}
-                      title={row.name}
-                      subtitle={`${row.displayType} • ${row.code}`}
-                      status={status}
-                      details={[
-                        `Filiale: ${row.tenantName || '—'}`,
-                        `Unternehmen: ${row.chainName || '—'}`,
-                        `Plattform: ${row.deviceInfo?.platform || '—'}`,
-                        `App-Version: ${row.deviceInfo?.appVersion || '—'}`,
-                        `Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`,
-                      ]}
-                      actions={
-                        isCanonicalScreenPreviewPath(row.previewPath) ? (
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <ActionButton
-                              label="Vorschau öffnen"
-                              tone="primary"
-                              onClick={() => window.open(row.previewPath, '_blank', 'noopener,noreferrer')}
-                            />
-                          </div>
-                        ) : undefined
-                      }
-                    />
-                  )
-                })}
-            </MobileCards>
-          </DeviceSection>
-        ) : null}
-
-        {(tab === 'ALL' || tab === 'ORDERDESK' || tab === 'OFFLINE') ? (
-          <DeviceSection title="OrderDesk-Geräte">
-            <DesktopTable headers={['Label', 'Gerätetyp', 'Geräte-ID', 'Tenant-ID', 'DisplayCode', 'PairingToken', 'Status', 'Seriennummer', 'Plattform', 'App-Version', 'Zuletzt aktiv', 'Aktionen']}>
-              {orderdeskFiltered
-                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                .map((row) => {
-                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
-                  const pairingToken = ((row as unknown as { pairingToken?: string | null }).pairingToken || '').trim()
-                  return (
-                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
-                      <td className="py-2.5 font-medium text-slate-800">{row.deviceAlias || 'OrderDesk'}</td>
-                      <td>OrderDesk</td>
-                      <td className="font-mono text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span>{row.id}</span>
-                          <button type="button" onClick={() => void copyValue(row.id, 'Geräte-ID')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
-                        </div>
-                      </td>
-                      <td className="font-mono text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span>{row.tenantId}</span>
-                          <button type="button" onClick={() => void copyValue(row.tenantId, 'Tenant-ID')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
-                        </div>
-                      </td>
-                      <td className="font-mono text-xs">{row.displayCode}</td>
-                      <td className="font-mono text-xs">
-                        <div className="flex items-center gap-1.5">
-                          <span>{pairingToken || '—'}</span>
-                          {pairingToken ? (
-                            <button type="button" onClick={() => void copyValue(pairingToken, 'PairingToken')} className="rounded border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-slate-700">Copy</button>
-                          ) : null}
-                        </div>
-                      </td>
-                      <td><StatusBadge status={status} /></td>
-                      <td className="font-mono text-xs">{row.deviceSerial}</td>
-                      <td>{row.devicePlatform || '—'}</td>
-                      <td>{row.appVersion || '—'}</td>
-                      <td>{toDeDate(row.lastSeenAt)}</td>
-                      <td>
-                        <div className="flex flex-wrap gap-1.5">
-                          <ActionButton label="Pairing neu" tone="primary" onClick={() => void refreshOrderdeskPairing(row.id)} />
-                          <ActionButton label="Gerät zurücksetzen" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
-                          <ActionButton label="Löschen" tone="danger" onClick={() => void disconnectOrderdesk(row.id, true)} />
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-            </DesktopTable>
-            <MobileCards>
-              {orderdeskFiltered
-                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                .map((row) => {
-                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
-                  return (
-                    <DeviceCard
-                      key={row.id}
-                      title={row.deviceAlias || 'OrderDesk'}
-                      subtitle={`Display: ${row.displayCode}`}
-                      status={status}
-                      details={[
-                        `Gerätetyp: OrderDesk`,
-                        `Geräte-ID: ${row.id}`,
-                        `Tenant-ID: ${row.tenantId}`,
-                        `Seriennummer: ${row.deviceSerial}`,
-                        `Plattform: ${row.devicePlatform || '—'}`,
-                        `App-Version: ${row.appVersion || '—'}`,
-                        `PairingToken: ${((row as unknown as { pairingToken?: string | null }).pairingToken || '—')}`,
-                        `API-URL: https://api.klarando.com`,
-                        `Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`,
-                      ]}
-                      actions={
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <ActionButton label="Pairing neu" tone="primary" onClick={() => void refreshOrderdeskPairing(row.id)} />
-                          <ActionButton label="Gerät zurücksetzen" tone="secondary" onClick={() => void disconnectOrderdesk(row.id, false)} />
-                          <ActionButton label="Löschen" tone="danger" onClick={() => void disconnectOrderdesk(row.id, true)} />
-                        </div>
-                      }
-                    />
-                  )
-                })}
-            </MobileCards>
-          </DeviceSection>
-        ) : null}
-
-        {(tab === 'ALL' || tab === 'DRIVER' || tab === 'OFFLINE') ? (
-          <DeviceSection title="Fahrergeräte">
-            <DesktopTable headers={['Name', 'Filiale', 'Status', 'Zuletzt aktiv']}>
-              {driverFiltered
-                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                .map((row) => {
-                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
-                  return (
-                    <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
-                      <td className="py-2.5 font-medium text-slate-800">{row.name}</td>
-                      <td>{row.tenantName || '—'}</td>
-                      <td><StatusBadge status={status} /></td>
-                      <td>{toDeDate(row.lastSeenAt)}</td>
-                    </tr>
-                  )
-                })}
-            </DesktopTable>
-            <MobileCards>
-              {driverFiltered
-                .filter((row) => tab !== 'OFFLINE' || normalizedStatus(row.lastSeenAt, row.isActive) !== 'online')
-                .map((row) => {
-                  const status = normalizedStatus(row.lastSeenAt, row.isActive)
-                  return (
-                    <DeviceCard
-                      key={row.id}
-                      title={row.name}
-                      subtitle={row.tenantName || 'Filiale unbekannt'}
-                      status={status}
-                      details={[`Zuletzt aktiv: ${toDeDate(row.lastSeenAt)}`]}
-                    />
-                  )
-                })}
-            </MobileCards>
-          </DeviceSection>
-        ) : null}
-
-        {inactiveCount > 0 ? (
-          <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
-            <button type="button" onClick={() => setShowInactiveSection((current) => !current)} className="flex w-full items-center justify-between text-left">
-              <span className="text-sm font-semibold text-slate-800">Inaktive Geräte ({inactiveCount})</span>
-              <span className="text-xs text-slate-500">{showInactiveSection ? 'Ausblenden' : 'Einblenden'}</span>
-            </button>
-            {showInactiveSection ? (
-              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                Alte oder nicht mehr verbundene Geräte können gelöscht werden.
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-
-        {driverPairing ? (
-          <div className="fixed inset-0 z-[180] flex items-center justify-center bg-black/45 p-4">
-            <div className="w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
-              <div className="mb-3 flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-slate-900">Driver-Kopplungscode</h4>
-                <button
-                  type="button"
-                  className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-700"
-                  onClick={() => setDriverPairing(null)}
-                >
-                  Schließen
-                </button>
+        {pairing ? (
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">{pairing.title}</h2>
+                <p className="mt-1 text-sm text-slate-600">Gültig bis {fmt(pairing.expiresAt)}</p>
               </div>
-              <img
-                src={driverPairing.qrImageUrl}
-                alt="Driver Pairing QR-Code"
-                className="mx-auto h-52 w-52 rounded-lg border border-slate-200 object-contain"
-              />
-              <div className="mt-3 space-y-2">
-                {[
-                  { label: 'API-URL', value: 'https://api.klarando.com' },
-                  { label: 'Tenant-ID', value: driverPairing.tenantId },
-                  { label: 'Driver-Gerätecode', value: driverPairing.displayCode },
-                  { label: 'PairingToken', value: driverPairing.pairingToken },
-                ].map((entry) => (
-                  <div
-                    key={entry.label}
-                    className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
-                  >
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                      {entry.label}
-                    </p>
-                    <div className="mt-1 flex items-center justify-between gap-3">
-                      <p className="truncate font-mono text-xs text-slate-800">{entry.value}</p>
-                      <button
-                        type="button"
-                        className="rounded-md border border-slate-300 px-2 py-1 text-[11px] font-semibold text-slate-700"
-                        onClick={() => void copyValue(entry.value, entry.label)}
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                ))}
+              <button type="button" onClick={() => setPairing(null)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Schließen</button>
+            </div>
+            <div className="mt-4 flex flex-wrap items-start gap-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={pairing.qrImageUrl} alt={pairing.title} className="h-56 w-56 rounded-2xl border border-slate-200 bg-white p-3" />
+              <div className="min-w-0 flex-1 space-y-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 break-all">{pairing.payload}</div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void copyValue(pairing.payload, 'Pairing-Payload')} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Payload kopieren</button>
+                  {pairing.token ? <button type="button" onClick={() => void copyValue(pairing.token || '', 'Pairing-Token')} className="rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Token kopieren</button> : null}
+                </div>
               </div>
             </div>
           </div>
         ) : null}
+
+        {detail ? (
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Gerätedetails</h2>
+                <p className="mt-1 text-sm text-slate-600">Technische Detailansicht ohne zusätzlichen Tenant-Wechsel.</p>
+              </div>
+              <button type="button" onClick={() => setDetail(null)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Schließen</button>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {renderDetailRows()?.map(([label, value]) => (
+                <div key={label} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{label}</div>
+                  <div className="mt-1 break-all text-sm text-slate-800">{value}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {showDisplays ? (
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">Displays</h2>
+            <p className="mt-1 text-sm text-slate-600">Menübildschirme und operative Bestellanzeigen in einer zentralen Quelle.</p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead><tr className="border-b border-slate-200 text-slate-500"><th className="px-3 py-3">Gerät</th><th className="px-3 py-3">Typ</th><th className="px-3 py-3">Tenant / Chain</th><th className="px-3 py-3">Code</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Letzte Verbindung</th><th className="px-3 py-3">Aktionen</th></tr></thead>
+                <tbody>
+                  {[...menuDisplays, ...operationalDisplays].map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100 align-top last:border-b-0">
+                      <td className="px-3 py-3 font-medium text-slate-900">{row.name}</td>
+                      <td className="px-3 py-3 text-slate-700">{displayTypeLabel(row)} / {sourceLabel(row)}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.tenantName || '—'}{row.chainName ? ` / ${row.chainName}` : ''}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.code}</td>
+                      <td className="px-3 py-3">{renderStatus(normalizedStatus(row.lastSeenAt, row.isActive))}</td>
+                      <td className="px-3 py-3 text-slate-700">{fmt(row.lastSeenAt)}</td>
+                      <td className="px-3 py-3"><div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => setDetail({ kind: 'display', row })} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Details</button>
+                        {isCanonicalScreenPreviewPath(row.previewPath) ? <button type="button" onClick={() => void handleDisplayPreview(row)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Vorschau</button> : null}
+                        {row.pairingSupported ? <button type="button" onClick={() => void handleDisplayPairing(row)} disabled={busyRef === row.id} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300 disabled:opacity-50">Pairing neu</button> : null}
+                        {row.sourceKind !== 'DISPLAY_DEVICE' ? <button type="button" onClick={() => void handleDisplayToggle(row)} disabled={busyRef === row.id} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300 disabled:opacity-50">{row.isActive ? 'Deaktivieren' : 'Aktivieren'}</button> : null}
+                        <button type="button" onClick={() => void handleDisplayDelete(row)} disabled={busyRef === row.id} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm text-rose-700 hover:border-rose-300 disabled:opacity-50">Löschen</button>
+                      </div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        {showOrderdesk ? (
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">OrderDesk-Geräte</h2>
+            <p className="mt-1 text-sm text-slate-600">Gebundene Geräte mit echten Aktionen für Deaktivieren, Entkoppeln und Pairing-Neustart.</p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead><tr className="border-b border-slate-200 text-slate-500"><th className="px-3 py-3">Gerät</th><th className="px-3 py-3">Tenant / Chain</th><th className="px-3 py-3">Display</th><th className="px-3 py-3">Plattform</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Letzte Verbindung</th><th className="px-3 py-3">Aktionen</th></tr></thead>
+                <tbody>
+                  {visibleOrderdesk.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100 align-top last:border-b-0">
+                      <td className="px-3 py-3 font-medium text-slate-900">{row.deviceAlias || row.deviceSerial}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.tenantName || '—'}{row.chainName ? ` / ${row.chainName}` : ''}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.displayCode}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.devicePlatform || '—'}{row.appVersion ? ` / ${row.appVersion}` : ''}</td>
+                      <td className="px-3 py-3">{renderStatus(normalizedStatus(row.lastSeenAt, row.isActive))}</td>
+                      <td className="px-3 py-3 text-slate-700">{fmt(row.lastSeenAt)}</td>
+                      <td className="px-3 py-3"><div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => setDetail({ kind: 'orderdesk', row })} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Details</button>
+                        <button type="button" onClick={() => void handleOrderdeskPairingReset(row)} disabled={busyRef === row.id} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300 disabled:opacity-50">Pairing neu starten</button>
+                        <button type="button" onClick={() => void handleOrderdeskDeactivate(row)} disabled={busyRef === row.id} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300 disabled:opacity-50">Deaktivieren</button>
+                        <button type="button" onClick={() => void handleOrderdeskUnpair(row)} disabled={busyRef === row.id} className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-sm text-rose-700 hover:border-rose-300 disabled:opacity-50">Entkoppeln</button>
+                      </div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        {showDrivers ? (
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">Fahrergeräte</h2>
+            <p className="mt-1 text-sm text-slate-600">Heartbeat-basierte Übersicht über aktive Fahrergeräte-Sessions.</p>
+            <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <select value={driverPairingDisplayCode} onChange={(event) => setDriverPairingDisplayCode(event.target.value)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none focus:border-slate-400">
+                <option value="">Menübildschirm für neues Fahrer-Pairing wählen</option>
+                {displayRows.filter((row) => isCanonicalScreenPreviewPath(row.previewPath)).map((row) => <option key={row.id} value={row.code}>{row.name} ({row.code})</option>)}
+              </select>
+              <button type="button" onClick={() => void createDriverPairingCode()} disabled={busyRef === 'driver-pairing'} className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400">Fahrer-Pairing erzeugen</button>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead><tr className="border-b border-slate-200 text-slate-500"><th className="px-3 py-3">Gerät</th><th className="px-3 py-3">Tenant / Chain</th><th className="px-3 py-3">Display</th><th className="px-3 py-3">Fahrer</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Letzter Heartbeat</th><th className="px-3 py-3">Aktionen</th></tr></thead>
+                <tbody>
+                  {visibleDrivers.map((row) => (
+                    <tr key={row.sessionId} className="border-b border-slate-100 align-top last:border-b-0">
+                      <td className="px-3 py-3 font-medium text-slate-900">{row.deviceLabel}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.tenantName}{row.chainName ? ` / ${row.chainName}` : ''}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.displayCode}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.driverName || 'Nicht zugewiesen'}</td>
+                      <td className="px-3 py-3">{renderStatus(normalizedStatus(row.lastHeartbeatAt, row.isActive))}</td>
+                      <td className="px-3 py-3 text-slate-700">{fmt(row.lastHeartbeatAt)}</td>
+                      <td className="px-3 py-3"><button type="button" onClick={() => setDetail({ kind: 'driver', row })} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Details</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        {showTerminals ? (
+          <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+            <h2 className="text-lg font-semibold text-slate-900">Terminals / POS</h2>
+            <p className="mt-1 text-sm text-slate-600">Terminal-Konfigurationen mit klarer Kennzeichnung, dass noch keine Live-Gerätequelle angebunden ist.</p>
+            <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full text-left text-sm">
+                <thead><tr className="border-b border-slate-200 text-slate-500"><th className="px-3 py-3">Terminal</th><th className="px-3 py-3">Tenant / Chain</th><th className="px-3 py-3">Code</th><th className="px-3 py-3">Zugeordnete Displays</th><th className="px-3 py-3">Status</th><th className="px-3 py-3">Aktionen</th></tr></thead>
+                <tbody>
+                  {terminalFiltered.map((row) => (
+                    <tr key={row.id} className="border-b border-slate-100 align-top last:border-b-0">
+                      <td className="px-3 py-3 font-medium text-slate-900">{row.name}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.tenantName || '—'}{row.chainName ? ` / ${row.chainName}` : ''}</td>
+                      <td className="px-3 py-3 text-slate-700">{row.terminalCode}</td>
+                      <td className="px-3 py-3 text-slate-700">{[row.cashDisplay ? `Cash: ${row.cashDisplay.displayCode}` : null, row.kitchenDisplay ? `Kitchen: ${row.kitchenDisplay.displayCode}` : null, row.pickupDisplay ? `Pickup: ${row.pickupDisplay.displayCode}` : null].filter(Boolean).join(' | ') || 'Keine Display-Zuordnung'}</td>
+                      <td className="px-3 py-3">{renderStatus('unknown')}</td>
+                      <td className="px-3 py-3"><button type="button" onClick={() => setDetail({ kind: 'terminal', row })} className="rounded-xl border border-slate-200 px-3 py-1.5 text-sm text-slate-700 hover:border-slate-300">Details</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm"><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Display-Quellen</h3><ul className="mt-3 space-y-2 text-sm text-slate-700"><li>Display-Übersicht aus /api/access/displays/overview</li><li>Vorschau nur kanonisch über /screen/[deviceCode]</li><li>Legacy-Display-Quellen bleiben sichtbar, aber nicht als moderner Menüpfad</li></ul></div>
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm"><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">OrderDesk & Fahrergeräte</h3><ul className="mt-3 space-y-2 text-sm text-slate-700"><li>OrderDesk-Bindings aus /api/orderdesk-devices/bindings</li><li>Fahrergeräte aus /api/access/driver-devices/overview</li><li>Status basiert auf lastSeenAt bzw. lastHeartbeatAt</li></ul></div>
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-4 shadow-sm"><h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Terminale / POS</h3><ul className="mt-3 space-y-2 text-sm text-slate-700"><li>Terminal-Konfigurationen pro Tenant aus /api/order-terminals</li><li>Noch keine eigene Heartbeat-, IP- oder User-Agent-Quelle</li><li>Darum klare Kennzeichnung statt künstlicher Online-Anzeige</li></ul></div>
+        </div>
       </div>
     </BackofficeLayout>
-  )
-}
-
-function StatCard({
-  title,
-  value,
-  hint,
-  tone,
-}: {
-  title: string
-  value: number
-  hint: string
-  tone: 'slate' | 'emerald' | 'amber' | 'rose' | 'zinc'
-}) {
-  const toneClasses =
-    tone === 'emerald'
-      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-      : tone === 'amber'
-        ? 'border-amber-200 bg-amber-50 text-amber-700'
-        : tone === 'rose'
-          ? 'border-rose-200 bg-rose-50 text-rose-700'
-          : tone === 'zinc'
-            ? 'border-zinc-200 bg-zinc-50 text-zinc-700'
-            : 'border-slate-200 bg-slate-50 text-slate-700'
-  return (
-    <article className={`rounded-2xl border p-3 shadow-sm ${toneClasses}`}>
-      <p className="text-xs font-medium">{title}</p>
-      <p className="mt-1 text-2xl font-semibold">{value}</p>
-      <p className="text-xs opacity-80">{hint}</p>
-    </article>
-  )
-}
-
-function StatusBadge({ status }: { status: StatusKind }) {
-  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${statusStyle(status)}`}>{statusLabel(status)}</span>
-}
-
-function DeviceSection({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
-      <h3 className="mb-3 text-sm font-semibold text-slate-800">{title}</h3>
-      {children}
-    </section>
-  )
-}
-
-function DesktopTable({ headers, children }: { headers: string[]; children: ReactNode }) {
-  return (
-    <div className="hidden overflow-auto lg:block">
-      <table className="w-full min-w-[940px] text-sm text-slate-700">
-        <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-          <tr>
-            {headers.map((header) => (
-              <th key={header} className="sticky top-0 px-2 py-2 text-left">{header}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  )
-}
-
-function MobileCards({ children }: { children: ReactNode }) {
-  return <div className="grid gap-3 lg:hidden">{children}</div>
-}
-
-function DeviceCard({
-  title,
-  subtitle,
-  status,
-  details,
-  actions,
-}: {
-  title: string
-  subtitle: string
-  status: StatusKind
-  details: string[]
-  actions?: ReactNode
-}) {
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold text-slate-800">{title}</p>
-          <p className="text-xs text-slate-500">{subtitle}</p>
-        </div>
-        <StatusBadge status={status} />
-      </div>
-      <div className="mt-2 space-y-1">
-        {details.map((entry) => (
-          <p key={entry} className="text-xs text-slate-600">{entry}</p>
-        ))}
-      </div>
-      {actions}
-    </article>
-  )
-}
-
-function ActionButton({
-  label,
-  tone,
-  onClick,
-}: {
-  label: string
-  tone: 'primary' | 'secondary' | 'danger'
-  onClick: () => void
-}) {
-  const classes =
-    tone === 'primary'
-      ? 'bg-slate-900 text-white hover:bg-slate-800'
-      : tone === 'danger'
-        ? 'bg-rose-600 text-white hover:bg-rose-500'
-        : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-  return (
-    <button type="button" onClick={onClick} className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold transition ${classes}`}>
-      {label}
-    </button>
   )
 }
