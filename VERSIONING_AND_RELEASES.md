@@ -31,7 +31,8 @@ Das Skript aktualisiert:
 - `package.json`
 - `backend/package.json`
 - `mobile_flutter_app/pubspec.yaml`
-- `klarando-version.json` (Kompatibilitätsdatei)
+
+`backend/VERSION.json` wird nicht mehr verwendet.
 
 ## Schnellprüfung lokal vs. VPS/API
 
@@ -58,7 +59,7 @@ npm run version:check
 ## Deploy-Prüfung nach Release
 1. Backend-Version:
 ```bash
-curl https://api.klarando.com/api/version
+curl -k -L https://localhost/api/version
 ```
 2. Health:
 ```bash
@@ -68,3 +69,9 @@ curl https://api.klarando.com/api/health
 Superadmin öffnen und Footer-Version prüfen.
 4. Mobile:
 In der App unter Profil die Versionszeile prüfen.
+
+## Container und Runtime
+- Das Backend liest zur Laufzeit nur noch die zentrale Root-`VERSION.json`.
+- `backend/Dockerfile` kopiert diese Root-Datei direkt in den Container.
+- `Dockerfile.web` kopiert dieselbe Root-Datei ebenfalls in den Web-Container.
+- `docker-compose.prod.yml` baut das Backend jetzt mit Projektroot als Build-Kontext, damit beide Container dieselbe Master-Datei sehen.

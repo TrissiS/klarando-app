@@ -9,9 +9,11 @@ const rootDir = path.resolve(
     : scriptDir,
   '..'
 )
-const versionFilePath = path.join(rootDir, 'klarando-version.json')
+const versionFilePath = path.join(rootDir, 'VERSION.json')
 const frontendPackagePath = path.join(rootDir, 'package.json')
 const backendPackagePath = path.join(rootDir, 'backend', 'package.json')
+const flutterPubspecPath = path.join(rootDir, 'mobile_flutter_app', 'pubspec.yaml')
+const legacyVersionPath = path.join(rootDir, 'klarando-version.json')
 
 function readJson(filePath) {
   return JSON.parse(fs.readFileSync(filePath, 'utf8'))
@@ -29,13 +31,12 @@ function readVersionFile() {
     const nowIso = new Date().toISOString()
     const created = {
       version: bootstrapVersion,
-      frontendVersion: bootstrapVersion,
-      backendVersion: bootstrapVersion,
-      displayApiVersion: bootstrapVersion,
-      mobileCustomerVersion: bootstrapVersion,
-      mobileDriverVersion: bootstrapVersion,
-      buildDateUtc: nowIso,
-      updatedAtUtc: nowIso,
+      releaseName: 'Release',
+      buildNumber: 0,
+      gitCommit: null,
+      buildTime: nowIso,
+      environment: null,
+      release: 'Release',
     }
     writeJson(versionFilePath, created)
     return created
@@ -84,6 +85,31 @@ function syncPackageVersions(sharedVersion, buildDateUtc) {
   backendPackage.klarandoVersion = sharedVersion
   backendPackage.klarandoBuildDateUtc = buildDateUtc
   writeJson(backendPackagePath, backendPackage)
+
+  const flutterPubspec = fs.readFileSync(flutterPubspecPath, 'utf8')
+  const currentBuildNumber = Number(readVersionFile().buildNumber || 0)
+  const nextPubspec = flutterPubspec.replace(
+    /^version:\s*.+$/m,
+    `version: ${sharedVersion}+${currentBuildNumber}`
+  )
+  fs.writeFileSync(flutterPubspecPath, nextPubspec, 'utf8')
+}
+
+function syncLegacyCompatibility(versionData) {
+  if (!fs.existsSync(legacyVersionPath)) {
+    return
+  }
+
+  writeJson(legacyVersionPath, {
+    version: versionData.version,
+    frontendVersion: versionData.version,
+    backendVersion: versionData.version,
+    displayApiVersion: versionData.version,
+    mobileCustomerVersion: versionData.version,
+    mobileDriverVersion: versionData.version,
+    buildDateUtc: versionData.buildTime,
+    updatedAtUtc: versionData.buildTime,
+  })
 }
 
 function printUsage() {
@@ -111,17 +137,16 @@ function run() {
     const nextData = {
       ...versionData,
       version: nextVersion,
-      frontendVersion: nextVersion,
-      backendVersion: nextVersion,
-      displayApiVersion: nextVersion,
-      mobileCustomerVersion: nextVersion,
-      mobileDriverVersion: nextVersion,
-      buildDateUtc: nowIso,
-      updatedAtUtc: nowIso,
+      buildNumber: Number(versionData.buildNumber || 0) + 1,
+      buildTime: nowIso,
+      gitCommit: process.env.GIT_COMMIT_SHA || null,
+      environment: process.env.NODE_ENV || versionData.environment || null,
+      release: versionData.releaseName || versionData.release || 'Release',
     }
 
     writeJson(versionFilePath, nextData)
     syncPackageVersions(nextVersion, nowIso)
+    syncLegacyCompatibility(nextData)
 
     console.log(JSON.stringify(nextData, null, 2))
     return

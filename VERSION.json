@@ -1,9 +1,9 @@
 {
-  "version": "0.1.22",
-  "releaseName": "Release",
-  "buildNumber": 22,
+  "version": "0.1.23",
+  "releaseName": "Centralized time management",
+  "buildNumber": 23,
   "gitCommit": null,
-  "buildTime": "2026-05-15T07:10:00.000Z",
-  "environment": null,
-  "release": "Release"
+  "buildTime": "2026-06-02T00:00:00.000Z",
+  "environment": "production",
+  "release": "Centralized time management"
 }

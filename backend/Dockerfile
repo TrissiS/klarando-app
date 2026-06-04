@@ -2,14 +2,14 @@ FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm ci
 
-COPY tsconfig.json ./
+COPY backend/tsconfig.json ./tsconfig.json
 COPY VERSION.json ./
-COPY prisma ./prisma
-COPY src ./src
-COPY scripts ./scripts
+COPY backend/prisma ./prisma
+COPY backend/src ./src
+COPY backend/scripts ./scripts
 
 RUN npx prisma generate
 RUN npm run build
@@ -24,11 +24,11 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends openssl \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package*.json ./
+COPY backend/package*.json ./
 RUN npm ci --omit=dev
 COPY VERSION.json ./
 
-COPY prisma ./prisma
+COPY backend/prisma ./prisma
 RUN npx prisma generate
 
 COPY --from=builder /app/dist ./dist

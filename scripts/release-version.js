@@ -4,7 +4,6 @@ const path = require('node:path')
 const rootDir = process.cwd()
 const files = {
   version: path.join(rootDir, 'VERSION.json'),
-  backendVersion: path.join(rootDir, 'backend', 'VERSION.json'),
   packageJson: path.join(rootDir, 'package.json'),
   backendPackageJson: path.join(rootDir, 'backend', 'package.json'),
   flutterPubspec: path.join(rootDir, 'mobile_flutter_app', 'pubspec.yaml'),
@@ -59,7 +58,6 @@ async function main() {
   }
 
   await writeJson(files.version, nextVersionPayload)
-  await writeJson(files.backendVersion, { ...nextVersionPayload, environment: 'production' })
 
   const rootPackage = await readJson(files.packageJson)
   rootPackage.version = nextVersion

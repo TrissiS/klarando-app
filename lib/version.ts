@@ -1,6 +1,5 @@
 import packageJson from '@/package.json'
 import rootVersion from '@/VERSION.json'
-import klarandoVersion from '@/klarando-version.json'
 
 type RuntimeEnvironment = 'development' | 'staging' | 'production'
 
@@ -18,12 +17,11 @@ function resolveBuildDateIso() {
     process.env.NEXT_PUBLIC_BUILD_DATE ||
     process.env.BUILD_DATE ||
     rootVersion.buildTime ||
-    klarandoVersion.buildDateUtc ||
     new Date().toISOString()
   )
 }
 
-export const appVersion = rootVersion.version || packageJson.version || klarandoVersion.version || '0.0.0'
+export const appVersion = rootVersion.version || packageJson.version || '0.0.0'
 export const releaseName = rootVersion.releaseName || 'Release'
 export const buildNumber = Number(rootVersion.buildNumber || 0)
 export const buildDateIso = resolveBuildDateIso()

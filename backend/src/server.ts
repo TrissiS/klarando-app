@@ -61,55 +61,35 @@ const app = express()
 const processStartedAt = new Date()
 
 function readBackendBuildMetadata() {
-  const backendVersionPath = path.resolve(process.cwd(), 'VERSION.json')
-  const rootVersionPath = path.resolve(process.cwd(), '..', 'VERSION.json')
+  const versionFileCandidates = [
+    path.resolve(process.cwd(), 'VERSION.json'),
+    path.resolve(process.cwd(), '..', 'VERSION.json'),
+  ]
   const packageJsonPath = path.resolve(process.cwd(), 'package.json')
-  try {
-    const backendVersionRaw = fs.readFileSync(backendVersionPath, 'utf8')
-    const backendVersion = JSON.parse(backendVersionRaw) as {
-      version?: string
-      buildNumber?: number
-      releaseName?: string
-      gitCommit?: string | null
-      buildTime?: string | null
-      environment?: string | null
+  for (const versionFilePath of versionFileCandidates) {
+    try {
+      const versionRaw = fs.readFileSync(versionFilePath, 'utf8')
+      const versionData = JSON.parse(versionRaw) as {
+        version?: string
+        buildNumber?: number
+        releaseName?: string
+        gitCommit?: string | null
+        buildTime?: string | null
+        environment?: string | null
+      }
+      return {
+        version: versionData.version || null,
+        buildNumber: Number(versionData.buildNumber || 0),
+        releaseName: versionData.releaseName || null,
+        gitCommit: versionData.gitCommit || process.env.GIT_COMMIT_SHA || null,
+        buildTime: versionData.buildTime || null,
+        environment: versionData.environment || process.env.NODE_ENV || 'development',
+        backendVersion: versionData.version || null,
+        buildDateUtc: versionData.buildTime || null,
+      }
+    } catch {
+      // Naechsten Kandidaten pruefen.
     }
-    return {
-      version: backendVersion.version || null,
-      buildNumber: Number(backendVersion.buildNumber || 0),
-      releaseName: backendVersion.releaseName || null,
-      gitCommit: backendVersion.gitCommit || process.env.GIT_COMMIT_SHA || null,
-      buildTime: backendVersion.buildTime || null,
-      environment: backendVersion.environment || process.env.NODE_ENV || 'development',
-      backendVersion: backendVersion.version || null,
-      buildDateUtc: backendVersion.buildTime || null,
-    }
-  } catch {
-    // Fallback auf Root-Datei oder package.json
-  }
-
-  try {
-    const rootVersionRaw = fs.readFileSync(rootVersionPath, 'utf8')
-    const rootVersion = JSON.parse(rootVersionRaw) as {
-      version?: string
-      buildNumber?: number
-      releaseName?: string
-      gitCommit?: string | null
-      buildTime?: string | null
-      environment?: string | null
-    }
-    return {
-      version: rootVersion.version || null,
-      buildNumber: Number(rootVersion.buildNumber || 0),
-      releaseName: rootVersion.releaseName || null,
-      gitCommit: rootVersion.gitCommit || process.env.GIT_COMMIT_SHA || null,
-      buildTime: rootVersion.buildTime || null,
-      environment: rootVersion.environment || process.env.NODE_ENV || 'development',
-      backendVersion: rootVersion.version || null,
-      buildDateUtc: rootVersion.buildTime || null,
-    }
-  } catch {
-    // Fallback auf backend/package.json
   }
 
   try {

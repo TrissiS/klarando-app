@@ -25,6 +25,7 @@ ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
 
 COPY package*.json ./
 COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/VERSION.json ./VERSION.json
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next ./.next

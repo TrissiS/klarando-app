@@ -5,7 +5,6 @@ const rootDir = process.cwd();
 const versionFilePath = path.join(rootDir, "VERSION.json");
 const rootPackagePath = path.join(rootDir, "package.json");
 const backendPackagePath = path.join(rootDir, "backend", "package.json");
-const backendVersionFilePath = path.join(rootDir, "backend", "VERSION.json");
 const flutterPubspecPath = path.join(rootDir, "mobile_flutter_app", "pubspec.yaml");
 const legacyVersionPath = path.join(rootDir, "klarando-version.json");
 
@@ -57,14 +56,6 @@ async function main() {
     environment: process.env.NODE_ENV || versionData.environment || null,
   };
   await fs.writeFile(versionFilePath, prettyJson(nextVersionData), "utf8");
-  await fs.writeFile(
-    backendVersionFilePath,
-    prettyJson({
-      ...nextVersionData,
-      environment: "production",
-    }),
-    "utf8"
-  );
 
   const rootPackage = JSON.parse(await fs.readFile(rootPackagePath, "utf8"));
   rootPackage.version = nextVersion;

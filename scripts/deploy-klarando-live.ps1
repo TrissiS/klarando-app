@@ -132,8 +132,8 @@ if (-not (Get-Command npm -ErrorAction SilentlyContinue)) {
   throw 'npm wurde nicht gefunden.'
 }
 
-if (-not (Test-Path 'klarando-version.json')) {
-  throw 'klarando-version.json fehlt. Bitte zuerst Versionierung initialisieren.'
+if (-not (Test-Path 'VERSION.json')) {
+  throw 'VERSION.json fehlt. Bitte zuerst Versionierung initialisieren.'
 }
 
 $mergeConflicts = git diff --name-only --diff-filter=U

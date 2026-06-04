@@ -27,6 +27,7 @@ async function main() {
   const remote = await readRemoteVersion();
 
   console.log("=== Klarando Version Check ===");
+  console.log(`Master: ${versionFilePath}`);
   console.log(`Lokal: v${local.version} · Build ${local.buildNumber} · ${local.releaseName}`);
   console.log(`API:   ${backendVersionUrl}`);
 
