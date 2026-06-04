@@ -355,6 +355,159 @@ function parseBillingPeriodType(value: unknown) {
   return Object.values(BillingPeriodType).includes(parsed) ? parsed : null
 }
 
+type BillingModuleFeeConfig = {
+  key: string
+  label: string
+  monthlyFeeCents: number
+  enabled: boolean
+}
+
+type TenantBillingPricingSource = {
+  sourceVersion: 'v1'
+  monthlyBaseFeeCents: number
+  packageKey: string | null
+  packageLabel: string | null
+  packageMonthlyFeeCents: number
+  moduleFees: BillingModuleFeeConfig[]
+  includedOrders: number
+  commissionPercent: number
+  commissionAfterIncludedOrdersPercent: number | null
+  fixedFeePerAdditionalOrderCents: number
+  minimumMonthlyFeeCents: number
+  vatRatePercent: number
+  activeFrom: string
+  activeUntil: string | null
+  paymentTermsDays: number
+  legacyNotesText: string | null
+}
+
+function parseBillingModuleFees(value: unknown): BillingModuleFeeConfig[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null
+      const candidate = entry as Record<string, unknown>
+      const key = parseScopedId(candidate.key) || parseScopedId(candidate.id)
+      const label = parseScopedId(candidate.label) || key
+      const monthlyFeeCents = Math.max(0, parseOptionalInt(candidate.monthlyFeeCents) ?? 0)
+      const enabled = parseOptionalBoolean(candidate.enabled) ?? monthlyFeeCents > 0
+      if (!key || !label) return null
+      return {
+        key,
+        label,
+        monthlyFeeCents,
+        enabled,
+      }
+    })
+    .filter((entry): entry is BillingModuleFeeConfig => Boolean(entry))
+}
+
+function parseLegacyBillingPlanNotes(raw: string | null | undefined) {
+  if (!raw) {
+    return {
+      legacyNotesText: null,
+      pricingMeta: null as Record<string, unknown> | null,
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    if (parsed && typeof parsed === 'object') {
+      const pricingMeta =
+        parsed.pricing && typeof parsed.pricing === 'object'
+          ? (parsed.pricing as Record<string, unknown>)
+          : parsed
+      const legacyNotesText = parseScopedId(parsed.legacyNotesText)
+      return { legacyNotesText, pricingMeta }
+    }
+  } catch {
+    return {
+      legacyNotesText: raw,
+      pricingMeta: null,
+    }
+  }
+
+  return {
+    legacyNotesText: raw,
+    pricingMeta: null,
+  }
+}
+
+function buildTenantBillingPricingSource(input: {
+  plan: {
+    monthlyFeeCents: number
+    includedOrders: number
+    commissionPercent: Prisma.Decimal | number | null
+    commissionAfterIncludedOrdersPercent: Prisma.Decimal | number | null
+    fixedFeePerOrderCents: number
+    activeFrom: Date | string
+    activeUntil: Date | string | null
+    notes: string | null
+  }
+  billingProfile: {
+    paymentTermsDays?: number | null
+  } | null
+}) : TenantBillingPricingSource {
+  const { legacyNotesText, pricingMeta } = parseLegacyBillingPlanNotes(input.plan.notes)
+  const monthlyBaseFeeCents = Math.max(0, input.plan.monthlyFeeCents || 0)
+  const includedOrders = Math.max(0, input.plan.includedOrders || 0)
+  const commissionPercent = Number(input.plan.commissionPercent || 0)
+  const commissionAfterIncludedOrdersPercent =
+    input.plan.commissionAfterIncludedOrdersPercent === null ||
+    input.plan.commissionAfterIncludedOrdersPercent === undefined
+      ? null
+      : Number(input.plan.commissionAfterIncludedOrdersPercent)
+  const fixedFeePerAdditionalOrderCents = Math.max(0, input.plan.fixedFeePerOrderCents || 0)
+  const paymentTermsDays = Math.max(1, input.billingProfile?.paymentTermsDays ?? 14)
+
+  return {
+    sourceVersion: 'v1',
+    monthlyBaseFeeCents,
+    packageKey: parseScopedId(pricingMeta?.packageKey) || null,
+    packageLabel: parseScopedId(pricingMeta?.packageLabel) || null,
+    packageMonthlyFeeCents: Math.max(0, parseOptionalInt(pricingMeta?.packageMonthlyFeeCents) ?? 0),
+    moduleFees: parseBillingModuleFees(pricingMeta?.moduleFees),
+    includedOrders,
+    commissionPercent,
+    commissionAfterIncludedOrdersPercent,
+    fixedFeePerAdditionalOrderCents,
+    minimumMonthlyFeeCents: Math.max(0, parseOptionalInt(pricingMeta?.minimumMonthlyFeeCents) ?? 0),
+    vatRatePercent: Math.max(0, Number(pricingMeta?.vatRatePercent ?? 19)),
+    activeFrom:
+      input.plan.activeFrom instanceof Date
+        ? input.plan.activeFrom.toISOString()
+        : new Date(input.plan.activeFrom).toISOString(),
+    activeUntil:
+      input.plan.activeUntil instanceof Date
+        ? input.plan.activeUntil.toISOString()
+        : input.plan.activeUntil
+          ? new Date(input.plan.activeUntil).toISOString()
+          : null,
+    paymentTermsDays,
+    legacyNotesText,
+  }
+}
+
+function serializeTenantBillingPlanNotes(input: {
+  legacyNotesText: string | null
+  pricingSource: TenantBillingPricingSource
+}) {
+  return JSON.stringify({
+    legacyNotesText: input.legacyNotesText,
+    pricing: {
+      packageKey: input.pricingSource.packageKey,
+      packageLabel: input.pricingSource.packageLabel,
+      packageMonthlyFeeCents: input.pricingSource.packageMonthlyFeeCents,
+      moduleFees: input.pricingSource.moduleFees,
+      minimumMonthlyFeeCents: input.pricingSource.minimumMonthlyFeeCents,
+      vatRatePercent: input.pricingSource.vatRatePercent,
+    },
+  })
+}
+
 function parseFeeBearer(value: unknown) {
   if (typeof value !== 'string') {
     return null
@@ -2927,6 +3080,72 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
 
     const hasBillingConfig = Boolean(tenant.tenantBillingPlan || tenant.tenantBillingSettings || tenant.billingProfile)
     const defaultMessage = hasBillingConfig ? null : 'Noch keine Abrechnungskonfiguration vorhanden.'
+    const resolvedPlan =
+      tenant.tenantBillingPlan ??
+      {
+        tenantId: tenant.id,
+        chainId: tenant.chainId,
+        planType: BillingPlanType.REVENUE_SHARE,
+        monthlyFeeCents: 0,
+        includedOrders: 0,
+        commissionPercent: 0,
+        commissionAfterIncludedOrdersPercent: null,
+        fixedFeePerOrderCents: 0,
+        billingPeriod: BillingPeriodType.MONTHLY,
+        activeFrom: now.toISOString(),
+        activeUntil: null,
+        isActive: false,
+        notes: null,
+        updatedBy: null,
+      }
+    const resolvedBillingProfile =
+      tenant.billingProfile ?? {
+        tenantId: tenant.id,
+        chainId: tenant.chainId,
+        companyName: tenant.name,
+        legalForm: null,
+        contactEmail: null,
+        contactPerson: null,
+        phone: null,
+        website: null,
+        vatId: null,
+        taxNumber: null,
+        street: null,
+        zipCode: null,
+        city: null,
+        countryCode: 'DE',
+        invoiceEmail: null,
+        paymentMethod: null,
+        paymentTermsDays: 14,
+        paymentStatus: null,
+        sepaActive: false,
+        sepaMandateReference: null,
+        sepaCreditorId: null,
+        bankName: null,
+        iban: null,
+        bic: null,
+        stripeCustomerId: null,
+        paymentProviderStatus: null,
+        plannedDebitAt: null,
+        lastDebitAt: null,
+        lastChargebackStatus: null,
+        invoiceLogoUrl: null,
+        standardPaymentTargetDays: 14,
+        managingDirector: null,
+        approvedBy: null,
+        sentAt: null,
+        paidAt: null,
+        cancelledAt: null,
+        createdBy: null,
+        updatedBy: null,
+        billingCycleDay: 1,
+        sepaPreNotificationDays: 5,
+        notes: null,
+      }
+    const pricingSource = buildTenantBillingPricingSource({
+      plan: resolvedPlan,
+      billingProfile: resolvedBillingProfile,
+    })
 
     return res.json({
       tenantId: tenant.id,
@@ -2942,24 +3161,7 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
         chainId: tenant.chainId,
         chainName: tenant.chain?.name ?? null,
       },
-      plan:
-        tenant.tenantBillingPlan ??
-        {
-          tenantId: tenant.id,
-          chainId: tenant.chainId,
-          planType: BillingPlanType.REVENUE_SHARE,
-          monthlyFeeCents: 0,
-          includedOrders: 0,
-          commissionPercent: 0,
-          commissionAfterIncludedOrdersPercent: null,
-          fixedFeePerOrderCents: 0,
-          billingPeriod: BillingPeriodType.MONTHLY,
-          activeFrom: now.toISOString(),
-          activeUntil: null,
-          isActive: false,
-          notes: null,
-          updatedBy: null,
-        },
+      plan: resolvedPlan,
       settings:
         tenant.tenantBillingSettings ??
         {
@@ -2976,50 +3178,8 @@ router.get('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
           isActive: false,
           updatedBy: null,
         },
-      billingProfile:
-        tenant.billingProfile ?? {
-          tenantId: tenant.id,
-          chainId: tenant.chainId,
-          companyName: tenant.name,
-          legalForm: null,
-          contactEmail: null,
-          contactPerson: null,
-          phone: null,
-          website: null,
-          vatId: null,
-          taxNumber: null,
-          street: null,
-          zipCode: null,
-          city: null,
-          countryCode: 'DE',
-          invoiceEmail: null,
-          paymentMethod: null,
-          paymentTermsDays: 14,
-          paymentStatus: null,
-          sepaActive: false,
-          sepaMandateReference: null,
-          sepaCreditorId: null,
-          bankName: null,
-          iban: null,
-          bic: null,
-          stripeCustomerId: null,
-          paymentProviderStatus: null,
-          plannedDebitAt: null,
-          lastDebitAt: null,
-          lastChargebackStatus: null,
-          invoiceLogoUrl: null,
-          standardPaymentTargetDays: 14,
-          managingDirector: null,
-          approvedBy: null,
-          sentAt: null,
-          paidAt: null,
-          cancelledAt: null,
-          createdBy: null,
-          updatedBy: null,
-          billingCycleDay: 1,
-          sepaPreNotificationDays: 5,
-          notes: null,
-        },
+      billingProfile: resolvedBillingProfile,
+      pricingSource,
       usage,
       commissionRules: activeRules,
     })
@@ -3160,6 +3320,13 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
       profileInvoiceLogoUrl?: unknown
       profileStripeCustomerId?: unknown
       profilePaymentProviderStatus?: unknown
+      minimumMonthlyFeeCents?: unknown
+      vatRatePercent?: unknown
+      packageKey?: unknown
+      packageLabel?: unknown
+      packageMonthlyFeeCents?: unknown
+      moduleFees?: unknown
+      legacyPlanNotesText?: unknown
     }
 
     const planType = parseBillingPlanType(body.planType)
@@ -3179,6 +3346,12 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     const paymentTermsDays = parseOptionalInt(body.paymentTermsDays)
     const profilePaymentTermsDays = parseOptionalInt(body.profilePaymentTermsDays)
     const profileSepaActive = parseOptionalBoolean(body.profileSepaActive)
+    const minimumMonthlyFeeCents = Math.max(0, parseOptionalInt(body.minimumMonthlyFeeCents) ?? 0)
+    const vatRatePercentRaw = Number(body.vatRatePercent ?? 19)
+    const vatRatePercent = Number.isFinite(vatRatePercentRaw) ? Math.max(0, vatRatePercentRaw) : 19
+    const packageMonthlyFeeCents = Math.max(0, parseOptionalInt(body.packageMonthlyFeeCents) ?? 0)
+    const moduleFees = parseBillingModuleFees(body.moduleFees)
+    const legacyPlanNotesText = parseScopedId(body.legacyPlanNotesText) ?? parseScopedId(body.notes)
 
     if (!planType) {
       return res.status(400).json({ error: 'planType ist ungueltig' })
@@ -3195,6 +3368,32 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     if (activeUntilDate && Number.isNaN(activeUntilDate.getTime())) {
       return res.status(400).json({ error: 'activeUntil ist ungueltig' })
     }
+
+    const pricingSource: TenantBillingPricingSource = {
+      sourceVersion: 'v1',
+      monthlyBaseFeeCents: Math.max(0, monthlyFeeCents ?? 0),
+      packageKey: parseScopedId(body.packageKey),
+      packageLabel: parseScopedId(body.packageLabel),
+      packageMonthlyFeeCents,
+      moduleFees,
+      includedOrders: Math.max(0, includedOrders ?? 0),
+      commissionPercent: Math.max(0, commissionPercent ?? 0),
+      commissionAfterIncludedOrdersPercent:
+        commissionAfterIncludedOrdersPercent === null
+          ? null
+          : Math.max(0, commissionAfterIncludedOrdersPercent),
+      fixedFeePerAdditionalOrderCents: Math.max(0, fixedFeePerOrderCents ?? 0),
+      minimumMonthlyFeeCents,
+      vatRatePercent,
+      activeFrom: activeFromDate.toISOString(),
+      activeUntil: activeUntilDate ? activeUntilDate.toISOString() : null,
+      paymentTermsDays: Math.max(1, profilePaymentTermsDays ?? paymentTermsDays ?? 14),
+      legacyNotesText: legacyPlanNotesText,
+    }
+    const serializedPlanNotes = serializeTenantBillingPlanNotes({
+      legacyNotesText: legacyPlanNotesText,
+      pricingSource,
+    })
 
     const [plan, settings, billingProfile] = await prisma.$transaction([
       prisma.tenantBillingPlan.upsert({
@@ -3215,7 +3414,7 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
           activeFrom: activeFromDate,
           activeUntil: activeUntilDate,
           isActive: isActive ?? true,
-          notes: parseScopedId(body.notes),
+          notes: serializedPlanNotes,
           updatedBy: req.authUser?.email ?? 'superadmin',
         },
         update: {
@@ -3233,7 +3432,7 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
           activeFrom: activeFromDate,
           activeUntil: activeUntilDate,
           isActive: isActive ?? true,
-          notes: parseScopedId(body.notes),
+          notes: serializedPlanNotes,
           updatedBy: req.authUser?.email ?? 'superadmin',
         },
       }),
@@ -3374,6 +3573,7 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
       plan,
       settings,
       billingProfile,
+      pricingSource,
     })
   } catch (error) {
     const scopeError = asTenantScopeError(error)

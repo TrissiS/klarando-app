@@ -6232,6 +6232,32 @@ export type BillingUsageSnapshot = {
   revenueCountedCents: number
 }
 
+export type BillingModuleFeeConfig = {
+  key: string
+  label: string
+  monthlyFeeCents: number
+  enabled: boolean
+}
+
+export type TenantBillingPricingSource = {
+  sourceVersion: 'v1'
+  monthlyBaseFeeCents: number
+  packageKey: string | null
+  packageLabel: string | null
+  packageMonthlyFeeCents: number
+  moduleFees: BillingModuleFeeConfig[]
+  includedOrders: number
+  commissionPercent: number
+  commissionAfterIncludedOrdersPercent: number | null
+  fixedFeePerAdditionalOrderCents: number
+  minimumMonthlyFeeCents: number
+  vatRatePercent: number
+  activeFrom: string
+  activeUntil: string | null
+  paymentTermsDays: number
+  legacyNotesText: string | null
+}
+
 export type AdminFinanceOverviewResponse = {
   tenant: {
     id: string
@@ -6577,6 +6603,7 @@ export async function getTenantBillingConfig(
   settings: TenantBillingSettingsData
   billingProfile: BillingProfileData
   usage: BillingUsageSnapshot
+  pricingSource: TenantBillingPricingSource
   commissionRules: Array<{
     id: string
     tenantId: string
@@ -6645,6 +6672,13 @@ export async function updateTenantBillingConfig(
         profilePaymentProviderStatus: string | null
         sepaMandateReference: string | null
         sepaMandateSignedAt: string | null
+        minimumMonthlyFeeCents: number | null
+        vatRatePercent: number | null
+        packageKey: string | null
+        packageLabel: string | null
+        packageMonthlyFeeCents: number | null
+        moduleFees: BillingModuleFeeConfig[] | null
+        legacyPlanNotesText: string | null
       }
   >
 ): Promise<{
@@ -6653,6 +6687,7 @@ export async function updateTenantBillingConfig(
   plan: TenantBillingPlanSettings
   settings: TenantBillingSettingsData
   billingProfile?: BillingProfileData
+  pricingSource?: TenantBillingPricingSource
 }> {
   const res = await fetch(`${API_BASE_URL}/api/access/billing/tenant/${tenantId}`, {
     method: 'PUT',
