@@ -256,8 +256,13 @@ export default function AdminActionsPage() {
     <Suspense fallback={<div className="p-4 text-sm text-rose-900/75">Lade Ansicht...</div>}>
       <AdminLayout
         title="Aktionen"
-        subtitle="Taegliche, woechentliche und einmalige Aktionen verwalten"
+        subtitle="Angebote, Kampagnen und Produktaktionen fuer Speisekarte und Bildschirm verwalten"
       >
+      <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        Aktionen sind Angebots- und Produktkampagnen. Sie steuern Menues, Preisaktionen und
+        Bildschirm-Highlights, aber keine Rabattcodes im Checkout.
+      </div>
+
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
@@ -523,7 +528,9 @@ export default function AdminActionsPage() {
 
         <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
           <h2 className="text-xl font-semibold">Aktionsliste</h2>
-          <p className="mt-1 text-sm text-rose-900/70">Alle angelegten Aktionen je Tenant.</p>
+          <p className="mt-1 text-sm text-rose-900/70">
+            Alle angelegten Produktaktionen und Kampagnen je Tenant.
+          </p>
 
           <div className="mt-4 space-y-3">
             {loading ? (

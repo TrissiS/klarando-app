@@ -153,8 +153,8 @@ const sectionNavSections: NavSection[] = [
     label: 'Marketing',
     items: [
       { href: '/admin/marketing', label: 'Übersicht', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/actions', label: 'Aktionen', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/coupons', label: 'Gutscheine', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/actions', label: 'Aktionen & Angebote', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/coupons', label: 'Checkout-Gutscheine', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/marketing/ratings', label: 'Bewertungen', moduleKey: 'actions', requiredPermission: 'ORDERS_READ' },
     ],
   },
@@ -800,7 +800,13 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     ) {
       return 'displays'
     }
-    if (path.startsWith('/admin/actions')) return 'actions'
+    if (
+      path.startsWith('/admin/marketing') ||
+      path.startsWith('/admin/actions') ||
+      path.startsWith('/admin/coupons')
+    ) {
+      return 'actions'
+    }
     if (path.startsWith('/admin/finanzen')) return 'payment'
     if (path.startsWith('/admin/payments')) return 'payment'
     if (path.startsWith('/admin/staff')) return 'staff'

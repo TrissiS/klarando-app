@@ -32,17 +32,17 @@ export default function MarketingOverviewPage() {
   return (
     <SectionOverview
       title="Marketing"
-      subtitle="Aktionen, Gutscheine und Bewertungsimpulse steuern."
+      subtitle="Produktaktionen, Checkout-Gutscheine und Bewertungen fachlich getrennt steuern."
       metrics={[
-        { label: 'Aktive Aktionen', value: actionsCount ?? '—' },
-        { label: 'Gutscheine', value: couponsCount ?? '—' },
+        { label: 'Produktaktionen', value: actionsCount ?? '—' },
+        { label: 'Checkout-Gutscheine', value: couponsCount ?? '—' },
         { label: 'Bewertungen', value: 'Live' },
         { label: 'Offene Warnungen', value: 0 },
       ]}
       warnings={[]}
       quickActions={[
-        { href: '/admin/actions', label: 'Aktionen bearbeiten' },
-        { href: '/admin/coupons', label: 'Gutscheine öffnen' },
+        { href: '/admin/actions', label: 'Produktaktionen bearbeiten' },
+        { href: '/admin/coupons', label: 'Checkout-Gutscheine oeffnen' },
         { href: '/admin/marketing/ratings', label: 'Bewertungen ansehen' },
       ]}
     />

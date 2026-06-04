@@ -192,14 +192,19 @@ export default function AdminCouponsPage() {
   }
 
   return (
-    <AdminLayout title="Gutscheine" subtitle="Rabattcodes fuer Checkout verwalten">
+    <AdminLayout title="Gutscheine" subtitle="Rabattcodes fuer den Checkout verwalten">
       <div className="space-y-6">
+        <div className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+          Gutscheine sind Rabattcodes fuer den Checkout. Produktaktionen, Menues und
+          Bildschirmkampagnen werden separat unter Aktionen gepflegt.
+        </div>
+
         <div className="rounded-2xl border border-rose-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-rose-950">
             {selectedCouponId ? 'Gutschein bearbeiten' : 'Neuer Gutschein'}
           </h2>
           <p className="mt-1 text-sm text-rose-900/70">
-            Checkout-Verrechnung vorbereitet. Code-Management und Validierung sind aktiv.
+            Rabattcode-Verwaltung fuer Lieferung, Abholung und Checkout-Validierung.
           </p>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -339,7 +344,8 @@ export default function AdminCouponsPage() {
 
           {!loading && coupons.length > 0 ? (
             <p className="mt-4 text-xs text-rose-800/70">
-              Coupon-Validierung via <code>POST /api/coupons/validate</code> ist vorbereitet. Checkout-Verrechnung wird separat final verdrahtet.
+              Coupon-Validierung via <code>POST /api/coupons/validate</code> ist vorbereitet. Diese
+              Codes gelten nur fuer den Checkout und ersetzen keine Produktaktionen.
             </p>
           ) : null}
         </div>
