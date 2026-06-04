@@ -721,14 +721,12 @@ export default function AdminPage() {
                     <span className="truncate pr-2">
                       {terminal.name} | {terminal.terminalCode}
                     </span>
-                    <a
-                      href={`/terminal/${terminal.terminalCode}`}
-                      target="_blank"
-                      rel="noreferrer"
+                    <Link
+                      href="/admin/terminals"
                       className="rounded-md bg-slate-900 px-2 py-1 font-semibold text-white hover:bg-slate-800"
                     >
-                      Öffnen
-                    </a>
+                      Verwalten
+                    </Link>
                   </div>
                 ))}
                 {activeTerminals.length === 0 ? (

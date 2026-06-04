@@ -154,9 +154,6 @@ export default function AdminTerminalsPage() {
   const [orderDeskQrExpired, setOrderDeskQrExpired] = useState(false)
   const [copyState, setCopyState] = useState('')
 
-  const browserOrigin =
-    typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-
   const activeCount = useMemo(
     () => terminals.filter((entry) => entry.isActive).length,
     [terminals]
@@ -810,7 +807,7 @@ export default function AdminTerminalsPage() {
             {editingId ? 'Terminal bearbeiten' : 'Neues Terminal'}
           </h2>
           <p className="mt-1 text-sm text-rose-900/70">
-            Ein Terminal bekommt einen eigenen Link fuer die Bestellansicht.
+            Terminal-Zuordnungen werden hier verwaltet. Die alte öffentliche Terminal-Route ist deaktiviert.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-4 space-y-3">
@@ -988,7 +985,7 @@ export default function AdminTerminalsPage() {
             <div>
               <h2 className="text-xl font-semibold">Terminal-Liste</h2>
               <p className="mt-1 text-sm text-rose-900/70">
-                Direkter Zugriff auf jeden Terminal-Link.
+                Terminals und ihr Routing zu Kasse, Küche und Abholung.
               </p>
             </div>
             <button
@@ -1009,7 +1006,6 @@ export default function AdminTerminalsPage() {
               </p>
             ) : (
               terminals.map((terminal) => {
-                const terminalUrl = `${browserOrigin}/terminal/${terminal.terminalCode}`
                 return (
                   <article
                     key={terminal.id}
@@ -1060,14 +1056,9 @@ export default function AdminTerminalsPage() {
                               ? displayNameById.get(terminal.pickupDisplayId) || '-'
                               : '-')}
                         </p>
-                        <a
-                          href={terminalUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-1 inline-block text-xs font-medium text-orange-600 underline"
-                        >
-                          {terminalUrl}
-                        </a>
+                        <p className="mt-1 text-xs font-medium text-amber-700">
+                          Öffentliche Terminal-Route deaktiviert. Bitte das zugeordnete Display-Routing verwenden.
+                        </p>
                       </div>
 
                       <div className="flex gap-2">
