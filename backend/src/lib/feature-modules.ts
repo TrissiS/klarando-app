@@ -43,7 +43,7 @@ export const FEATURE_MODULE_REGISTRY: readonly FeatureModuleDefinition[] = [
   { key: FeatureModuleKey.PAYMENT, name: 'Payment', description: 'Zentrale Zahlungsarten und Abwicklung', category: 'FINANZEN', defaultEnabled: false, requiredPermissions: [PermissionKey.SETTINGS_READ] },
   { key: FeatureModuleKey.ANALYTICS, name: 'Analytics', description: 'Auswertungen und Kennzahlen', category: 'FINANZEN', defaultEnabled: true, adminNavPath: '/admin', requiredPermissions: [PermissionKey.ORDERS_READ] },
   { key: FeatureModuleKey.CASH_CLOSING, name: 'Kassenabschluss', description: 'Tages- und Monatsabschluesse', category: 'FINANZEN', defaultEnabled: true, adminNavPath: '/admin/closings', requiredPermissions: [PermissionKey.ORDERS_READ], dependencies: [FeatureModuleKey.ORDERS] },
-  { key: FeatureModuleKey.PLATFORM_BRANDING, name: 'Plattform Branding', description: 'Logos, Farben und Markenvorgaben', category: 'PLATTFORM', defaultEnabled: true, adminNavPath: '/admin/app-settings', requiredPermissions: [PermissionKey.SETTINGS_READ] },
+  { key: FeatureModuleKey.PLATFORM_BRANDING, name: 'Plattform Branding', description: 'Logos, Farben und Markenvorgaben', category: 'PLATTFORM', defaultEnabled: true, adminNavPath: '/admin/settings', requiredPermissions: [PermissionKey.SETTINGS_READ] },
 ]
 
 const registryByKey = new Map(FEATURE_MODULE_REGISTRY.map((entry) => [entry.key, entry]))

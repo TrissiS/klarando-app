@@ -37,7 +37,7 @@ export default function AdminManagementOverviewPage() {
       warnings={[]}
       quickActions={[
         { href: '/admin/staff', label: 'Benutzer & Rechte' },
-        { href: '/admin/app-settings?section=business', label: 'Filialdaten' },
+        { href: '/admin/settings#business-settings', label: 'Filialdaten' },
         { href: '/admin/settings', label: 'Einstellungen' },
       ]}
     />

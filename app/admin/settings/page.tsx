@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
+import AppSettingsFields from '@/app/Components/admin/AppSettingsFields'
 import {
   getTenantPaypalPaymentConfig,
   getBusinessSettings,
@@ -23,6 +24,7 @@ function confirmDoubleSave() {
 }
 
 export default function AdminSettingsPage() {
+  const [section, setSection] = useState('')
   const [settings, setSettings] = useState<BusinessSettings | null>(null)
   const [paypalConfig, setPaypalConfig] = useState<TenantPaypalPaymentConfig | null>(null)
   const [loading, setLoading] = useState(true)
@@ -50,6 +52,14 @@ export default function AdminSettingsPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+    const params = new URLSearchParams(window.location.search)
+    setSection(params.get('section') || '')
+  }, [])
 
   useEffect(() => {
     void loadData()
@@ -187,8 +197,8 @@ export default function AdminSettingsPage() {
 
   return (
     <AdminLayout
-      title="Einstellungen"
-      subtitle="Geschäftsdaten, Medien und Abrechnung zentral verwalten"
+      title="Zentrale Einstellungen"
+      subtitle="Kanonische Master-Verwaltung für Filialdaten, App-Konfiguration, Zeiten und Betriebsparameter"
     >
       {error ? (
         <div className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -203,6 +213,12 @@ export default function AdminSettingsPage() {
       <div className="mb-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
         Impressum, Datenschutz, Support- und Kontolöschungs-Mail werden zentral von Klarando verwaltet.
       </div>
+      {section ? (
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Diese Ansicht wurde aus der Legacy-Route <span className="font-mono">/admin/app-settings</span> geöffnet.
+          Änderungen werden nur noch hier auf <span className="font-mono">/admin/settings</span> gepflegt.
+        </div>
+      ) : null}
       <div className="mb-4 rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-4 shadow-sm">
         <p className="text-sm font-semibold text-slate-900">Delivery App Einstellungen</p>
         <p className="mt-1 text-sm text-rose-900/75">
@@ -224,7 +240,7 @@ export default function AdminSettingsPage() {
         </section>
       ) : (
         <form onSubmit={handleSave} className="space-y-6">
-          <section className="grid gap-6 xl:grid-cols-2">
+          <section id="business-settings" className="grid gap-6 xl:grid-cols-2">
             <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
               <h2 className="text-xl font-semibold">Geschäft & Betreiber</h2>
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -537,22 +553,24 @@ export default function AdminSettingsPage() {
             </article>
           </section>
 
-          <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-            <h2 className="text-xl font-semibold">Zeitverwaltung umgezogen</h2>
-            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
-              <p className="font-semibold">
-                Öffnungszeiten, Lieferdienstzeiten sowie Feiertage & Sonderöffnungen werden nicht mehr hier gepflegt.
-              </p>
-              <p className="mt-2">
-                Die zentrale Master-Verwaltung liegt jetzt unter{' '}
-                <Link href="/admin/app-settings?section=delivery-area" className="font-semibold underline">
-                  Lieferung → Öffnungszeiten & Lieferzeiten
-                </Link>
-                .
-              </p>
-              <p className="mt-2">
-                Alle Bestellprüfungen, Vorbestellungen und Öffnungsstatus greifen künftig nur noch auf diese zentrale Zeitfensterverwaltung zu.
-              </p>
+          <section id="delivery-area" className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+            <h2 className="text-xl font-semibold">App, Öffnungszeiten & Lieferzeiten</h2>
+            <p className="mt-1 text-sm text-rose-900/70">
+              Diese Bereiche lesen und schreiben ausschließlich die zentrale Quelle <span className="font-mono">businessSettings</span>.
+            </p>
+            <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Die frühere Route <span className="font-mono">/admin/app-settings</span> ist jetzt Legacy.
+              Öffnungszeiten, Lieferzeiten, Feiertage, App-Konfiguration, Mindestbestellwert und Lieferhinweise werden nur noch hier verwaltet.
+            </div>
+            <div className="mt-4">
+              <AppSettingsFields
+                settings={settings}
+                onChange={setSettings}
+                showAppReleaseControls={false}
+                showComplianceControls={false}
+                showServiceAreaEditor
+                showDeliveryScheduling
+              />
             </div>
           </section>
 

@@ -143,7 +143,7 @@ const sectionNavSections: NavSection[] = [
     label: 'Lieferbetrieb',
     items: [
       { href: '/admin/delivery', label: 'Workspace', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
-      { href: '/admin/app-settings?section=delivery-area', label: 'Öffnungszeiten & Lieferzeiten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/settings#delivery-area', label: 'Öffnungszeiten & Lieferzeiten', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/drivers', label: 'Fahrer', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/tours', label: 'Touren', moduleKey: 'drivers', requiredPermission: 'SETTINGS_READ' },
     ],
@@ -175,7 +175,7 @@ const sectionNavSections: NavSection[] = [
     items: [
       { href: '/admin/verwaltung', label: 'Übersicht', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
       { href: '/admin/staff', label: 'Benutzer & Rechte', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
-      { href: '/admin/app-settings?section=business', label: 'Filialdaten', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/settings#business-settings', label: 'Filialdaten', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/settings', label: 'Einstellungen', moduleKey: 'settings', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/stock', label: 'Lager', moduleKey: 'inventory', requiredPermission: 'INVENTORY_READ' },
     ],

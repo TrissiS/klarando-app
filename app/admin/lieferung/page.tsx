@@ -15,7 +15,7 @@ export default function DeliveryOverviewPage() {
       ]}
       warnings={['Erweiterte Tourenautomatik ist vorbereitet und wird schrittweise aktiviert.']}
       quickActions={[
-        { href: '/admin/app-settings?section=delivery-area', label: 'Öffnungszeiten & Lieferzeiten' },
+        { href: '/admin/settings#delivery-area', label: 'Öffnungszeiten & Lieferzeiten' },
         { href: '/admin/drivers', label: 'Fahrer verwalten' },
         { href: '/admin/tours', label: 'Touren öffnen' },
       ]}
