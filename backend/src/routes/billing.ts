@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
+import { resolveInvoiceIssuerProfile, type InvoiceIssuerProfile } from '../lib/invoice-issuer-profile'
 import {
   assertInvoiceMutable,
   buildBillingInvoicePreview,
@@ -100,6 +101,54 @@ function centsToEuroLabel(cents: number) {
   return `${(Math.max(0, cents) / 100).toFixed(2).replace('.', ',')} €`
 }
 
+function parseHexColor(input: string | null | undefined, fallback: [number, number, number]): [number, number, number] {
+  if (!input) return fallback
+  const value = input.trim().replace('#', '')
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) return fallback
+  return [
+    parseInt(value.slice(0, 2), 16) / 255,
+    parseInt(value.slice(2, 4), 16) / 255,
+    parseInt(value.slice(4, 6), 16) / 255,
+  ]
+}
+
+function normalizeInvoicePdfText(text: string) {
+  return text
+    .replace(/Modulgebuehr/g, 'Modulgebühr')
+    .replace(/Grundgebuehr/g, 'Grundgebühr')
+    .replace(/Paketgebuehr/g, 'Paketgebühr')
+    .replace(/Zusatzbestellungsgebuehr/g, 'Zusatzbestellungsgebühr')
+    .replace(/Mindestgebuehr/g, 'Mindestgebühr')
+    .replace(/Zahlungsinformationen/g, 'Zahlungsinformationen')
+    .replace(/Leistungszeitraum/g, 'Leistungszeitraum')
+    .replace(/MwSt\./g, 'MwSt.')
+}
+
+async function tryEmbedIssuerLogo(doc: PDFDocument, logoUrl: string | null) {
+  if (!logoUrl) return null
+  try {
+    if (logoUrl.startsWith('data:image/png;base64,')) {
+      return doc.embedPng(logoUrl)
+    }
+    if (logoUrl.startsWith('data:image/jpeg;base64,') || logoUrl.startsWith('data:image/jpg;base64,')) {
+      return doc.embedJpg(logoUrl)
+    }
+    const response = await fetch(logoUrl)
+    if (!response.ok) return null
+    const bytes = await response.arrayBuffer()
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('png') || logoUrl.toLowerCase().endsWith('.png')) {
+      return doc.embedPng(bytes)
+    }
+    if (contentType.includes('jpeg') || contentType.includes('jpg') || logoUrl.toLowerCase().match(/\.(jpg|jpeg)$/)) {
+      return doc.embedJpg(bytes)
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 function resolveInvoiceLifecycleStatus(invoice: {
   status: InvoiceStatus
   metadata?: Record<string, unknown> | null
@@ -134,13 +183,22 @@ async function buildBillingInvoicePdf(input: {
       grossAmountCents: number
     }>
   }
+  issuerProfile: InvoiceIssuerProfile
 }) {
   const doc = await PDFDocument.create()
-  const page = doc.addPage([595.28, 841.89])
   const fontRegular = await doc.embedFont(StandardFonts.Helvetica)
   const fontBold = await doc.embedFont(StandardFonts.HelveticaBold)
+  const pageSize: [number, number] = [595.28, 841.89]
+  let page = doc.addPage(pageSize)
   const { width, height } = page.getSize()
   const margin = 48
+  const rowHeight = 18
+  const issuerProfile = input.issuerProfile
+  const brandColor = rgb(...parseHexColor(issuerProfile.invoicePrimaryColor, [0.06, 0.09, 0.16]))
+  const accentColor = rgb(...parseHexColor(issuerProfile.invoiceAccentColor, [0.89, 0.91, 0.94]))
+  const bodyColor = rgb(0.1, 0.14, 0.22)
+  const mutedColor = rgb(0.42, 0.46, 0.52)
+  const lightBorderColor = rgb(0.86, 0.88, 0.91)
   let y = height - margin
 
   const metadata = input.invoice.metadata || {}
@@ -178,30 +236,138 @@ async function buildBillingInvoicePdf(input: {
     throw new Error('Finalisierte Rechnung enthaelt keinen vollstaendigen Rechnungsadress-Snapshot.')
   }
 
+  const drawWrappedText = (
+    text: string,
+    options: {
+      x?: number
+      y?: number
+      size?: number
+      bold?: boolean
+      color?: ReturnType<typeof rgb>
+      maxWidth?: number
+      lineGap?: number
+    } = {}
+  ) => {
+    const size = options.size ?? 10
+    const x = options.x ?? margin
+    const yStart = options.y ?? y
+    const font = options.bold ? fontBold : fontRegular
+    const maxWidth = options.maxWidth ?? width - margin * 2
+    const lineGap = options.lineGap ?? 4
+    const sanitized = normalizeInvoicePdfText(text)
+    const words = sanitized.split(/\s+/).filter(Boolean)
+    const lines: string[] = []
+    let currentLine = ''
+    for (const word of words) {
+      const candidate = currentLine ? `${currentLine} ${word}` : word
+      if (font.widthOfTextAtSize(candidate, size) <= maxWidth || !currentLine) {
+        currentLine = candidate
+      } else {
+        lines.push(currentLine)
+        currentLine = word
+      }
+    }
+    if (currentLine) lines.push(currentLine)
+    let currentY = yStart
+    for (const line of lines) {
+      page.drawText(line, {
+        x,
+        y: currentY,
+        size,
+        font,
+        color: options.color ?? bodyColor,
+      })
+      currentY -= size + lineGap
+    }
+    return currentY
+  }
+
   const drawText = (
     text: string,
     options: { x?: number; size?: number; bold?: boolean; color?: ReturnType<typeof rgb> } = {}
   ) => {
     const size = options.size ?? 10
-    page.drawText(text, {
+    page.drawText(normalizeInvoicePdfText(text), {
       x: options.x ?? margin,
       y,
       size,
       font: options.bold ? fontBold : fontRegular,
-      color: options.color ?? rgb(0.1, 0.14, 0.22),
+      color: options.color ?? bodyColor,
     })
     y -= size + 4
   }
 
-  drawText('Klarando Einzelunternehmen', { size: 18, bold: true })
-  drawText('Inhaber Tristan Stenger')
-  drawText('Untere Wiesenstr. 6')
-  drawText('57271 Hilchenbach')
-  drawText('info@klarando.com')
-  drawText('USt-IdNr.: DE314972366')
+  const invoiceDate = input.invoice.issuedAt || input.invoice.createdAt
+  const vatRatePercent = toPlainNumber(vatSnapshot.vatRatePercent)
+  const logo = await tryEmbedIssuerLogo(doc, issuerProfile.logoUrl)
+  if (logo) {
+    const desiredHeight = 46
+    const scale = desiredHeight / logo.height
+    page.drawImage(logo, {
+      x: margin,
+      y: height - margin - desiredHeight,
+      width: logo.width * scale,
+      height: desiredHeight,
+    })
+  }
 
-  y -= 12
-  drawText('Rechnungsempfänger', { size: 12, bold: true })
+  const issuerTopY = height - margin
+  const issuerX = logo ? margin + 96 : margin
+  const issuerTitle = issuerProfile.legalForm ? `${issuerProfile.name} ${issuerProfile.legalForm}` : issuerProfile.name
+  let issuerY = issuerTopY
+  issuerY = drawWrappedText(issuerTitle, { x: issuerX, y: issuerY, size: 17, bold: true, color: brandColor, maxWidth: 250 })
+  if (issuerProfile.owner) issuerY = drawWrappedText(`Inhaber: ${issuerProfile.owner}`, { x: issuerX, y: issuerY, size: 10 })
+  issuerY = drawWrappedText(issuerProfile.street, { x: issuerX, y: issuerY, size: 10 })
+  issuerY = drawWrappedText(`${issuerProfile.zip} ${issuerProfile.city}`, { x: issuerX, y: issuerY, size: 10 })
+  issuerY = drawWrappedText(issuerProfile.country, { x: issuerX, y: issuerY, size: 10 })
+  issuerY = drawWrappedText(issuerProfile.email, { x: issuerX, y: issuerY, size: 10 })
+  if (issuerProfile.website) issuerY = drawWrappedText(issuerProfile.website, { x: issuerX, y: issuerY, size: 10 })
+  issuerY = drawWrappedText(`USt-IdNr.: ${issuerProfile.vatId}`, { x: issuerX, y: issuerY, size: 10 })
+  if (issuerProfile.taxNumber) issuerY = drawWrappedText(`Steuernummer: ${issuerProfile.taxNumber}`, { x: issuerX, y: issuerY, size: 10 })
+
+  const infoBoxX = width - margin - 180
+  const infoBoxY = height - margin - 8
+  const infoBoxHeight = 152
+  page.drawRectangle({
+    x: infoBoxX,
+    y: infoBoxY - infoBoxHeight,
+    width: 180,
+    height: infoBoxHeight,
+    color: rgb(0.98, 0.99, 1),
+    borderColor: accentColor,
+    borderWidth: 1,
+  })
+  let infoY = infoBoxY - 18
+  const drawInfoRow = (label: string, value: string) => {
+    page.drawText(label, { x: infoBoxX + 12, y: infoY, size: 8, font: fontBold, color: mutedColor })
+    infoY -= 12
+    page.drawText(normalizeInvoicePdfText(value), {
+      x: infoBoxX + 12,
+      y: infoY,
+      size: 10,
+      font: fontRegular,
+      color: bodyColor,
+    })
+    infoY -= 16
+  }
+  drawInfoRow('Rechnungsnummer', input.invoice.invoiceNumber)
+  drawInfoRow('Rechnungsdatum', invoiceDate.toLocaleDateString('de-DE'))
+  drawInfoRow(
+    'Leistungszeitraum',
+    `${input.invoice.periodStart.toLocaleDateString('de-DE')} - ${input.invoice.periodEnd.toLocaleDateString('de-DE')}`
+  )
+  drawInfoRow('Zahlungsziel', input.invoice.dueAt ? input.invoice.dueAt.toLocaleDateString('de-DE') : `${paymentTermsDays} Tage`)
+  drawInfoRow('Status', input.invoice.status)
+
+  page.drawLine({
+    start: { x: margin, y: Math.min(issuerY, infoBoxY - infoBoxHeight) - 14 },
+    end: { x: width - margin, y: Math.min(issuerY, infoBoxY - infoBoxHeight) - 14 },
+    thickness: 2,
+    color: accentColor,
+  })
+
+  y = Math.min(issuerY, infoBoxY - infoBoxHeight) - 36
+  drawText('Rechnungsempfänger', { size: 12, bold: true, color: brandColor })
   drawText(recipientName)
   if (typeof recipient.contactPerson === 'string' && recipient.contactPerson.trim().length > 0) {
     drawText(recipient.contactPerson)
@@ -217,89 +383,165 @@ async function buildBillingInvoicePdf(input: {
     drawText(`Steuernummer: ${recipient.taxNumber}`)
   }
 
-  y -= 12
-  const invoiceDate = input.invoice.issuedAt || input.invoice.createdAt
-  const vatRatePercent = toPlainNumber(vatSnapshot.vatRatePercent)
-  drawText(`Rechnungsnummer: ${input.invoice.invoiceNumber}`, { bold: true })
-  drawText(`Rechnungsdatum: ${invoiceDate.toLocaleDateString('de-DE')}`)
-  drawText(
-    `Leistungszeitraum: ${input.invoice.periodStart.toLocaleDateString('de-DE')} bis ${input.invoice.periodEnd.toLocaleDateString('de-DE')}`
-  )
-  drawText(`Zahlungsziel: ${input.invoice.dueAt ? input.invoice.dueAt.toLocaleDateString('de-DE') : `${paymentTermsDays} Tage`}`)
-  drawText(`Status: ${input.invoice.status}`)
-  drawText(`MwSt.-Satz: ${vatRatePercent.toFixed(2).replace('.', ',')} %`)
+  y -= 18
+  const colX = [margin, 292, 372, 470]
+  const drawTableHeader = () => {
+    page.drawRectangle({
+      x: margin,
+      y: y - 2,
+      width: width - margin * 2,
+      height: rowHeight + 6,
+      color: accentColor,
+    })
+    page.drawText('Position', { x: colX[0] + 6, y: y + 4, size: 10, font: fontBold, color: brandColor })
+    page.drawText('Menge', { x: colX[1] + 6, y: y + 4, size: 10, font: fontBold, color: brandColor })
+    page.drawText('Einzelpreis netto', { x: colX[2] + 6, y: y + 4, size: 10, font: fontBold, color: brandColor })
+    page.drawText('Gesamt netto', { x: colX[3] + 6, y: y + 4, size: 10, font: fontBold, color: brandColor })
+    y -= rowHeight + 12
+  }
 
-  y -= 16
-  const tableTop = y
-  const colX = [margin, 280, 355, 450, 520]
-  page.drawText('Position', { x: colX[0], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
-  page.drawText('Menge', { x: colX[1], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
-  page.drawText('Einzelpreis', { x: colX[2], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
-  page.drawText('Netto', { x: colX[3], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
-  y -= 14
-  page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(0.86, 0.88, 0.91) })
-  y -= 14
+  const startNewPage = () => {
+    page = doc.addPage(pageSize)
+    y = height - margin
+    drawTableHeader()
+  }
+
+  drawTableHeader()
 
   for (const item of input.invoice.items) {
-    if (y < 150) {
-      throw new Error('PDF-MVP unterstuetzt aktuell nur Rechnungen, die auf eine Seite passen.')
+    const descriptionLines =
+      item.description && item.description.trim().length > 0 ? Math.max(1, Math.ceil(item.description.length / 80)) : 0
+    const rowNeeded = 18 + descriptionLines * 12
+    if (y < 180 + rowNeeded) {
+      startNewPage()
     }
-    page.drawText(item.title, { x: colX[0], y, size: 10, font: fontRegular, color: rgb(0.1, 0.14, 0.22) })
-    page.drawText(toPlainNumber(item.quantity).toFixed(2).replace('.', ','), {
-      x: colX[1],
-      y,
+    page.drawLine({
+      start: { x: margin, y: y + 2 },
+      end: { x: width - margin, y: y + 2 },
+      thickness: 1,
+      color: lightBorderColor,
+    })
+    page.drawText(normalizeInvoicePdfText(item.title), {
+      x: colX[0] + 6,
+      y: y - 12,
       size: 10,
       font: fontRegular,
-      color: rgb(0.1, 0.14, 0.22),
+      color: bodyColor,
+    })
+    page.drawText(toPlainNumber(item.quantity).toFixed(2).replace('.', ','), {
+      x: colX[1] + 6,
+      y: y - 12,
+      size: 10,
+      font: fontRegular,
+      color: bodyColor,
     })
     page.drawText(centsToEuroLabel(item.unitPriceCents), {
-      x: colX[2],
-      y,
+      x: colX[2] + 6,
+      y: y - 12,
       size: 10,
       font: fontRegular,
-      color: rgb(0.1, 0.14, 0.22),
+      color: bodyColor,
     })
     page.drawText(centsToEuroLabel(item.netAmountCents), {
-      x: colX[3],
-      y,
+      x: colX[3] + 6,
+      y: y - 12,
       size: 10,
       font: fontRegular,
-      color: rgb(0.1, 0.14, 0.22),
+      color: bodyColor,
     })
-    y -= 16
+    y -= 22
     if (item.description) {
-      page.drawText(item.description, { x: colX[0], y, size: 8, font: fontRegular, color: rgb(0.45, 0.49, 0.55) })
-      y -= 12
+      y = drawWrappedText(item.description, {
+        x: colX[0] + 6,
+        y,
+        size: 8,
+        color: mutedColor,
+        maxWidth: width - margin * 2 - 12,
+        lineGap: 2,
+      })
+      y -= 4
     }
   }
 
-  y -= 10
-  page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(0.86, 0.88, 0.91) })
-  y -= 18
-  drawText(`Netto: ${centsToEuroLabel(input.invoice.subTotalCents)}`, { x: 360, bold: false })
-  drawText(`MwSt. (${vatRatePercent.toFixed(2).replace('.', ',')} %): ${centsToEuroLabel(input.invoice.taxTotalCents)}`, {
-    x: 360,
-  })
-  drawText(`Brutto: ${centsToEuroLabel(input.invoice.totalGrossCents)}`, { x: 360, bold: true, size: 12 })
+  if (y < 220) {
+    startNewPage()
+  } else {
+    y -= 8
+  }
 
-  y -= 18
-  drawText('Zahlungsinformationen', { size: 12, bold: true })
+  page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: lightBorderColor })
+  y -= 22
+
+  const summaryX = width - margin - 185
+  page.drawRectangle({
+    x: summaryX,
+    y: y - 54,
+    width: 185,
+    height: 72,
+    color: rgb(0.99, 0.99, 1),
+    borderColor: accentColor,
+    borderWidth: 1,
+  })
+  let summaryY = y
+  const drawSummaryLine = (label: string, value: string, bold = false) => {
+    page.drawText(label, {
+      x: summaryX + 12,
+      y: summaryY,
+      size: bold ? 11 : 10,
+      font: bold ? fontBold : fontRegular,
+      color: bodyColor,
+    })
+    const font = bold ? fontBold : fontRegular
+    const textWidth = font.widthOfTextAtSize(value, bold ? 11 : 10)
+    page.drawText(value, {
+      x: summaryX + 173 - textWidth,
+      y: summaryY,
+      size: bold ? 11 : 10,
+      font,
+      color: bodyColor,
+    })
+    summaryY -= 18
+  }
+  drawSummaryLine('Netto', centsToEuroLabel(input.invoice.subTotalCents))
+  drawSummaryLine(`MwSt. ${vatRatePercent.toFixed(2).replace('.', ',')} %`, centsToEuroLabel(input.invoice.taxTotalCents))
+  drawSummaryLine('Brutto', centsToEuroLabel(input.invoice.totalGrossCents), true)
+  y = summaryY - 18
+
+  drawText('Zahlungsinformationen', { size: 12, bold: true, color: brandColor })
   drawText(
     typeof recipient.paymentMethod === 'string' && recipient.paymentMethod.trim().length > 0
       ? `Zahlungsart: ${recipient.paymentMethod}`
-      : 'Zahlungsart: Nach Vereinbarung'
+      : 'Zahlungsart: Nicht hinterlegt'
   )
-  drawText('Bankdaten / Einziehungsinformationen folgen separat, falls noch nicht im Profil hinterlegt.', {
-    color: rgb(0.35, 0.39, 0.45),
-  })
+  if (issuerProfile.bankName || issuerProfile.iban || issuerProfile.bic || issuerProfile.creditorId) {
+    if (issuerProfile.bankName) drawText(`Bank: ${issuerProfile.bankName}`)
+    if (issuerProfile.iban) drawText(`IBAN: ${issuerProfile.iban}`)
+    if (issuerProfile.bic) drawText(`BIC: ${issuerProfile.bic}`)
+    if (
+      typeof recipient.paymentMethod === 'string' &&
+      recipient.paymentMethod.toLowerCase().includes('lastschrift') &&
+      issuerProfile.creditorId
+    ) {
+      drawText(`Gläubiger-ID: ${issuerProfile.creditorId}`)
+    }
+  } else {
+    drawText('Bankdaten sind noch nicht im Rechnungssteller-Profil hinterlegt.', { color: mutedColor })
+  }
+  if (issuerProfile.paymentInfo) {
+    y = drawWrappedText(issuerProfile.paymentInfo, { y, size: 9, color: mutedColor, maxWidth: width - margin * 2 })
+  }
 
-  page.drawText(`Snapshot-PDF · Rechnung ${input.invoice.invoiceNumber}`, {
-    x: margin,
-    y: 24,
-    size: 8,
-    font: fontRegular,
-    color: rgb(0.45, 0.49, 0.55),
-  })
+  if (issuerProfile.footer) {
+    drawWrappedText(issuerProfile.footer, { x: margin, y: 36, size: 8, color: mutedColor, maxWidth: width - margin * 2 })
+  } else {
+    page.drawText(`Snapshot-PDF · Rechnung ${input.invoice.invoiceNumber}`, {
+      x: margin,
+      y: 24,
+      size: 8,
+      font: fontRegular,
+      color: mutedColor,
+    })
+  }
 
   return doc.save()
 }
@@ -826,6 +1068,9 @@ router.get('/invoices/:invoiceId/pdf', requireAuth, async (req, res) => {
     })) {
       return res.status(409).json({ error: 'Nur finalisierte Rechnungen koennen als PDF ausgegeben werden.' })
     }
+    const platformProfile = await prisma.platformBillingSettings.findFirst({
+      where: { scopeKey: 'global' },
+    })
     const pdfBytes = await buildBillingInvoicePdf({
       invoice: {
         id: invoice.id,
@@ -852,6 +1097,7 @@ router.get('/invoices/:invoiceId/pdf', requireAuth, async (req, res) => {
           grossAmountCents: item.grossAmountCents,
         })),
       },
+      issuerProfile: resolveInvoiceIssuerProfile(platformProfile),
     })
 
     res.setHeader('Content-Type', 'application/pdf')
@@ -862,8 +1108,7 @@ router.get('/invoices/:invoiceId/pdf', requireAuth, async (req, res) => {
     if (
       message.includes('Nur finalisierte Rechnungen') ||
       message.includes('Snapshot fehlt') ||
-      message.includes('vollstaendigen Rechnungsadress-Snapshot') ||
-      message.includes('eine Seite passen')
+      message.includes('vollstaendigen Rechnungsadress-Snapshot')
     ) {
       return res.status(409).json({ error: message })
     }
