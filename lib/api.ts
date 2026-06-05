@@ -7249,6 +7249,29 @@ export async function getBillingInvoices(token: string, params: { tenantId?: str
   )
 }
 
+export async function downloadBillingInvoicePdf(
+  token: string,
+  invoiceId: string
+): Promise<{ fileName: string; blob: Blob }> {
+  const res = await fetch(buildApiUrl(`/api/billing/invoices/${encodeURIComponent(invoiceId)}/pdf`), {
+    headers: authHeaders(token),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Rechnungs-PDF konnte nicht geladen werden')
+  }
+
+  const fileName = parseDownloadFileName(
+    res.headers.get('content-disposition'),
+    `Rechnung_${invoiceId}.pdf`
+  )
+  return {
+    fileName,
+    blob: await res.blob(),
+  }
+}
+
 export async function getBillingMailboxMessages(token: string, params: { tenantId?: string; chainId?: string } = {}): Promise<BillingMailboxMessage[]> {
   const query = new URLSearchParams()
   if (params.tenantId) query.set('tenantId', params.tenantId)

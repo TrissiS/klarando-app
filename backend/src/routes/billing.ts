@@ -1,5 +1,6 @@
 import { InvoiceStatus, PermissionKey, Prisma, UserRole } from '@prisma/client'
 import { Router } from 'express'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { prisma } from '../lib/prisma'
 import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
@@ -80,6 +81,227 @@ function canCancelInvoice(status: InvoiceStatus) {
 
 function monthPeriodFromReq(req: { query?: Record<string, unknown>; body?: Record<string, unknown> }) {
   return parseBillingMonthOrCurrent(req.query?.month || req.body?.month || req.query?.period || req.body?.period)
+}
+
+function toPlainNumber(value: unknown) {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  if (value && typeof value === 'object' && 'toString' in value && typeof value.toString === 'function') {
+    const parsed = Number(value.toString())
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+function centsToEuroLabel(cents: number) {
+  return `${(Math.max(0, cents) / 100).toFixed(2).replace('.', ',')} €`
+}
+
+function resolveInvoiceLifecycleStatus(invoice: {
+  status: InvoiceStatus
+  metadata?: Record<string, unknown> | null
+}) {
+  const metadata = invoice.metadata || {}
+  return metadata.finalizationLocked === true && invoice.status !== InvoiceStatus.DRAFT
+}
+
+async function buildBillingInvoicePdf(input: {
+  invoice: {
+    id: string
+    invoiceNumber: string
+    status: InvoiceStatus
+    subTotalCents: number
+    taxTotalCents: number
+    totalGrossCents: number
+    dueAt: Date | null
+    issuedAt: Date | null
+    createdAt: Date
+    periodStart: Date
+    periodEnd: Date
+    metadata: Record<string, unknown> | null
+    items: Array<{
+      lineNo: number
+      title: string
+      description: string | null
+      quantity: Prisma.Decimal | number | string
+      unitPriceCents: number
+      taxRatePercent: Prisma.Decimal | number | string
+      netAmountCents: number
+      taxAmountCents: number
+      grossAmountCents: number
+    }>
+  }
+}) {
+  const doc = await PDFDocument.create()
+  const page = doc.addPage([595.28, 841.89])
+  const fontRegular = await doc.embedFont(StandardFonts.Helvetica)
+  const fontBold = await doc.embedFont(StandardFonts.HelveticaBold)
+  const { width, height } = page.getSize()
+  const margin = 48
+  let y = height - margin
+
+  const metadata = input.invoice.metadata || {}
+  const recipient =
+    metadata.billingProfileSnapshot && typeof metadata.billingProfileSnapshot === 'object'
+      ? (metadata.billingProfileSnapshot as Record<string, unknown>)
+      : null
+  const vatSnapshot =
+    metadata.vatSnapshot && typeof metadata.vatSnapshot === 'object'
+      ? (metadata.vatSnapshot as Record<string, unknown>)
+      : null
+
+  if (!resolveInvoiceLifecycleStatus(input.invoice)) {
+    throw new Error('Nur finalisierte Rechnungen koennen als PDF erzeugt werden.')
+  }
+  if (!recipient) {
+    throw new Error('Billing-Address-Snapshot fehlt auf der finalisierten Rechnung.')
+  }
+  if (!vatSnapshot) {
+    throw new Error('MwSt.-Snapshot fehlt auf der finalisierten Rechnung.')
+  }
+
+  const recipientName = typeof recipient.recipientName === 'string' ? recipient.recipientName : null
+  const street = typeof recipient.street === 'string' ? recipient.street : null
+  const zipCode = typeof recipient.zipCode === 'string' ? recipient.zipCode : null
+  const city = typeof recipient.city === 'string' ? recipient.city : null
+  const countryCode = typeof recipient.countryCode === 'string' ? recipient.countryCode : null
+  const invoiceEmail = typeof recipient.invoiceEmail === 'string' ? recipient.invoiceEmail : null
+  const paymentTermsDays =
+    typeof recipient.paymentTermsDays === 'number' && Number.isFinite(recipient.paymentTermsDays)
+      ? recipient.paymentTermsDays
+      : null
+
+  if (!recipientName || !street || !zipCode || !city || !countryCode || !invoiceEmail || !paymentTermsDays) {
+    throw new Error('Finalisierte Rechnung enthaelt keinen vollstaendigen Rechnungsadress-Snapshot.')
+  }
+
+  const drawText = (
+    text: string,
+    options: { x?: number; size?: number; bold?: boolean; color?: ReturnType<typeof rgb> } = {}
+  ) => {
+    const size = options.size ?? 10
+    page.drawText(text, {
+      x: options.x ?? margin,
+      y,
+      size,
+      font: options.bold ? fontBold : fontRegular,
+      color: options.color ?? rgb(0.1, 0.14, 0.22),
+    })
+    y -= size + 4
+  }
+
+  drawText('Klarando Einzelunternehmen', { size: 18, bold: true })
+  drawText('Inhaber Tristan Stenger')
+  drawText('Untere Wiesenstr. 6')
+  drawText('57271 Hilchenbach')
+  drawText('info@klarando.com')
+  drawText('USt-IdNr.: DE314972366')
+
+  y -= 12
+  drawText('Rechnungsempfänger', { size: 12, bold: true })
+  drawText(recipientName)
+  if (typeof recipient.contactPerson === 'string' && recipient.contactPerson.trim().length > 0) {
+    drawText(recipient.contactPerson)
+  }
+  drawText(street)
+  drawText(`${zipCode} ${city}`)
+  drawText(countryCode)
+  drawText(`E-Mail: ${invoiceEmail}`)
+  if (typeof recipient.vatId === 'string' && recipient.vatId.trim().length > 0) {
+    drawText(`USt-IdNr.: ${recipient.vatId}`)
+  }
+  if (typeof recipient.taxNumber === 'string' && recipient.taxNumber.trim().length > 0) {
+    drawText(`Steuernummer: ${recipient.taxNumber}`)
+  }
+
+  y -= 12
+  const invoiceDate = input.invoice.issuedAt || input.invoice.createdAt
+  const vatRatePercent = toPlainNumber(vatSnapshot.vatRatePercent)
+  drawText(`Rechnungsnummer: ${input.invoice.invoiceNumber}`, { bold: true })
+  drawText(`Rechnungsdatum: ${invoiceDate.toLocaleDateString('de-DE')}`)
+  drawText(
+    `Leistungszeitraum: ${input.invoice.periodStart.toLocaleDateString('de-DE')} bis ${input.invoice.periodEnd.toLocaleDateString('de-DE')}`
+  )
+  drawText(`Zahlungsziel: ${input.invoice.dueAt ? input.invoice.dueAt.toLocaleDateString('de-DE') : `${paymentTermsDays} Tage`}`)
+  drawText(`Status: ${input.invoice.status}`)
+  drawText(`MwSt.-Satz: ${vatRatePercent.toFixed(2).replace('.', ',')} %`)
+
+  y -= 16
+  const tableTop = y
+  const colX = [margin, 280, 355, 450, 520]
+  page.drawText('Position', { x: colX[0], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
+  page.drawText('Menge', { x: colX[1], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
+  page.drawText('Einzelpreis', { x: colX[2], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
+  page.drawText('Netto', { x: colX[3], y, size: 10, font: fontBold, color: rgb(0.3, 0.34, 0.4) })
+  y -= 14
+  page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(0.86, 0.88, 0.91) })
+  y -= 14
+
+  for (const item of input.invoice.items) {
+    if (y < 150) {
+      throw new Error('PDF-MVP unterstuetzt aktuell nur Rechnungen, die auf eine Seite passen.')
+    }
+    page.drawText(item.title, { x: colX[0], y, size: 10, font: fontRegular, color: rgb(0.1, 0.14, 0.22) })
+    page.drawText(toPlainNumber(item.quantity).toFixed(2).replace('.', ','), {
+      x: colX[1],
+      y,
+      size: 10,
+      font: fontRegular,
+      color: rgb(0.1, 0.14, 0.22),
+    })
+    page.drawText(centsToEuroLabel(item.unitPriceCents), {
+      x: colX[2],
+      y,
+      size: 10,
+      font: fontRegular,
+      color: rgb(0.1, 0.14, 0.22),
+    })
+    page.drawText(centsToEuroLabel(item.netAmountCents), {
+      x: colX[3],
+      y,
+      size: 10,
+      font: fontRegular,
+      color: rgb(0.1, 0.14, 0.22),
+    })
+    y -= 16
+    if (item.description) {
+      page.drawText(item.description, { x: colX[0], y, size: 8, font: fontRegular, color: rgb(0.45, 0.49, 0.55) })
+      y -= 12
+    }
+  }
+
+  y -= 10
+  page.drawLine({ start: { x: margin, y }, end: { x: width - margin, y }, thickness: 1, color: rgb(0.86, 0.88, 0.91) })
+  y -= 18
+  drawText(`Netto: ${centsToEuroLabel(input.invoice.subTotalCents)}`, { x: 360, bold: false })
+  drawText(`MwSt. (${vatRatePercent.toFixed(2).replace('.', ',')} %): ${centsToEuroLabel(input.invoice.taxTotalCents)}`, {
+    x: 360,
+  })
+  drawText(`Brutto: ${centsToEuroLabel(input.invoice.totalGrossCents)}`, { x: 360, bold: true, size: 12 })
+
+  y -= 18
+  drawText('Zahlungsinformationen', { size: 12, bold: true })
+  drawText(
+    typeof recipient.paymentMethod === 'string' && recipient.paymentMethod.trim().length > 0
+      ? `Zahlungsart: ${recipient.paymentMethod}`
+      : 'Zahlungsart: Nach Vereinbarung'
+  )
+  drawText('Bankdaten / Einziehungsinformationen folgen separat, falls noch nicht im Profil hinterlegt.', {
+    color: rgb(0.35, 0.39, 0.45),
+  })
+
+  page.drawText(`Snapshot-PDF · Rechnung ${input.invoice.invoiceNumber}`, {
+    x: margin,
+    y: 24,
+    size: 8,
+    font: fontRegular,
+    color: rgb(0.45, 0.49, 0.55),
+  })
+
+  return doc.save()
 }
 
 router.get('/summary', requireAuth, async (req, res) => {
@@ -582,8 +804,11 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
   }
 })
 
-router.get('/invoices/:invoiceId/pdf', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
+router.get('/invoices/:invoiceId/pdf', requireAuth, async (req, res) => {
   try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
     const invoice = await prisma.invoice.findUnique({
       where: { id: String(req.params.invoiceId || '') },
       include: {
@@ -595,34 +820,53 @@ router.get('/invoices/:invoiceId/pdf', requirePermission(PermissionKey.ORDERS_RE
     if (!invoice) {
       return res.status(404).json({ error: 'Rechnung nicht gefunden' })
     }
-
-    return res.json({
-      invoiceId: invoice.id,
-      invoiceNumber: invoice.invoiceNumber,
+    if (!resolveInvoiceLifecycleStatus({
       status: invoice.status,
-      issuer: {
-        companyName: 'Klarando Einzelunternehmen',
-        owner: 'Tristan Stenger',
-        street: 'Untere Wiesenstr. 6',
-        zipCode: '57271',
-        city: 'Hilchenbach',
-        email: 'info@klarando.com',
-        vatId: 'DE314972366',
+      metadata: (invoice.metadata as Record<string, unknown> | null) || null,
+    })) {
+      return res.status(409).json({ error: 'Nur finalisierte Rechnungen koennen als PDF ausgegeben werden.' })
+    }
+    const pdfBytes = await buildBillingInvoicePdf({
+      invoice: {
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        status: invoice.status,
+        subTotalCents: invoice.subTotalCents,
+        taxTotalCents: invoice.taxTotalCents,
+        totalGrossCents: invoice.totalGrossCents,
+        dueAt: invoice.dueAt,
+        issuedAt: invoice.issuedAt,
+        createdAt: invoice.createdAt,
+        periodStart: invoice.periodStart,
+        periodEnd: invoice.periodEnd,
+        metadata: (invoice.metadata as Record<string, unknown> | null) || null,
+        items: invoice.items.map((item) => ({
+          lineNo: item.lineNo,
+          title: item.title,
+          description: item.description,
+          quantity: item.quantity,
+          unitPriceCents: item.unitPriceCents,
+          taxRatePercent: item.taxRatePercent,
+          netAmountCents: item.netAmountCents,
+          taxAmountCents: item.taxAmountCents,
+          grossAmountCents: item.grossAmountCents,
+        })),
       },
-      recipient: {
-        tenantName: invoice.tenant?.name || null,
-        chainName: invoice.chain?.name || null,
-      },
-      taxModelHint: 'E-Rechnung (ZUGFeRD/XRechnung) ist vorbereitet und folgt in einer späteren Ausbaustufe.',
-      items: invoice.items,
-      totals: {
-        netCents: invoice.subTotalCents,
-        vatCents: invoice.taxTotalCents,
-        grossCents: invoice.totalGrossCents,
-      },
-      message: 'PDF-Rechnung MVP: strukturierte Daten sind bereit, Render-Pipeline folgt als nächster Schritt.',
     })
+
+    res.setHeader('Content-Type', 'application/pdf')
+    res.setHeader('Content-Disposition', `inline; filename=\"${invoice.invoiceNumber}.pdf\"`)
+    return res.send(Buffer.from(pdfBytes))
   } catch (error) {
+    const message = error instanceof Error ? error.message : 'PDF konnte nicht vorbereitet werden'
+    if (
+      message.includes('Nur finalisierte Rechnungen') ||
+      message.includes('Snapshot fehlt') ||
+      message.includes('vollstaendigen Rechnungsadress-Snapshot') ||
+      message.includes('eine Seite passen')
+    ) {
+      return res.status(409).json({ error: message })
+    }
     console.error('GET BILLING INVOICE PDF ERROR:', error)
     return res.status(500).json({ error: 'PDF konnte nicht vorbereitet werden' })
   }

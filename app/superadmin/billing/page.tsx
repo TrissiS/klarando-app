@@ -5,6 +5,7 @@ import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import ImplementationNotice from '@/app/Components/admin/ImplementationNotice'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
+  downloadBillingInvoicePdf,
   finalizeBillingInvoicePreview,
   getAccessContext,
   getBillingInvoicePreview,
@@ -194,6 +195,7 @@ export default function SuperadminBillingPage() {
   const [loading, setLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewFinalizing, setPreviewFinalizing] = useState(false)
+  const [pdfLoadingInvoiceId, setPdfLoadingInvoiceId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -387,6 +389,30 @@ export default function SuperadminBillingPage() {
       setError(cause instanceof Error ? cause.message : 'Rechnung konnte nicht finalisiert werden')
     } finally {
       setPreviewFinalizing(false)
+    }
+  }
+
+  async function handleOpenInvoicePdf(invoice: BillingInvoice) {
+    if (!token) return
+    try {
+      setPdfLoadingInvoiceId(invoice.id)
+      setError('')
+      setInfo('')
+      const { blob, fileName } = await downloadBillingInvoicePdf(token, invoice.id)
+      const objectUrl = window.URL.createObjectURL(blob)
+      const popup = window.open(objectUrl, '_blank', 'noopener,noreferrer')
+      if (!popup) {
+        const anchor = document.createElement('a')
+        anchor.href = objectUrl
+        anchor.download = fileName
+        anchor.rel = 'noopener'
+        anchor.click()
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rechnungs-PDF konnte nicht geoeffnet werden')
+    } finally {
+      setPdfLoadingInvoiceId('')
     }
   }
 
@@ -1089,9 +1115,9 @@ export default function SuperadminBillingPage() {
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>
           <p className="mt-1 text-sm text-slate-600">Finalisierte Monatsrechnungen als Snapshot. PDF, Versand, DATEV und Mahnungen bleiben Folgethemen.</p>
           {loading ? <p className="mt-4 text-sm text-slate-600">Lade Billing-Uebersicht...</p> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Marge (MVP)</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards ? centsToEuro(summaryCards.estimatedMarginNetCents) : '-'}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Im Kontingent</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.includedTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Kostenpflichtig</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.chargeableTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Finalisierte Rechnungen</p><p className="mt-1 text-lg font-semibold text-slate-900">{finalizedInvoices.length}</p></div></div>}
-          <div className="mt-4 overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="px-2 py-2">Rechnungsnummer</th><th className="px-2 py-2">Tenant</th><th className="px-2 py-2">Monat</th><th className="px-2 py-2">Netto</th><th className="px-2 py-2">MwSt.</th><th className="px-2 py-2">Brutto</th><th className="px-2 py-2">Status</th><th className="px-2 py-2">Erstellt am</th><th className="px-2 py-2">Positionen</th></tr></thead><tbody>{finalizedInvoices.map((invoice) => <tr key={invoice.id} className="border-b border-slate-100 align-top"><td className="px-2 py-2 font-medium text-slate-900">{invoice.invoiceNumber}</td><td className="px-2 py-2">{invoice.tenant?.name || '-'}</td><td className="px-2 py-2">{invoice.periodStart.slice(0, 7)}</td><td className="px-2 py-2">{centsToEuro(invoice.subTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.taxTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td><td className="px-2 py-2">{invoice.lifecycleStatus || invoice.status}</td><td className="px-2 py-2">{new Date(invoice.finalizedAt || invoice.issuedAt || invoice.createdAt).toLocaleDateString('de-DE')}</td><td className="px-2 py-2 text-xs text-slate-600">{invoice.items?.length ? invoice.items.map((item) => `${item.title}: ${centsToEuro(item.netAmountCents)}`).join(' • ') : 'Keine Positionen'}</td></tr>)}{finalizedInvoices.length === 0 ? <tr><td colSpan={9} className="px-2 py-6 text-center text-slate-500">Noch keine finalisierten Rechnungen fuer diesen Monat vorhanden.</td></tr> : null}</tbody></table></div>
-        </section>
-      </div>
-    </BackofficeLayout>
+          <div className="mt-4 overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="px-2 py-2">Rechnungsnummer</th><th className="px-2 py-2">Tenant</th><th className="px-2 py-2">Monat</th><th className="px-2 py-2">Netto</th><th className="px-2 py-2">MwSt.</th><th className="px-2 py-2">Brutto</th><th className="px-2 py-2">Status</th><th className="px-2 py-2">Erstellt am</th><th className="px-2 py-2">Positionen</th><th className="px-2 py-2">PDF</th></tr></thead><tbody>{finalizedInvoices.map((invoice) => <tr key={invoice.id} className="border-b border-slate-100 align-top"><td className="px-2 py-2 font-medium text-slate-900">{invoice.invoiceNumber}</td><td className="px-2 py-2">{invoice.tenant?.name || '-'}</td><td className="px-2 py-2">{invoice.periodStart.slice(0, 7)}</td><td className="px-2 py-2">{centsToEuro(invoice.subTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.taxTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td><td className="px-2 py-2">{invoice.lifecycleStatus || invoice.status}</td><td className="px-2 py-2">{new Date(invoice.finalizedAt || invoice.issuedAt || invoice.createdAt).toLocaleDateString('de-DE')}</td><td className="px-2 py-2 text-xs text-slate-600">{invoice.items?.length ? invoice.items.map((item) => `${item.title}: ${centsToEuro(item.netAmountCents)}`).join(' • ') : 'Keine Positionen'}</td><td className="px-2 py-2">{(invoice.lifecycleStatus || invoice.status) !== 'DRAFT' ? <button type="button" onClick={() => void handleOpenInvoicePdf(invoice)} disabled={pdfLoadingInvoiceId === invoice.id} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50">{pdfLoadingInvoiceId === invoice.id ? 'Öffnet…' : 'PDF öffnen'}</button> : <span className="text-xs text-slate-400">Nur finalisiert</span>}</td></tr>)}{finalizedInvoices.length === 0 ? <tr><td colSpan={10} className="px-2 py-6 text-center text-slate-500">Noch keine finalisierten Rechnungen fuer diesen Monat vorhanden.</td></tr> : null}</tbody></table></div>
+          </section>
+        </div>
+      </BackofficeLayout>
   )
 }
