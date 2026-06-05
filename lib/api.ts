@@ -5047,7 +5047,7 @@ export async function createPublicDriverDeviceSession(
   },
   token?: string
 ): Promise<DriverDeviceSessionCreateResponse> {
-  const res = await fetch(`${API_BASE_URL}/api/order-displays/public/${displayCode}/driver-devices/session`, {
+  const res = await fetch(`${API_BASE_URL}/api/order-displays/${displayCode}/driver-devices/session`, {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(data ?? {}),
@@ -5069,7 +5069,7 @@ export async function getPublicActiveDriverDevices(
   sessions: DriverDeviceSession[]
   generatedAt: string
 }> {
-  const res = await fetch(`${API_BASE_URL}/api/order-displays/public/${displayCode}/driver-devices/active`, {
+  const res = await fetch(`${API_BASE_URL}/api/order-displays/${displayCode}/driver-devices/active`, {
     headers: authHeaders(token),
   })
 
@@ -5089,7 +5089,7 @@ export async function revokePublicDriverDeviceSession(
   ok: boolean
   sessionId: string
 }> {
-  const res = await fetch(`${API_BASE_URL}/api/order-displays/public/${displayCode}/driver-devices/revoke`, {
+  const res = await fetch(`${API_BASE_URL}/api/order-displays/${displayCode}/driver-devices/revoke`, {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify({ sessionId }),
@@ -5164,7 +5164,7 @@ export async function updatePublicOrderDisplayOrderStatus(
   token?: string
 ): Promise<Order> {
   const res = await fetch(
-    `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/status`,
+    `${API_BASE_URL}/api/order-displays/${displayCode}/orders/${orderId}/status`,
     {
       method: 'POST',
       headers: authHeaders(token),
@@ -5191,7 +5191,7 @@ export async function dispatchPublicOrderDisplayOrder(
   token?: string
 ): Promise<Order> {
   const res = await fetch(
-    `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/dispatch`,
+    `${API_BASE_URL}/api/order-displays/${displayCode}/orders/${orderId}/dispatch`,
     {
       method: 'POST',
       headers: authHeaders(token),
@@ -5214,7 +5214,7 @@ export async function acceptPublicOrderDisplayOrder(
   token?: string
 ): Promise<Order> {
   const res = await fetch(
-    `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/accept`,
+    `${API_BASE_URL}/api/order-displays/${displayCode}/orders/${orderId}/accept`,
     {
       method: 'POST',
       headers: authHeaders(token),
@@ -5238,7 +5238,7 @@ export async function updatePublicOrderDisplayItemStatus(
   token?: string
 ): Promise<Order> {
   const res = await fetch(
-    `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/items/${itemId}/status`,
+    `${API_BASE_URL}/api/order-displays/${displayCode}/orders/${orderId}/items/${itemId}/status`,
     {
       method: 'POST',
       headers: authHeaders(token),
@@ -5261,7 +5261,7 @@ export async function updatePublicOrderDisplayPaymentStatus(
   token?: string
 ): Promise<Order> {
   const res = await fetch(
-    `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/payment`,
+    `${API_BASE_URL}/api/order-displays/${displayCode}/orders/${orderId}/payment`,
     {
       method: 'POST',
       headers: authHeaders(token),

@@ -53,6 +53,54 @@ import { dispatchOrder, validateDispatchReadiness } from '../lib/order-dispatch'
 
 const router = Router()
 
+const ORDER_DISPLAY_DRIVER_DEVICE_SESSION_ROUTES: string[] = [
+  '/:displayCode/driver-devices/session',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/driver-devices/session',
+]
+
+const ORDER_DISPLAY_DRIVER_DEVICE_ACTIVE_ROUTES: string[] = [
+  '/:displayCode/driver-devices/active',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/driver-devices/active',
+]
+
+const ORDER_DISPLAY_DRIVER_DEVICE_REVOKE_ROUTES: string[] = [
+  '/:displayCode/driver-devices/revoke',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/driver-devices/revoke',
+]
+
+const ORDER_DISPLAY_ORDER_STATUS_ROUTES: string[] = [
+  '/:displayCode/orders/:orderId/status',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/orders/:orderId/status',
+]
+
+const ORDER_DISPLAY_ORDER_ITEM_STATUS_ROUTES: string[] = [
+  '/:displayCode/orders/:orderId/items/:itemId/status',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/orders/:orderId/items/:itemId/status',
+]
+
+const ORDER_DISPLAY_ORDER_PAYMENT_ROUTES: string[] = [
+  '/:displayCode/orders/:orderId/payment',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/orders/:orderId/payment',
+]
+
+const ORDER_DISPLAY_ORDER_ACCEPT_ROUTES: string[] = [
+  '/:displayCode/orders/:orderId/accept',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/orders/:orderId/accept',
+]
+
+const ORDER_DISPLAY_ORDER_DISPATCH_ROUTES: string[] = [
+  '/:displayCode/orders/:orderId/dispatch',
+  // deprecated compatibility route, auth required
+  '/public/:displayCode/orders/:orderId/dispatch',
+]
+
 type DisplayOrderComplaintEntry = {
   id: string
   message: string
@@ -1400,7 +1448,7 @@ router.get('/public/:displayCode/orders/:orderId/receipt-jobs', async (req, res)
 })
 
 router.post(
-  '/public/:displayCode/driver-devices/session',
+  ORDER_DISPLAY_DRIVER_DEVICE_SESSION_ROUTES,
   requirePermission(PermissionKey.ORDERS_WRITE),
   rateLimitDisplayPairing,
   async (req, res) => {
@@ -1517,7 +1565,7 @@ router.post(
 })
 
 router.get(
-  '/public/:displayCode/driver-devices/active',
+  ORDER_DISPLAY_DRIVER_DEVICE_ACTIVE_ROUTES,
   requirePermission(PermissionKey.ORDERS_READ),
   async (req, res) => {
   try {
@@ -1565,7 +1613,7 @@ router.get(
 })
 
 router.post(
-  '/public/:displayCode/driver-devices/revoke',
+  ORDER_DISPLAY_DRIVER_DEVICE_REVOKE_ROUTES,
   requirePermission(PermissionKey.ORDERS_WRITE),
   async (req, res) => {
   try {
@@ -1633,7 +1681,7 @@ router.post(
 })
 
 router.post(
-  '/public/:displayCode/orders/:orderId/status',
+  ORDER_DISPLAY_ORDER_STATUS_ROUTES,
   requirePermission(PermissionKey.ORDERS_WRITE),
   async (req, res) => {
   try {
@@ -1873,7 +1921,7 @@ router.post(
 })
 
 router.post(
-  '/public/:displayCode/orders/:orderId/items/:itemId/status',
+  ORDER_DISPLAY_ORDER_ITEM_STATUS_ROUTES,
   requirePermission(PermissionKey.ORDERS_WRITE),
   async (req, res) => {
   try {
@@ -2069,7 +2117,7 @@ router.post(
 })
 
 router.post(
-  '/public/:displayCode/orders/:orderId/payment',
+  ORDER_DISPLAY_ORDER_PAYMENT_ROUTES,
   requirePermission(PermissionKey.ORDERS_WRITE),
   async (req, res) => {
   try {
@@ -2200,7 +2248,7 @@ router.post(
 })
 
 router.post(
-  '/public/:displayCode/orders/:orderId/accept',
+  ORDER_DISPLAY_ORDER_ACCEPT_ROUTES,
   requirePermission(PermissionKey.ORDERS_WRITE),
   async (req, res) => {
   try {
@@ -2368,7 +2416,7 @@ router.post(
 })
 
 router.post(
-  '/public/:displayCode/orders/:orderId/dispatch',
+  ORDER_DISPLAY_ORDER_DISPATCH_ROUTES,
   requirePermission(PermissionKey.ORDERS_WRITE),
   async (req, res) => {
   try {
