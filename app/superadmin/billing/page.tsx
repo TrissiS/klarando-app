@@ -1242,10 +1242,10 @@ export default function SuperadminBillingPage() {
                   type="button"
                   onClick={() => void handleFinalizeInvoicePreview()}
                   disabled={!canFinalizePreview}
-                  className={`mt-4 w-full rounded-xl border px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  className={`mt-4 w-full rounded-xl border px-4 py-3 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed ${
                     canFinalizePreview
-                      ? 'border-[var(--brand-strong)] bg-[var(--brand-strong)] hover:opacity-95'
-                      : 'border-slate-400 bg-slate-500'
+                      ? 'border-slate-950 bg-slate-950 text-white hover:bg-slate-800 hover:border-slate-800'
+                      : 'border-slate-300 bg-slate-200 text-slate-700'
                   }`}
                 >
                   {previewFinalizing ? 'Finalisiert…' : 'Rechnung finalisieren'}
