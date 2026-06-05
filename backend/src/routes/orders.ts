@@ -51,6 +51,7 @@ import {
   isDriverAssignmentMatch,
   resolveDriverAssignmentIdentity,
 } from '../lib/driver-assignment'
+import { buildOrderTrackingReadModel } from '../lib/order-tracking-read-model'
 
 const router = Router()
 
@@ -1945,16 +1946,22 @@ router.get('/:orderId/live-tracking', async (req, res) => {
     const latestDriverLocations = await loadLatestDriverLocationByOrderId([order.id])
     const issueStateByOrderId = await loadOrderIssueStateByOrderId([order.id])
     const driverLocation = latestDriverLocations.get(order.id) ?? null
+    const trackingReadModel = buildOrderTrackingReadModel(order)
     console.info('CUSTOMER_LIVE_TRACKING_RESPONSE', {
       orderId: order.id,
       tenantId: order.tenantId,
-      status: order.status,
+      status: trackingReadModel.orderStatus,
+      customerVisibleStatus: trackingReadModel.customerVisibleStatus,
       driverLocationPresent: driverLocation !== null,
       driverLocationUpdatedAt: driverLocation?.updatedAt ?? null,
     })
 
     return res.json({
       ...order,
+      trackingReadModel,
+      customerVisibleStatus: trackingReadModel.customerVisibleStatus,
+      customerVisibleLabel: trackingReadModel.customerVisibleLabel,
+      timeline: trackingReadModel.timeline,
       driverLocation,
       tracking: {
         driverLocationAvailable: driverLocation !== null,
@@ -4717,6 +4724,7 @@ router.get('/driver/assigned', async (req, res) => {
       },
       orders: orders.map((entry) => ({
         ...entry,
+        trackingReadModel: buildOrderTrackingReadModel(entry),
         driverLocation: latestDriverLocations.get(entry.id) ?? null,
         complaintOpen: issueStateByOrderId.get(entry.id)?.complaintOpen ?? false,
         complaintCount: issueStateByOrderId.get(entry.id)?.complaintCount ?? 0,
