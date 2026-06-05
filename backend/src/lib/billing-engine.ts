@@ -55,7 +55,9 @@ export type TenantBillingCalculation = {
   fixedFeePerOrderCents: number
   fixedFeesCents: number
   totalFeeNetCents: number
-  vatRatePercent: number
+  vatRatePercent: number | null
+  vatCountry: string | null
+  vatSource: 'BILLING_MASTER' | 'MISSING'
   vatCents: number
   totalFeeGrossCents: number
   marginNetCents: number
@@ -98,7 +100,9 @@ export type BillingInvoicePreview = {
   positions: BillingInvoicePreviewLineItem[]
   totals: {
     netAmountCents: number
-    vatRatePercent: number
+    vatRatePercent: number | null
+    vatCountry: string | null
+    vatSource: 'BILLING_MASTER' | 'MISSING'
     vatAmountCents: number
     grossAmountCents: number
   }
@@ -137,15 +141,17 @@ type BillingPricingNotesMeta = {
   packageMonthlyFeeCents: number
   moduleFees: Array<{ key: string; label: string; monthlyFeeCents: number; enabled: boolean }>
   minimumMonthlyFeeCents: number
+  vatRatePercent: number | null
 }
 
 function parseBillingPricingNotes(notes: string | null | undefined): BillingPricingNotesMeta {
   if (!notes) {
-    return {
-      packageMonthlyFeeCents: 0,
-      moduleFees: [],
-      minimumMonthlyFeeCents: 0,
-    }
+      return {
+        packageMonthlyFeeCents: 0,
+        moduleFees: [],
+        minimumMonthlyFeeCents: 0,
+        vatRatePercent: null,
+      }
   }
 
   try {
@@ -154,10 +160,12 @@ function parseBillingPricingNotes(notes: string | null | undefined): BillingPric
         packageMonthlyFeeCents?: unknown
         minimumMonthlyFeeCents?: unknown
         moduleFees?: unknown
+        vatRatePercent?: unknown
       }
       packageMonthlyFeeCents?: unknown
       minimumMonthlyFeeCents?: unknown
       moduleFees?: unknown
+      vatRatePercent?: unknown
     }
 
     const rawPricing =
@@ -170,6 +178,12 @@ function parseBillingPricingNotes(notes: string | null | undefined): BillingPric
     return {
       packageMonthlyFeeCents: Math.max(0, Number(rawPricing?.packageMonthlyFeeCents || 0) || 0),
       minimumMonthlyFeeCents: Math.max(0, Number(rawPricing?.minimumMonthlyFeeCents || 0) || 0),
+      vatRatePercent:
+        rawPricing?.vatRatePercent === null || rawPricing?.vatRatePercent === undefined || rawPricing?.vatRatePercent === ''
+          ? null
+          : Number.isFinite(Number(rawPricing.vatRatePercent))
+            ? Math.max(0, Number(rawPricing.vatRatePercent))
+            : null,
       moduleFees: rawModuleFees
         .map((entry) => {
           if (!entry || typeof entry !== 'object') return null
@@ -196,6 +210,7 @@ function parseBillingPricingNotes(notes: string | null | undefined): BillingPric
       packageMonthlyFeeCents: 0,
       moduleFees: [],
       minimumMonthlyFeeCents: 0,
+      vatRatePercent: null,
     }
   }
 }
@@ -227,6 +242,30 @@ function invoiceStatusToBillingStatus(status: InvoiceStatus | null): TenantBilli
   if (upper === 'PAID') return 'INVOICE_PAID'
   if (upper === 'ISSUED' || upper === 'SENT' || upper === 'OVERDUE') return 'INVOICE_OPEN'
   return null
+}
+
+function resolveTenantVatConfiguration(input: {
+  billingProfile:
+    | {
+        countryCode?: string | null
+      }
+    | null
+  pricingMeta: BillingPricingNotesMeta
+}) {
+  const vatCountry =
+    typeof input.billingProfile?.countryCode === 'string' && input.billingProfile.countryCode.trim().length > 0
+      ? input.billingProfile.countryCode.trim().toUpperCase()
+      : null
+  const vatRatePercent =
+    typeof input.pricingMeta.vatRatePercent === 'number' && Number.isFinite(input.pricingMeta.vatRatePercent)
+      ? Math.max(0, input.pricingMeta.vatRatePercent)
+      : null
+
+  return {
+    vatRatePercent,
+    vatCountry,
+    vatSource: vatRatePercent === null ? ('MISSING' as const) : ('BILLING_MASTER' as const),
+  }
 }
 
 export async function calculateTenantBilling(tenantId: string, period: BillingMonthPeriod): Promise<TenantBillingCalculation | null> {
@@ -284,8 +323,12 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
   const effectiveRevenuePerOrderCents =
     billableOrders > 0 ? Math.round(monthlyTotalRevenueCents / billableOrders) : monthlyTotalRevenueCents
   const totalFeeNetCents = monthlyFeeCents + commissionCents + fixedFeesCents
-  const vatRatePercent = 19
-  const vatCents = Math.round(totalFeeNetCents * (vatRatePercent / 100))
+  const vatConfiguration = resolveTenantVatConfiguration({
+    billingProfile: tenant.billingProfile,
+    pricingMeta,
+  })
+  const vatRatePercent = vatConfiguration.vatRatePercent
+  const vatCents = vatRatePercent === null ? 0 : Math.round(totalFeeNetCents * (vatRatePercent / 100))
   const totalFeeGrossCents = totalFeeNetCents + vatCents
 
   const latestInvoice = await prisma.invoice.findFirst({
@@ -302,6 +345,9 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
   if (!tenant.billingProfile?.invoiceEmail) warnings.push('Rechnungs-E-Mail fehlt.')
   if (!tenant.billingProfile?.vatId) warnings.push('USt-IdNr. fehlt (optional, aber empfohlen).')
   if (!plan?.isActive) warnings.push('Kein aktiver Billing-Plan hinterlegt.')
+  if (vatRatePercent === null) {
+    warnings.push('MwSt.-Satz fehlt in der serverseitigen Billing-Masterquelle.')
+  }
   for (const note of usage.countingNotes) {
     warnings.push(`Nutzungszaehlung: ${note}`)
   }
@@ -353,6 +399,8 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
     fixedFeesCents,
     totalFeeNetCents,
     vatRatePercent,
+    vatCountry: vatConfiguration.vatCountry,
+    vatSource: vatConfiguration.vatSource,
     vatCents,
     totalFeeGrossCents,
     marginNetCents: totalFeeNetCents,
@@ -511,14 +559,22 @@ export async function buildBillingInvoicePreview(
   if (calculation.netOrderValueCents === null) {
     warnings.push('Netto aus Orderdaten ist derzeit nicht sicher berechenbar.')
   }
+  if (calculation.vatRatePercent === null) {
+    warnings.push('MwSt.-Konfiguration fehlt oder ist unklar.')
+  }
 
   const criticalWarnings = warnings.filter((warning) =>
     warning.includes('Rechnungsadresse fehlt') ||
     warning.includes('Rechnungsadresse ist unvollständig') ||
     warning.includes('Zahlungsart fehlt') ||
     warning.includes('Zahlungsziel fehlt') ||
-    warning.includes('Keine abrechnungsrelevanten Bestellungen')
+    warning.includes('Keine abrechnungsrelevanten Bestellungen') ||
+    warning.includes('MwSt.-')
   )
+
+  const vatRatePercent = calculation.vatRatePercent
+  const vatAmountCents =
+    vatRatePercent === null ? 0 : Math.round(calculation.monthlyTotalRevenueCents * (vatRatePercent / 100))
 
   return {
     tenant: {
@@ -535,11 +591,11 @@ export async function buildBillingInvoicePreview(
     positions,
     totals: {
       netAmountCents: calculation.monthlyTotalRevenueCents,
-      vatRatePercent: calculation.vatRatePercent,
-      vatAmountCents: Math.round(calculation.monthlyTotalRevenueCents * (calculation.vatRatePercent / 100)),
-      grossAmountCents:
-        calculation.monthlyTotalRevenueCents +
-        Math.round(calculation.monthlyTotalRevenueCents * (calculation.vatRatePercent / 100)),
+      vatRatePercent,
+      vatCountry: calculation.vatCountry,
+      vatSource: calculation.vatSource,
+      vatAmountCents,
+      grossAmountCents: calculation.monthlyTotalRevenueCents + vatAmountCents,
     },
     usage: {
       billableOrders: calculation.billableOrders,
@@ -653,7 +709,10 @@ export async function createInvoiceDraftFromCalculation(input: {
   const periodEndInclusive = new Date(period.periodEnd.getTime() - 1)
   const invoiceItems = buildInvoiceDraftLineItems(tenantCalculation)
   const subTotalCents = tenantCalculation.monthlyTotalRevenueCents
-  const taxTotalCents = Math.round(subTotalCents * (tenantCalculation.vatRatePercent / 100))
+  const taxTotalCents =
+    tenantCalculation.vatRatePercent === null
+      ? 0
+      : Math.round(subTotalCents * (tenantCalculation.vatRatePercent / 100))
   const totalGrossCents = subTotalCents + taxTotalCents
   const calcSnapshot = {
     periodKey: period.key,
@@ -673,8 +732,13 @@ export async function createInvoiceDraftFromCalculation(input: {
     commissionCents: tenantCalculation.commissionCents,
     fixedFeePerOrderCents: tenantCalculation.fixedFeePerOrderCents,
     fixedFeesCents: tenantCalculation.fixedFeesCents,
-    totalFeeNetCents: subTotalCents,
+    netTotalCents: subTotalCents,
     vatRatePercent: tenantCalculation.vatRatePercent,
+    vatCountry: tenantCalculation.vatCountry,
+    vatSource: tenantCalculation.vatSource,
+    taxTotalCents,
+    grossTotalCents: totalGrossCents,
+    totalFeeNetCents: subTotalCents,
     vatCents: taxTotalCents,
     totalFeeGrossCents: totalGrossCents,
     warnings: tenantCalculation.warnings,
@@ -736,6 +800,14 @@ export async function createInvoiceDraftFromCalculation(input: {
         calculationSnapshot: calcSnapshot,
         calculationHash: calcHash,
         billingProfileSnapshot,
+        vatSnapshot: {
+          vatRatePercent: tenantCalculation.vatRatePercent,
+          vatCountry: tenantCalculation.vatCountry,
+          vatSource: tenantCalculation.vatSource,
+          taxTotalCents,
+          netTotalCents: subTotalCents,
+          grossTotalCents: totalGrossCents,
+        },
         draftLocked: true,
         finalizationLocked: false,
         historyVersion: 1,
@@ -772,7 +844,10 @@ export async function createInvoiceDraftFromCalculation(input: {
     })
 
     for (const [index, row] of invoiceItems.entries()) {
-      const taxAmountCents = Math.round(row.netAmountCents * (tenantCalculation.vatRatePercent / 100))
+      const taxAmountCents =
+        tenantCalculation.vatRatePercent === null
+          ? 0
+          : Math.round(row.netAmountCents * (tenantCalculation.vatRatePercent / 100))
       await tx.invoiceItem.create({
         data: {
           invoiceId: invoice.id,
@@ -780,7 +855,7 @@ export async function createInvoiceDraftFromCalculation(input: {
           title: row.title,
           quantity: row.quantity,
           unitPriceCents: Math.max(0, row.unitPriceCents),
-          taxRatePercent: new Prisma.Decimal(tenantCalculation.vatRatePercent),
+          taxRatePercent: new Prisma.Decimal(tenantCalculation.vatRatePercent ?? 0),
           netAmountCents: Math.max(0, row.netAmountCents),
           taxAmountCents: Math.max(0, taxAmountCents),
           grossAmountCents: Math.max(0, row.netAmountCents + taxAmountCents),
@@ -886,6 +961,14 @@ export async function finalizeInvoiceFromPreview(input: {
         finalizationSource: 'PREVIEW',
         finalizedAt: finalizedAt.toISOString(),
         finalizedByUserId: input.finalizedByUserId ?? null,
+        vatSnapshot: {
+          vatRatePercent: tenantCalculation.vatRatePercent,
+          vatCountry: tenantCalculation.vatCountry,
+          vatSource: tenantCalculation.vatSource,
+          taxTotalCents: draft.taxTotalCents,
+          netTotalCents: draft.subTotalCents,
+          grossTotalCents: draft.totalGrossCents,
+        },
       },
     },
     include: {

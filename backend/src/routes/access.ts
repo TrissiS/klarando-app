@@ -375,7 +375,7 @@ type TenantBillingPricingSource = {
   commissionAfterIncludedOrdersPercent: number | null
   fixedFeePerAdditionalOrderCents: number
   minimumMonthlyFeeCents: number
-  vatRatePercent: number
+  vatRatePercent: number | null
   activeFrom: string
   activeUntil: string | null
   paymentTermsDays: number
@@ -476,7 +476,12 @@ function buildTenantBillingPricingSource(input: {
     commissionAfterIncludedOrdersPercent,
     fixedFeePerAdditionalOrderCents,
     minimumMonthlyFeeCents: Math.max(0, parseOptionalInt(pricingMeta?.minimumMonthlyFeeCents) ?? 0),
-    vatRatePercent: Math.max(0, Number(pricingMeta?.vatRatePercent ?? 19)),
+    vatRatePercent:
+      pricingMeta?.vatRatePercent === null || pricingMeta?.vatRatePercent === undefined || pricingMeta?.vatRatePercent === ''
+        ? null
+        : Number.isFinite(Number(pricingMeta.vatRatePercent))
+          ? Math.max(0, Number(pricingMeta.vatRatePercent))
+          : null,
     activeFrom:
       input.plan.activeFrom instanceof Date
         ? input.plan.activeFrom.toISOString()
@@ -3386,8 +3391,12 @@ router.put('/billing/tenant/:tenantId', requirePermission(PermissionKey.SETTINGS
     const profilePaymentTermsDays = parseOptionalInt(body.profilePaymentTermsDays)
     const profileSepaActive = parseOptionalBoolean(body.profileSepaActive)
     const minimumMonthlyFeeCents = Math.max(0, parseOptionalInt(body.minimumMonthlyFeeCents) ?? 0)
-    const vatRatePercentRaw = Number(body.vatRatePercent ?? 19)
-    const vatRatePercent = Number.isFinite(vatRatePercentRaw) ? Math.max(0, vatRatePercentRaw) : 19
+    const vatRatePercentRaw =
+      body.vatRatePercent === null || body.vatRatePercent === undefined || body.vatRatePercent === ''
+        ? null
+        : Number(body.vatRatePercent)
+    const vatRatePercent =
+      vatRatePercentRaw !== null && Number.isFinite(vatRatePercentRaw) ? Math.max(0, vatRatePercentRaw) : null
     const packageMonthlyFeeCents = Math.max(0, parseOptionalInt(body.packageMonthlyFeeCents) ?? 0)
     const moduleFees = parseBillingModuleFees(body.moduleFees)
     const legacyPlanNotesText = parseScopedId(body.legacyPlanNotesText) ?? parseScopedId(body.notes)

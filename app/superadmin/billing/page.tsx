@@ -52,6 +52,13 @@ function toNumber(value: string, fallback = 0) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : fallback
 }
 
+function toOptionalNumber(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed.length) return null
+  const parsed = Number(trimmed.replace(',', '.'))
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : null
+}
+
 type PricingFormState = {
   monthlyBaseFeeEuro: string
   includedOrders: string
@@ -95,7 +102,7 @@ function buildFormState(pricingSource: TenantBillingPricingSource): PricingFormS
       pricingSource.fixedFeePerAdditionalOrderCents ?? 0
     ),
     minimumMonthlyFeeEuro: centsToInput(pricingSource.minimumMonthlyFeeCents ?? 0),
-    vatRatePercent: String(pricingSource.vatRatePercent ?? 19),
+    vatRatePercent: pricingSource.vatRatePercent === null ? '' : String(pricingSource.vatRatePercent),
     paymentTermsDays: String(pricingSource.paymentTermsDays ?? 14),
     packageKey: pricingSource.packageKey || '',
     packageLabel: pricingSource.packageLabel || '',
@@ -322,7 +329,7 @@ export default function SuperadminBillingPage() {
         profilePaymentProviderStatus: tenantConfig.billingProfile.paymentProviderStatus || null,
         sepaMandateReference: tenantConfig.billingProfile.sepaMandateReference || null,
         minimumMonthlyFeeCents: euroToCents(pricingForm.minimumMonthlyFeeEuro),
-        vatRatePercent: toNumber(pricingForm.vatRatePercent, tenantConfig.pricingSource.vatRatePercent),
+        vatRatePercent: toOptionalNumber(pricingForm.vatRatePercent),
         packageKey: pricingForm.packageKey || null,
         packageLabel: pricingForm.packageLabel || null,
         packageMonthlyFeeCents: euroToCents(pricingForm.packageMonthlyFeeEuro),
@@ -912,7 +919,9 @@ export default function SuperadminBillingPage() {
                       <td className="px-2 py-2 font-medium text-slate-900">{centsToEuro(invoicePreview.totals.netAmountCents)}</td>
                     </tr>
                     <tr className="bg-slate-50">
-                      <td className="px-2 py-2 text-slate-700">MwSt. ({invoicePreview.totals.vatRatePercent.toFixed(2)}%)</td>
+                      <td className="px-2 py-2 text-slate-700">
+                        MwSt. ({invoicePreview.totals.vatRatePercent === null ? 'fehlt' : `${invoicePreview.totals.vatRatePercent.toFixed(2)}%`})
+                      </td>
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2" />
                       <td className="px-2 py-2 text-slate-700">{centsToEuro(invoicePreview.totals.vatAmountCents)}</td>
@@ -949,6 +958,31 @@ export default function SuperadminBillingPage() {
                     {centsToEuro(invoicePreview.usage.effectiveRevenuePerOrderCents)}
                   </p>
                 </div>
+              </div>
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <p className="font-semibold text-slate-900">MwSt.-Quelle</p>
+                <p className="mt-2">
+                  Verwendeter Satz:{' '}
+                  <span className="font-medium text-slate-900">
+                    {invoicePreview.totals.vatRatePercent === null
+                      ? 'nicht konfiguriert'
+                      : `${invoicePreview.totals.vatRatePercent.toFixed(2)} %`}
+                  </span>
+                </p>
+                <p className="mt-1">
+                  Quelle:{' '}
+                  <span className="font-medium text-slate-900">
+                    {invoicePreview.totals.vatSource === 'BILLING_MASTER'
+                      ? 'Billing-Masterquelle (Tarife & Module)'
+                      : 'keine belastbare MwSt.-Konfiguration'}
+                  </span>
+                </p>
+                <p className="mt-1">
+                  Land:{' '}
+                  <span className="font-medium text-slate-900">
+                    {invoicePreview.totals.vatCountry || 'nicht hinterlegt'}
+                  </span>
+                </p>
               </div>
               <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-semibold text-amber-900">Hinweise & Warnungen</p>

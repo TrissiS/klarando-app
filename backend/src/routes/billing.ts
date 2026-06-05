@@ -545,6 +545,20 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
     if (!canFinalizeInvoice(invoice.status)) {
       return res.status(409).json({ error: 'Finalisierte Rechnung darf nicht überschrieben werden' })
     }
+    const draftMetadata = (invoice.metadata as Record<string, unknown> | null) || {}
+    const vatSnapshot =
+      draftMetadata.vatSnapshot && typeof draftMetadata.vatSnapshot === 'object'
+        ? (draftMetadata.vatSnapshot as Record<string, unknown>)
+        : null
+    const vatRatePercent =
+      vatSnapshot && typeof vatSnapshot.vatRatePercent === 'number' && Number.isFinite(vatSnapshot.vatRatePercent)
+        ? vatSnapshot.vatRatePercent
+        : null
+    if (vatRatePercent === null) {
+      return res.status(409).json({
+        error: 'Rechnung kann ohne validen MwSt.-Satz nicht finalisiert werden.',
+      })
+    }
 
     const updated = await prisma.invoice.update({
       where: { id: invoice.id },
@@ -553,7 +567,7 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
         status: InvoiceStatus.ISSUED,
         issuedAt: new Date(),
         metadata: {
-          ...(invoice.metadata as Record<string, unknown> | null),
+          ...draftMetadata,
           lifecycleStatus: 'APPROVED',
           emailDeliveryStatus: 'pending',
           paymentStatus: 'PAYMENT_PLANNED',
@@ -765,6 +779,11 @@ router.get('/invoices', requirePermission(PermissionKey.ORDERS_READ), async (req
         return {
           ...invoice,
           lifecycleStatus,
+          vatSnapshot:
+            (invoice.metadata as Record<string, unknown> | null)?.vatSnapshot &&
+            typeof (invoice.metadata as Record<string, unknown>).vatSnapshot === 'object'
+              ? ((invoice.metadata as Record<string, unknown>).vatSnapshot as Record<string, unknown>)
+              : null,
           finalizedAt:
             typeof (invoice.metadata as Record<string, unknown> | null)?.finalizedAt === 'string'
               ? ((invoice.metadata as Record<string, unknown>).finalizedAt as string)

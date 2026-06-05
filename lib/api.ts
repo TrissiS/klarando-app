@@ -6269,7 +6269,7 @@ export type TenantBillingPricingSource = {
   commissionAfterIncludedOrdersPercent: number | null
   fixedFeePerAdditionalOrderCents: number
   minimumMonthlyFeeCents: number
-  vatRatePercent: number
+  vatRatePercent: number | null
   activeFrom: string
   activeUntil: string | null
   paymentTermsDays: number
@@ -6918,7 +6918,7 @@ export type BillingTenantRow = {
   fixedFeePerOrderCents: number
   fixedFeesCents: number
   totalFeeNetCents: number
-  vatRatePercent: number
+  vatRatePercent: number | null
   vatCents: number
   totalFeeGrossCents: number
   marginNetCents: number
@@ -6976,7 +6976,9 @@ export type BillingInvoicePreview = {
   }>
   totals: {
     netAmountCents: number
-    vatRatePercent: number
+    vatRatePercent: number | null
+    vatCountry: string | null
+    vatSource: 'BILLING_MASTER' | 'MISSING'
     vatAmountCents: number
     grossAmountCents: number
   }
@@ -7013,6 +7015,14 @@ export type BillingInvoice = {
   periodEnd: string
   issuedAt?: string | null
   finalizedAt?: string | null
+  vatSnapshot?: {
+    vatRatePercent: number | null
+    vatCountry: string | null
+    vatSource: 'BILLING_MASTER' | 'MISSING'
+    taxTotalCents: number
+    netTotalCents: number
+    grossTotalCents: number
+  } | null
   createdAt: string
   tenant?: { id: string; name: string } | null
   chain?: { id: string; name: string } | null
