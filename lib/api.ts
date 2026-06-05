@@ -7171,6 +7171,7 @@ export async function finalizeBillingInvoicePreview(
   periodEnd: string
   totalGrossCents: number
   itemsCount: number
+  invoice: BillingInvoice
 }> {
   return apiJson<{
     ok: boolean
@@ -7181,6 +7182,7 @@ export async function finalizeBillingInvoicePreview(
     periodEnd: string
     totalGrossCents: number
     itemsCount: number
+    invoice: BillingInvoice
   }>(
     buildApiUrl('/api/billing/invoices/finalize'),
     {

@@ -157,6 +157,90 @@ function resolveInvoiceLifecycleStatus(invoice: {
   return metadata.finalizationLocked === true && invoice.status !== InvoiceStatus.DRAFT
 }
 
+function serializeBillingInvoice(invoice: {
+  id: string
+  invoiceNumber: string
+  tenantId: string | null
+  chainId: string | null
+  recipientType: string
+  status: InvoiceStatus
+  totalGrossCents: number
+  openAmountCents: number
+  subTotalCents: number
+  taxTotalCents: number
+  currency?: string | null
+  periodStart: Date
+  periodEnd: Date
+  dueAt?: Date | null
+  issuedAt: Date | null
+  createdAt: Date
+  metadata?: Prisma.JsonValue | null
+  tenant?: { id: string; name: string } | null
+  chain?: { id: string; name: string } | null
+  items?: Array<{
+    id: string
+    lineNo: number
+    title: string
+    description: string | null
+    quantity: Prisma.Decimal | number | string
+    unitPriceCents: number
+    taxRatePercent: Prisma.Decimal | number | string
+    netAmountCents: number
+    taxAmountCents: number
+    grossAmountCents: number
+  }>
+  latestCollection?: {
+    id: string
+    status: string
+    dueAt: Date | null
+    failedAt: Date | null
+    failureReason: string | null
+    createdAt: Date
+  } | null
+}) {
+  const metadata =
+    invoice.metadata && typeof invoice.metadata === 'object' ? (invoice.metadata as Record<string, unknown>) : {}
+  const latestCollection = invoice.latestCollection || null
+  return {
+    ...invoice,
+    currency: invoice.currency || 'EUR',
+    lifecycleStatus: normalizeInvoiceLifecycleStatus({
+      invoiceStatus: invoice.status,
+      dueAt: invoice.dueAt || null,
+      hasPaymentCollection: Boolean(latestCollection),
+      paymentCollectionStatus: latestCollection?.status || null,
+    }),
+    billingProfileSnapshot:
+      metadata.billingProfileSnapshot && typeof metadata.billingProfileSnapshot === 'object'
+        ? (metadata.billingProfileSnapshot as Record<string, unknown>)
+        : null,
+    vatSnapshot:
+      metadata.vatSnapshot && typeof metadata.vatSnapshot === 'object'
+        ? (metadata.vatSnapshot as Record<string, unknown>)
+        : null,
+    finalizedAt:
+      typeof metadata.finalizedAt === 'string'
+        ? (metadata.finalizedAt as string)
+        : invoice.issuedAt?.toISOString() || null,
+    latestCollection: latestCollection
+      ? {
+          ...latestCollection,
+          dueAt: latestCollection.dueAt?.toISOString() || null,
+          failedAt: latestCollection.failedAt?.toISOString() || null,
+          createdAt: latestCollection.createdAt.toISOString(),
+        }
+      : null,
+    items: (invoice.items || []).map((item) => ({
+      ...item,
+      quantity: typeof item.quantity === 'object' && item.quantity && 'toString' in item.quantity ? item.quantity.toString() : item.quantity,
+      taxRatePercent:
+        typeof item.taxRatePercent === 'object' && item.taxRatePercent && 'toString' in item.taxRatePercent
+          ? item.taxRatePercent.toString()
+          : item.taxRatePercent,
+    })),
+  }
+}
+
 async function buildBillingInvoicePdf(input: {
   invoice: {
     id: string
@@ -816,19 +900,23 @@ router.post('/invoices/finalize', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Filiale nicht gefunden' })
     }
 
-    await writeAuditLog({
-      req,
-      module: 'billing',
-      action: 'INVOICE_PREVIEW_FINALIZED',
-      targetType: 'Invoice',
-      targetId: invoice.id,
-      tenantId: invoice.tenantId || undefined,
-      chainId: invoice.chainId || undefined,
-      metadata: {
-        invoiceNumber: invoice.invoiceNumber,
-        month: period.key,
-      },
-    })
+    try {
+      await writeAuditLog({
+        req,
+        module: 'billing',
+        action: 'INVOICE_PREVIEW_FINALIZED',
+        targetType: 'Invoice',
+        targetId: invoice.id,
+        tenantId: invoice.tenantId || undefined,
+        chainId: invoice.chainId || undefined,
+        metadata: {
+          invoiceNumber: invoice.invoiceNumber,
+          month: period.key,
+        },
+      })
+    } catch (auditError) {
+      console.error('POST FINALIZE INVOICE PREVIEW AUDIT ERROR:', auditError)
+    }
 
     return res.status(201).json({
       ok: true,
@@ -839,6 +927,14 @@ router.post('/invoices/finalize', requireAuth, async (req, res) => {
       periodEnd: invoice.periodEnd.toISOString(),
       totalGrossCents: invoice.totalGrossCents,
       itemsCount: invoice.items.length,
+      invoice: serializeBillingInvoice({
+        ...invoice,
+        dueAt: invoice.dueAt,
+        issuedAt: invoice.issuedAt,
+        createdAt: invoice.createdAt,
+        tenant: null,
+        chain: null,
+      }),
     })
   } catch (error) {
     const typedError = error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string; warnings?: string[] }
@@ -1173,35 +1269,13 @@ router.get('/invoices', requirePermission(PermissionKey.ORDERS_READ), async (req
       },
     })
     return res.json(
-      invoices.map((invoice) => {
-        const latestCollection = invoice.paymentCollections[0] || null
-        const lifecycleStatus = normalizeInvoiceLifecycleStatus({
-          invoiceStatus: invoice.status,
-          dueAt: invoice.dueAt,
-          hasPaymentCollection: Boolean(latestCollection),
-          paymentCollectionStatus: latestCollection?.status || null,
-        })
-        return {
+      invoices.map((invoice) =>
+        serializeBillingInvoice({
           ...invoice,
-          lifecycleStatus,
-          billingProfileSnapshot:
-            (invoice.metadata as Record<string, unknown> | null)?.billingProfileSnapshot &&
-            typeof (invoice.metadata as Record<string, unknown>).billingProfileSnapshot === 'object'
-              ? ((invoice.metadata as Record<string, unknown>).billingProfileSnapshot as Record<string, unknown>)
-              : null,
-          vatSnapshot:
-            (invoice.metadata as Record<string, unknown> | null)?.vatSnapshot &&
-            typeof (invoice.metadata as Record<string, unknown>).vatSnapshot === 'object'
-              ? ((invoice.metadata as Record<string, unknown>).vatSnapshot as Record<string, unknown>)
-              : null,
-          finalizedAt:
-            typeof (invoice.metadata as Record<string, unknown> | null)?.finalizedAt === 'string'
-              ? ((invoice.metadata as Record<string, unknown>).finalizedAt as string)
-              : invoice.issuedAt?.toISOString() || null,
-          latestCollection,
-          paymentCollections: undefined,
-        }
-      })
+          metadata: (invoice.metadata as Prisma.JsonValue | null) || null,
+          latestCollection: invoice.paymentCollections[0] || null,
+        })
+      )
     )
   } catch (error) {
     const scopedError = asTenantScopeError(error)

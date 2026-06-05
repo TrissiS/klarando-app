@@ -464,14 +464,22 @@ export default function SuperadminBillingPage() {
         tenantId: previewTenantId,
         month: previewMonth,
       })
-      const [summaryResult, tenantsResult, invoiceResult] = await Promise.all([
-        getBillingSummary(token, { month }),
-        getBillingTenants(token, { month }),
-        getBillingInvoices(token, { month }),
-      ])
-      setSummary(summaryResult)
-      setTenantRows(tenantsResult.rows)
-      setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
+      setFinalizedInvoices((current) => {
+        const next = [result.invoice, ...current.filter((invoice) => invoice.id !== result.invoice.id)]
+        return next.filter((invoice) => invoice.status !== 'DRAFT')
+      })
+      try {
+        const [summaryResult, tenantsResult, invoiceResult] = await Promise.all([
+          getBillingSummary(token, { month }),
+          getBillingTenants(token, { month }),
+          getBillingInvoices(token, { month }),
+        ])
+        setSummary(summaryResult)
+        setTenantRows(tenantsResult.rows)
+        setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
+      } catch (reloadCause) {
+        console.error('BILLING_FINALIZE_RELOAD_ERROR', reloadCause)
+      }
       setInfo(`Rechnung finalisiert: ${result.invoiceNumber}`)
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Rechnung konnte nicht finalisiert werden')
