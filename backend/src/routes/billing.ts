@@ -5,6 +5,7 @@ import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
 import {
+  assertInvoiceMutable,
   buildBillingInvoicePreview,
   calculateBillingSummary,
   calculateTenantBilling,
@@ -487,6 +488,10 @@ router.post('/runs', requireAuth, async (req, res) => {
         : undefined,
     })
   } catch (error) {
+    const typedError = error as Error & { code?: string }
+    if (typedError?.code === 'FINALIZED_INVOICE_LOCKED') {
+      return res.status(409).json({ error: typedError.message })
+    }
     console.error('POST BILLING RUN CREATE ERROR:', error)
     return res.status(500).json({ error: 'Monatsabrechnung konnte nicht erstellt werden' })
   }
@@ -556,6 +561,9 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
     })
   } catch (error) {
     const typedError = error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string; warnings?: string[] }
+    if (typedError?.code === 'FINALIZED_INVOICE_LOCKED') {
+      return res.status(409).json({ error: typedError.message })
+    }
     if (typedError?.code === 'FINAL_INVOICE_EXISTS') {
       return res.status(409).json({
         error: typedError.message,
@@ -892,32 +900,41 @@ router.get('/superadmin/preview', requireAuth, async (req, res) => {
 })
 
 router.post('/superadmin/finalize', requireAuth, async (req, res) => {
-  if (req.authUser?.role !== UserRole.SUPERADMIN) {
-    return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
-  }
-  const period = parseBillingMonthOrCurrent(req.body?.period)
-  const tenants = await prisma.tenant.findMany({ select: { id: true } })
-  const rows = (
-    await Promise.all(tenants.map((tenant) => calculateTenantBilling(tenant.id, period)))
-  ).filter((row): row is NonNullable<typeof row> => Boolean(row))
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const period = parseBillingMonthOrCurrent(req.body?.period)
+    const tenants = await prisma.tenant.findMany({ select: { id: true } })
+    const rows = (
+      await Promise.all(tenants.map((tenant) => calculateTenantBilling(tenant.id, period)))
+    ).filter((row): row is NonNullable<typeof row> => Boolean(row))
 
-  const billingRun = await prisma.billingRun.create({
-    data: {
-      periodStart: period.periodStart,
-      periodEnd: new Date(period.periodEnd.getTime() - 1),
-      status: InvoiceStatus.DRAFT,
-    },
-  })
-  const created: string[] = []
-  for (const row of rows) {
-    const invoice = await createInvoiceDraftFromCalculation({
-      billingRunId: billingRun.id,
-      period,
-      tenantCalculation: row,
+    const billingRun = await prisma.billingRun.create({
+      data: {
+        periodStart: period.periodStart,
+        periodEnd: new Date(period.periodEnd.getTime() - 1),
+        status: InvoiceStatus.DRAFT,
+      },
     })
-    created.push(invoice.id)
+    const created: string[] = []
+    for (const row of rows) {
+      const invoice = await createInvoiceDraftFromCalculation({
+        billingRunId: billingRun.id,
+        period,
+        tenantCalculation: row,
+      })
+      created.push(invoice.id)
+    }
+    return res.status(201).json({ billingRunId: billingRun.id, invoicesCreated: created.length })
+  } catch (error) {
+    const typedError = error as Error & { code?: string }
+    if (typedError?.code === 'FINALIZED_INVOICE_LOCKED') {
+      return res.status(409).json({ error: typedError.message })
+    }
+    console.error('POST BILLING SUPERADMIN FINALIZE ERROR:', error)
+    return res.status(500).json({ error: 'Rechnungsentwürfe konnten nicht erstellt werden' })
   }
-  return res.status(201).json({ billingRunId: billingRun.id, invoicesCreated: created.length })
 })
 
 router.post('/invoices/:invoiceId/cancel', requireAuth, async (req, res) => {
@@ -931,6 +948,7 @@ router.post('/invoices/:invoiceId/cancel', requireAuth, async (req, res) => {
     if (!invoice) {
       return res.status(404).json({ error: 'Rechnung nicht gefunden' })
     }
+    assertInvoiceMutable(invoice)
     if (!canCancelInvoice(invoice.status)) {
       return res.status(409).json({ error: 'Rechnung kann in diesem Status nicht storniert werden' })
     }
@@ -957,6 +975,10 @@ router.post('/invoices/:invoiceId/cancel', requireAuth, async (req, res) => {
     })
     return res.json({ ok: true, invoiceId: updated.id, status: updated.status })
   } catch (error) {
+    const typedError = error as Error & { code?: string }
+    if (typedError?.code === 'FINALIZED_INVOICE_LOCKED') {
+      return res.status(409).json({ error: typedError.message })
+    }
     console.error('POST BILLING CANCEL INVOICE ERROR:', error)
     return res.status(500).json({ error: 'Rechnung konnte nicht storniert werden' })
   }

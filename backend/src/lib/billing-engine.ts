@@ -745,6 +745,25 @@ export async function createInvoiceDraftFromCalculation(input: {
   }
   const calcHash = crypto.createHash('sha256').update(JSON.stringify(calcSnapshot)).digest('hex')
   return prisma.$transaction(async (tx) => {
+    const lockedInvoiceForPeriod = await tx.invoice.findFirst({
+      where: {
+        tenantId: tenantCalculation.tenantId,
+        periodStart: period.periodStart,
+        periodEnd: periodEndInclusive,
+        ...(existingInvoiceId ? { id: { not: existingInvoiceId } } : {}),
+      },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        status: true,
+        metadata: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (lockedInvoiceForPeriod) {
+      assertInvoiceMutable(lockedInvoiceForPeriod)
+    }
+
     const tenant = await tx.tenant.findUnique({
       where: { id: tenantCalculation.tenantId },
       select: {
@@ -781,6 +800,22 @@ export async function createInvoiceDraftFromCalculation(input: {
           paymentTermsDays: tenant.billingProfile.paymentTermsDays,
         }
       : null
+
+    if (existingInvoiceId) {
+      const existingInvoice = await tx.invoice.findUnique({
+        where: { id: existingInvoiceId },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          metadata: true,
+        },
+      })
+      if (!existingInvoice) {
+        throw new Error('Entwurfsrechnung konnte nicht gefunden werden.')
+      }
+      assertInvoiceMutable(existingInvoice)
+    }
 
     const invoiceData = {
       tenantId: tenantCalculation.tenantId,
@@ -887,6 +922,40 @@ export function canFinalizeInvoice(status: InvoiceStatus) {
   return status === 'DRAFT'
 }
 
+type InvoiceMutabilityInput = {
+  id: string
+  status: InvoiceStatus
+  invoiceNumber?: string | null
+  metadata?: Prisma.JsonValue | null
+}
+
+function isInvoiceFinalizationLocked(invoice: Pick<InvoiceMutabilityInput, 'status' | 'metadata'>) {
+  const metadata =
+    invoice.metadata && typeof invoice.metadata === 'object' ? (invoice.metadata as Record<string, unknown>) : null
+  return (
+    metadata?.finalizationLocked === true ||
+    invoice.status === InvoiceStatus.ISSUED ||
+    invoice.status === InvoiceStatus.SENT ||
+    invoice.status === InvoiceStatus.PAID ||
+    invoice.status === InvoiceStatus.FAILED ||
+    invoice.status === InvoiceStatus.CANCELLED
+  )
+}
+
+export function assertInvoiceMutable(invoice: InvoiceMutabilityInput) {
+  if (!isInvoiceFinalizationLocked(invoice)) {
+    return
+  }
+  const error = new Error(
+    'Finalisierte Rechnungen sind gesperrt. Bitte Korrektur- oder Stornorechnung verwenden.'
+  )
+  ;(error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }).code = 'FINALIZED_INVOICE_LOCKED'
+  ;(error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }).invoiceId = invoice.id
+  ;(error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string }).invoiceNumber =
+    invoice.invoiceNumber ?? undefined
+  throw error
+}
+
 export async function finalizeInvoiceFromPreview(input: {
   tenantId: string
   period: BillingMonthPeriod
@@ -961,6 +1030,10 @@ export async function finalizeInvoiceFromPreview(input: {
         finalizationSource: 'PREVIEW',
         finalizedAt: finalizedAt.toISOString(),
         finalizedByUserId: input.finalizedByUserId ?? null,
+        sourcePreviewHash:
+          typeof ((draft.metadata as Record<string, unknown> | null) || {}).calculationHash === 'string'
+            ? (((draft.metadata as Record<string, unknown> | null) || {}).calculationHash as string)
+            : null,
         vatSnapshot: {
           vatRatePercent: tenantCalculation.vatRatePercent,
           vatCountry: tenantCalculation.vatCountry,
