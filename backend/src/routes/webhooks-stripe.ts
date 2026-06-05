@@ -3,6 +3,10 @@ import { PaymentProvider, PaymentStatus } from '@prisma/client'
 import StripeConstructor = require('stripe')
 import { prisma } from '../lib/prisma'
 import { getStripe } from '../lib/stripe'
+import {
+  buildOrderPaymentStatusUpdate,
+  normalizeOrderPaymentStatus,
+} from '../lib/order-status-transitions'
 
 const router = express.Router()
 
@@ -123,12 +127,25 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
     })
 
     if (tx.orderId) {
+      const order = await db.order.findUnique({
+        where: { id: tx.orderId },
+        select: {
+          paymentStatus: true,
+          paidAt: true,
+        },
+      })
+      const currentPaymentStatus = normalizeOrderPaymentStatus(order?.paymentStatus)
+      if (!order || !currentPaymentStatus) {
+        throw new Error(`Ungueltiger bestehender Zahlungsstatus fuer Bestellung ${tx.orderId}`)
+      }
       await db.order.update({
         where: { id: tx.orderId },
-        data: {
-          paymentStatus: 'PAID',
-          paidAt: new Date(),
-        },
+        data: buildOrderPaymentStatusUpdate({
+          currentStatus: currentPaymentStatus,
+          nextStatus: 'PAID',
+          now: new Date(),
+          preservePaidAt: order.paidAt,
+        }),
       })
     }
   })
@@ -163,11 +180,25 @@ async function handlePaymentIntentFailed(event: StripeEventLike) {
     })
 
     if (tx.orderId) {
+      const order = await db.order.findUnique({
+        where: { id: tx.orderId },
+        select: {
+          paymentStatus: true,
+          paidAt: true,
+        },
+      })
+      const currentPaymentStatus = normalizeOrderPaymentStatus(order?.paymentStatus)
+      if (!order || !currentPaymentStatus) {
+        throw new Error(`Ungueltiger bestehender Zahlungsstatus fuer Bestellung ${tx.orderId}`)
+      }
       await db.order.update({
         where: { id: tx.orderId },
-        data: {
-          paymentStatus: 'FAILED',
-        },
+        data: buildOrderPaymentStatusUpdate({
+          currentStatus: currentPaymentStatus,
+          nextStatus: 'FAILED',
+          now: new Date(),
+          preservePaidAt: order.paidAt,
+        }),
       })
     }
   })

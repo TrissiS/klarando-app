@@ -6,7 +6,6 @@ import {
   DISPLAY_BACKGROUND_MEDIA_MODES,
   DISPLAY_SORT_MODES,
   DISPLAY_STATUS_ANIMATION_MODES,
-  DISPLAY_STATUS_VALUES,
   clampAnimationDuration,
   clampAnnouncementDuration,
   clampDoneAutoHide,
@@ -39,6 +38,18 @@ import { buildCustomerReceiptJob80mm, buildKitchenReceiptJob80mm } from '../lib/
 import { encodeReceiptToEscPosBytes } from '../lib/escpos-encoder-80mm'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { rateLimitDisplayPairing } from '../middleware/rate-limit'
+import {
+  asOrderTransitionError,
+  buildOrderAcceptanceUpdate,
+  buildOrderDispatchUpdate,
+  buildOrderItemStatusUpdate,
+  buildOrderPaymentStatusUpdate,
+  buildOrderStatusUpdate,
+  deriveOrderStatusFromItemStatuses,
+  normalizeOrderItemProductionStatus,
+  normalizeOrderPaymentStatus,
+  normalizeOrderWorkflowStatus,
+} from '../lib/order-status-transitions'
 
 const router = Router()
 
@@ -377,6 +388,10 @@ router.get('/', requirePermission(PermissionKey.ORDERS_READ), async (req, res) =
 
     return res.json(displays.map(mapDisplayOutput))
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -609,6 +624,10 @@ router.post('/', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res)
 
     return res.status(201).json(mapDisplayOutput(created))
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -887,6 +906,10 @@ router.patch('/:id', requirePermission(PermissionKey.ORDERS_WRITE), async (req, 
 
     return res.json(mapDisplayOutput(updated))
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -937,6 +960,10 @@ router.delete('/:id', requirePermission(PermissionKey.ORDERS_WRITE), async (req,
 
     return res.json({ ok: true })
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -1476,6 +1503,10 @@ router.post(
       )}`,
     })
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -1520,6 +1551,10 @@ router.get(
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -1584,6 +1619,10 @@ router.post(
 
     return res.json({ ok: true, sessionId })
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -1608,7 +1647,8 @@ router.post(
       return res.status(400).json({ error: 'displayCode, orderId oder status fehlt' })
     }
 
-    if (!DISPLAY_STATUS_VALUES.has(status)) {
+    const normalizedStatus = normalizeOrderWorkflowStatus(status)
+    if (!normalizedStatus) {
       return res.status(400).json({ error: 'Ungueltiger Status' })
     }
 
@@ -1650,6 +1690,8 @@ router.post(
         kitchenDisplayId: true,
         pickupDisplayId: true,
         pickupNumber: true,
+        status: true,
+        acceptedAt: true,
       },
     })
 
@@ -1680,13 +1722,13 @@ router.post(
       return res.status(403).json({ error: 'Bestellung stammt nicht aus zugelassenem Terminal' })
     }
 
-    if (status === 'archived' && display.displayRole !== 'CASH') {
+    if (normalizedStatus === 'archived' && display.displayRole !== 'CASH') {
       return res.status(403).json({
         error: 'Archivierung ist nur am Kassendisplay zulaessig',
       })
     }
 
-    if (status === 'out_for_delivery') {
+    if (normalizedStatus === 'out_for_delivery') {
       if (display.displayRole !== 'CASH') {
         return res.status(403).json({
           error: 'Status Fahrer unterwegs darf nur am Kassendisplay gesetzt werden',
@@ -1699,12 +1741,17 @@ router.post(
       }
     }
 
+    const currentWorkflowStatus = normalizeOrderWorkflowStatus(existingOrder.status)
+    if (!currentWorkflowStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
+    }
+
     const shouldAssignPickupNumber =
       existingOrder.pickupNumber === null &&
-      (status === 'open' ||
-        status === 'preparing' ||
-        status === 'out_for_delivery' ||
-        status === 'done')
+      (normalizedStatus === 'open' ||
+        normalizedStatus === 'preparing' ||
+        normalizedStatus === 'out_for_delivery' ||
+        normalizedStatus === 'done')
     const resolvedPickupNumber = shouldAssignPickupNumber
       ? await generateNextPickupNumberForTenant(display.tenantId)
       : existingOrder.pickupNumber
@@ -1712,7 +1759,7 @@ router.post(
     let pickupAnnouncedAt: Date | null | undefined
     let pickupAnnounceUntil: Date | null | undefined
 
-    if (status === 'done' && existingOrder.pickupDisplayId && resolvedPickupNumber !== null) {
+    if (normalizedStatus === 'done' && existingOrder.pickupDisplayId && resolvedPickupNumber !== null) {
       const pickupDisplay = await prisma.orderDisplay.findUnique({
         where: { id: existingOrder.pickupDisplayId },
         select: {
@@ -1730,12 +1777,12 @@ router.post(
       }
     }
 
-    if (status === 'archived') {
+    if (normalizedStatus === 'archived') {
       pickupAnnouncedAt = null
       pickupAnnounceUntil = null
     }
 
-    if (status === 'done') {
+    if (normalizedStatus === 'done') {
       await prisma.orderItem.updateMany({
         where: {
           orderId,
@@ -1745,7 +1792,7 @@ router.post(
           productionDoneAt: new Date(),
         },
       })
-    } else if (status === 'open') {
+    } else if (normalizedStatus === 'open') {
       await prisma.orderItem.updateMany({
         where: {
           orderId,
@@ -1760,16 +1807,13 @@ router.post(
     const updated = await prisma.order.update({
       where: { id: orderId },
       data: {
-        status,
+        ...buildOrderStatusUpdate({
+          currentStatus: currentWorkflowStatus,
+          nextStatus: normalizedStatus,
+          now: new Date(),
+          currentAcceptedAt: existingOrder.acceptedAt,
+        }),
         pickupNumber: shouldAssignPickupNumber ? resolvedPickupNumber : undefined,
-        forwardedToKitchenAt:
-          status === 'open' ||
-          status === 'preparing' ||
-          status === 'out_for_delivery' ||
-          status === 'done'
-            ? new Date()
-            : undefined,
-        driverDepartedAt: status === 'out_for_delivery' ? new Date() : undefined,
         pickupAnnouncedAt,
         pickupAnnounceUntil,
       },
@@ -1802,6 +1846,10 @@ router.post(
 
     return res.json(updated)
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -1827,8 +1875,8 @@ router.post(
       return res.status(400).json({ error: 'displayCode, orderId, itemId oder status fehlt' })
     }
 
-    const normalizedItemStatus = normalizeText(status)?.toUpperCase()
-    if (normalizedItemStatus !== 'OPEN' && normalizedItemStatus !== 'DONE') {
+    const normalizedItemStatus = normalizeOrderItemProductionStatus(status)
+    if (!normalizedItemStatus) {
       return res.status(400).json({ error: 'Ungueltiger Item-Status (OPEN oder DONE)' })
     }
 
@@ -1870,6 +1918,7 @@ router.post(
         pickupDisplayId: true,
         pickupNumber: true,
         status: true,
+        acceptedAt: true,
       },
     })
 
@@ -1905,6 +1954,7 @@ router.post(
       select: {
         id: true,
         orderId: true,
+        productionStatus: true,
       },
     })
 
@@ -1913,25 +1963,31 @@ router.post(
     }
 
     const now = new Date()
+    const currentItemStatus = normalizeOrderItemProductionStatus(existingItem.productionStatus)
+    if (!currentItemStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Item-Status: ${String(existingItem.productionStatus)}` })
+    }
     await prisma.orderItem.update({
       where: { id: existingItem.id },
-      data: {
-        productionStatus: normalizedItemStatus,
-        productionDoneAt: normalizedItemStatus === 'DONE' ? now : null,
-      },
+      data: buildOrderItemStatusUpdate({
+        currentStatus: currentItemStatus,
+        nextStatus: normalizedItemStatus,
+        now,
+      }),
     })
 
     const itemStatuses = await prisma.orderItem.findMany({
       where: { orderId: existingOrder.id },
       select: { productionStatus: true },
     })
+    const normalizedItemStatuses = itemStatuses
+      .map((entry) => normalizeOrderItemProductionStatus(entry.productionStatus))
+      .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+    if (normalizedItemStatuses.length !== itemStatuses.length) {
+      return res.status(409).json({ error: 'Mindestens ein bestehender Item-Status ist ungueltig' })
+    }
 
-    const allDone =
-      itemStatuses.length > 0 &&
-      itemStatuses.every((entry) => entry.productionStatus.toUpperCase() === 'DONE')
-    const anyDone = itemStatuses.some((entry) => entry.productionStatus.toUpperCase() === 'DONE')
-
-    const nextStatus = allDone ? 'done' : anyDone ? 'preparing' : 'open'
+    const nextStatus = deriveOrderStatusFromItemStatuses(normalizedItemStatuses)
     const shouldAssignPickupNumber =
       existingOrder.pickupNumber === null &&
       (nextStatus === 'open' || nextStatus === 'preparing' || nextStatus === 'done')
@@ -1939,13 +1995,22 @@ router.post(
       ? await generateNextPickupNumberForTenant(display.tenantId)
       : existingOrder.pickupNumber
 
+    const currentWorkflowStatus = normalizeOrderWorkflowStatus(existingOrder.status)
+    if (!currentWorkflowStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
+    }
+
     if (nextStatus !== existingOrder.status || shouldAssignPickupNumber) {
       await prisma.order.update({
         where: { id: existingOrder.id },
         data: {
-          status: nextStatus,
+          ...buildOrderStatusUpdate({
+            currentStatus: currentWorkflowStatus,
+            nextStatus,
+            now: new Date(),
+            currentAcceptedAt: existingOrder.acceptedAt,
+          }),
           pickupNumber: shouldAssignPickupNumber ? resolvedPickupNumber : undefined,
-          forwardedToKitchenAt: new Date(),
         },
       })
     }
@@ -2040,6 +2105,7 @@ router.post(
         terminalId: true,
         cashDisplayId: true,
         paymentStatus: true,
+        paidAt: true,
       },
     })
 
@@ -2069,12 +2135,19 @@ router.post(
       })
     }
 
+    const currentPaymentStatus = normalizeOrderPaymentStatus(existingOrder.paymentStatus)
+    if (!currentPaymentStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Zahlungsstatus: ${String(existingOrder.paymentStatus)}` })
+    }
+
     const updated = await prisma.order.update({
       where: { id: orderId },
-      data: {
-        paymentStatus: paid ? 'PAID' : 'UNPAID',
-        paidAt: paid ? new Date() : null,
-      },
+      data: buildOrderPaymentStatusUpdate({
+        currentStatus: currentPaymentStatus,
+        nextStatus: paid ? 'PAID' : 'UNPAID',
+        now: new Date(),
+        preservePaidAt: existingOrder.paidAt,
+      }),
       include: {
         terminal: {
           select: {
@@ -2175,6 +2248,7 @@ router.post(
         cashDisplayId: true,
         pickupNumber: true,
         status: true,
+        acceptedAt: true,
       },
     })
 
@@ -2198,21 +2272,22 @@ router.post(
     }
 
     const now = new Date()
-    const estimatedReadyAt = new Date(now.getTime() + parsedEstimatedMinutes * 60 * 1000)
     const pickupNumber =
       existingOrder.pickupNumber ?? (await generateNextPickupNumberForTenant(display.tenantId))
+    const currentWorkflowStatus = normalizeOrderWorkflowStatus(existingOrder.status)
+    if (!currentWorkflowStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
+    }
 
     const updated = await prisma.order.update({
       where: { id: orderId },
-      data: {
-        acceptedAt: now,
+      data: buildOrderAcceptanceUpdate({
+        currentStatus: currentWorkflowStatus,
+        currentAcceptedAt: existingOrder.acceptedAt,
         estimatedMinutes: Math.round(parsedEstimatedMinutes),
-        estimatedReadyAt,
         pickupNumber,
-        status:
-          existingOrder.status === 'pending_payment' ? 'open' : existingOrder.status,
-        forwardedToKitchenAt: now,
-      },
+        now,
+      }),
       include: {
         terminal: {
           select: {
@@ -2356,6 +2431,8 @@ router.post(
         pickupNumber: true,
         acceptedAt: true,
         driverAssignedAt: true,
+        assignedDriverId: true,
+        assignedDriverName: true,
       },
     })
 
@@ -2426,24 +2503,25 @@ router.post(
     const now = new Date()
     const nextEstimatedMinutes =
       parsedEstimatedMinutes ?? existingOrder.estimatedMinutes ?? 30
-    const estimatedReadyAt = new Date(now.getTime() + nextEstimatedMinutes * 60 * 1000)
     const pickupNumber =
       existingOrder.pickupNumber ?? (await generateNextPickupNumberForTenant(display.tenantId))
+    const currentWorkflowStatus = normalizeOrderWorkflowStatus(existingOrder.status)
+    if (!currentWorkflowStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
+    }
 
     const updated = await prisma.order.update({
       where: { id: orderId },
-      data: {
-        status: 'out_for_delivery',
+      data: buildOrderDispatchUpdate({
+        currentStatus: currentWorkflowStatus,
+        currentAcceptedAt: existingOrder.acceptedAt,
+        currentDriverAssignedAt: existingOrder.driverAssignedAt,
+        estimatedMinutes: nextEstimatedMinutes,
+        pickupNumber,
         assignedDriverId: resolvedDriver?.id ?? null,
         assignedDriverName: normalizedDriverName ?? resolvedDriver?.name ?? null,
-        driverAssignedAt: existingOrder.driverAssignedAt ?? now,
-        driverDepartedAt: now,
-        acceptedAt: existingOrder.acceptedAt ?? now,
-        estimatedMinutes: nextEstimatedMinutes,
-        estimatedReadyAt,
-        pickupNumber,
-        forwardedToKitchenAt: now,
-      },
+        now,
+      }),
       include: {
         terminal: {
           select: {
@@ -2496,6 +2574,10 @@ router.post(
 
     return res.json(updated)
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })

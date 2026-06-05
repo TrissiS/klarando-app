@@ -31,20 +31,23 @@ import {
   listDriverDeviceSessionsForTenant,
   resolveDriverDeviceSession,
 } from '../lib/driver-device-sessions'
+import {
+  ORDER_PAYMENT_STATUSES,
+  ORDER_WORKFLOW_STATUSES,
+  asOrderTransitionError,
+  buildOrderAcceptanceUpdate,
+  buildOrderDispatchUpdate,
+  buildOrderPaymentStatusUpdate,
+  buildOrderStatusUpdate,
+  normalizeOrderPaymentStatus,
+  normalizeOrderWorkflowStatus,
+} from '../lib/order-status-transitions'
 
 const router = Router()
 
 const PAYMENT_METHODS = new Set(['CASH', 'CARD', 'PAYPAL', 'KLARNA'])
 const SOURCE_CHANNELS = new Set(['POS', 'TERMINAL', 'APP', 'DELIVERY', 'TABLET'])
 const APP_ORDER_CHANNELS = new Set(['APP', 'DELIVERY'])
-const ORDER_STATUSES = new Set([
-  'pending_payment',
-  'open',
-  'preparing',
-  'out_for_delivery',
-  'done',
-  'archived',
-])
 const RATING_COOLDOWN_MS = 60 * 60 * 1000
 const RATING_WINDOW_MS = 24 * 60 * 60 * 1000
 const PENDING_RATING_LOOKBACK_MS = 72 * 60 * 60 * 1000
@@ -59,8 +62,8 @@ const ORDER_MANAGEMENT_SOURCE_FILTERS = new Set([
   'TERMINAL_ONLY',
   ...SOURCE_CHANNELS,
 ])
-const ORDER_MANAGEMENT_STATUS_FILTERS = new Set(['all', ...ORDER_STATUSES])
-const ORDER_PAYMENT_STATUSES = new Set(['PAID', 'UNPAID', 'FAILED', 'REFUNDED'])
+const ORDER_MANAGEMENT_STATUS_FILTERS = new Set(['all', ...ORDER_WORKFLOW_STATUSES])
+const ORDER_PAYMENT_STATUS_FILTERS = new Set(ORDER_PAYMENT_STATUSES)
 const ORDER_SERVICE_TYPES = new Set(['DELIVERY', 'PICKUP', 'DINE_IN'])
 
 function parseCoordinate(value: unknown) {
@@ -133,7 +136,7 @@ function sanitizeOrderPaymentStatus(value: string | null) {
   if (!value) return null
   const normalized = value.toUpperCase()
   if (normalized === 'ALL') return null
-  return ORDER_PAYMENT_STATUSES.has(normalized) ? normalized : null
+  return ORDER_PAYMENT_STATUS_FILTERS.has(normalized as any) ? normalized : null
 }
 
 function sanitizeOrderServiceType(value: string | null) {
@@ -4431,17 +4434,22 @@ router.post('/driver/route-start', async (req, res) => {
       parsedEstimatedMinutes === null
         ? order.estimatedMinutes ?? 30
         : Math.round(parsedEstimatedMinutes)
-    const nextEstimatedReadyAt = new Date(now.getTime() + nextEstimatedMinutes * 60 * 1000)
-
+    const currentOrderStatus = normalizeOrderWorkflowStatus(order.status)
+    if (!currentOrderStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(order.status)}` })
+    }
     const updated = await prisma.order.update({
       where: { id: order.id },
-      data: {
-        status: 'out_for_delivery',
-        driverDepartedAt: now,
-        acceptedAt: order.acceptedAt ?? now,
+      data: buildOrderDispatchUpdate({
+        currentStatus: currentOrderStatus,
+        currentAcceptedAt: order.acceptedAt,
+        currentDriverAssignedAt: null,
         estimatedMinutes: nextEstimatedMinutes,
-        estimatedReadyAt: nextEstimatedReadyAt,
-      },
+        pickupNumber: null,
+        assignedDriverId: order.assignedDriverId,
+        assignedDriverName: order.assignedDriverName,
+        now,
+      }),
       include: {
         tenant: {
           select: {
@@ -4480,6 +4488,10 @@ router.post('/driver/route-start', async (req, res) => {
 
     return res.json(updated)
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     console.error('POST DRIVER ROUTE START ERROR:', error)
     return res.status(500).json({ error: 'Route-Start konnte nicht gespeichert werden' })
   }
@@ -4547,13 +4559,20 @@ router.post('/driver/orders/:orderId/mark-paid', async (req, res) => {
       return res.json(existing)
     }
 
+    const currentPaymentStatus = normalizeOrderPaymentStatus(order.paymentStatus)
+    if (!currentPaymentStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Zahlungsstatus: ${String(order.paymentStatus)}` })
+    }
+
     const now = new Date()
     await prisma.order.update({
       where: { id: order.id },
-      data: {
-        paymentStatus: 'PAID',
-        paidAt: now,
-      },
+      data: buildOrderPaymentStatusUpdate({
+        currentStatus: currentPaymentStatus,
+        nextStatus: 'PAID',
+        now,
+        preservePaidAt: order.paidAt,
+      }),
     })
 
     await writeAuditLog({
@@ -4593,6 +4612,10 @@ router.post('/driver/orders/:orderId/mark-paid', async (req, res) => {
 
     return res.json(updated)
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     console.error('POST DRIVER MARK PAID ERROR:', error)
     return res.status(500).json({ error: 'Zahlung konnte nicht bestaetigt werden' })
   }
@@ -5049,25 +5072,24 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
     }
 
     const now = new Date()
-    const nextEstimatedMinutes = normalizedEstimatedMinutes ?? currentOrder.estimatedMinutes ?? null
-    const nextEstimatedReadyAt =
-      nextEstimatedMinutes && nextEstimatedMinutes > 0
-        ? new Date(now.getTime() + nextEstimatedMinutes * 60 * 1000)
-        : null
+    const currentOrderStatus = normalizeOrderWorkflowStatus(currentOrder.status)
+    if (!currentOrderStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(currentOrder.status)}` })
+    }
+
+    const nextEstimatedMinutes = normalizedEstimatedMinutes ?? currentOrder.estimatedMinutes ?? 30
 
     const updated = await prisma.order.update({
       where: { id: currentOrder.id },
-      data: {
-        status: 'out_for_delivery',
+      data: buildOrderDispatchUpdate({
+        currentStatus: currentOrderStatus,
+        currentAcceptedAt: currentOrder.acceptedAt,
+        currentDriverAssignedAt: currentOrder.driverAssignedAt,
+        estimatedMinutes: nextEstimatedMinutes,
         assignedDriverId: resolvedDriverUser?.id ?? null,
         assignedDriverName: normalizedDriverName ?? resolvedDriverUser?.name ?? null,
-        driverAssignedAt: currentOrder.driverAssignedAt ?? now,
-        driverDepartedAt: now,
-        acceptedAt: currentOrder.acceptedAt ?? now,
-        estimatedMinutes: nextEstimatedMinutes,
-        estimatedReadyAt: nextEstimatedReadyAt,
-        forwardedToKitchenAt: now,
-      },
+        now,
+      }),
       include: {
         terminal: {
           select: {
@@ -5139,6 +5161,10 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
           : null,
     })
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
@@ -5162,7 +5188,8 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
       return res.status(400).json({ error: 'orderId oder status fehlt' })
     }
 
-    if (!ORDER_STATUSES.has(status)) {
+    const normalizedNextStatus = normalizeOrderWorkflowStatus(status)
+    if (!normalizedNextStatus) {
       return res.status(400).json({ error: 'Ungueltiger Status' })
     }
 
@@ -5171,6 +5198,8 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
       select: {
         id: true,
         tenantId: true,
+        status: true,
+        acceptedAt: true,
         tenant: {
           select: {
             chainId: true,
@@ -5184,9 +5213,13 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
     }
 
     await resolveTenantScope(req, currentOrder.tenantId)
+    const currentWorkflowStatus = normalizeOrderWorkflowStatus(currentOrder.status)
+    if (!currentWorkflowStatus) {
+      return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(currentOrder.status)}` })
+    }
 
     const order = await prisma.$transaction(async (tx) => {
-      if (status === 'done') {
+      if (normalizedNextStatus === 'done') {
         await tx.orderItem.updateMany({
           where: {
             orderId,
@@ -5196,7 +5229,7 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
             productionDoneAt: new Date(),
           },
         })
-      } else if (status === 'open') {
+      } else if (normalizedNextStatus === 'open') {
         await tx.orderItem.updateMany({
           where: {
             orderId,
@@ -5210,18 +5243,12 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
 
       await tx.order.update({
         where: { id: currentOrder.id },
-        data: {
-          status,
-          forwardedToKitchenAt:
-            status === 'open' ||
-            status === 'preparing' ||
-            status === 'out_for_delivery' ||
-            status === 'done'
-              ? new Date()
-              : undefined,
-          driverDepartedAt: status === 'out_for_delivery' ? new Date() : undefined,
-          acceptedAt: status === 'out_for_delivery' ? new Date() : undefined,
-        },
+        data: buildOrderStatusUpdate({
+          currentStatus: currentWorkflowStatus,
+          nextStatus: normalizedNextStatus,
+          now: new Date(),
+          currentAcceptedAt: currentOrder.acceptedAt,
+        }),
       })
 
       await applyInventoryConsumptionForOrder(tx, currentOrder.id)
@@ -5258,6 +5285,10 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
 
     return res.json(order)
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })

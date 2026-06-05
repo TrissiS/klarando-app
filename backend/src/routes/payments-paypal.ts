@@ -5,6 +5,11 @@ import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
 import { verifyAppAuthToken } from '../auth/app-token'
+import {
+  asOrderTransitionError,
+  buildOrderPaymentStatusUpdate,
+  normalizeOrderPaymentStatus,
+} from '../lib/order-status-transitions'
 
 const router = Router()
 
@@ -438,6 +443,7 @@ router.post('/capture-order', async (req, res) => {
             tenantId: true,
             appCustomerAccountId: true,
             paymentStatus: true,
+            paidAt: true,
           },
         },
       },
@@ -447,8 +453,9 @@ router.post('/capture-order', async (req, res) => {
     if (!transaction || !transaction.order) {
       return res.status(404).json({ error: 'Zahlungstransaktion nicht gefunden' })
     }
+    const transactionOrder = transaction.order
 
-    if (bodyOrderId && bodyOrderId !== transaction.order.id) {
+    if (bodyOrderId && bodyOrderId !== transactionOrder.id) {
       return res.status(400).json({ error: 'orderId passt nicht zu PayPal-Order' })
     }
 
@@ -519,12 +526,20 @@ router.post('/capture-order', async (req, res) => {
       })
 
       if (isSuccess) {
+        const currentPaymentStatus = normalizeOrderPaymentStatus(transactionOrder.paymentStatus)
+        if (!currentPaymentStatus) {
+          throw new Error(`Ungueltiger bestehender Zahlungsstatus: ${String(transactionOrder.paymentStatus)}`)
+        }
         await tx.order.update({
-          where: { id: transaction.order!.id },
+          where: { id: transactionOrder.id },
           data: {
-            paymentStatus: 'PAID',
+            ...buildOrderPaymentStatusUpdate({
+              currentStatus: currentPaymentStatus,
+              nextStatus: 'PAID',
+              now: new Date(),
+              preservePaidAt: transactionOrder.paidAt,
+            }),
             paymentMethod: 'PAYPAL',
-            paidAt: new Date(),
           },
         })
       }
@@ -535,7 +550,7 @@ router.post('/capture-order', async (req, res) => {
       module: 'payments',
       action: isSuccess ? 'paypal_capture_succeeded' : 'paypal_capture_failed',
       targetType: 'order',
-      targetId: transaction.order.id,
+      targetId: transactionOrder.id,
       tenantId: transaction.tenantId,
       metadata: {
         paypalOrderId,
@@ -546,13 +561,17 @@ router.post('/capture-order', async (req, res) => {
 
     return res.json({
       ok: isSuccess,
-      orderId: transaction.order.id,
+      orderId: transactionOrder.id,
       paypalOrderId,
       captureId,
       status: captureStatus ?? null,
       paymentStatus: isSuccess ? 'PAID' : 'FAILED',
     })
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
