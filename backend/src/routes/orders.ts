@@ -36,12 +36,16 @@ import {
   ORDER_WORKFLOW_STATUSES,
   asOrderTransitionError,
   buildOrderAcceptanceUpdate,
-  buildOrderDispatchUpdate,
   buildOrderPaymentStatusUpdate,
   buildOrderStatusUpdate,
   normalizeOrderPaymentStatus,
   normalizeOrderWorkflowStatus,
 } from '../lib/order-status-transitions'
+import {
+  dispatchOrder,
+  startDriverRoute,
+  validateDispatchReadiness,
+} from '../lib/order-dispatch'
 
 const router = Router()
 
@@ -4403,8 +4407,10 @@ router.post('/driver/route-start', async (req, res) => {
         serviceType: true,
         assignedDriverId: true,
         assignedDriverName: true,
+        driverAssignedAt: true,
         acceptedAt: true,
         estimatedMinutes: true,
+        pickupNumber: true,
         tenant: {
           select: {
             chainId: true,
@@ -4440,16 +4446,22 @@ router.post('/driver/route-start', async (req, res) => {
     }
     const updated = await prisma.order.update({
       where: { id: order.id },
-      data: buildOrderDispatchUpdate({
-        currentStatus: currentOrderStatus,
-        currentAcceptedAt: order.acceptedAt,
-        currentDriverAssignedAt: null,
-        estimatedMinutes: nextEstimatedMinutes,
-        pickupNumber: null,
-        assignedDriverId: order.assignedDriverId,
-        assignedDriverName: order.assignedDriverName,
-        now,
-      }),
+      data: startDriverRoute(
+        {
+          serviceType: order.serviceType,
+          status: currentOrderStatus,
+          assignedDriverId: order.assignedDriverId,
+          assignedDriverName: order.assignedDriverName,
+          driverAssignedAt: order.driverAssignedAt,
+          acceptedAt: order.acceptedAt,
+          estimatedMinutes: order.estimatedMinutes,
+          pickupNumber: order.pickupNumber ?? null,
+        },
+        {
+          estimatedMinutes: nextEstimatedMinutes,
+          now,
+        }
+      ),
       include: {
         tenant: {
           select: {
@@ -4990,6 +5002,9 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
         estimatedMinutes: true,
         acceptedAt: true,
         driverAssignedAt: true,
+        assignedDriverId: true,
+        assignedDriverName: true,
+        pickupNumber: true,
         tenant: {
           select: {
             chainId: true,
@@ -5081,15 +5096,24 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
 
     const updated = await prisma.order.update({
       where: { id: currentOrder.id },
-      data: buildOrderDispatchUpdate({
-        currentStatus: currentOrderStatus,
-        currentAcceptedAt: currentOrder.acceptedAt,
-        currentDriverAssignedAt: currentOrder.driverAssignedAt,
-        estimatedMinutes: nextEstimatedMinutes,
-        assignedDriverId: resolvedDriverUser?.id ?? null,
-        assignedDriverName: normalizedDriverName ?? resolvedDriverUser?.name ?? null,
-        now,
-      }),
+      data: dispatchOrder(
+        {
+          serviceType: currentOrder.serviceType,
+          status: currentOrderStatus,
+          assignedDriverId: currentOrder.assignedDriverId,
+          assignedDriverName: currentOrder.assignedDriverName,
+          driverAssignedAt: currentOrder.driverAssignedAt,
+          acceptedAt: currentOrder.acceptedAt,
+          estimatedMinutes: currentOrder.estimatedMinutes,
+          pickupNumber: currentOrder.pickupNumber ?? null,
+        },
+        {
+          estimatedMinutes: nextEstimatedMinutes,
+          driverUserId: resolvedDriverUser?.id ?? null,
+          driverName: normalizedDriverName ?? resolvedDriverUser?.name ?? null,
+          now,
+        }
+      ),
       include: {
         terminal: {
           select: {
@@ -5200,6 +5224,9 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
         tenantId: true,
         status: true,
         acceptedAt: true,
+        serviceType: true,
+        assignedDriverId: true,
+        assignedDriverName: true,
         tenant: {
           select: {
             chainId: true,
@@ -5216,6 +5243,17 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
     const currentWorkflowStatus = normalizeOrderWorkflowStatus(currentOrder.status)
     if (!currentWorkflowStatus) {
       return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(currentOrder.status)}` })
+    }
+    if (normalizedNextStatus === 'out_for_delivery') {
+      validateDispatchReadiness(
+        {
+          serviceType: currentOrder.serviceType,
+          status: currentWorkflowStatus,
+          assignedDriverId: currentOrder.assignedDriverId,
+          assignedDriverName: currentOrder.assignedDriverName,
+        },
+        { requireAssignedDriver: true, context: 'admin-status' }
+      )
     }
 
     const order = await prisma.$transaction(async (tx) => {

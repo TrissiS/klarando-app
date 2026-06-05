@@ -41,7 +41,6 @@ import { rateLimitDisplayPairing } from '../middleware/rate-limit'
 import {
   asOrderTransitionError,
   buildOrderAcceptanceUpdate,
-  buildOrderDispatchUpdate,
   buildOrderItemStatusUpdate,
   buildOrderPaymentStatusUpdate,
   buildOrderStatusUpdate,
@@ -50,6 +49,7 @@ import {
   normalizeOrderPaymentStatus,
   normalizeOrderWorkflowStatus,
 } from '../lib/order-status-transitions'
+import { dispatchOrder, validateDispatchReadiness } from '../lib/order-dispatch'
 
 const router = Router()
 
@@ -1692,6 +1692,8 @@ router.post(
         pickupNumber: true,
         status: true,
         acceptedAt: true,
+        assignedDriverId: true,
+        assignedDriverName: true,
       },
     })
 
@@ -1744,6 +1746,17 @@ router.post(
     const currentWorkflowStatus = normalizeOrderWorkflowStatus(existingOrder.status)
     if (!currentWorkflowStatus) {
       return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
+    }
+    if (normalizedStatus === 'out_for_delivery') {
+      validateDispatchReadiness(
+        {
+          serviceType: existingOrder.serviceType,
+          status: currentWorkflowStatus,
+          assignedDriverId: existingOrder.assignedDriverId,
+          assignedDriverName: existingOrder.assignedDriverName,
+        },
+        { requireAssignedDriver: true, context: 'display-status' }
+      )
     }
 
     const shouldAssignPickupNumber =
@@ -2512,16 +2525,24 @@ router.post(
 
     const updated = await prisma.order.update({
       where: { id: orderId },
-      data: buildOrderDispatchUpdate({
-        currentStatus: currentWorkflowStatus,
-        currentAcceptedAt: existingOrder.acceptedAt,
-        currentDriverAssignedAt: existingOrder.driverAssignedAt,
-        estimatedMinutes: nextEstimatedMinutes,
-        pickupNumber,
-        assignedDriverId: resolvedDriver?.id ?? null,
-        assignedDriverName: normalizedDriverName ?? resolvedDriver?.name ?? null,
-        now,
-      }),
+      data: dispatchOrder(
+        {
+          serviceType: existingOrder.serviceType,
+          status: currentWorkflowStatus,
+          assignedDriverId: existingOrder.assignedDriverId,
+          assignedDriverName: existingOrder.assignedDriverName,
+          driverAssignedAt: existingOrder.driverAssignedAt,
+          acceptedAt: existingOrder.acceptedAt,
+          estimatedMinutes: existingOrder.estimatedMinutes,
+          pickupNumber,
+        },
+        {
+          estimatedMinutes: nextEstimatedMinutes,
+          driverUserId: resolvedDriver?.id ?? null,
+          driverName: normalizedDriverName ?? resolvedDriver?.name ?? null,
+          now,
+        }
+      ),
       include: {
         terminal: {
           select: {
