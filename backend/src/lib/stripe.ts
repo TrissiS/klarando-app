@@ -25,6 +25,38 @@ function readNumberEnv(name: string, fallback: number) {
   return parsed
 }
 
+function readNumberEnvWithAliases(names: string[], fallback: number) {
+  for (const name of names) {
+    const raw = process.env[name]
+    if (!raw || raw.trim().length === 0) {
+      continue
+    }
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed)) {
+      return parsed
+    }
+  }
+  return fallback
+}
+
+function normalizeRequirementList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+}
+
+function appendConnectQuery(baseUrl: string, query: Record<string, string>) {
+  const url = new URL(baseUrl)
+  for (const [key, value] of Object.entries(query)) {
+    url.searchParams.set(key, value)
+  }
+  return url.toString()
+}
+
 export function getStripe() {
   if (stripeClient) {
     return stripeClient
@@ -36,8 +68,16 @@ export function getStripe() {
 
 export function calculatePlatformFee(amountCents: number) {
   const normalizedAmount = Math.max(0, Math.round(amountCents))
-  const percent = Math.max(0, readNumberEnv('KLARANDO_PLATFORM_FEE_PERCENT', 12))
-  const fixed = Math.max(0, Math.round(readNumberEnv('KLARANDO_PLATFORM_FEE_FIXED_CENTS', 0)))
+  const percent = Math.max(
+    0,
+    readNumberEnvWithAliases(['STRIPE_PLATFORM_FEE_PERCENT', 'KLARANDO_PLATFORM_FEE_PERCENT'], 12)
+  )
+  const fixed = Math.max(
+    0,
+    Math.round(
+      readNumberEnvWithAliases(['STRIPE_PLATFORM_FEE_FIXED_CENTS', 'KLARANDO_PLATFORM_FEE_FIXED_CENTS'], 0)
+    )
+  )
   const percentFee = Math.round((normalizedAmount * percent) / 100)
   const totalFee = Math.max(0, percentFee + fixed)
 
@@ -46,6 +86,27 @@ export function calculatePlatformFee(amountCents: number) {
     fixedCents: fixed,
     platformFeeCents: totalFee,
   }
+}
+
+async function persistStripeStatusSnapshot(args: {
+  tenantId: string
+  onboarded: boolean
+  requirements: { currentlyDue: string[]; eventuallyDue: string[] }
+  lastStatusSyncAt: Date
+}) {
+  await prisma.$executeRawUnsafe(
+    `
+      UPDATE "TenantPaymentConfig"
+      SET "stripeOnboarded" = $1,
+          "stripeRequirementsDue" = $2::jsonb,
+          "stripeLastStatusSyncAt" = $3
+      WHERE "tenantId" = $4
+    `,
+    args.onboarded,
+    JSON.stringify(args.requirements),
+    args.lastStatusSyncAt,
+    args.tenantId
+  )
 }
 
 export async function createConnectedAccountForTenant(tenantId: string) {
@@ -113,15 +174,21 @@ export async function createConnectedAccountForTenant(tenantId: string) {
   }
 }
 
-export async function createAccountLink(stripeAccountId: string) {
+export async function createAccountLink(stripeAccountId: string, tenantId?: string) {
   const stripe = getStripe()
   const refreshUrl = requireEnv('STRIPE_CONNECT_REFRESH_URL')
   const returnUrl = requireEnv('STRIPE_CONNECT_RETURN_URL')
+  const refreshUrlWithContext = tenantId
+    ? appendConnectQuery(refreshUrl, { tenantId, stripe: 'refresh' })
+    : refreshUrl
+  const returnUrlWithContext = tenantId
+    ? appendConnectQuery(returnUrl, { tenantId, stripe: 'return' })
+    : returnUrl
 
   return stripe.accountLinks.create({
     account: stripeAccountId,
-    refresh_url: refreshUrl,
-    return_url: returnUrl,
+    refresh_url: refreshUrlWithContext,
+    return_url: returnUrlWithContext,
     type: 'account_onboarding',
   })
 }
@@ -139,19 +206,30 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
     return {
       tenantId,
       stripeAccountId: null,
+      onboarded: false,
       chargesEnabled: false,
       payoutsEnabled: false,
       detailsSubmitted: false,
       onboardingCompleted: false,
+      requirements: {
+        currentlyDue: [] as string[],
+        eventuallyDue: [] as string[],
+      },
+      lastStatusSyncAt: null as string | null,
     }
   }
 
   const stripe = getStripe()
   const account = await stripe.accounts.retrieve(config.stripeAccountId)
+  const currentlyDue = normalizeRequirementList(account.requirements?.currently_due)
+  const eventuallyDue = normalizeRequirementList(account.requirements?.eventually_due)
+  const lastStatusSyncAt = new Date()
+  const onboarded = Boolean(account.details_submitted) && currentlyDue.length === 0
 
   const status = {
     tenantId,
     stripeAccountId: config.stripeAccountId,
+    onboarded,
     chargesEnabled: Boolean(account.charges_enabled),
     payoutsEnabled: Boolean(account.payouts_enabled),
     detailsSubmitted: Boolean(account.details_submitted),
@@ -159,6 +237,11 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
       Boolean(account.details_submitted) &&
       Boolean(account.charges_enabled) &&
       Boolean(account.payouts_enabled),
+    requirements: {
+      currentlyDue,
+      eventuallyDue,
+    },
+    lastStatusSyncAt: lastStatusSyncAt.toISOString(),
   }
 
   await prisma.tenantPaymentConfig.upsert({
@@ -179,6 +262,13 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
       stripeDetailsSubmitted: status.detailsSubmitted,
       stripeOnboardingCompleted: status.onboardingCompleted,
     },
+  })
+
+  await persistStripeStatusSnapshot({
+    tenantId,
+    onboarded: status.onboarded,
+    requirements: status.requirements,
+    lastStatusSyncAt,
   })
 
   return status
@@ -279,6 +369,8 @@ export async function createOrderPaymentIntent(input: {
     amountCents,
     currency,
     platformFeeCents: fee.platformFeeCents,
+    platformFeePercent: fee.percent,
+    connectedAccountId: config.stripeAccountId,
   }
 }
 

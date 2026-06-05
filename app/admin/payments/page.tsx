@@ -23,6 +23,16 @@ export default function AdminPaymentsPage() {
   useEffect(() => {
     setTenantId(getStoredTenantId())
     setToken(getStoredAccessToken())
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const stripeState = params.get('stripe')
+      if (stripeState === 'return') {
+        setNotice('Stripe-Onboarding abgeschlossen oder zu Klarando zurückgekehrt. Status wird geladen.')
+      }
+      if (stripeState === 'refresh') {
+        setNotice('Stripe benötigt weitere Angaben. Bitte Onboarding fortsetzen.')
+      }
+    }
   }, [])
 
   async function loadStatus() {
@@ -59,11 +69,10 @@ export default function AdminPaymentsPage() {
 
     try {
       const response = await createStripeConnectedAccount(token, tenantId)
-      setNotice('Stripe-Onboarding wurde geöffnet. Bitte Verifizierung vollständig abschließen.')
+      setNotice('Stripe-Onboarding wurde gestartet. Nach Abschluss kehren Sie automatisch zu Klarando zurück.')
       if (typeof window !== 'undefined') {
-        window.open(response.onboardingUrl, '_blank', 'noopener,noreferrer')
+        window.location.assign(response.onboardingUrl)
       }
-      await loadStatus()
     } catch (connectError) {
       setError(connectError instanceof Error ? connectError.message : 'Stripe-Onboarding konnte nicht gestartet werden')
     } finally {
@@ -84,10 +93,9 @@ export default function AdminPaymentsPage() {
     try {
       const response = await createStripeAccountLink(token, tenantId)
       if (typeof window !== 'undefined') {
-        window.open(response.onboardingUrl, '_blank', 'noopener,noreferrer')
+        window.location.assign(response.onboardingUrl)
       }
-      setNotice('Stripe-Account-Link wurde geöffnet.')
-      await loadStatus()
+      setNotice('Stripe-Onboarding wird fortgesetzt.')
     } catch (linkError) {
       setError(linkError instanceof Error ? linkError.message : 'Stripe-Account-Link konnte nicht geöffnet werden')
     } finally {
@@ -99,13 +107,29 @@ export default function AdminPaymentsPage() {
     if (!status?.stripeAccountId) {
       return 'Zahlungen nicht eingerichtet'
     }
-    if (!status.detailsSubmitted) {
-      return 'Verifizierung offen'
-    }
     if (status.chargesEnabled && status.payoutsEnabled) {
       return 'Zahlungen aktiv'
     }
+    if (!status.detailsSubmitted || status.requirements.currentlyDue.length > 0) {
+      return 'Verifizierung offen'
+    }
+    if (status.chargesEnabled && !status.payoutsEnabled) {
+      return 'Verbunden, Auszahlungen noch nicht aktiv'
+    }
     return 'Onboarding läuft'
+  }, [status])
+
+  const statusTone = useMemo(() => {
+    if (!status?.stripeAccountId) {
+      return 'border-red-200 bg-red-50 text-red-800'
+    }
+    if (status.chargesEnabled && status.payoutsEnabled) {
+      return 'border-emerald-200 bg-emerald-50 text-emerald-800'
+    }
+    if (!status.detailsSubmitted || status.requirements.currentlyDue.length > 0) {
+      return 'border-amber-200 bg-amber-50 text-amber-800'
+    }
+    return 'border-orange-200 bg-orange-50 text-orange-800'
   }, [status])
 
   return (
@@ -119,7 +143,7 @@ export default function AdminPaymentsPage() {
           </p>
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl border border-rose-100 bg-rose-50 p-3">
+            <div className={`rounded-xl border p-3 ${statusTone}`}>
               <p className="text-xs uppercase tracking-wide text-rose-900/60">Status</p>
               <p className="mt-1 text-sm font-semibold text-rose-900">{stateLabel}</p>
             </div>
@@ -140,6 +164,27 @@ export default function AdminPaymentsPage() {
               </p>
             </div>
           </div>
+
+          {status ? (
+            <div className="mt-4 rounded-xl border border-rose-100 bg-rose-50 p-3 text-sm text-rose-900/80">
+              <p>
+                Offene KYC-Felder:{' '}
+                {status.requirements.currentlyDue.length > 0
+                  ? status.requirements.currentlyDue.join(', ')
+                  : 'Keine'}
+              </p>
+              <p className="mt-1">
+                Später noch erforderlich:{' '}
+                {status.requirements.eventuallyDue.length > 0
+                  ? status.requirements.eventuallyDue.join(', ')
+                  : 'Keine'}
+              </p>
+              <p className="mt-1">
+                Letzte Synchronisierung:{' '}
+                {status.lastStatusSyncAt ? new Date(status.lastStatusSyncAt).toLocaleString('de-DE') : 'Noch nie'}
+              </p>
+            </div>
+          ) : null}
 
           <div className="mt-5 flex flex-wrap gap-2">
             <button

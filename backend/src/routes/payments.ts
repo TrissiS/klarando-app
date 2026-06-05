@@ -22,33 +22,98 @@ function normalizeText(value: unknown) {
   return trimmed.length > 0 ? trimmed : null
 }
 
-router.post('/connect/account', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+async function buildStripeOnboardingLink(tenantId: string) {
+  const created = await createConnectedAccountForTenant(tenantId)
+  const link = await createAccountLink(created.stripeAccountId, tenantId)
+  return {
+    tenantId,
+    stripeAccountId: created.stripeAccountId,
+    created: created.created,
+    onboardingUrl: link.url,
+    expiresAt: link.expires_at,
+  }
+}
+
+router.post('/connect/onboard', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
   try {
     const scope = await resolveTenantScope(req, req.body?.tenantId)
     if (!scope.tenantId) {
       return res.status(400).json({ error: 'tenantId fehlt' })
     }
 
-    const created = await createConnectedAccountForTenant(scope.tenantId)
-    const link = await createAccountLink(created.stripeAccountId)
+    const onboarding = await buildStripeOnboardingLink(scope.tenantId)
 
     await writeAuditLog({
       req,
       module: 'payments',
-      action: created.created ? 'stripe_connect_account_created' : 'stripe_connect_account_reused',
+      action: onboarding.created ? 'stripe_connect_account_created' : 'stripe_connect_account_reused',
       targetType: 'tenant',
       targetId: scope.tenantId,
       tenantId: scope.tenantId,
       metadata: {
-        stripeAccountId: created.stripeAccountId,
+        stripeAccountId: onboarding.stripeAccountId,
       },
     })
 
     return res.status(201).json({
       ok: true,
+      ...onboarding,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('STRIPE CONNECT ACCOUNT ERROR:', error)
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Stripe-Konto konnte nicht verbunden werden',
+    })
+  }
+})
+
+router.post('/connect/account', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.body?.tenantId)
+    if (!scope.tenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+    return res.status(201).json({
+      ok: true,
+      ...(await buildStripeOnboardingLink(scope.tenantId)),
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('STRIPE CONNECT ACCOUNT LEGACY ERROR:', error)
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Stripe-Konto konnte nicht verbunden werden',
+    })
+  }
+})
+
+router.post('/connect/refresh', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.body?.tenantId)
+    if (!scope.tenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+
+    const config = await prisma.tenantPaymentConfig.findUnique({
+      where: { tenantId: scope.tenantId },
+      select: { stripeAccountId: true },
+    })
+
+    if (!config?.stripeAccountId) {
+      return res.status(400).json({ error: 'Für diese Filiale ist noch kein Stripe-Konto hinterlegt.' })
+    }
+
+    const link = await createAccountLink(config.stripeAccountId, scope.tenantId)
+    return res.json({
+      ok: true,
       tenantId: scope.tenantId,
-      stripeAccountId: created.stripeAccountId,
-      created: created.created,
+      stripeAccountId: config.stripeAccountId,
       onboardingUrl: link.url,
       expiresAt: link.expires_at,
     })
@@ -57,8 +122,10 @@ router.post('/connect/account', requirePermission(PermissionKey.SETTINGS_WRITE),
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
-    console.error('STRIPE CONNECT ACCOUNT ERROR:', error)
-    return res.status(500).json({ error: 'Stripe-Konto konnte nicht verbunden werden' })
+    console.error('STRIPE ACCOUNT LINK ERROR:', error)
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Stripe-Onboarding-Link konnte nicht erstellt werden',
+    })
   }
 })
 
@@ -78,7 +145,7 @@ router.post('/connect/account-link', requirePermission(PermissionKey.SETTINGS_WR
       return res.status(400).json({ error: 'Für diese Filiale ist noch kein Stripe-Konto hinterlegt.' })
     }
 
-    const link = await createAccountLink(config.stripeAccountId)
+    const link = await createAccountLink(config.stripeAccountId, scope.tenantId)
     return res.json({
       ok: true,
       tenantId: scope.tenantId,
@@ -91,8 +158,10 @@ router.post('/connect/account-link', requirePermission(PermissionKey.SETTINGS_WR
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
-    console.error('STRIPE ACCOUNT LINK ERROR:', error)
-    return res.status(500).json({ error: 'Stripe-Onboarding-Link konnte nicht erstellt werden' })
+    console.error('STRIPE ACCOUNT LINK LEGACY ERROR:', error)
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Stripe-Onboarding-Link konnte nicht erstellt werden',
+    })
   }
 })
 
@@ -111,7 +180,9 @@ router.get('/connect/status', requirePermission(PermissionKey.SETTINGS_READ), as
       return res.status(scopeError.status).json({ error: scopeError.message })
     }
     console.error('STRIPE CONNECT STATUS ERROR:', error)
-    return res.status(500).json({ error: 'Stripe-Status konnte nicht geladen werden' })
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Stripe-Status konnte nicht geladen werden',
+    })
   }
 })
 

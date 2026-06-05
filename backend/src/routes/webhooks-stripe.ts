@@ -210,6 +210,10 @@ async function handleAccountUpdated(event: StripeEventLike) {
     charges_enabled?: boolean
     payouts_enabled?: boolean
     details_submitted?: boolean
+    requirements?: {
+      currently_due?: string[]
+      eventually_due?: string[]
+    } | null
   }
   const config = await prisma.tenantPaymentConfig.findFirst({
     where: { stripeAccountId: account.id },
@@ -218,6 +222,11 @@ async function handleAccountUpdated(event: StripeEventLike) {
   if (!config) {
     return
   }
+
+  const currentlyDue = Array.isArray(account.requirements?.currently_due) ? account.requirements.currently_due : []
+  const eventuallyDue = Array.isArray(account.requirements?.eventually_due)
+    ? account.requirements.eventually_due
+    : []
 
   await prisma.tenantPaymentConfig.update({
     where: { tenantId: config.tenantId },
@@ -231,6 +240,23 @@ async function handleAccountUpdated(event: StripeEventLike) {
         Boolean(account.payouts_enabled),
     },
   })
+
+  await prisma.$executeRawUnsafe(
+    `
+      UPDATE "TenantPaymentConfig"
+      SET "stripeOnboarded" = $1,
+          "stripeRequirementsDue" = $2::jsonb,
+          "stripeLastStatusSyncAt" = $3
+      WHERE "tenantId" = $4
+    `,
+    Boolean(account.details_submitted) && currentlyDue.length === 0,
+    JSON.stringify({
+      currentlyDue,
+      eventuallyDue,
+    }),
+    new Date(),
+    config.tenantId
+  )
 }
 
 async function handleChargeRefunded(event: StripeEventLike) {

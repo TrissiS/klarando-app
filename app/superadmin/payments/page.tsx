@@ -106,6 +106,8 @@ export default function SuperadminPaymentsPage() {
                   <th className="px-2 py-2">Zahlungen</th>
                   <th className="px-2 py-2">Auszahlungen</th>
                   <th className="px-2 py-2">Details</th>
+                  <th className="px-2 py-2">Offene KYC-Felder</th>
+                  <th className="px-2 py-2">Letzte Sync</th>
                 </tr>
               </thead>
               <tbody>
@@ -119,6 +121,16 @@ export default function SuperadminPaymentsPage() {
                       <td className="px-2 py-2">{cfg?.stripeChargesEnabled ? 'Aktiv' : 'Nein'}</td>
                       <td className="px-2 py-2">{cfg?.stripePayoutsEnabled ? 'Aktiv' : 'Nein'}</td>
                       <td className="px-2 py-2">{cfg?.stripeDetailsSubmitted ? 'Vollständig' : 'Offen'}</td>
+                      <td className="px-2 py-2 text-xs text-rose-900/75">
+                        {cfg?.stripeRequirementsDue?.currentlyDue?.length
+                          ? cfg.stripeRequirementsDue.currentlyDue.join(', ')
+                          : '—'}
+                      </td>
+                      <td className="px-2 py-2 text-xs text-rose-900/75">
+                        {cfg?.stripeLastStatusSyncAt
+                          ? new Date(cfg.stripeLastStatusSyncAt).toLocaleString('de-DE')
+                          : '—'}
+                      </td>
                     </tr>
                   )
                 })}

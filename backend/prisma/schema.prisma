@@ -1082,8 +1082,11 @@ model TenantPaymentConfig {
   stripeAccountId                String?                @unique
   stripeChargesEnabled           Boolean                @default(false)
   stripePayoutsEnabled           Boolean                @default(false)
+  stripeOnboarded                Boolean                @default(false)
   stripeOnboardingCompleted      Boolean                @default(false)
   stripeDetailsSubmitted         Boolean                @default(false)
+  stripeRequirementsDue          Json?
+  stripeLastStatusSyncAt         DateTime?
   stripeDefaultCurrency          String                 @default("eur")
   paypalMerchantId               String?
   paypalEmail                    String?

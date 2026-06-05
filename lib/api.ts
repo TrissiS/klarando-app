@@ -2354,10 +2354,16 @@ export type TenantPaypalPaymentConfig = {
 export type TenantStripeConnectStatus = {
   tenantId: string
   stripeAccountId: string | null
+  onboarded: boolean
   chargesEnabled: boolean
   payoutsEnabled: boolean
   detailsSubmitted: boolean
   onboardingCompleted: boolean
+  requirements: {
+    currentlyDue: string[]
+    eventuallyDue: string[]
+  }
+  lastStatusSyncAt: string | null
 }
 
 export type SuperadminStripeTenantStatusRow = {
@@ -2369,10 +2375,16 @@ export type SuperadminStripeTenantStatusRow = {
   } | null
   paymentConfig: {
     stripeAccountId: string | null
+    stripeOnboarded: boolean
     stripeChargesEnabled: boolean
     stripePayoutsEnabled: boolean
     stripeDetailsSubmitted: boolean
     stripeOnboardingCompleted: boolean
+    stripeRequirementsDue: {
+      currentlyDue?: string[]
+      eventuallyDue?: string[]
+    } | null
+    stripeLastStatusSyncAt: string | null
   } | null
 }
 
@@ -2388,7 +2400,7 @@ export async function createStripeConnectedAccount(
   expiresAt: number
 }> {
   return apiJson(
-    buildApiUrl('/api/payments/connect/account'),
+    buildApiUrl('/api/payments/connect/onboard'),
     {
       method: 'POST',
       headers: authHeaders(token),
@@ -2409,7 +2421,7 @@ export async function createStripeAccountLink(
   expiresAt: number
 }> {
   return apiJson(
-    buildApiUrl('/api/payments/connect/account-link'),
+    buildApiUrl('/api/payments/connect/refresh'),
     {
       method: 'POST',
       headers: authHeaders(token),
@@ -2447,6 +2459,8 @@ export async function createStripePaymentIntent(input: {
   amountCents: number
   currency: string
   platformFeeCents: number
+  platformFeePercent: number
+  connectedAccountId: string
 }> {
   return apiJson(
     buildApiUrl('/api/payments/create-intent'),

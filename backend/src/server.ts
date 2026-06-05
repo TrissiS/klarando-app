@@ -173,6 +173,7 @@ app.use(
   })
 )
 app.use('/api/webhooks/stripe', stripeWebhookRoutes)
+app.use('/api/payments/webhook', stripeWebhookRoutes)
 app.use(express.json({ limit: '8mb' }))
 app.use(express.urlencoded({ extended: true, limit: '8mb' }))
 app.use(optionalAuth)
