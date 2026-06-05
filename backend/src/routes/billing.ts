@@ -4,20 +4,16 @@ import { prisma } from '../lib/prisma'
 import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
-import { isMailConfigured, sendMail } from '../lib/mail'
 import {
   buildBillingInvoicePreview,
   calculateBillingSummary,
   calculateTenantBilling,
-  canFinalizeInvoice,
   createInvoiceDraftFromCalculation,
   finalizeInvoiceFromPreview,
-  getOrCreateInvoiceSequence,
   parseBillingMonthOrCurrent,
 } from '../lib/billing-engine'
 
 const router = Router()
-const BILLING_EMAIL_MODE = (process.env.BILLING_EMAIL_MODE || 'TEST').trim().toUpperCase()
 const AUTO_APPROVE_MONTHLY_BILLING = (process.env.AUTO_APPROVE_MONTHLY_BILLING || 'false').trim().toLowerCase() === 'true'
 
 function logBillingApiError(route: string, error: unknown) {
@@ -79,22 +75,6 @@ function canCancelInvoice(status: InvoiceStatus) {
     status === InvoiceStatus.SENT ||
     status === InvoiceStatus.FAILED
   )
-}
-
-function buildInvoiceEmailBody(input: {
-  invoiceNumber: string
-  tenantName: string
-  monthLabel: string
-  grossCents: number
-  dueAt: Date | null
-}) {
-  const amount = (Math.max(0, input.grossCents) / 100).toFixed(2).replace('.', ',')
-  const due = input.dueAt ? input.dueAt.toLocaleDateString('de-DE') : 'gemäß Vereinbarung'
-  return {
-    subject: `Neue Klarando Monatsrechnung ${input.invoiceNumber} (${input.monthLabel})`,
-    text: `Hallo,\n\nfür ${input.tenantName} wurde die Klarando-Monatsrechnung ${input.invoiceNumber} freigegeben.\nBetrag: ${amount} € brutto\nZahlungsziel: ${due}\n\nHinweis: E-Rechnung/ZUGFeRD ist vorbereitet, steuerliche Prüfung empfohlen.\n`,
-    html: `<p>Hallo,</p><p>für <strong>${input.tenantName}</strong> wurde die Klarando-Monatsrechnung <strong>${input.invoiceNumber}</strong> freigegeben.</p><p>Betrag: <strong>${amount} € brutto</strong><br/>Zahlungsziel: ${due}</p><p><em>Hinweis: E-Rechnung/ZUGFeRD ist vorbereitet, steuerliche Prüfung empfohlen.</em></p>`,
-  }
 }
 
 function monthPeriodFromReq(req: { query?: Record<string, unknown>; body?: Record<string, unknown> }) {
@@ -497,18 +477,14 @@ router.post('/runs', requireAuth, async (req, res) => {
       },
     })
 
-    if (AUTO_APPROVE_MONTHLY_BILLING) {
-      await prisma.invoice.updateMany({
-        where: { id: { in: invoiceIds }, status: InvoiceStatus.DRAFT },
-        data: { status: InvoiceStatus.ISSUED, issuedAt: new Date() },
-      })
-    }
-
     return res.status(201).json({
       billingRunId: billingRun.id,
       invoicesCreated: invoiceIds.length,
       invoiceIds,
-      autoApproved: AUTO_APPROVE_MONTHLY_BILLING,
+      autoApproved: false,
+      warning: AUTO_APPROVE_MONTHLY_BILLING
+        ? 'AUTO_APPROVE_MONTHLY_BILLING ist deaktiviert, weil Finalisierung nur noch über /api/billing/invoices/finalize erlaubt ist.'
+        : undefined,
     })
   } catch (error) {
     console.error('POST BILLING RUN CREATE ERROR:', error)
@@ -523,144 +499,76 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
     }
     const invoice = await prisma.invoice.findUnique({
       where: { id: String(req.params.invoiceId || '') },
-      include: {
-        items: true,
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-            billingProfile: {
-              select: {
-                invoiceEmail: true,
-                contactEmail: true,
-              },
-            },
-          },
-        },
+      select: {
+        id: true,
+        tenantId: true,
+        chainId: true,
+        periodStart: true,
+        periodEnd: true,
+        invoiceNumber: true,
+        status: true,
       },
     })
     if (!invoice) {
       return res.status(404).json({ error: 'Rechnung nicht gefunden' })
     }
-    if (!canFinalizeInvoice(invoice.status)) {
+    if (!invoice.tenantId) {
+      return res.status(409).json({ error: 'Legacy-Finalisierung benötigt eine Tenant-Rechnung mit Leistungszeitraum.' })
+    }
+    if (invoice.status !== InvoiceStatus.DRAFT) {
       return res.status(409).json({ error: 'Finalisierte Rechnung darf nicht überschrieben werden' })
     }
-    const draftMetadata = (invoice.metadata as Record<string, unknown> | null) || {}
-    const vatSnapshot =
-      draftMetadata.vatSnapshot && typeof draftMetadata.vatSnapshot === 'object'
-        ? (draftMetadata.vatSnapshot as Record<string, unknown>)
-        : null
-    const vatRatePercent =
-      vatSnapshot && typeof vatSnapshot.vatRatePercent === 'number' && Number.isFinite(vatSnapshot.vatRatePercent)
-        ? vatSnapshot.vatRatePercent
-        : null
-    if (vatRatePercent === null) {
-      return res.status(409).json({
-        error: 'Rechnung kann ohne validen MwSt.-Satz nicht finalisiert werden.',
-      })
+
+    const derivedMonth = `${invoice.periodStart.getUTCFullYear()}-${String(invoice.periodStart.getUTCMonth() + 1).padStart(2, '0')}`
+    const period = parseBillingMonthOrCurrent(derivedMonth)
+    const updated = await finalizeInvoiceFromPreview({
+      tenantId: invoice.tenantId,
+      period,
+      finalizedByUserId: req.authUser?.id ?? null,
+    })
+    if (!updated) {
+      return res.status(404).json({ error: 'Rechnung konnte über den kanonischen Finalisierungspfad nicht erzeugt werden.' })
     }
-
-    const updated = await prisma.invoice.update({
-      where: { id: invoice.id },
-      data: {
-        invoiceNumber: await getOrCreateInvoiceSequence('GLOBAL', new Date()),
-        status: InvoiceStatus.ISSUED,
-        issuedAt: new Date(),
-        metadata: {
-          ...draftMetadata,
-          lifecycleStatus: 'APPROVED',
-          emailDeliveryStatus: 'pending',
-          paymentStatus: 'PAYMENT_PLANNED',
-          finalizationLocked: true,
-        },
-      },
-    })
-
-    const monthLabel = `${updated.periodStart.getUTCFullYear()}-${String(updated.periodStart.getUTCMonth() + 1).padStart(2, '0')}`
-    const recipientEmail = invoice.tenant?.billingProfile?.invoiceEmail || invoice.tenant?.billingProfile?.contactEmail || null
-    let emailDeliveryStatus: 'pending' | 'sent' | 'failed' = 'pending'
-    let emailDeliveryError: string | null = null
-    if (recipientEmail) {
-      const emailBody = buildInvoiceEmailBody({
-        invoiceNumber: updated.invoiceNumber,
-        tenantName: invoice.tenant?.name || 'Filiale',
-        monthLabel,
-        grossCents: updated.totalGrossCents,
-        dueAt: updated.dueAt,
-      })
-      if (BILLING_EMAIL_MODE === 'LIVE' && isMailConfigured()) {
-        try {
-          await sendMail({
-            to: recipientEmail,
-            subject: emailBody.subject,
-            text: emailBody.text,
-            html: emailBody.html,
-          })
-          emailDeliveryStatus = 'sent'
-        } catch (mailError) {
-          emailDeliveryStatus = 'failed'
-          emailDeliveryError = mailError instanceof Error ? mailError.message : 'Unbekannter Mailfehler'
-        }
-      }
-    } else {
-      emailDeliveryStatus = 'failed'
-      emailDeliveryError = 'Keine Rechnungs-E-Mail im Abrechnungsprofil hinterlegt.'
-    }
-
-    await prisma.invoice.update({
-      where: { id: updated.id },
-      data: {
-        metadata: {
-          ...(updated.metadata as Record<string, unknown> | null),
-          lifecycleStatus: 'APPROVED',
-          emailDeliveryStatus,
-          emailDeliveryError,
-          emailMode: BILLING_EMAIL_MODE,
-          paymentStatus: 'PAYMENT_PLANNED',
-        },
-      },
-    })
-
-    await prisma.klarandoMailboxMessage.create({
-      data: {
-        tenantId: updated.tenantId,
-        chainId: updated.chainId,
-        invoiceId: updated.id,
-        messageType: 'INVOICE_ISSUED',
-        title: `Neue Klarando Monatsrechnung ${updated.invoiceNumber}`,
-        body: `Betrag: ${(updated.totalGrossCents / 100).toFixed(2).replace('.', ',')} € · Zeitraum ${monthLabel} · Zahlungsziel ${updated.dueAt ? updated.dueAt.toLocaleDateString('de-DE') : 'gemäß Profil'}`,
-        status: updated.status,
-        actionUrl: `/admin/finanzen?invoice=${updated.id}`,
-        metadata: {
-          emailDeliveryStatus,
-          emailMode: BILLING_EMAIL_MODE,
-          simulation: BILLING_EMAIL_MODE !== 'LIVE',
-        },
-      },
-    })
 
     await writeAuditLog({
       req,
       module: 'billing',
-      action: 'INVOICE_FINALIZED',
+      action: 'INVOICE_FINALIZE_LEGACY_REDIRECT',
       targetType: 'Invoice',
       targetId: invoice.id,
       tenantId: invoice.tenantId || undefined,
       chainId: invoice.chainId || undefined,
       metadata: {
-        invoiceNumber: invoice.invoiceNumber,
+        legacyRoute: `/api/billing/invoices/${invoice.id}/finalize`,
+        canonicalRoute: '/api/billing/invoices/finalize',
+        invoiceNumber: updated?.invoiceNumber ?? invoice.invoiceNumber,
+        month: derivedMonth,
       },
     })
 
     return res.json({
       ok: true,
       invoiceId: updated.id,
+      invoiceNumber: updated.invoiceNumber,
       status: updated.status,
-      lifecycleStatus: 'APPROVED',
-      emailDeliveryStatus,
-      simulationMode: BILLING_EMAIL_MODE !== 'LIVE',
+      deprecated: true,
+      canonicalRoute: '/api/billing/invoices/finalize',
     })
   } catch (error) {
+    const typedError = error as Error & { code?: string; invoiceId?: string; invoiceNumber?: string; warnings?: string[] }
+    if (typedError?.code === 'FINAL_INVOICE_EXISTS') {
+      return res.status(409).json({
+        error: typedError.message,
+        invoiceId: typedError.invoiceId,
+        invoiceNumber: typedError.invoiceNumber,
+      })
+    }
+    if (typedError?.code === 'CRITICAL_WARNINGS') {
+      return res.status(409).json({
+        error: typedError.message,
+        warnings: typedError.warnings || [],
+      })
+    }
     console.error('POST FINALIZE INVOICE ERROR:', error)
     return res.status(500).json({ error: 'Rechnung konnte nicht finalisiert werden' })
   }
