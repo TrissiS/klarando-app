@@ -6,13 +6,17 @@ import { Suspense, useEffect, useMemo, useState } from 'react'
 import PlatformBranding from '@/app/Components/admin/PlatformBranding'
 import {
   getBusinessSettings,
+  getBillingMailboxHeader,
   getBranchOrderIntakeStatus,
   getOrderManagementList,
   getMyEffectiveFeatureModules,
   getStoredAccessToken,
   getStoredTenantId,
+  markAllBillingMailboxMessagesRead,
+  markBillingMailboxMessageRead,
   getPlatformBrandingSettings,
   updateBranchOrderIntakeStatus,
+  type BillingMailboxMessage,
   type BranchOrderIntakeStatus,
   type AccessPermission,
   type BusinessSettings,
@@ -68,6 +72,8 @@ type HeaderInboxItem = {
   href?: string
   unread: boolean
   meta?: string
+  source?: 'complaint' | 'mailbox'
+  messageId?: string
   status?: 'NEW' | 'IN_PROGRESS' | 'RESOLVED' | 'REJECTED'
 }
 
@@ -217,7 +223,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
   const [uiModeReady, setUiModeReady] = useState(false)
   const [notificationOpen, setNotificationOpen] = useState(false)
   const [mailboxOpen, setMailboxOpen] = useState(false)
-  const [notificationItems, setNotificationItems] = useState<HeaderInboxItem[]>([])
+  const [complaintNotificationItems, setComplaintNotificationItems] = useState<HeaderInboxItem[]>([])
   const [mailboxItems, setMailboxItems] = useState<HeaderInboxItem[]>([])
   const [sessionWarningOpen, setSessionWarningOpen] = useState(false)
   const [sessionCountdown, setSessionCountdown] = useState(60)
@@ -228,6 +234,10 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     return new Set(featureScope.modules.filter((entry) => entry.enabled).map((entry) => entry.key))
   }, [featureScope])
   const normalizedRole = sessionRole.trim().toLowerCase()
+  const notificationItems = useMemo(
+    () => [...mailboxItems, ...complaintNotificationItems].slice(0, 8),
+    [mailboxItems, complaintNotificationItems]
+  )
   const unreadNotifications = notificationItems.filter((entry) => entry.unread).length
   const unreadMailboxItems = mailboxItems.filter((entry) => entry.unread).length
   const canReadOrderIntake =
@@ -277,7 +287,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     const hasComplaintsPermission =
       permissions?.has('COMPLAINTS_READ') ?? true
     if (!canReadOrders || !hasComplaintsPermission) {
-      setNotificationItems([])
+      setComplaintNotificationItems([])
       return
     }
 
@@ -305,7 +315,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
           }
         })
 
-      setNotificationItems(mapped)
+      setComplaintNotificationItems(mapped)
     }
 
     const loadComplaintNotifications = async () => {
@@ -316,7 +326,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
         applyNotificationItems(alerts)
       } catch {
         if (cancelled) return
-        setNotificationItems([])
+        setComplaintNotificationItems([])
       }
     }
 
@@ -333,10 +343,57 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
 
   useEffect(() => {
     if (!authChecked || !hasValidSession) {
+      setMailboxItems([])
       return
     }
-    setMailboxItems([])
-  }, [authChecked, hasValidSession])
+    const canReadOrders = permissions?.has('ORDERS_READ') ?? false
+    if (!canReadOrders) {
+      setMailboxItems([])
+      return
+    }
+    const token = getStoredAccessToken()
+    if (!token) {
+      setMailboxItems([])
+      return
+    }
+    let cancelled = false
+
+    const mapMailboxMessage = (message: BillingMailboxMessage): HeaderInboxItem => ({
+      id: `mailbox-${message.id}`,
+      title: message.title,
+      href: message.invoiceId
+        ? `/admin/finanzen?section=postfach&invoice=${message.invoiceId}#postfach`
+        : '/admin/finanzen?section=postfach#postfach',
+      unread: !message.readAt,
+      meta: `${new Date(message.createdAt).toLocaleString('de-DE')} · ${message.status || 'Info'}`,
+      source: 'mailbox',
+      messageId: message.id,
+      status: !message.readAt ? 'NEW' : 'IN_PROGRESS',
+    })
+
+    const loadMailbox = async () => {
+      try {
+        const result = await getBillingMailboxHeader(token, {
+          tenantId: sessionTenantId || undefined,
+        })
+        if (cancelled) return
+        setMailboxItems(result.latestMessages.map(mapMailboxMessage))
+      } catch {
+        if (cancelled) return
+        setMailboxItems([])
+      }
+    }
+
+    void loadMailbox()
+    const intervalId = window.setInterval(() => {
+      void loadMailbox()
+    }, 30000)
+
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+  }, [authChecked, hasValidSession, permissions, sessionTenantId])
 
   useEffect(() => {
     try {
@@ -626,6 +683,71 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     if (typeof window === 'undefined') return
     clearSuperadminTenantContext()
     window.location.href = '/superadmin'
+  }
+
+  function navigateToHref(targetHref: string) {
+    if (typeof window === 'undefined') return
+    window.location.href = targetHref
+  }
+
+  async function handleOpenMailboxEntry(entry: HeaderInboxItem) {
+    if (entry.source === 'mailbox' && entry.messageId) {
+      const token = getStoredAccessToken()
+      if (token) {
+        try {
+          await markBillingMailboxMessageRead(token, entry.messageId)
+          setMailboxItems((current) =>
+            current.map((item) =>
+              item.messageId === entry.messageId
+                ? { ...item, unread: false, status: 'IN_PROGRESS' }
+                : item
+            )
+          )
+        } catch {
+          // keep navigation working even if read state update fails
+        }
+      }
+    }
+    if (entry.source === 'complaint') {
+      markComplaintAlertsRead([entry.id])
+      setComplaintNotificationItems((current) =>
+        current.map((item) =>
+          item.id === entry.id ? { ...item, unread: false, status: 'IN_PROGRESS' } : item
+        )
+      )
+    }
+    if (entry.href) {
+      navigateToHref(entry.href)
+    }
+  }
+
+  async function handleMarkAllHeaderItemsRead() {
+    const token = getStoredAccessToken()
+    if (token) {
+      try {
+        await markAllBillingMailboxMessagesRead(token, {
+          tenantId: sessionTenantId || undefined,
+        })
+      } catch {
+        // complaint notifications still continue locally
+      }
+    }
+    const unreadComplaintIds = complaintNotificationItems.filter((entry) => entry.unread).map((entry) => entry.id)
+    markComplaintAlertsRead(unreadComplaintIds)
+    setComplaintNotificationItems((current) =>
+      current.map((entry) => ({
+        ...entry,
+        unread: false,
+        status: entry.status === 'RESOLVED' ? 'RESOLVED' : 'IN_PROGRESS',
+      }))
+    )
+    setMailboxItems((current) =>
+      current.map((entry) => ({
+        ...entry,
+        unread: false,
+        status: entry.status === 'RESOLVED' ? 'RESOLVED' : 'IN_PROGRESS',
+      }))
+    )
   }
 
   useEffect(() => {
@@ -1040,13 +1162,7 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                           </p>
                           <button
                             type="button"
-                            onClick={() =>
-                              setNotificationItems((current) => {
-                                const unreadIds = current.filter((entry) => entry.unread).map((entry) => entry.id)
-                                markComplaintAlertsRead(unreadIds)
-                                return current.map((entry) => ({ ...entry, unread: false, status: entry.status === 'RESOLVED' ? 'RESOLVED' : 'IN_PROGRESS' }))
-                              })
-                            }
+                            onClick={() => void handleMarkAllHeaderItemsRead()}
                             className="text-[11px] font-semibold text-rose-700 hover:text-rose-900"
                           >
                             Alle als gelesen
@@ -1061,13 +1177,20 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
                                     {entry.href ? (
-                                      <Link href={entry.href} className="font-semibold text-rose-900 underline-offset-2 hover:underline">
+                                      <button
+                                        type="button"
+                                        onClick={() => void handleOpenMailboxEntry(entry)}
+                                        className="text-left font-semibold text-rose-900 underline-offset-2 hover:underline"
+                                      >
                                         {entry.title}
-                                      </Link>
+                                      </button>
                                     ) : (
                                       <p className="font-semibold text-rose-900">{entry.title}</p>
                                     )}
                                     {entry.meta ? <p className="text-[11px] text-rose-900/70">{entry.meta}</p> : null}
+                                    {entry.source === 'mailbox' ? (
+                                      <p className="mt-1 text-[11px] font-semibold text-rose-700">Zum Postfach</p>
+                                    ) : null}
                                   </div>
                                   <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
                                     entry.status === 'NEW'
@@ -1118,16 +1241,32 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
                     </button>
                     {mailboxOpen ? (
                       <div className="absolute right-0 z-[140] mt-2 w-72 rounded-2xl border border-[var(--brand-border)] bg-white p-3 shadow-xl">
-                        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-rose-900/70">
-                          Nachrichten
-                        </p>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/70">
+                            Postfach
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => navigateToHref('/admin/finanzen?section=postfach#postfach')}
+                            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900"
+                          >
+                            Zum Postfach
+                          </button>
+                        </div>
                         {mailboxItems.length === 0 ? (
                           <p className="text-xs text-rose-900/70">Keine neuen Nachrichten.</p>
                         ) : (
                           <ul className="space-y-1">
                             {mailboxItems.map((entry) => (
                               <li key={entry.id} className="rounded-lg border border-rose-100 px-2 py-1 text-xs">
-                                {entry.title}
+                                <button
+                                  type="button"
+                                  onClick={() => void handleOpenMailboxEntry(entry)}
+                                  className="w-full text-left"
+                                >
+                                  <p className="font-semibold text-rose-900">{entry.title}</p>
+                                  {entry.meta ? <p className="mt-1 text-[11px] text-rose-900/70">{entry.meta}</p> : null}
+                                </button>
                               </li>
                             ))}
                           </ul>

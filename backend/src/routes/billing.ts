@@ -1610,16 +1610,99 @@ router.get('/mailbox', requirePermission(PermissionKey.ORDERS_READ), async (req,
   }
 })
 
+router.get('/mailbox/header', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
+  try {
+    const authUser = req.authUser
+    if (!authUser) return res.status(401).json({ error: 'Nicht eingeloggt' })
+
+    const tenantId =
+      authUser.role === UserRole.SUPERADMIN
+        ? asString(req.query.tenantId) || null
+        : (await resolveTenantScope(req, asString(req.query.tenantId))).tenantId
+
+    const chainId = authUser.role === UserRole.CHAINADMIN ? authUser.chainId : asString(req.query.chainId) || null
+
+    const messages = await prisma.klarandoMailboxMessage.findMany({
+      where: {
+        ...(tenantId ? { tenantId } : {}),
+        ...(chainId ? { chainId } : {}),
+        NOT: {
+          status: InvoiceStatus.DRAFT,
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+    })
+
+    const unreadCount = messages.filter((message) => !message.readAt).length
+    return res.json({
+      unreadCount,
+      latestMessages: messages,
+    })
+  } catch (error) {
+    const scopedError = asTenantScopeError(error)
+    if (scopedError) return res.status(scopedError.status).json({ error: scopedError.message })
+    console.error('GET BILLING MAILBOX HEADER ERROR:', error)
+    return res.status(500).json({ error: 'Postfach-Status konnte nicht geladen werden' })
+  }
+})
+
 router.post('/mailbox/:messageId/read', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
   try {
-    const message = await prisma.klarandoMailboxMessage.update({
+    const authUser = req.authUser
+    if (!authUser) return res.status(401).json({ error: 'Nicht eingeloggt' })
+    const existing = await prisma.klarandoMailboxMessage.findUnique({
       where: { id: String(req.params.messageId || '') },
+    })
+    if (!existing) {
+      return res.status(404).json({ error: 'Nachricht nicht gefunden' })
+    }
+    if (authUser.role === UserRole.ADMIN || authUser.role === UserRole.CHAINADMIN) {
+      const scope = await resolveTenantScope(req, existing.tenantId || undefined)
+      if (!existing.tenantId || scope.tenantId !== existing.tenantId) {
+        return res.status(403).json({ error: 'Kein Zugriff auf diese Nachricht' })
+      }
+    }
+    const message = await prisma.klarandoMailboxMessage.update({
+      where: { id: existing.id },
       data: { readAt: new Date() },
     })
     return res.json({ ok: true, messageId: message.id, readAt: message.readAt })
   } catch (error) {
+    const scopedError = asTenantScopeError(error)
+    if (scopedError) return res.status(scopedError.status).json({ error: scopedError.message })
     console.error('POST BILLING MAILBOX READ ERROR:', error)
     return res.status(500).json({ error: 'Nachricht konnte nicht aktualisiert werden' })
+  }
+})
+
+router.post('/mailbox/read-all', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
+  try {
+    const authUser = req.authUser
+    if (!authUser) return res.status(401).json({ error: 'Nicht eingeloggt' })
+    const tenantId =
+      authUser.role === UserRole.SUPERADMIN
+        ? asString(req.body?.tenantId) || asString(req.query?.tenantId) || null
+        : (await resolveTenantScope(req, asString(req.body?.tenantId) || asString(req.query?.tenantId))).tenantId
+    const chainId = authUser.role === UserRole.CHAINADMIN ? authUser.chainId : asString(req.body?.chainId) || asString(req.query?.chainId) || null
+
+    const result = await prisma.klarandoMailboxMessage.updateMany({
+      where: {
+        ...(tenantId ? { tenantId } : {}),
+        ...(chainId ? { chainId } : {}),
+        readAt: null,
+        NOT: {
+          status: InvoiceStatus.DRAFT,
+        },
+      },
+      data: { readAt: new Date() },
+    })
+    return res.json({ ok: true, updated: result.count })
+  } catch (error) {
+    const scopedError = asTenantScopeError(error)
+    if (scopedError) return res.status(scopedError.status).json({ error: scopedError.message })
+    console.error('POST BILLING MAILBOX READ ALL ERROR:', error)
+    return res.status(500).json({ error: 'Postfach konnte nicht als gelesen markiert werden' })
   }
 })
 

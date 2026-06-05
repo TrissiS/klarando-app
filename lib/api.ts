@@ -7101,6 +7101,11 @@ export type BillingMailboxMessage = {
   metadata?: Record<string, unknown> | null
 }
 
+export type BillingMailboxHeaderResponse = {
+  unreadCount: number
+  latestMessages: BillingMailboxMessage[]
+}
+
 export async function getBillingPreview(token: string, period: string): Promise<BillingPreviewResponse> {
   const query = new URLSearchParams({ period })
   return apiJson<BillingPreviewResponse>(
@@ -7319,6 +7324,47 @@ export async function getBillingMailboxMessages(token: string, params: { tenantI
     buildApiUrl(`/api/billing/mailbox${suffix}`),
     { headers: authHeaders(token) },
     'Postfach konnte nicht geladen werden'
+  )
+}
+
+export async function getBillingMailboxHeader(
+  token: string,
+  params: { tenantId?: string; chainId?: string } = {}
+): Promise<BillingMailboxHeaderResponse> {
+  const query = new URLSearchParams()
+  if (params.tenantId) query.set('tenantId', params.tenantId)
+  if (params.chainId) query.set('chainId', params.chainId)
+  const suffix = query.toString() ? `?${query.toString()}` : ''
+  return apiJson<BillingMailboxHeaderResponse>(
+    buildApiUrl(`/api/billing/mailbox/header${suffix}`),
+    { headers: authHeaders(token) },
+    'Postfach-Status konnte nicht geladen werden'
+  )
+}
+
+export async function markBillingMailboxMessageRead(token: string, messageId: string): Promise<{ ok: boolean; messageId: string; readAt: string | null }> {
+  return apiJson<{ ok: boolean; messageId: string; readAt: string | null }>(
+    buildApiUrl(`/api/billing/mailbox/${encodeURIComponent(messageId)}/read`),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+    },
+    'Nachricht konnte nicht als gelesen markiert werden'
+  )
+}
+
+export async function markAllBillingMailboxMessagesRead(
+  token: string,
+  params: { tenantId?: string; chainId?: string } = {}
+): Promise<{ ok: boolean; updated: number }> {
+  return apiJson<{ ok: boolean; updated: number }>(
+    buildApiUrl('/api/billing/mailbox/read-all'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(params),
+    },
+    'Postfach konnte nicht als gelesen markiert werden'
   )
 }
 

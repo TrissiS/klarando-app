@@ -8,6 +8,7 @@ import {
   getBillingInvoices,
   getBillingMailboxMessages,
   getFinanceUsageCurrent,
+  markAllBillingMailboxMessagesRead,
   type AdminFinanceOverviewResponse,
   type BillingInvoice,
   type BillingMailboxMessage,
@@ -94,6 +95,22 @@ export default function AdminFinanzenPage() {
     () => data?.transactions.filter((entry) => entry.paymentStatus.toUpperCase() === 'PAID').length || 0,
     [data]
   )
+
+  useEffect(() => {
+    if (!token || !tenantId) return
+    if (typeof window === 'undefined') return
+    const section = new URLSearchParams(window.location.search).get('section')
+    if (section !== 'postfach') return
+    void (async () => {
+      try {
+        await markAllBillingMailboxMessagesRead(token, { tenantId })
+        const mailboxRows = await getBillingMailboxMessages(token, { tenantId })
+        setMailboxMessages(mailboxRows)
+      } catch {
+        // keep page usable even if read-state sync fails
+      }
+    })()
+  }, [token, tenantId])
 
   async function handleOpenInvoicePdf(invoice: BillingInvoice) {
     if (!token) return
@@ -252,7 +269,7 @@ export default function AdminFinanzenPage() {
         </section>
 
         <section className="grid gap-4 xl:grid-cols-2">
-          <article className="rounded-3xl border border-[var(--brand-border)] bg-white p-4">
+          <article id="postfach" className="rounded-3xl border border-[var(--brand-border)] bg-white p-4">
             <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>
             <div className="mt-3 overflow-x-auto">
               <table className="min-w-full text-sm">
