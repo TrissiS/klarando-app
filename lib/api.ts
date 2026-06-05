@@ -6960,6 +6960,24 @@ export type BillingInvoicePreview = {
     periodStart: string
     periodEnd: string
   }
+  recipient: {
+    recipientName: string | null
+    companyName: string | null
+    contactPerson: string | null
+    street: string | null
+    houseNumber: string | null
+    zipCode: string | null
+    city: string | null
+    countryCode: string | null
+    invoiceEmail: string | null
+    vatId: string | null
+    taxNumber: string | null
+    tenantId: string
+    paymentTermsDays: number | null
+    paymentMethod: string | null
+    periodStart: string
+    periodEnd: string
+  }
   positions: Array<{
     key:
       | 'BASE_FEE'
@@ -7015,6 +7033,25 @@ export type BillingInvoice = {
   periodEnd: string
   issuedAt?: string | null
   finalizedAt?: string | null
+  billingProfileSnapshot?: {
+    recipientName: string | null
+    companyName: string | null
+    contactPerson: string | null
+    street: string | null
+    houseNumber: string | null
+    zipCode: string | null
+    city: string | null
+    countryCode: string | null
+    invoiceEmail: string | null
+    vatId: string | null
+    taxNumber: string | null
+    tenantId: string
+    paymentTermsDays: number | null
+    paymentMethod: string | null
+    periodStart: string
+    periodEnd: string
+    contactEmail?: string | null
+  } | null
   vatSnapshot?: {
     vatRatePercent: number | null
     vatCountry: string | null

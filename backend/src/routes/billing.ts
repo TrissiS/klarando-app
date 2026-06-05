@@ -695,6 +695,11 @@ router.get('/invoices', requirePermission(PermissionKey.ORDERS_READ), async (req
         return {
           ...invoice,
           lifecycleStatus,
+          billingProfileSnapshot:
+            (invoice.metadata as Record<string, unknown> | null)?.billingProfileSnapshot &&
+            typeof (invoice.metadata as Record<string, unknown>).billingProfileSnapshot === 'object'
+              ? ((invoice.metadata as Record<string, unknown>).billingProfileSnapshot as Record<string, unknown>)
+              : null,
           vatSnapshot:
             (invoice.metadata as Record<string, unknown> | null)?.vatSnapshot &&
             typeof (invoice.metadata as Record<string, unknown>).vatSnapshot === 'object'

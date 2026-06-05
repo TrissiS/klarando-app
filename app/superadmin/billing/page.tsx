@@ -960,6 +960,59 @@ export default function SuperadminBillingPage() {
                 </div>
               </div>
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                <p className="font-semibold text-slate-900">Rechnungsdaten-Snapshot</p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Empfänger</p>
+                    <p className="mt-1 font-medium text-slate-900">
+                      {invoicePreview.recipient.recipientName || 'Fehlt'}
+                    </p>
+                    <p className="mt-1 text-slate-700">
+                      {invoicePreview.recipient.contactPerson || 'Kein Ansprechpartner gepflegt'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Adresse</p>
+                    <p className="mt-1 text-slate-900">{invoicePreview.recipient.street || 'Straße fehlt'}</p>
+                    <p className="text-slate-700">
+                      {invoicePreview.recipient.zipCode || 'PLZ fehlt'} {invoicePreview.recipient.city || 'Ort fehlt'}
+                    </p>
+                    <p className="text-slate-700">{invoicePreview.recipient.countryCode || 'Land fehlt'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Abrechnung</p>
+                    <p className="mt-1 text-slate-900">{invoicePreview.recipient.invoiceEmail || 'E-Mail fehlt'}</p>
+                    <p className="text-slate-700">
+                      Zahlungsziel:{' '}
+                      {invoicePreview.recipient.paymentTermsDays
+                        ? `${invoicePreview.recipient.paymentTermsDays} Tage`
+                        : 'fehlt'}
+                    </p>
+                    <p className="text-slate-700">
+                      Zahlungsart: {invoicePreview.recipient.paymentMethod || 'nicht gepflegt'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Steuerdaten</p>
+                    <p className="mt-1 text-slate-900">USt-ID: {invoicePreview.recipient.vatId || 'nicht gepflegt'}</p>
+                    <p className="text-slate-700">
+                      Steuernummer: {invoicePreview.recipient.taxNumber || 'nicht gepflegt'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Tenant</p>
+                    <p className="mt-1 text-slate-900">{invoicePreview.recipient.tenantId}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-slate-500">Leistungszeitraum</p>
+                    <p className="mt-1 text-slate-900">
+                      {new Date(invoicePreview.recipient.periodStart).toLocaleDateString('de-DE')} bis{' '}
+                      {new Date(invoicePreview.recipient.periodEnd).toLocaleDateString('de-DE')}
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
                 <p className="font-semibold text-slate-900">MwSt.-Quelle</p>
                 <p className="mt-2">
                   Verwendeter Satz:{' '}

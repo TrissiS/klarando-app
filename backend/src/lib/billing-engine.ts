@@ -97,6 +97,24 @@ export type BillingInvoicePreview = {
     periodStart: string
     periodEnd: string
   }
+  recipient: {
+    recipientName: string | null
+    companyName: string | null
+    contactPerson: string | null
+    street: string | null
+    houseNumber: string | null
+    zipCode: string | null
+    city: string | null
+    countryCode: string | null
+    invoiceEmail: string | null
+    vatId: string | null
+    taxNumber: string | null
+    tenantId: string
+    paymentTermsDays: number | null
+    paymentMethod: string | null
+    periodStart: string
+    periodEnd: string
+  }
   positions: BillingInvoicePreviewLineItem[]
   totals: {
     netAmountCents: number
@@ -268,6 +286,48 @@ function resolveTenantVatConfiguration(input: {
   }
 }
 
+function buildInvoiceRecipientSnapshot(input: {
+  tenant: {
+    id: string
+    billingProfile:
+      | {
+          companyName?: string | null
+          contactPerson?: string | null
+          street?: string | null
+          zipCode?: string | null
+          city?: string | null
+          countryCode?: string | null
+          invoiceEmail?: string | null
+          vatId?: string | null
+          taxNumber?: string | null
+          paymentTermsDays?: number | null
+          paymentMethod?: string | null
+        }
+      | null
+  }
+  period: BillingMonthPeriod
+}) {
+  const profile = input.tenant.billingProfile
+  return {
+    recipientName: profile?.companyName ?? null,
+    companyName: profile?.companyName ?? null,
+    contactPerson: profile?.contactPerson ?? null,
+    street: profile?.street ?? null,
+    houseNumber: null as string | null,
+    zipCode: profile?.zipCode ?? null,
+    city: profile?.city ?? null,
+    countryCode: profile?.countryCode?.trim().toUpperCase() || null,
+    invoiceEmail: profile?.invoiceEmail ?? null,
+    vatId: profile?.vatId ?? null,
+    taxNumber: profile?.taxNumber ?? null,
+    tenantId: input.tenant.id,
+    paymentTermsDays: profile?.paymentTermsDays ?? null,
+    paymentMethod: profile?.paymentMethod ?? null,
+    periodStart: input.period.periodStart.toISOString(),
+    periodEnd: new Date(input.period.periodEnd.getTime() - 1).toISOString(),
+  }
+}
+
 export async function calculateTenantBilling(tenantId: string, period: BillingMonthPeriod): Promise<TenantBillingCalculation | null> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
@@ -336,14 +396,17 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
     orderBy: { createdAt: 'desc' },
     select: { status: true },
   })
+  const recipientSnapshot = buildInvoiceRecipientSnapshot({ tenant, period })
 
   const warnings: string[] = []
-  if (!tenant.billingProfile?.companyName) warnings.push('Rechnungsadresse: Firmenname fehlt.')
-  if (!tenant.billingProfile?.street || !tenant.billingProfile?.zipCode || !tenant.billingProfile?.city) {
-    warnings.push('Rechnungsadresse ist unvollständig.')
-  }
-  if (!tenant.billingProfile?.invoiceEmail) warnings.push('Rechnungs-E-Mail fehlt.')
-  if (!tenant.billingProfile?.vatId) warnings.push('USt-IdNr. fehlt (optional, aber empfohlen).')
+  if (!recipientSnapshot.recipientName) warnings.push('Rechnungsempfänger / Firmenname fehlt.')
+  if (!recipientSnapshot.street) warnings.push('Rechnungsadresse: Straße fehlt.')
+  if (!recipientSnapshot.zipCode) warnings.push('Rechnungsadresse: PLZ fehlt.')
+  if (!recipientSnapshot.city) warnings.push('Rechnungsadresse: Ort fehlt.')
+  if (!recipientSnapshot.countryCode) warnings.push('Rechnungsadresse: Land fehlt.')
+  if (!recipientSnapshot.invoiceEmail) warnings.push('Rechnungs-E-Mail fehlt.')
+  if (!recipientSnapshot.vatId) warnings.push('USt-IdNr. fehlt (optional, aber empfohlen).')
+  if (!recipientSnapshot.taxNumber) warnings.push('Steuernummer fehlt (optional, aber empfohlen).')
   if (!plan?.isActive) warnings.push('Kein aktiver Billing-Plan hinterlegt.')
   if (vatRatePercent === null) {
     warnings.push('MwSt.-Satz fehlt in der serverseitigen Billing-Masterquelle.')
@@ -537,17 +600,36 @@ export async function buildBillingInvoicePreview(
     })
   }
 
+  const recipientSnapshot = buildInvoiceRecipientSnapshot({ tenant, period })
   const warnings = [...calculation.warnings]
-  if (!tenant.billingProfile?.companyName || !tenant.billingProfile?.street || !tenant.billingProfile?.zipCode || !tenant.billingProfile?.city) {
-    warnings.push('Rechnungsadresse fehlt oder ist unvollstaendig.')
+  if (!recipientSnapshot.recipientName) {
+    warnings.push('Rechnungsempfänger / Firmenname fehlt.')
   }
-  if ((tenant.billingProfile?.countryCode || 'DE').toUpperCase() === 'DE' && !tenant.billingProfile?.vatId) {
+  if (!recipientSnapshot.street) {
+    warnings.push('Rechnungsadresse: Straße fehlt.')
+  }
+  if (!recipientSnapshot.zipCode) {
+    warnings.push('Rechnungsadresse: PLZ fehlt.')
+  }
+  if (!recipientSnapshot.city) {
+    warnings.push('Rechnungsadresse: Ort fehlt.')
+  }
+  if (!recipientSnapshot.countryCode) {
+    warnings.push('Rechnungsadresse: Land fehlt.')
+  }
+  if (!recipientSnapshot.invoiceEmail) {
+    warnings.push('Rechnungs-E-Mail fehlt.')
+  }
+  if ((recipientSnapshot.countryCode || 'DE').toUpperCase() === 'DE' && !recipientSnapshot.vatId) {
     warnings.push('USt-ID fehlt oder ist noch nicht gepflegt.')
   }
-  if (!tenant.billingProfile?.paymentMethod) {
+  if (!recipientSnapshot.taxNumber) {
+    warnings.push('Steuernummer fehlt oder ist noch nicht gepflegt.')
+  }
+  if (!recipientSnapshot.paymentMethod) {
     warnings.push('Zahlungsart fehlt im Billing-Profil.')
   }
-  if (!tenant.billingProfile?.paymentTermsDays || tenant.billingProfile.paymentTermsDays <= 0) {
+  if (!recipientSnapshot.paymentTermsDays || recipientSnapshot.paymentTermsDays <= 0) {
     warnings.push('Zahlungsziel fehlt im Billing-Profil.')
   }
   if (calculation.countingNotes.length > 0) {
@@ -564,9 +646,12 @@ export async function buildBillingInvoicePreview(
   }
 
   const criticalWarnings = warnings.filter((warning) =>
-    warning.includes('Rechnungsadresse fehlt') ||
-    warning.includes('Rechnungsadresse ist unvollständig') ||
-    warning.includes('Zahlungsart fehlt') ||
+    warning.includes('Rechnungsempfänger') ||
+    warning.includes('Rechnungsadresse: Straße') ||
+    warning.includes('Rechnungsadresse: PLZ') ||
+    warning.includes('Rechnungsadresse: Ort') ||
+    warning.includes('Rechnungsadresse: Land') ||
+    warning.includes('Rechnungs-E-Mail') ||
     warning.includes('Zahlungsziel fehlt') ||
     warning.includes('Keine abrechnungsrelevanten Bestellungen') ||
     warning.includes('MwSt.-')
@@ -586,8 +671,9 @@ export async function buildBillingInvoicePreview(
     period: {
       month: period.key,
       periodStart: period.periodStart.toISOString(),
-      periodEnd: new Date(period.periodEnd.getTime() - 1).toISOString(),
+    periodEnd: new Date(period.periodEnd.getTime() - 1).toISOString(),
     },
+    recipient: recipientSnapshot,
     positions,
     totals: {
       netAmountCents: calculation.monthlyTotalRevenueCents,
@@ -771,6 +857,8 @@ export async function createInvoiceDraftFromCalculation(input: {
           select: {
             id: true,
             companyName: true,
+            contactPerson: true,
+            taxNumber: true,
             street: true,
             zipCode: true,
             city: true,
@@ -788,16 +876,14 @@ export async function createInvoiceDraftFromCalculation(input: {
     const dueAt = new Date(issueDate.getTime() + paymentTermsDays * 24 * 60 * 60 * 1000)
     const billingProfileSnapshot = tenant?.billingProfile
       ? {
-          companyName: tenant.billingProfile.companyName,
-          street: tenant.billingProfile.street,
-          zipCode: tenant.billingProfile.zipCode,
-          city: tenant.billingProfile.city,
-          countryCode: tenant.billingProfile.countryCode,
-          vatId: tenant.billingProfile.vatId,
-          invoiceEmail: tenant.billingProfile.invoiceEmail,
+          ...buildInvoiceRecipientSnapshot({
+            tenant: {
+              id: tenantCalculation.tenantId,
+              billingProfile: tenant.billingProfile,
+            },
+            period,
+          }),
           contactEmail: tenant.billingProfile.contactEmail,
-          paymentMethod: tenant.billingProfile.paymentMethod,
-          paymentTermsDays: tenant.billingProfile.paymentTermsDays,
         }
       : null
 
