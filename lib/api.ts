@@ -6222,6 +6222,40 @@ export type PlatformBillingSettings = {
   cancelledAt?: string | null
 }
 
+export type InvoiceIssuerReadiness = {
+  exportReady: boolean
+  hasVatId: boolean
+  hasTaxNumber: boolean
+  hasBankData: boolean
+  hasCreditorId: boolean
+  missingFields: string[]
+  warnings: string[]
+}
+
+export type InvoiceIssuerSnapshot = {
+  name: string
+  legalForm: string | null
+  owner: string | null
+  street: string
+  houseNumber: string | null
+  zip: string
+  city: string
+  country: string
+  email: string
+  supportEmail: string
+  phone: string | null
+  website: string | null
+  vatId: string
+  taxNumber: string | null
+  logoUrl: string | null
+  bankName: string | null
+  iban: string | null
+  bic: string | null
+  creditorId: string | null
+  paymentInfo: string | null
+  paymentTargetDays: number | null
+}
+
 export type BillingUsageSnapshot = {
   periodStart: string
   periodEnd: string
@@ -7059,6 +7093,15 @@ export type BillingInvoice = {
     taxTotalCents: number
     netTotalCents: number
     grossTotalCents: number
+  } | null
+  issuerSnapshot?: InvoiceIssuerSnapshot | null
+  audit?: {
+    finalizedAt: string
+    finalizedByUserId: string | null
+    invoiceNumber: string
+    sourcePreviewHash: string | null
+    calculationHash: string | null
+    billingVersion: string | null
   } | null
   createdAt: string
   tenant?: { id: string; name: string } | null
@@ -8846,8 +8889,16 @@ export async function getBillingChargebacks(
   )
 }
 
-export async function getPlatformBillingSettings(token: string): Promise<{ profile: PlatformBillingSettings }> {
-  return apiJson<{ profile: PlatformBillingSettings }>(
+export async function getPlatformBillingSettings(token: string): Promise<{
+  profile: PlatformBillingSettings
+  readiness: InvoiceIssuerReadiness
+  issuerSnapshotTemplate: InvoiceIssuerSnapshot
+}> {
+  return apiJson<{
+    profile: PlatformBillingSettings
+    readiness: InvoiceIssuerReadiness
+    issuerSnapshotTemplate: InvoiceIssuerSnapshot
+  }>(
     buildApiUrl('/api/billing/settings/platform'),
     { headers: authHeaders(token) },
     'Zentrale Abrechnungsdaten konnten nicht geladen werden'

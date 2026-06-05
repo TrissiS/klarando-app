@@ -2,6 +2,8 @@ import { BillingPeriodType, BillingPlanType, InvoiceRecipientType, InvoiceStatus
 import crypto from 'node:crypto'
 import { prisma } from './prisma'
 import { calculateBillingUsageSnapshot } from './feature-modules'
+import { BILLING_EXPORT_VERSION } from './billing-export'
+import { buildInvoiceIssuerSnapshot, resolveInvoiceIssuerProfile } from './invoice-issuer-profile'
 
 export type BillingMonthPeriod = {
   key: string
@@ -134,6 +136,23 @@ export type BillingInvoicePreview = {
   warnings: string[]
   criticalWarnings: string[]
   hasCriticalWarnings: boolean
+}
+
+function buildBillingAuditSnapshot(input: {
+  finalizedAt: Date
+  finalizedByUserId?: string | null
+  invoiceNumber: string
+  sourcePreviewHash: string | null
+  calculationHash: string | null
+}) {
+  return {
+    finalizedAt: input.finalizedAt.toISOString(),
+    finalizedByUserId: input.finalizedByUserId ?? null,
+    invoiceNumber: input.invoiceNumber,
+    sourcePreviewHash: input.sourcePreviewHash,
+    calculationHash: input.calculationHash,
+    billingVersion: BILLING_EXPORT_VERSION,
+  }
 }
 
 type InvoiceDraftLineItem = {
@@ -553,6 +572,10 @@ export async function buildBillingInvoicePreview(
     },
   })
   if (!tenant) return null
+  const platformSettings = await prisma.platformBillingSettings.findFirst({
+    where: { scopeKey: 'global' },
+  })
+  const issuerProfile = resolveInvoiceIssuerProfile(platformSettings)
 
   const positions: BillingInvoicePreviewLineItem[] = []
   if (calculation.monthlyFeeCents > 0) {
@@ -665,6 +688,18 @@ export async function buildBillingInvoicePreview(
   }
   if (calculation.vatRatePercent === null) {
     warnings.push('MwSt.-Konfiguration fehlt oder ist unklar.')
+  }
+  if (!issuerProfile.vatId) {
+    warnings.push('Rechnungssteller: USt-ID fehlt im Plattform-Billing-Profil.')
+  }
+  if (!issuerProfile.taxNumber) {
+    warnings.push('Rechnungssteller: Steuernummer fehlt im Plattform-Billing-Profil.')
+  }
+  if (!issuerProfile.iban || !issuerProfile.bic || !issuerProfile.bankName) {
+    warnings.push('Rechnungssteller: Bankdaten sind im Plattform-Billing-Profil noch unvollständig.')
+  }
+  if (!issuerProfile.creditorId) {
+    warnings.push('Rechnungssteller: Gläubiger-ID fehlt im Plattform-Billing-Profil.')
   }
 
   const criticalWarnings = warnings.filter((warning) =>
@@ -894,6 +929,10 @@ export async function createInvoiceDraftFromCalculation(input: {
         },
       },
     })
+    const platformSettings = await tx.platformBillingSettings.findFirst({
+      where: { scopeKey: 'global' },
+    })
+    const issuerSnapshot = buildInvoiceIssuerSnapshot(resolveInvoiceIssuerProfile(platformSettings))
     const paymentTermsDays = Math.max(1, tenant?.billingProfile?.paymentTermsDays ?? 14)
     const dueAt = new Date(issueDate.getTime() + paymentTermsDays * 24 * 60 * 60 * 1000)
     const billingProfileSnapshot = tenant?.billingProfile
@@ -951,6 +990,7 @@ export async function createInvoiceDraftFromCalculation(input: {
           netTotalCents: subTotalCents,
           grossTotalCents: totalGrossCents,
         },
+        issuerSnapshot,
         draftLocked: true,
         finalizationLocked: false,
         historyVersion: 1,
@@ -1109,6 +1149,15 @@ export async function finalizeInvoiceFromPreview(input: {
 
   const finalizedAt = new Date()
   const finalizedInvoiceNumber = await getOrCreateInvoiceSequence(`GLOBAL:${period.key}`, finalizedAt)
+  const draftMetadata = ((draft.metadata as Record<string, unknown> | null) || {})
+  const calculationHash = typeof draftMetadata.calculationHash === 'string' ? draftMetadata.calculationHash : null
+  const auditSnapshot = buildBillingAuditSnapshot({
+    finalizedAt,
+    finalizedByUserId: input.finalizedByUserId ?? null,
+    invoiceNumber: finalizedInvoiceNumber,
+    sourcePreviewHash: calculationHash,
+    calculationHash,
+  })
   const updated = await prisma.invoice.update({
     where: { id: draft.id },
     data: {
@@ -1116,17 +1165,14 @@ export async function finalizeInvoiceFromPreview(input: {
       status: InvoiceStatus.ISSUED,
       issuedAt: finalizedAt,
       metadata: {
-        ...((draft.metadata as Record<string, unknown> | null) || {}),
+        ...draftMetadata,
         lifecycleStatus: 'OPEN',
         paymentStatus: 'OPEN',
         finalizationLocked: true,
         finalizationSource: 'PREVIEW',
         finalizedAt: finalizedAt.toISOString(),
         finalizedByUserId: input.finalizedByUserId ?? null,
-        sourcePreviewHash:
-          typeof ((draft.metadata as Record<string, unknown> | null) || {}).calculationHash === 'string'
-            ? (((draft.metadata as Record<string, unknown> | null) || {}).calculationHash as string)
-            : null,
+        sourcePreviewHash: calculationHash,
         vatSnapshot: {
           vatRatePercent: tenantCalculation.vatRatePercent,
           vatCountry: tenantCalculation.vatCountry,
@@ -1135,6 +1181,7 @@ export async function finalizeInvoiceFromPreview(input: {
           netTotalCents: draft.subTotalCents,
           grossTotalCents: draft.totalGrossCents,
         },
+        audit: auditSnapshot,
       },
     },
     include: {

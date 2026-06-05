@@ -15,6 +15,7 @@ import {
   getBillingSummary,
   getBillingTenants,
   getFeatureModuleCatalog,
+  getPlatformBillingSettings,
   getTenantBillingConfig,
   updateTenantBillingConfig,
   type BillingMailboxMessage,
@@ -24,6 +25,9 @@ import {
   type BillingSummaryResponse,
   type BillingTenantRow,
   type FeatureModuleDefinition,
+  type InvoiceIssuerReadiness,
+  type InvoiceIssuerSnapshot,
+  type PlatformBillingSettings,
   type TenantBillingPricingSource,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
@@ -246,6 +250,9 @@ export default function SuperadminBillingPage() {
   const [billingProfileForm, setBillingProfileForm] = useState<BillingProfileFormState | null>(null)
   const [finalizedInvoices, setFinalizedInvoices] = useState<BillingInvoice[]>([])
   const [mailboxMessages, setMailboxMessages] = useState<BillingMailboxMessage[]>([])
+  const [platformBillingProfile, setPlatformBillingProfile] = useState<PlatformBillingSettings | null>(null)
+  const [issuerReadiness, setIssuerReadiness] = useState<InvoiceIssuerReadiness | null>(null)
+  const [issuerSnapshotTemplate, setIssuerSnapshotTemplate] = useState<InvoiceIssuerSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewFinalizing, setPreviewFinalizing] = useState(false)
@@ -273,7 +280,15 @@ export default function SuperadminBillingPage() {
       try {
         setLoading(true)
         setError('')
-        const [summaryResult, tenantsResult, contextResult, catalogResult, invoiceResult, mailboxResult] =
+        const [
+          summaryResult,
+          tenantsResult,
+          contextResult,
+          catalogResult,
+          invoiceResult,
+          mailboxResult,
+          platformSettingsResult,
+        ] =
           await Promise.all([
             getBillingSummary(token, { month }),
             getBillingTenants(token, { month }),
@@ -281,6 +296,7 @@ export default function SuperadminBillingPage() {
             getFeatureModuleCatalog(token),
             getBillingInvoices(token, { month }),
             getBillingMailboxMessages(token),
+            getPlatformBillingSettings(token),
           ])
         setSummary(summaryResult)
         setTenantRows(tenantsResult.rows)
@@ -288,6 +304,9 @@ export default function SuperadminBillingPage() {
         setModuleCatalog(catalogResult.modules)
         setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
         setMailboxMessages(mailboxResult)
+        setPlatformBillingProfile(platformSettingsResult.profile)
+        setIssuerReadiness(platformSettingsResult.readiness)
+        setIssuerSnapshotTemplate(platformSettingsResult.issuerSnapshotTemplate)
         if (!selectedTenantId) {
           setSelectedTenantId(tenantsResult.rows[0]?.tenantId || contextResult.tenants[0]?.id || '')
         }
@@ -680,6 +699,101 @@ export default function SuperadminBillingPage() {
         {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{info}</div> : null}
         <ImplementationNotice title="Serverseitige Gebuehrenquelle" message="Grundgebuehr, Modulgebuehren, Paketpreis, Inklusivbestellungen, Provision, Fixbetrag, Mindestgebuehr, MwSt. und Zahlungsziel werden hier zentral serverseitig gepflegt. Rechnungslogik, PDF und DATEV bleiben bewusst unveraendert." tone="info" />
+        <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-[var(--brand-ink)]">DATEV & E-Rechnung Vorbereitung</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Readiness-Ansicht für Steuerberaterexporte und spätere E-Rechnung. Es wird bewusst noch kein DATEV-,
+            XRechnung- oder ZUGFeRD-Export erzeugt.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Rechnungssteller vollständig</p>
+              <p className={`mt-1 text-lg font-semibold ${issuerReadiness?.exportReady ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {issuerReadiness?.exportReady ? 'Ja' : 'Nein'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">USt-ID vorhanden</p>
+              <p className={`mt-1 text-lg font-semibold ${issuerReadiness?.hasVatId ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {issuerReadiness?.hasVatId ? 'Ja' : 'Nein'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Steuernummer vorhanden</p>
+              <p className={`mt-1 text-lg font-semibold ${issuerReadiness?.hasTaxNumber ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {issuerReadiness?.hasTaxNumber ? 'Ja' : 'Nein'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Bankdaten vorhanden</p>
+              <p className={`mt-1 text-lg font-semibold ${issuerReadiness?.hasBankData ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {issuerReadiness?.hasBankData ? 'Ja' : 'Nein'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Gläubiger-ID vorhanden</p>
+              <p className={`mt-1 text-lg font-semibold ${issuerReadiness?.hasCreditorId ? 'text-emerald-700' : 'text-amber-700'}`}>
+                {issuerReadiness?.hasCreditorId ? 'Ja' : 'Nein'}
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">Rechnungssteller-Masterquelle</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Firma / Rechtsform</p>
+                  <p className="mt-1 text-slate-900">
+                    {issuerSnapshotTemplate
+                      ? `${issuerSnapshotTemplate.name}${issuerSnapshotTemplate.legalForm ? ` ${issuerSnapshotTemplate.legalForm}` : ''}`
+                      : 'Nicht geladen'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">E-Mail / Support</p>
+                  <p className="mt-1 text-slate-900">
+                    {issuerSnapshotTemplate?.email || platformBillingProfile?.invoiceEmail || 'Nicht gepflegt'}
+                  </p>
+                  <p className="text-slate-600">
+                    Support: {issuerSnapshotTemplate?.supportEmail || platformBillingProfile?.invoiceEmail || 'Nicht gepflegt'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Adresse</p>
+                  <p className="mt-1 text-slate-900">
+                    {issuerSnapshotTemplate?.street || platformBillingProfile?.street || 'Nicht gepflegt'}
+                  </p>
+                  <p className="text-slate-600">
+                    {issuerSnapshotTemplate?.zip || platformBillingProfile?.zipCode || 'PLZ fehlt'} {issuerSnapshotTemplate?.city || platformBillingProfile?.city || 'Ort fehlt'}
+                  </p>
+                  <p className="text-slate-600">{issuerSnapshotTemplate?.country || platformBillingProfile?.countryCode || 'Land fehlt'}</p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Bankdaten</p>
+                  <p className="mt-1 text-slate-900">{issuerSnapshotTemplate?.bankName || 'Bankname fehlt'}</p>
+                  <p className="text-slate-600">IBAN: {issuerSnapshotTemplate?.iban || 'fehlt'}</p>
+                  <p className="text-slate-600">BIC: {issuerSnapshotTemplate?.bic || 'fehlt'}</p>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">Readiness-Hinweise</p>
+              {issuerReadiness?.warnings.length ? (
+                <ul className="mt-3 list-disc space-y-2 pl-5">
+                  {issuerReadiness.warnings.map((warning, index) => (
+                    <li key={`issuer-warning-${index}`}>{warning}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-emerald-700">Rechnungssteller-Profil ist für DATEV-/Steuerberaterexporte vorbereitet.</p>
+              )}
+              <div className="mt-4 rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-600">
+                Neue Finalisierungen speichern zusätzlich einen `issuerSnapshot` und `metadata.audit`. Bereits
+                finalisierte Rechnungen bleiben unverändert.
+              </div>
+            </div>
+          </div>
+        </section>
         <div className="grid gap-3 md:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Monat</p><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} className="mt-2 rounded-xl border border-slate-300 px-3 py-2 text-sm" /></div>
           <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Tenant-Zaehlung</p><p className="mt-2 text-xl font-semibold text-slate-900">{tenantRows.length}</p></div>

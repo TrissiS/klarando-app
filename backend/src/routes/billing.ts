@@ -5,7 +5,12 @@ import { prisma } from '../lib/prisma'
 import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
-import { resolveInvoiceIssuerProfile, type InvoiceIssuerProfile } from '../lib/invoice-issuer-profile'
+import {
+  buildInvoiceIssuerSnapshot,
+  evaluateInvoiceIssuerReadiness,
+  resolveInvoiceIssuerProfile,
+  type InvoiceIssuerProfile,
+} from '../lib/invoice-issuer-profile'
 import { isMailConfigured, sendMail } from '../lib/mail'
 import {
   assertInvoiceMutable,
@@ -352,6 +357,14 @@ function serializeBillingInvoice(invoice: {
     vatSnapshot:
       metadata.vatSnapshot && typeof metadata.vatSnapshot === 'object'
         ? (metadata.vatSnapshot as Record<string, unknown>)
+        : null,
+    issuerSnapshot:
+      metadata.issuerSnapshot && typeof metadata.issuerSnapshot === 'object'
+        ? (metadata.issuerSnapshot as Record<string, unknown>)
+        : null,
+    audit:
+      metadata.audit && typeof metadata.audit === 'object'
+        ? (metadata.audit as Record<string, unknown>)
         : null,
     finalizedAt:
       typeof metadata.finalizedAt === 'string'
@@ -828,21 +841,30 @@ router.get('/settings/platform', requireAuth, async (req, res) => {
     const profile = await prisma.platformBillingSettings.findFirst({
       where: { scopeKey: 'global' },
     })
-    return res.json({
-      profile: profile ?? {
+    const normalizedProfile =
+      profile ?? {
         scopeKey: 'global',
         countryCode: 'DE',
         standardPaymentTargetDays: 14,
-      },
+      }
+    const issuerProfile = resolveInvoiceIssuerProfile(normalizedProfile)
+    return res.json({
+      profile: normalizedProfile,
+      readiness: evaluateInvoiceIssuerReadiness(issuerProfile),
+      issuerSnapshotTemplate: buildInvoiceIssuerSnapshot(issuerProfile),
     })
   } catch (error) {
     logBillingApiError('/api/billing/settings/platform', error)
+    const fallbackProfile = {
+      scopeKey: 'global',
+      countryCode: 'DE',
+      standardPaymentTargetDays: 14,
+    }
+    const issuerProfile = resolveInvoiceIssuerProfile(fallbackProfile)
     return res.json({
-      profile: {
-        scopeKey: 'global',
-        countryCode: 'DE',
-        standardPaymentTargetDays: 14,
-      },
+      profile: fallbackProfile,
+      readiness: evaluateInvoiceIssuerReadiness(issuerProfile),
+      issuerSnapshotTemplate: buildInvoiceIssuerSnapshot(issuerProfile),
       warning: 'Noch keine Abrechnungsdaten vorhanden.',
     })
   }
