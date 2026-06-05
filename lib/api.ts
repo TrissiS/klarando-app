@@ -5044,13 +5044,12 @@ export async function createPublicDriverDeviceSession(
   data?: {
     accessHours?: number
     deviceLabel?: string
-  }
+  },
+  token?: string
 ): Promise<DriverDeviceSessionCreateResponse> {
   const res = await fetch(`${API_BASE_URL}/api/order-displays/public/${displayCode}/driver-devices/session`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: authHeaders(token),
     body: JSON.stringify(data ?? {}),
   })
 
@@ -5063,13 +5062,16 @@ export async function createPublicDriverDeviceSession(
 }
 
 export async function getPublicActiveDriverDevices(
-  displayCode: string
+  displayCode: string,
+  token?: string
 ): Promise<{
   total: number
   sessions: DriverDeviceSession[]
   generatedAt: string
 }> {
-  const res = await fetch(`${API_BASE_URL}/api/order-displays/public/${displayCode}/driver-devices/active`)
+  const res = await fetch(`${API_BASE_URL}/api/order-displays/public/${displayCode}/driver-devices/active`, {
+    headers: authHeaders(token),
+  })
 
   if (!res.ok) {
     const errorData = await res.json().catch(() => null)
@@ -5081,16 +5083,15 @@ export async function getPublicActiveDriverDevices(
 
 export async function revokePublicDriverDeviceSession(
   displayCode: string,
-  sessionId: string
+  sessionId: string,
+  token?: string
 ): Promise<{
   ok: boolean
   sessionId: string
 }> {
   const res = await fetch(`${API_BASE_URL}/api/order-displays/public/${displayCode}/driver-devices/revoke`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: authHeaders(token),
     body: JSON.stringify({ sessionId }),
   })
 
@@ -5159,15 +5160,14 @@ export async function sendPublicOrderDeskHeartbeat(authToken: string): Promise<{
 export async function updatePublicOrderDisplayOrderStatus(
   displayCode: string,
   orderId: string,
-  status: 'pending_payment' | 'open' | 'preparing' | 'out_for_delivery' | 'done' | 'archived'
+  status: 'pending_payment' | 'open' | 'preparing' | 'out_for_delivery' | 'done' | 'archived',
+  token?: string
 ): Promise<Order> {
   const res = await fetch(
     `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/status`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(token),
       body: JSON.stringify({ status }),
     }
   )
@@ -5187,15 +5187,14 @@ export async function dispatchPublicOrderDisplayOrder(
     driverUserId?: string | null
     driverName?: string | null
     estimatedMinutes?: number | null
-  }
+  },
+  token?: string
 ): Promise<Order> {
   const res = await fetch(
     `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/dispatch`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(token),
       body: JSON.stringify(data),
     }
   )
@@ -5211,15 +5210,14 @@ export async function dispatchPublicOrderDisplayOrder(
 export async function acceptPublicOrderDisplayOrder(
   displayCode: string,
   orderId: string,
-  estimatedMinutes: number
+  estimatedMinutes: number,
+  token?: string
 ): Promise<Order> {
   const res = await fetch(
     `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/accept`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(token),
       body: JSON.stringify({ estimatedMinutes }),
     }
   )
@@ -5236,15 +5234,14 @@ export async function updatePublicOrderDisplayItemStatus(
   displayCode: string,
   orderId: string,
   itemId: string,
-  status: 'OPEN' | 'DONE'
+  status: 'OPEN' | 'DONE',
+  token?: string
 ): Promise<Order> {
   const res = await fetch(
     `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/items/${itemId}/status`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(token),
       body: JSON.stringify({ status }),
     }
   )
@@ -5260,15 +5257,14 @@ export async function updatePublicOrderDisplayItemStatus(
 export async function updatePublicOrderDisplayPaymentStatus(
   displayCode: string,
   orderId: string,
-  paid: boolean
+  paid: boolean,
+  token?: string
 ): Promise<Order> {
   const res = await fetch(
     `${API_BASE_URL}/api/order-displays/public/${displayCode}/orders/${orderId}/payment`,
     {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: authHeaders(token),
       body: JSON.stringify({ paid }),
     }
   )

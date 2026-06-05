@@ -360,6 +360,10 @@ function normalizeModifierSnapshot(
   return items.length > 0 ? items : null
 }
 
+async function ensureDisplayTenantAccess(req: Parameters<typeof resolveTenantScope>[0], tenantId: string) {
+  await resolveTenantScope(req, tenantId)
+}
+
 
 router.get('/', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
   try {
@@ -1368,7 +1372,11 @@ router.get('/public/:displayCode/orders/:orderId/receipt-jobs', async (req, res)
   }
 })
 
-router.post('/public/:displayCode/driver-devices/session', rateLimitDisplayPairing, async (req, res) => {
+router.post(
+  '/public/:displayCode/driver-devices/session',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  rateLimitDisplayPairing,
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -1400,6 +1408,7 @@ router.post('/public/:displayCode/driver-devices/session', rateLimitDisplayPairi
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     const parsedTenantSettings = parseSettings(display.tenant.businessSettings, {
       name: display.tenant.name,
@@ -1467,12 +1476,19 @@ router.post('/public/:displayCode/driver-devices/session', rateLimitDisplayPairi
       )}`,
     })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('CREATE DRIVER DEVICE SESSION ERROR:', error)
     return res.status(500).json({ error: 'Fahrergeraet-QR konnte nicht erstellt werden' })
   }
 })
 
-router.get('/public/:displayCode/driver-devices/active', async (req, res) => {
+router.get(
+  '/public/:displayCode/driver-devices/active',
+  requirePermission(PermissionKey.ORDERS_READ),
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -1492,6 +1508,7 @@ router.get('/public/:displayCode/driver-devices/active', async (req, res) => {
     if (!display) {
       return res.status(404).json({ error: 'Bestell-Display nicht gefunden' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     const sessions = await listDriverDeviceSessionsForTenant(display.tenantId, {
       displayCode: display.displayCode,
@@ -1503,12 +1520,19 @@ router.get('/public/:displayCode/driver-devices/active', async (req, res) => {
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('GET ACTIVE DRIVER DEVICES ERROR:', error)
     return res.status(500).json({ error: 'Aktive Fahrergeraete konnten nicht geladen werden' })
   }
 })
 
-router.post('/public/:displayCode/driver-devices/revoke', async (req, res) => {
+router.post(
+  '/public/:displayCode/driver-devices/revoke',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -1531,6 +1555,7 @@ router.post('/public/:displayCode/driver-devices/revoke', async (req, res) => {
     if (!display) {
       return res.status(404).json({ error: 'Bestell-Display nicht gefunden' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     const session = await resolveDriverDeviceSession(sessionId, display.tenantId)
     if (!session || session.displayCode !== display.displayCode) {
@@ -1559,12 +1584,19 @@ router.post('/public/:displayCode/driver-devices/revoke', async (req, res) => {
 
     return res.json({ ok: true, sessionId })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('REVOKE DRIVER DEVICE SESSION ERROR:', error)
     return res.status(500).json({ error: 'Fahrergeraete-Session konnte nicht getrennt werden' })
   }
 })
 
-router.post('/public/:displayCode/orders/:orderId/status', async (req, res) => {
+router.post(
+  '/public/:displayCode/orders/:orderId/status',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -1598,6 +1630,7 @@ router.post('/public/:displayCode/orders/:orderId/status', async (req, res) => {
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     if (display.displayRole === 'PICKUP') {
       return res.status(403).json({
@@ -1769,12 +1802,19 @@ router.post('/public/:displayCode/orders/:orderId/status', async (req, res) => {
 
     return res.json(updated)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('UPDATE PUBLIC ORDER DISPLAY STATUS ERROR:', error)
     return res.status(500).json({ error: 'Status konnte nicht aktualisiert werden' })
   }
 })
 
-router.post('/public/:displayCode/orders/:orderId/items/:itemId/status', async (req, res) => {
+router.post(
+  '/public/:displayCode/orders/:orderId/items/:itemId/status',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -1810,6 +1850,7 @@ router.post('/public/:displayCode/orders/:orderId/items/:itemId/status', async (
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     if (display.displayRole === 'PICKUP') {
       return res.status(403).json({
@@ -1940,12 +1981,19 @@ router.post('/public/:displayCode/orders/:orderId/items/:itemId/status', async (
 
     return res.json(updated)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('UPDATE PUBLIC ORDER DISPLAY ITEM STATUS ERROR:', error)
     return res.status(500).json({ error: 'Positionsstatus konnte nicht aktualisiert werden' })
   }
 })
 
-router.post('/public/:displayCode/orders/:orderId/payment', async (req, res) => {
+router.post(
+  '/public/:displayCode/orders/:orderId/payment',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -1977,6 +2025,7 @@ router.post('/public/:displayCode/orders/:orderId/payment', async (req, res) => 
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     if (display.displayRole !== 'CASH') {
       return res.status(403).json({ error: 'Zahlungsstatus darf nur am Kassendisplay geaendert werden' })
@@ -2055,12 +2104,19 @@ router.post('/public/:displayCode/orders/:orderId/payment', async (req, res) => 
 
     return res.json(updated)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('UPDATE PUBLIC ORDER DISPLAY PAYMENT ERROR:', error)
     return res.status(500).json({ error: 'Zahlungsstatus konnte nicht aktualisiert werden' })
   }
 })
 
-router.post('/public/:displayCode/orders/:orderId/accept', async (req, res) => {
+router.post(
+  '/public/:displayCode/orders/:orderId/accept',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -2101,6 +2157,7 @@ router.post('/public/:displayCode/orders/:orderId/accept', async (req, res) => {
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     if (display.displayRole !== 'CASH') {
       return res
@@ -2213,12 +2270,19 @@ router.post('/public/:displayCode/orders/:orderId/accept', async (req, res) => {
 
     return res.json(updated)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('ACCEPT ORDER WITH ETA ERROR:', error)
     return res.status(500).json({ error: 'Bestellannahme konnte nicht gespeichert werden' })
   }
 })
 
-router.post('/public/:displayCode/orders/:orderId/dispatch', async (req, res) => {
+router.post(
+  '/public/:displayCode/orders/:orderId/dispatch',
+  requirePermission(PermissionKey.ORDERS_WRITE),
+  async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
       ? req.params.displayCode[0]
@@ -2270,6 +2334,7 @@ router.post('/public/:displayCode/orders/:orderId/dispatch', async (req, res) =>
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
+    await ensureDisplayTenantAccess(req, display.tenantId)
 
     if (display.displayRole !== 'CASH') {
       return res.status(403).json({
@@ -2431,6 +2496,10 @@ router.post('/public/:displayCode/orders/:orderId/dispatch', async (req, res) =>
 
     return res.json(updated)
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('DISPATCH ORDER TO DRIVER ERROR:', error)
     return res.status(500).json({ error: 'Fahrerzuweisung konnte nicht gespeichert werden' })
   }

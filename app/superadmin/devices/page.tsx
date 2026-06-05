@@ -406,7 +406,7 @@ export default function SuperadminDevicesPage() {
       setBusyRef('driver-pairing')
       const result: DriverDeviceSessionCreateResponse = await createPublicDriverDeviceSession(driverPairingDisplayCode, {
         deviceLabel: 'Superadmin Pairing',
-      })
+      }, token)
       setPairing({
         title: `Fahrergeräte-Pairing für ${driverPairingDisplayCode}`,
         qrImageUrl: result.qrImageUrl,

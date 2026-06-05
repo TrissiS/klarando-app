@@ -11,6 +11,7 @@ import {
   type DisplayPerformanceMode,
 } from '../lib/display-performance-mode'
 import { requirePermission } from '../middleware/auth'
+import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 
 const router = Router()
 
@@ -263,7 +264,7 @@ router.patch(
   }
 )
 
-router.post('/:deviceCode/heartbeat', async (req, res) => {
+router.post('/:deviceCode/heartbeat', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
   try {
     const code = normalizeCodeParam(req.params.deviceCode)
     if (!code) {
@@ -276,12 +277,14 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
       where: { deviceCode: code },
       select: {
         id: true,
+        tenantId: true,
         isActive: true,
         notes: true,
       },
     })
 
     if (screenDevice) {
+      await resolveTenantScope(req, screenDevice.tenantId)
       await prisma.screenDevice.update({
         where: { id: screenDevice.id },
         data: {
@@ -306,6 +309,7 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
       where: { displayCode: code },
       select: {
         id: true,
+        tenantId: true,
         isActive: true,
         displayRole: true,
         notes: true,
@@ -315,6 +319,7 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
     if (!orderDisplay) {
       return res.status(404).json({ error: 'Display nicht gefunden' })
     }
+    await resolveTenantScope(req, orderDisplay.tenantId)
 
     await prisma.orderDeskDeviceBinding.updateMany({
       where: {
@@ -351,6 +356,10 @@ router.post('/:deviceCode/heartbeat', async (req, res) => {
       ],
     })
   } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
     console.error('DISPLAY HEARTBEAT ERROR:', error)
     return res.status(500).json({ error: 'Heartbeat konnte nicht verarbeitet werden' })
   }
