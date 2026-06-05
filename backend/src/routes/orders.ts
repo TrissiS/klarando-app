@@ -46,6 +46,11 @@ import {
   startDriverRoute,
   validateDispatchReadiness,
 } from '../lib/order-dispatch'
+import {
+  buildDriverAssignmentLookup,
+  isDriverAssignmentMatch,
+  resolveDriverAssignmentIdentity,
+} from '../lib/driver-assignment'
 
 const router = Router()
 
@@ -343,11 +348,6 @@ function readAppBearerToken(authorizationHeader: string | undefined) {
   return authorizationHeader.slice(7).trim()
 }
 
-function normalizeDriverLabel(value: string | null | undefined) {
-  const normalized = normalizeText(value)
-  return normalized ? normalized.toLowerCase() : null
-}
-
 function isOrderAssignedToDriverActor(
   order: {
     assignedDriverId: string | null
@@ -355,16 +355,7 @@ function isOrderAssignedToDriverActor(
   },
   actor: DriverActor
 ) {
-  if (actor.driverUserId && order.assignedDriverId === actor.driverUserId) {
-    return true
-  }
-
-  const assignedName = normalizeDriverLabel(order.assignedDriverName)
-  const actorName = normalizeDriverLabel(actor.driverName)
-  if (!assignedName || !actorName) {
-    return false
-  }
-  return assignedName === actorName
+  return isDriverAssignmentMatch(order, actor)
 }
 
 function parseDriverAccessHours(value: unknown) {
@@ -4662,14 +4653,10 @@ router.get('/driver/assigned', async (req, res) => {
       customerLiveTrackingEnabled: parsedTenantSettings.driver.customerLiveTrackingEnabled,
     }
 
-    const driverName = normalizeText(actor.driverName)
-    const assignmentFilter: Prisma.OrderWhereInput[] = []
-    if (actor.driverUserId) {
-      assignmentFilter.push({ assignedDriverId: actor.driverUserId })
-    }
-    if (driverName) {
-      assignmentFilter.push({ assignedDriverName: driverName })
-    }
+    const assignmentFilter = buildDriverAssignmentLookup({
+      driverUserId: actor.driverUserId,
+      driverName: actor.driverName,
+    }) as Prisma.OrderWhereInput[]
     if (assignmentFilter.length === 0) {
       return res.json({ total: 0, orders: [], driverSettings })
     }
@@ -5093,6 +5080,11 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
     }
 
     const nextEstimatedMinutes = normalizedEstimatedMinutes ?? currentOrder.estimatedMinutes ?? 30
+    const assignmentIdentity = resolveDriverAssignmentIdentity({
+      driverUserId: resolvedDriverUser?.id ?? null,
+      driverName: normalizedDriverName ?? null,
+      canonicalDriverName: resolvedDriverUser?.name ?? null,
+    })
 
     const updated = await prisma.order.update({
       where: { id: currentOrder.id },
@@ -5109,8 +5101,8 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
         },
         {
           estimatedMinutes: nextEstimatedMinutes,
-          driverUserId: resolvedDriverUser?.id ?? null,
-          driverName: normalizedDriverName ?? resolvedDriverUser?.name ?? null,
+          driverUserId: assignmentIdentity.assignedDriverId,
+          driverName: assignmentIdentity.assignedDriverName,
           now,
         }
       ),
@@ -5151,8 +5143,8 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
       chainId: currentOrder.tenant?.chainId ?? null,
       tenantId: currentOrder.tenantId,
       metadata: {
-        driverUserId: resolvedDriverUser?.id ?? null,
-        driverName: normalizedDriverName ?? resolvedDriverUser?.name ?? null,
+        driverUserId: assignmentIdentity.assignedDriverId,
+        driverName: assignmentIdentity.assignedDriverName,
         estimatedMinutes: nextEstimatedMinutes,
       },
     })

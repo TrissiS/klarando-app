@@ -50,6 +50,7 @@ import {
   normalizeOrderWorkflowStatus,
 } from '../lib/order-status-transitions'
 import { dispatchOrder, validateDispatchReadiness } from '../lib/order-dispatch'
+import { resolveDriverAssignmentIdentity } from '../lib/driver-assignment'
 
 const router = Router()
 
@@ -2339,7 +2340,6 @@ router.post(
     if (!currentWorkflowStatus) {
       return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
     }
-
     const updated = await prisma.order.update({
       where: { id: orderId },
       data: buildOrderAcceptanceUpdate({
@@ -2570,6 +2570,11 @@ router.post(
     if (!currentWorkflowStatus) {
       return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
     }
+    const assignmentIdentity = resolveDriverAssignmentIdentity({
+      driverUserId: resolvedDriver?.id ?? null,
+      driverName: normalizedDriverName ?? null,
+      canonicalDriverName: resolvedDriver?.name ?? null,
+    })
 
     const updated = await prisma.order.update({
       where: { id: orderId },
@@ -2586,8 +2591,8 @@ router.post(
         },
         {
           estimatedMinutes: nextEstimatedMinutes,
-          driverUserId: resolvedDriver?.id ?? null,
-          driverName: normalizedDriverName ?? resolvedDriver?.name ?? null,
+          driverUserId: assignmentIdentity.assignedDriverId,
+          driverName: assignmentIdentity.assignedDriverName,
           now,
         }
       ),
@@ -2634,8 +2639,8 @@ router.post(
       tenantId: updated.tenantId,
       metadata: {
         displayId: display.id,
-        driverUserId: resolvedDriver?.id ?? null,
-        driverName: normalizedDriverName ?? resolvedDriver?.name ?? null,
+        driverUserId: assignmentIdentity.assignedDriverId,
+        driverName: assignmentIdentity.assignedDriverName,
         estimatedMinutes: nextEstimatedMinutes,
         pickupNumber,
       },

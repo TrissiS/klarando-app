@@ -4,6 +4,7 @@ import {
   buildOrderDispatchUpdate,
   normalizeOrderWorkflowStatus,
 } from './order-status-transitions'
+import { resolveDriverAssignmentIdentity } from './driver-assignment'
 
 export type DispatchableOrder = {
   id: string
@@ -70,8 +71,10 @@ export function assignDriverToOrder(
   const now = input.now ?? new Date()
   validateDispatchReadiness(order, { requireAssignedDriver: false, context: 'assign' })
 
-  const assignedDriverId = normalizeOptionalText(input.driverUserId)
-  const assignedDriverName = normalizeOptionalText(input.driverName)
+  const { assignedDriverId, assignedDriverName } = resolveDriverAssignmentIdentity({
+    driverUserId: input.driverUserId,
+    driverName: input.driverName,
+  })
   if (!assignedDriverId && !assignedDriverName) {
     throw new OrderTransitionError(409, 'Fahrerzuweisung erfordert Fahrer-ID oder Fahrernamen')
   }
