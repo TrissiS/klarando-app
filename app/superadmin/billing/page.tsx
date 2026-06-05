@@ -196,6 +196,7 @@ export default function SuperadminBillingPage() {
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewFinalizing, setPreviewFinalizing] = useState(false)
   const [pdfLoadingInvoiceId, setPdfLoadingInvoiceId] = useState('')
+  const [previewError, setPreviewError] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
@@ -249,6 +250,7 @@ export default function SuperadminBillingPage() {
 
   useEffect(() => {
     setInvoicePreview(null)
+    setPreviewError('')
   }, [previewTenantId, previewMonth])
 
   useEffect(() => {
@@ -354,13 +356,16 @@ export default function SuperadminBillingPage() {
     try {
       setPreviewLoading(true)
       setError('')
+      setPreviewError('')
       const preview = await getBillingInvoicePreview(token, {
         tenantId: previewTenantId,
         month: previewMonth,
       })
       setInvoicePreview(preview)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Rechnungsvorschau konnte nicht geladen werden')
+      const message = cause instanceof Error ? cause.message : 'Rechnungsvorschau konnte nicht geladen werden'
+      setError(message)
+      setPreviewError(message)
     } finally {
       setPreviewLoading(false)
     }
@@ -440,6 +445,26 @@ export default function SuperadminBillingPage() {
     !previewFinalizing &&
     !invoicePreview?.hasCriticalWarnings &&
     !currentFinalizedInvoice
+  const loadPreviewHint = !token
+    ? 'Bitte einloggen / Token fehlt.'
+    : !previewTenantId
+      ? 'Bitte Tenant wählen.'
+      : previewLoading
+        ? 'Vorschau wird geladen…'
+        : 'Lädt die unverbindliche Monatsvorschau für Tenant und Monat.'
+  const finalizePreviewHint = !token
+    ? 'Bitte einloggen / Token fehlt.'
+    : !previewTenantId
+      ? 'Bitte zuerst einen Tenant wählen.'
+      : !invoicePreview
+        ? 'Bitte zuerst Vorschau laden.'
+        : currentFinalizedInvoice
+          ? 'Für diesen Monat wurde bereits eine Rechnung finalisiert.'
+          : invoicePreview.hasCriticalWarnings
+            ? 'Kritische Warnungen müssen behoben werden.'
+            : previewFinalizing
+              ? 'Rechnung wird finalisiert…'
+              : 'Die geprüfte Vorschau kann jetzt in eine finale Rechnung überführt werden.'
   const usageRows = useMemo(() => tenantRows, [tenantRows])
   const topRevenueRows = useMemo(
     () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
@@ -878,16 +903,47 @@ export default function SuperadminBillingPage() {
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
-            <div className="flex items-end">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">Nächster Schritt</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Wähle Tenant und Monat und lade danach die Rechnungsvorschau.
+              </p>
               <button
                 type="button"
                 onClick={() => void handleLoadInvoicePreview()}
                 disabled={!canLoadPreview}
-                className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-4 w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {previewLoading ? 'Laedt Vorschau...' : 'Vorschau laden'}
+                {previewLoading ? 'Vorschau wird geladen…' : 'Vorschau laden'}
               </button>
+              <p className="mt-2 text-xs text-slate-500">{loadPreviewHint}</p>
             </div>
+          </div>
+          {previewError ? (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {previewError}
+            </div>
+          ) : null}
+          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
+            <div className="text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">Rechnung finalisieren</p>
+              <p className="mt-1">
+                Prüfe zuerst die Vorschau. Erst danach wird die Rechnung persistent gespeichert und mit
+                Rechnungsnummer final gestellt.
+              </p>
+              <p className="mt-2 text-xs text-slate-500">{finalizePreviewHint}</p>
+              <p className="mt-2 text-xs text-slate-500">
+                PDF ist erst nach Finalisierung im Bereich Finalisierte Rechnungen verfügbar.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleFinalizeInvoicePreview()}
+              disabled={!canFinalizePreview}
+              className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
+            >
+              {previewFinalizing ? 'Finalisiert…' : 'Rechnung finalisieren'}
+            </button>
           </div>
           {invoicePreview ? (
             <>
@@ -1084,30 +1140,10 @@ export default function SuperadminBillingPage() {
                   Kritische Warnungen blockieren die Finalisierung: {invoicePreview.criticalWarnings.join(' • ')}
                 </div>
               ) : null}
-              <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
-                <div className="text-sm text-slate-700">
-                  <p className="font-semibold text-slate-900">Finalisierte Rechnung erzeugen</p>
-                  <p className="mt-1">
-                    Beim Finalisieren wird die Rechnung persistent gespeichert, die Rechnungsnummer vergeben und der
-                    aktuelle Tenant-/Leistungszeitraum unveränderbar festgeschrieben.
-                  </p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Aktiv nur bei geladener Vorschau, ohne kritische Warnungen und ohne bereits finalisierte Rechnung.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void handleFinalizeInvoicePreview()}
-                  disabled={!canFinalizePreview}
-                  className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
-                >
-                  {previewFinalizing ? 'Finalisiert…' : 'Rechnung finalisieren'}
-                </button>
-              </div>
             </>
           ) : (
             <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
-              Vorschau noch nicht geladen.
+              Vorschau noch nicht geladen. Wähle Tenant und Monat und klicke anschließend auf Vorschau laden.
             </div>
           )}
         </section>
