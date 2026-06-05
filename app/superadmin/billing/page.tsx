@@ -78,6 +78,20 @@ type PricingFormState = {
   moduleFees: BillingModuleFeeConfig[]
 }
 
+type BillingProfileFormState = {
+  companyName: string
+  contactPerson: string
+  street: string
+  zipCode: string
+  city: string
+  countryCode: string
+  invoiceEmail: string
+  vatId: string
+  taxNumber: string
+  paymentTermsDays: string
+  paymentMethod: string
+}
+
 type TenantBillingConfig = Awaited<ReturnType<typeof getTenantBillingConfig>>
 
 function usageCounterLabel(row: BillingTenantRow) {
@@ -143,6 +157,41 @@ function normalizePricingFormState(state: PricingFormState | null) {
   })
 }
 
+function buildBillingProfileFormState(config: TenantBillingConfig): BillingProfileFormState {
+  return {
+    companyName: config.billingProfile.companyName || '',
+    contactPerson: config.billingProfile.contactPerson || '',
+    street: config.billingProfile.street || '',
+    zipCode: config.billingProfile.zipCode || '',
+    city: config.billingProfile.city || '',
+    countryCode: config.billingProfile.countryCode || 'DE',
+    invoiceEmail: config.billingProfile.invoiceEmail || '',
+    vatId: config.billingProfile.vatId || '',
+    taxNumber: config.billingProfile.taxNumber || '',
+    paymentTermsDays: String(
+      config.billingProfile.paymentTermsDays || config.pricingSource.paymentTermsDays || 14
+    ),
+    paymentMethod: config.billingProfile.paymentMethod || '',
+  }
+}
+
+function normalizeBillingProfileFormState(state: BillingProfileFormState | null) {
+  if (!state) return null
+  return JSON.stringify({
+    companyName: state.companyName.trim(),
+    contactPerson: state.contactPerson.trim(),
+    street: state.street.trim(),
+    zipCode: state.zipCode.trim(),
+    city: state.city.trim(),
+    countryCode: state.countryCode.trim().toUpperCase(),
+    invoiceEmail: state.invoiceEmail.trim(),
+    vatId: state.vatId.trim(),
+    taxNumber: state.taxNumber.trim(),
+    paymentTermsDays: state.paymentTermsDays.trim(),
+    paymentMethod: state.paymentMethod.trim(),
+  })
+}
+
 function upsertModuleFee(
   state: PricingFormState,
   input: {
@@ -191,6 +240,7 @@ export default function SuperadminBillingPage() {
   const [invoicePreview, setInvoicePreview] = useState<BillingInvoicePreview | null>(null)
   const [tenantConfig, setTenantConfig] = useState<TenantBillingConfig | null>(null)
   const [pricingForm, setPricingForm] = useState<PricingFormState | null>(null)
+  const [billingProfileForm, setBillingProfileForm] = useState<BillingProfileFormState | null>(null)
   const [finalizedInvoices, setFinalizedInvoices] = useState<BillingInvoice[]>([])
   const [loading, setLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
@@ -198,6 +248,7 @@ export default function SuperadminBillingPage() {
   const [pdfLoadingInvoiceId, setPdfLoadingInvoiceId] = useState('')
   const [previewError, setPreviewError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [profileSaving, setProfileSaving] = useState(false)
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
 
@@ -260,29 +311,27 @@ export default function SuperadminBillingPage() {
         const result = await getTenantBillingConfig(token, selectedTenantId)
         setTenantConfig(result)
         setPricingForm(buildFormState(result.pricingSource))
+        setBillingProfileForm(buildBillingProfileFormState(result))
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : 'Gebuehrenquelle konnte nicht geladen werden')
       }
     })()
   }, [token, selectedTenantId])
 
-  async function handleSave() {
-    if (!token || !tenantConfig || !pricingForm) return
-    try {
-      setSaving(true)
-      setError('')
-      const paymentTermsDays = toInt(
-        pricingForm.paymentTermsDays,
-        tenantConfig.billingProfile.paymentTermsDays || tenantConfig.pricingSource.paymentTermsDays || 14
-      )
-      const moduleFees = pricingForm.moduleFees
-        .map((entry) => ({
-          ...entry,
-          monthlyFeeCents: Math.max(0, entry.monthlyFeeCents || 0),
-          enabled: Boolean(entry.enabled),
-        }))
-        .filter((entry) => entry.enabled || entry.monthlyFeeCents > 0)
-      await updateTenantBillingConfig(token, tenantConfig.tenant.id, {
+  function buildBillingConfigPayload() {
+    if (!tenantConfig || !pricingForm || !billingProfileForm) return null
+    const paymentTermsDays = toInt(
+      billingProfileForm.paymentTermsDays || pricingForm.paymentTermsDays,
+      tenantConfig.billingProfile.paymentTermsDays || tenantConfig.pricingSource.paymentTermsDays || 14
+    )
+    const moduleFees = pricingForm.moduleFees
+      .map((entry) => ({
+        ...entry,
+        monthlyFeeCents: Math.max(0, entry.monthlyFeeCents || 0),
+        enabled: Boolean(entry.enabled),
+      }))
+      .filter((entry) => entry.enabled || entry.monthlyFeeCents > 0)
+    return {
         planType: tenantConfig.plan.planType,
         monthlyFeeCents: euroToCents(pricingForm.monthlyBaseFeeEuro),
         includedOrders: toInt(pricingForm.includedOrders, tenantConfig.pricingSource.includedOrders),
@@ -305,22 +354,23 @@ export default function SuperadminBillingPage() {
         timezone: tenantConfig.settings.timezone,
         settingsNotes: tenantConfig.settings.notes,
         paymentTermsDays,
-        invoiceEmail: tenantConfig.billingProfile.invoiceEmail,
+        paymentMethod: billingProfileForm.paymentMethod.trim() || null,
+        invoiceEmail: billingProfileForm.invoiceEmail.trim() || null,
         billingEmail: tenantConfig.billingProfile.contactEmail,
-        profileCompanyName: tenantConfig.billingProfile.companyName,
-        profileStreet: tenantConfig.billingProfile.street,
-        profileZipCode: tenantConfig.billingProfile.zipCode,
-        profileCity: tenantConfig.billingProfile.city,
-        profileCountryCode: tenantConfig.billingProfile.countryCode,
-        profileVatId: tenantConfig.billingProfile.vatId,
+        profileCompanyName: billingProfileForm.companyName.trim() || null,
+        profileStreet: billingProfileForm.street.trim() || null,
+        profileZipCode: billingProfileForm.zipCode.trim() || null,
+        profileCity: billingProfileForm.city.trim() || null,
+        profileCountryCode: billingProfileForm.countryCode.trim().toUpperCase() || 'DE',
+        profileVatId: billingProfileForm.vatId.trim() || null,
         profileContactEmail: tenantConfig.billingProfile.contactEmail,
         profileLegalForm: tenantConfig.billingProfile.legalForm || null,
-        profileTaxNumber: tenantConfig.billingProfile.taxNumber || null,
+        profileTaxNumber: billingProfileForm.taxNumber.trim() || null,
         profileManagingDirector: tenantConfig.billingProfile.managingDirector || null,
         profilePhone: tenantConfig.billingProfile.phone || null,
         profileWebsite: tenantConfig.billingProfile.website || null,
-        profileContactPerson: tenantConfig.billingProfile.contactPerson || null,
-        profilePaymentMethod: tenantConfig.billingProfile.paymentMethod || null,
+        profileContactPerson: billingProfileForm.contactPerson.trim() || null,
+        profilePaymentMethod: billingProfileForm.paymentMethod.trim() || null,
         profilePaymentTermsDays: paymentTermsDays,
         profilePaymentStatus: tenantConfig.billingProfile.paymentStatus || null,
         profileSepaActive: tenantConfig.billingProfile.sepaActive || false,
@@ -339,15 +389,48 @@ export default function SuperadminBillingPage() {
         packageMonthlyFeeCents: euroToCents(pricingForm.packageMonthlyFeeEuro),
         moduleFees,
         legacyPlanNotesText: pricingForm.legacyPlanNotesText || null,
-      })
-      const refreshed = await getTenantBillingConfig(token, tenantConfig.tenant.id)
-      setTenantConfig(refreshed)
-      setPricingForm(buildFormState(refreshed.pricingSource))
+      }
+  }
+
+  async function refreshTenantBillingConfig() {
+    if (!token || !tenantConfig) return
+    const refreshed = await getTenantBillingConfig(token, tenantConfig.tenant.id)
+    setTenantConfig(refreshed)
+    setPricingForm(buildFormState(refreshed.pricingSource))
+    setBillingProfileForm(buildBillingProfileFormState(refreshed))
+  }
+
+  async function handleSave() {
+    if (!token || !tenantConfig || !pricingForm || !billingProfileForm) return
+    try {
+      setSaving(true)
+      setError('')
+      const payload = buildBillingConfigPayload()
+      if (!payload) return
+      await updateTenantBillingConfig(token, tenantConfig.tenant.id, payload)
+      await refreshTenantBillingConfig()
       setInfo('Gebühren gespeichert.')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Gebuehrenquelle konnte nicht gespeichert werden')
     } finally {
       setSaving(false)
+    }
+  }
+
+  async function handleSaveBillingProfile() {
+    if (!token || !tenantConfig || !pricingForm || !billingProfileForm) return
+    try {
+      setProfileSaving(true)
+      setError('')
+      const payload = buildBillingConfigPayload()
+      if (!payload) return
+      await updateTenantBillingConfig(token, tenantConfig.tenant.id, payload)
+      await refreshTenantBillingConfig()
+      setInfo('Rechnungsdaten gespeichert. Bitte Vorschau neu laden.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rechnungsdaten konnten nicht gespeichert werden')
+    } finally {
+      setProfileSaving(false)
     }
   }
 
@@ -427,8 +510,23 @@ export default function SuperadminBillingPage() {
     [tenantConfig]
   )
   const pricingCurrent = useMemo(() => normalizePricingFormState(pricingForm), [pricingForm])
+  const billingProfileBaseline = useMemo(
+    () => normalizeBillingProfileFormState(tenantConfig ? buildBillingProfileFormState(tenantConfig) : null),
+    [tenantConfig]
+  )
+  const billingProfileCurrent = useMemo(
+    () => normalizeBillingProfileFormState(billingProfileForm),
+    [billingProfileForm]
+  )
   const hasPricingChanges = Boolean(selectedTenantId && pricingCurrent && pricingBaseline && pricingCurrent !== pricingBaseline)
+  const hasBillingProfileChanges = Boolean(
+    selectedTenantId &&
+      billingProfileCurrent &&
+      billingProfileBaseline &&
+      billingProfileCurrent !== billingProfileBaseline
+  )
   const canSavePricing = Boolean(selectedTenantId && pricingForm) && !saving
+  const canSaveBillingProfile = Boolean(selectedTenantId && billingProfileForm) && !profileSaving
   const canLoadPreview = Boolean(token && previewTenantId) && !previewLoading
   const currentFinalizedInvoice = useMemo(
     () =>
@@ -465,6 +563,12 @@ export default function SuperadminBillingPage() {
             : previewFinalizing
               ? 'Rechnung wird finalisiert…'
               : 'Die geprüfte Vorschau kann jetzt in eine finale Rechnung überführt werden.'
+  const finalizationRequirementDetails =
+    !invoicePreview
+      ? ['Bitte zuerst Vorschau laden.']
+      : invoicePreview.hasCriticalWarnings
+        ? invoicePreview.criticalWarnings
+        : []
   const usageRows = useMemo(() => tenantRows, [tenantRows])
   const topRevenueRows = useMemo(
     () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
@@ -585,6 +689,185 @@ export default function SuperadminBillingPage() {
               <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
                 Keine Rechnungslogik geaendert. Keine Datenmigration ausgefuehrt.
               </div>
+            </div>
+          </div>
+        </section>
+        <section
+          id="billing-profile-section"
+          className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm scroll-mt-24"
+        >
+          <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungsdaten / Billing-Profil</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Diese Stammdaten werden serverseitig im Billing-Profil gepflegt und in zukünftige
+            Vorschauen und Finalisierungen übernommen. Bereits finalisierte Rechnungen bleiben unverändert.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Tenant</span>
+              <select
+                value={selectedTenantId}
+                onChange={(event) => setSelectedTenantId(event.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">Bitte waehlen</option>
+                {tenantOptions.map((tenant) => (
+                  <option key={`billing-profile-${tenant.id}`} value={tenant.id}>
+                    {tenant.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Rechnungsempfänger / Firmenname</span>
+              <input
+                value={billingProfileForm?.companyName || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, companyName: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Ansprechpartner</span>
+              <input
+                value={billingProfileForm?.contactPerson || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, contactPerson: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Straße</span>
+              <input
+                value={billingProfileForm?.street || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, street: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">PLZ</span>
+              <input
+                value={billingProfileForm?.zipCode || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, zipCode: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Ort</span>
+              <input
+                value={billingProfileForm?.city || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, city: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Land</span>
+              <input
+                value={billingProfileForm?.countryCode || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, countryCode: event.target.value.toUpperCase() })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Rechnungs-E-Mail</span>
+              <input
+                type="email"
+                value={billingProfileForm?.invoiceEmail || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, invoiceEmail: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">USt-ID</span>
+              <input
+                value={billingProfileForm?.vatId || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, vatId: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Steuernummer</span>
+              <input
+                value={billingProfileForm?.taxNumber || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, taxNumber: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Zahlungsziel Tage</span>
+              <input
+                value={billingProfileForm?.paymentTermsDays || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, paymentTermsDays: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="text-sm text-slate-700">
+              <span className="mb-1 block font-medium">Zahlungsart</span>
+              <input
+                value={billingProfileForm?.paymentMethod || ''}
+                onChange={(event) =>
+                  billingProfileForm &&
+                  setBillingProfileForm({ ...billingProfileForm, paymentMethod: event.target.value })
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+          <div className="mt-6 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="text-sm text-slate-700">
+                <p className="font-semibold text-slate-900">Rechnungsdaten speichern</p>
+                <p className="mt-1">
+                  Speichert die Rechnungsadresse und Billing-Stammdaten serverseitig in der bestehenden
+                  Billing-Masterquelle. Bereits finalisierte Rechnungen werden nicht verändert.
+                </p>
+                <p className={`mt-2 text-xs ${hasBillingProfileChanges ? 'font-semibold text-emerald-700' : 'text-slate-500'}`}>
+                  {hasBillingProfileChanges
+                    ? 'Ungespeicherte Änderungen an den Rechnungsdaten erkannt.'
+                    : selectedTenantId
+                      ? 'Keine ungespeicherten Änderungen an den Rechnungsdaten.'
+                      : 'Bitte zuerst einen Tenant auswählen.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleSaveBillingProfile()}
+                disabled={!canSaveBillingProfile}
+                className={`w-full rounded-xl px-5 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 md:w-auto ${
+                  hasBillingProfileChanges
+                    ? 'bg-emerald-600 shadow-lg shadow-emerald-200'
+                    : 'bg-[var(--brand-strong)]'
+                }`}
+              >
+                {profileSaving ? 'Speichert…' : 'Rechnungsdaten speichern'}
+              </button>
             </div>
           </div>
         </section>
@@ -912,7 +1195,9 @@ export default function SuperadminBillingPage() {
                 type="button"
                 onClick={() => void handleLoadInvoicePreview()}
                 disabled={!canLoadPreview}
-                className="mt-4 w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+                className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                  canLoadPreview ? 'bg-slate-900 hover:bg-slate-800' : 'bg-slate-500'
+                }`}
               >
                 {previewLoading ? 'Vorschau wird geladen…' : 'Vorschau laden'}
               </button>
@@ -931,11 +1216,21 @@ export default function SuperadminBillingPage() {
                 Prüfe zuerst die Vorschau. Erst danach wird die Rechnung persistent gespeichert und mit
                 Rechnungsnummer final gestellt.
               </p>
-              <p className="mt-2 text-xs text-slate-500">{finalizePreviewHint}</p>
-              <p className="mt-2 text-xs text-slate-500">
-                PDF ist erst nach Finalisierung im Bereich Finalisierte Rechnungen verfügbar.
-              </p>
-            </div>
+                <p className="mt-2 text-xs text-slate-500">{finalizePreviewHint}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  PDF ist erst nach Finalisierung im Bereich Finalisierte Rechnungen verfügbar.
+                </p>
+                {!canFinalizePreview && finalizationRequirementDetails.length ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-700">
+                    <p className="font-semibold text-slate-900">Noch fehlend für die Finalisierung:</p>
+                    <ul className="mt-2 list-disc pl-5">
+                      {finalizationRequirementDetails.map((detail, index) => (
+                        <li key={`finalize-detail-${index}`}>{detail}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
             <button
               type="button"
               onClick={() => void handleFinalizeInvoicePreview()}
@@ -1129,6 +1424,21 @@ export default function SuperadminBillingPage() {
                     <p>Keine Warnungen fuer diese Vorschau erkannt.</p>
                   ) : null}
                 </div>
+                {invoicePreview.hasCriticalWarnings ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (previewTenantId) setSelectedTenantId(previewTenantId)
+                      document.getElementById('billing-profile-section')?.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start',
+                      })
+                    }}
+                    className="mt-3 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
+                  >
+                    Rechnungsdaten bearbeiten
+                  </button>
+                ) : null}
               </div>
               {currentFinalizedInvoice ? (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
