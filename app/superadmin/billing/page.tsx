@@ -569,6 +569,27 @@ export default function SuperadminBillingPage() {
       : invoicePreview.hasCriticalWarnings
         ? invoicePreview.criticalWarnings
         : []
+  const previewInfoMessages = useMemo(
+    () =>
+      (invoicePreview?.warnings || []).filter(
+        (warning) =>
+          warning.startsWith('Info: ') ||
+          warning.includes('Test') ||
+          warning.includes('Demo') ||
+          warning.includes('offene') ||
+          warning.includes('unvollständige') ||
+          warning.includes('unvollstaendige') ||
+          warning.includes('Nutzungszaehlung:')
+      ),
+    [invoicePreview]
+  )
+  const previewWarningMessages = useMemo(
+    () =>
+      (invoicePreview?.warnings || []).filter(
+        (warning) => !previewInfoMessages.includes(warning)
+      ),
+    [invoicePreview, previewInfoMessages]
+  )
   const usageRows = useMemo(() => tenantRows, [tenantRows])
   const topRevenueRows = useMemo(
     () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
@@ -1161,7 +1182,7 @@ export default function SuperadminBillingPage() {
             Unverbindliche Monatsvorschau pro Tenant. Es wird nichts gespeichert, keine Rechnungsnummer vergeben und
             erst beim Finalisieren eine echte Rechnung erzeugt.
           </p>
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="text-sm text-slate-700">
               <span className="mb-1 block font-medium">Tenant</span>
               <select
@@ -1186,42 +1207,55 @@ export default function SuperadminBillingPage() {
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4">
-              <p className="text-sm font-semibold text-slate-900">Nächster Schritt</p>
-              <p className="mt-1 text-sm text-slate-600">
-                Wähle Tenant und Monat und lade danach die Rechnungsvorschau.
-              </p>
-              <button
-                type="button"
-                onClick={() => void handleLoadInvoicePreview()}
-                disabled={!canLoadPreview}
-                className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
-                  canLoadPreview ? 'bg-slate-900 hover:bg-slate-800' : 'bg-slate-500'
-                }`}
-              >
-                {previewLoading ? 'Vorschau wird geladen…' : 'Vorschau laden'}
-              </button>
-              <p className="mt-2 text-xs text-slate-500">{loadPreviewHint}</p>
-            </div>
           </div>
-          {previewError ? (
-            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-              {previewError}
-            </div>
-          ) : null}
-          <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4 md:flex-row md:items-center md:justify-between">
-            <div className="text-sm text-slate-700">
-              <p className="font-semibold text-slate-900">Rechnung finalisieren</p>
-              <p className="mt-1">
-                Prüfe zuerst die Vorschau. Erst danach wird die Rechnung persistent gespeichert und mit
-                Rechnungsnummer final gestellt.
-              </p>
+          <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-slate-50 p-4 shadow-sm">
+            <p className="text-sm font-semibold text-slate-900">Rechnungsvorschau Aktionen</p>
+            <p className="mt-1 text-sm text-slate-600">
+              1. Tenant wählen 2. Monat wählen 3. Vorschau laden 4. Vorschau prüfen 5. Rechnung finalisieren
+            </p>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-900">Vorschau laden</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Lädt die unverbindliche Monatsvorschau für den ausgewählten Tenant.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleLoadInvoicePreview()}
+                  disabled={!canLoadPreview}
+                  className={`mt-4 w-full rounded-xl border px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    canLoadPreview
+                      ? 'border-slate-950 bg-slate-950 hover:bg-slate-800'
+                      : 'border-slate-400 bg-slate-500'
+                  }`}
+                >
+                  {previewLoading ? 'Vorschau wird geladen…' : 'Vorschau laden'}
+                </button>
+                <p className="mt-2 text-xs text-slate-500">{loadPreviewHint}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-900">Rechnung finalisieren</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Erst nach geladener und geprüfter Vorschau wird eine echte Rechnung erzeugt.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void handleFinalizeInvoicePreview()}
+                  disabled={!canFinalizePreview}
+                  className={`mt-4 w-full rounded-xl border px-4 py-3 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                    canFinalizePreview
+                      ? 'border-[var(--brand-strong)] bg-[var(--brand-strong)] hover:opacity-95'
+                      : 'border-slate-400 bg-slate-500'
+                  }`}
+                >
+                  {previewFinalizing ? 'Finalisiert…' : 'Rechnung finalisieren'}
+                </button>
                 <p className="mt-2 text-xs text-slate-500">{finalizePreviewHint}</p>
                 <p className="mt-2 text-xs text-slate-500">
                   PDF ist erst nach Finalisierung im Bereich Finalisierte Rechnungen verfügbar.
                 </p>
                 {!canFinalizePreview && finalizationRequirementDetails.length ? (
-                  <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-xs text-slate-700">
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-xs text-slate-700">
                     <p className="font-semibold text-slate-900">Noch fehlend für die Finalisierung:</p>
                     <ul className="mt-2 list-disc pl-5">
                       {finalizationRequirementDetails.map((detail, index) => (
@@ -1231,15 +1265,13 @@ export default function SuperadminBillingPage() {
                   </div>
                 ) : null}
               </div>
-            <button
-              type="button"
-              onClick={() => void handleFinalizeInvoicePreview()}
-              disabled={!canFinalizePreview}
-              className="w-full rounded-xl bg-[var(--brand-strong)] px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
-            >
-              {previewFinalizing ? 'Finalisiert…' : 'Rechnung finalisieren'}
-            </button>
+            </div>
           </div>
+          {previewError ? (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {previewError}
+            </div>
+          ) : null}
           {invoicePreview ? (
             <>
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -1414,32 +1446,46 @@ export default function SuperadminBillingPage() {
                   </span>
                 </p>
               </div>
-              <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-sm font-semibold text-amber-900">Hinweise & Warnungen</p>
-                <div className="mt-2 space-y-2 text-sm text-amber-900">
-                  {invoicePreview.warnings.map((warning, index) => (
-                    <p key={`warning-${index}`}>{warning}</p>
-                  ))}
-                  {invoicePreview.warnings.length === 0 ? (
-                    <p>Keine Warnungen fuer diese Vorschau erkannt.</p>
+              {previewWarningMessages.length ? (
+                <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm font-semibold text-amber-900">Warnungen</p>
+                  <div className="mt-2 space-y-2 text-sm text-amber-900">
+                    {previewWarningMessages.map((warning, index) => (
+                      <p key={`warning-${index}`}>{warning}</p>
+                    ))}
+                  </div>
+                  {invoicePreview.hasCriticalWarnings ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (previewTenantId) setSelectedTenantId(previewTenantId)
+                        document.getElementById('billing-profile-section')?.scrollIntoView({
+                          behavior: 'smooth',
+                          block: 'start',
+                        })
+                      }}
+                      className="mt-3 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
+                    >
+                      Rechnungsdaten bearbeiten
+                    </button>
                   ) : null}
                 </div>
-                {invoicePreview.hasCriticalWarnings ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (previewTenantId) setSelectedTenantId(previewTenantId)
-                      document.getElementById('billing-profile-section')?.scrollIntoView({
-                        behavior: 'smooth',
-                        block: 'start',
-                      })
-                    }}
-                    className="mt-3 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900 transition hover:bg-amber-100"
-                  >
-                    Rechnungsdaten bearbeiten
-                  </button>
-                ) : null}
-              </div>
+              ) : null}
+              {previewInfoMessages.length ? (
+                <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                  <p className="text-sm font-semibold text-sky-900">Hinweise</p>
+                  <div className="mt-2 space-y-2 text-sm text-sky-900">
+                    {previewInfoMessages.map((message, index) => (
+                      <p key={`info-${index}`}>{message.replace(/^Info:\s*/, '')}</p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {invoicePreview.warnings.length === 0 ? (
+                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                  Keine Warnungen oder Hinweise für diese Vorschau erkannt.
+                </div>
+              ) : null}
               {currentFinalizedInvoice ? (
                 <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                   Für diesen Tenant und Monat wurde bereits eine Rechnung finalisiert: {currentFinalizedInvoice.invoiceNumber}

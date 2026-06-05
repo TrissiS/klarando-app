@@ -429,7 +429,7 @@ export async function calculateTenantBilling(tenantId: string, period: BillingMo
     warnings.push('MwSt.-Satz fehlt in der serverseitigen Billing-Masterquelle.')
   }
   for (const note of usage.countingNotes) {
-    warnings.push(`Nutzungszaehlung: ${note}`)
+    warnings.push(`Info: Nutzungszaehlung: ${note}`)
   }
 
   const invoiceStatus = invoiceStatusToBillingStatus(latestInvoice?.status ?? null)
@@ -650,7 +650,7 @@ export async function buildBillingInvoicePreview(
     warnings.push('Zahlungsziel fehlt im Billing-Profil.')
   }
   if (calculation.countingNotes.length > 0) {
-    warnings.push('Order-Zaehllogik enthaelt defensive Ausschluesse oder unklare Status.')
+    warnings.push('Info: Order-Zaehllogik enthaelt defensive Ausschluesse oder unklare Status.')
   }
   const hasFixedCharges = hasFixedBillableCharges(calculation)
   if (calculation.billableOrders === 0) {
