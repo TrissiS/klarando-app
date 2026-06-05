@@ -254,6 +254,23 @@ export function parseBillingMonthOrCurrent(input: unknown): BillingMonthPeriod {
   return monthPeriod(key)!
 }
 
+function hasFixedBillableCharges(calculation: Pick<
+  TenantBillingCalculation,
+  | 'monthlyFeeCents'
+  | 'packageMonthlyFeeCents'
+  | 'monthlyModuleRevenueCents'
+  | 'minimumMonthlyFeeCents'
+  | 'monthlyMinimumFeeAdjustmentCents'
+>) {
+  return (
+    calculation.monthlyFeeCents > 0 ||
+    calculation.packageMonthlyFeeCents > 0 ||
+    calculation.monthlyModuleRevenueCents > 0 ||
+    calculation.minimumMonthlyFeeCents > 0 ||
+    calculation.monthlyMinimumFeeAdjustmentCents > 0
+  )
+}
+
 function invoiceStatusToBillingStatus(status: InvoiceStatus | null): TenantBillingCalculation['status'] | null {
   if (!status) return null
   const upper = String(status).toUpperCase()
@@ -635,8 +652,13 @@ export async function buildBillingInvoicePreview(
   if (calculation.countingNotes.length > 0) {
     warnings.push('Order-Zaehllogik enthaelt defensive Ausschluesse oder unklare Status.')
   }
+  const hasFixedCharges = hasFixedBillableCharges(calculation)
   if (calculation.billableOrders === 0) {
-    warnings.push('Keine abrechnungsrelevanten Bestellungen im gewaelten Zeitraum.')
+    warnings.push(
+      hasFixedCharges
+        ? 'Keine abrechnungsrelevanten Bestellungen im gewählten Zeitraum. Fixe Monatsgebühren werden dennoch abgerechnet.'
+        : 'Keine abrechnungsrelevanten Bestellungen im gewählten Zeitraum.'
+    )
   }
   if (calculation.netOrderValueCents === null) {
     warnings.push('Netto aus Orderdaten ist derzeit nicht sicher berechenbar.')
@@ -652,10 +674,10 @@ export async function buildBillingInvoicePreview(
     warning.includes('Rechnungsadresse: Ort') ||
     warning.includes('Rechnungsadresse: Land') ||
     warning.includes('Rechnungs-E-Mail') ||
-    warning.includes('Zahlungsziel fehlt') ||
-    warning.includes('Keine abrechnungsrelevanten Bestellungen') ||
-    warning.includes('MwSt.-')
-  )
+      warning.includes('Zahlungsziel fehlt') ||
+      (!hasFixedCharges && warning.includes('Keine abrechnungsrelevanten Bestellungen')) ||
+      warning.includes('MwSt.-')
+    )
 
   const vatRatePercent = calculation.vatRatePercent
   const vatAmountCents =
