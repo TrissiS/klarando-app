@@ -7088,6 +7088,9 @@ export type BillingInvoice = {
 
 export type BillingMailboxMessage = {
   id: string
+  tenantId?: string | null
+  chainId?: string | null
+  invoiceId?: string | null
   title: string
   body: string
   messageType: string
@@ -7095,6 +7098,7 @@ export type BillingMailboxMessage = {
   actionUrl: string | null
   readAt: string | null
   createdAt: string
+  metadata?: Record<string, unknown> | null
 }
 
 export async function getBillingPreview(token: string, period: string): Promise<BillingPreviewResponse> {
@@ -7171,6 +7175,8 @@ export async function finalizeBillingInvoicePreview(
   periodEnd: string
   totalGrossCents: number
   itemsCount: number
+  postboxStatus?: string
+  emailDeliveryStatus?: string
   invoice: BillingInvoice
 }> {
   return apiJson<{
@@ -7182,6 +7188,8 @@ export async function finalizeBillingInvoicePreview(
     periodEnd: string
     totalGrossCents: number
     itemsCount: number
+    postboxStatus?: string
+    emailDeliveryStatus?: string
     invoice: BillingInvoice
   }>(
     buildApiUrl('/api/billing/invoices/finalize'),
@@ -7191,6 +7199,34 @@ export async function finalizeBillingInvoicePreview(
       body: JSON.stringify(params),
     },
     'Rechnung konnte nicht finalisiert werden'
+  )
+}
+
+export async function createBillingInvoiceMailboxEntry(
+  token: string,
+  invoiceId: string
+): Promise<{
+  ok: boolean
+  invoiceId: string
+  messageId: string
+  postboxStatus: string
+  emailDeliveryStatus: string
+  emailConfigured: boolean
+}> {
+  return apiJson<{
+    ok: boolean
+    invoiceId: string
+    messageId: string
+    postboxStatus: string
+    emailDeliveryStatus: string
+    emailConfigured: boolean
+  }>(
+    buildApiUrl(`/api/billing/invoices/${encodeURIComponent(invoiceId)}/mailbox`),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+    },
+    'Postfach-Eintrag konnte nicht erstellt werden'
   )
 }
 

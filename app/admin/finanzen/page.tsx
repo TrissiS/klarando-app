@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
+  downloadBillingInvoicePdf,
   getAdminFinanceOverview,
   getBillingInvoices,
   getBillingMailboxMessages,
@@ -36,6 +37,7 @@ export default function AdminFinanzenPage() {
   const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [mailboxMessages, setMailboxMessages] = useState<BillingMailboxMessage[]>([])
   const [usage, setUsage] = useState<FinanceUsageCurrent | null>(null)
+  const [pdfLoadingInvoiceId, setPdfLoadingInvoiceId] = useState('')
 
   useEffect(() => {
     const raw = localStorage.getItem('sessionUser')
@@ -92,6 +94,52 @@ export default function AdminFinanzenPage() {
     () => data?.transactions.filter((entry) => entry.paymentStatus.toUpperCase() === 'PAID').length || 0,
     [data]
   )
+
+  async function handleOpenInvoicePdf(invoice: BillingInvoice) {
+    if (!token) return
+    try {
+      setPdfLoadingInvoiceId(invoice.id)
+      setError('')
+      const { blob, fileName } = await downloadBillingInvoicePdf(token, invoice.id)
+      const objectUrl = window.URL.createObjectURL(blob)
+      const popup = window.open(objectUrl, '_blank', 'noopener,noreferrer')
+      if (!popup) {
+        const anchor = document.createElement('a')
+        anchor.href = objectUrl
+        anchor.download = fileName
+        anchor.rel = 'noopener'
+        anchor.click()
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rechnungs-PDF konnte nicht geöffnet werden')
+    } finally {
+      setPdfLoadingInvoiceId('')
+    }
+  }
+
+  async function handleOpenInvoicePdfById(invoiceId: string) {
+    if (!token) return
+    try {
+      setPdfLoadingInvoiceId(invoiceId)
+      setError('')
+      const { blob, fileName } = await downloadBillingInvoicePdf(token, invoiceId)
+      const objectUrl = window.URL.createObjectURL(blob)
+      const popup = window.open(objectUrl, '_blank', 'noopener,noreferrer')
+      if (!popup) {
+        const anchor = document.createElement('a')
+        anchor.href = objectUrl
+        anchor.download = fileName
+        anchor.rel = 'noopener'
+        anchor.click()
+      }
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Rechnungs-PDF konnte nicht geöffnet werden')
+    } finally {
+      setPdfLoadingInvoiceId('')
+    }
+  }
 
   return (
     <AdminLayout title="Finanzen" subtitle="Zahlungen, Gebühren und Auszahlungsübersicht">
@@ -214,10 +262,11 @@ export default function AdminFinanzenPage() {
                     <th className="px-2 py-2">Zeitraum</th>
                     <th className="px-2 py-2">Status</th>
                     <th className="px-2 py-2">Betrag</th>
+                    <th className="px-2 py-2">PDF</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoices.slice(0, 10).map((invoice) => (
+                  {invoices.filter((invoice) => invoice.status !== 'DRAFT').slice(0, 10).map((invoice) => (
                     <tr key={invoice.id} className="border-b border-slate-100">
                       <td className="px-2 py-2">{invoice.invoiceNumber}</td>
                       <td className="px-2 py-2">
@@ -225,11 +274,21 @@ export default function AdminFinanzenPage() {
                       </td>
                       <td className="px-2 py-2">{invoice.status}</td>
                       <td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td>
+                      <td className="px-2 py-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleOpenInvoicePdf(invoice)}
+                          disabled={pdfLoadingInvoiceId === invoice.id}
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {pdfLoadingInvoiceId === invoice.id ? 'Öffnet…' : 'PDF öffnen'}
+                        </button>
+                      </td>
                     </tr>
                   ))}
-                  {invoices.length === 0 ? (
+                  {invoices.filter((invoice) => invoice.status !== 'DRAFT').length === 0 ? (
                     <tr>
-                      <td className="px-2 py-3 text-sm text-slate-500" colSpan={4}>
+                      <td className="px-2 py-3 text-sm text-slate-500" colSpan={5}>
                         Noch keine Rechnungen vorhanden.
                       </td>
                     </tr>
@@ -247,8 +306,18 @@ export default function AdminFinanzenPage() {
                   <p className="text-sm font-medium text-[var(--brand-ink)]">{message.title}</p>
                   <p className="mt-1 text-xs text-rose-900/70">{message.body}</p>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    {new Date(message.createdAt).toLocaleString('de-DE')} · {message.status || 'Info'}
+                    {new Date(message.createdAt).toLocaleString('de-DE')} · {message.readAt ? 'Gelesen' : 'Ungelesen'} · {message.status || 'Info'}
                   </p>
+                  {message.invoiceId ? (
+                    <button
+                      type="button"
+                      onClick={() => void handleOpenInvoicePdfById(message.invoiceId!)}
+                      disabled={pdfLoadingInvoiceId === message.invoiceId}
+                      className="mt-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {pdfLoadingInvoiceId === message.invoiceId ? 'Öffnet…' : 'PDF öffnen'}
+                    </button>
+                  ) : null}
                 </div>
               ))}
               {mailboxMessages.length === 0 ? (

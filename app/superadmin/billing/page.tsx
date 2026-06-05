@@ -5,16 +5,19 @@ import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import ImplementationNotice from '@/app/Components/admin/ImplementationNotice'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
+  createBillingInvoiceMailboxEntry,
   downloadBillingInvoicePdf,
   finalizeBillingInvoicePreview,
   getAccessContext,
   getBillingInvoicePreview,
   getBillingInvoices,
+  getBillingMailboxMessages,
   getBillingSummary,
   getBillingTenants,
   getFeatureModuleCatalog,
   getTenantBillingConfig,
   updateTenantBillingConfig,
+  type BillingMailboxMessage,
   type BillingInvoicePreview,
   type BillingInvoice,
   type BillingModuleFeeConfig,
@@ -242,10 +245,12 @@ export default function SuperadminBillingPage() {
   const [pricingForm, setPricingForm] = useState<PricingFormState | null>(null)
   const [billingProfileForm, setBillingProfileForm] = useState<BillingProfileFormState | null>(null)
   const [finalizedInvoices, setFinalizedInvoices] = useState<BillingInvoice[]>([])
+  const [mailboxMessages, setMailboxMessages] = useState<BillingMailboxMessage[]>([])
   const [loading, setLoading] = useState(false)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [previewFinalizing, setPreviewFinalizing] = useState(false)
   const [pdfLoadingInvoiceId, setPdfLoadingInvoiceId] = useState('')
+  const [mailboxActionInvoiceId, setMailboxActionInvoiceId] = useState('')
   const [previewError, setPreviewError] = useState('')
   const [saving, setSaving] = useState(false)
   const [profileSaving, setProfileSaving] = useState(false)
@@ -268,19 +273,21 @@ export default function SuperadminBillingPage() {
       try {
         setLoading(true)
         setError('')
-        const [summaryResult, tenantsResult, contextResult, catalogResult, invoiceResult] =
+        const [summaryResult, tenantsResult, contextResult, catalogResult, invoiceResult, mailboxResult] =
           await Promise.all([
             getBillingSummary(token, { month }),
             getBillingTenants(token, { month }),
             getAccessContext(token),
             getFeatureModuleCatalog(token),
             getBillingInvoices(token, { month }),
+            getBillingMailboxMessages(token),
           ])
         setSummary(summaryResult)
         setTenantRows(tenantsResult.rows)
         setTenantOptions(contextResult.tenants.map((tenant) => ({ id: tenant.id, name: tenant.name })))
         setModuleCatalog(catalogResult.modules)
         setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
+        setMailboxMessages(mailboxResult)
         if (!selectedTenantId) {
           setSelectedTenantId(tenantsResult.rows[0]?.tenantId || contextResult.tenants[0]?.id || '')
         }
@@ -469,14 +476,16 @@ export default function SuperadminBillingPage() {
         return next.filter((invoice) => invoice.status !== 'DRAFT')
       })
       try {
-        const [summaryResult, tenantsResult, invoiceResult] = await Promise.all([
+        const [summaryResult, tenantsResult, invoiceResult, mailboxResult] = await Promise.all([
           getBillingSummary(token, { month }),
           getBillingTenants(token, { month }),
           getBillingInvoices(token, { month }),
+          getBillingMailboxMessages(token),
         ])
         setSummary(summaryResult)
         setTenantRows(tenantsResult.rows)
         setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
+        setMailboxMessages(mailboxResult)
       } catch (reloadCause) {
         console.error('BILLING_FINALIZE_RELOAD_ERROR', reloadCause)
       }
@@ -509,6 +518,27 @@ export default function SuperadminBillingPage() {
       setError(cause instanceof Error ? cause.message : 'Rechnungs-PDF konnte nicht geoeffnet werden')
     } finally {
       setPdfLoadingInvoiceId('')
+    }
+  }
+
+  async function handleCreateMailboxEntry(invoice: BillingInvoice) {
+    if (!token) return
+    try {
+      setMailboxActionInvoiceId(invoice.id)
+      setError('')
+      setInfo('')
+      const result = await createBillingInvoiceMailboxEntry(token, invoice.id)
+      const mailboxResult = await getBillingMailboxMessages(token)
+      setMailboxMessages(mailboxResult)
+      setInfo(
+        result.emailDeliveryStatus === 'SENT'
+          ? `Rechnung ${invoice.invoiceNumber} wurde ins Postfach gelegt und per E-Mail angekündigt.`
+          : `Rechnung ${invoice.invoiceNumber} wurde ins Postfach gelegt.`
+      )
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Postfach-Eintrag konnte nicht erstellt werden')
+    } finally {
+      setMailboxActionInvoiceId('')
     }
   }
 
@@ -598,6 +628,15 @@ export default function SuperadminBillingPage() {
       ),
     [invoicePreview, previewInfoMessages]
   )
+  const mailboxByInvoiceId = useMemo(() => {
+    const map = new Map<string, BillingMailboxMessage>()
+    for (const message of mailboxMessages) {
+      if (message.invoiceId && !map.has(message.invoiceId)) {
+        map.set(message.invoiceId, message)
+      }
+    }
+    return map
+  }, [mailboxMessages])
   const usageRows = useMemo(() => tenantRows, [tenantRows])
   const topRevenueRows = useMemo(
     () => [...tenantRows].sort((left, right) => right.monthlyTotalRevenueCents - left.monthlyTotalRevenueCents).slice(0, 10),
@@ -1513,10 +1552,144 @@ export default function SuperadminBillingPage() {
         </section>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Rechnungen</h3>
-          <p className="mt-1 text-sm text-slate-600">Finalisierte Monatsrechnungen als Snapshot. PDF, Versand, DATEV und Mahnungen bleiben Folgethemen.</p>
-          {loading ? <p className="mt-4 text-sm text-slate-600">Lade Billing-Uebersicht...</p> : <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4"><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Marge (MVP)</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards ? centsToEuro(summaryCards.estimatedMarginNetCents) : '-'}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Im Kontingent</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.includedTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Kostenpflichtig</p><p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.chargeableTenants ?? 0}</p></div><div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs uppercase tracking-wide text-slate-500">Finalisierte Rechnungen</p><p className="mt-1 text-lg font-semibold text-slate-900">{finalizedInvoices.length}</p></div></div>}
-          <div className="mt-4 overflow-x-auto"><table className="min-w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500"><th className="px-2 py-2">Rechnungsnummer</th><th className="px-2 py-2">Tenant</th><th className="px-2 py-2">Monat</th><th className="px-2 py-2">Netto</th><th className="px-2 py-2">MwSt.</th><th className="px-2 py-2">Brutto</th><th className="px-2 py-2">Status</th><th className="px-2 py-2">Erstellt am</th><th className="px-2 py-2">Positionen</th><th className="px-2 py-2">PDF</th></tr></thead><tbody>{finalizedInvoices.map((invoice) => <tr key={invoice.id} className="border-b border-slate-100 align-top"><td className="px-2 py-2 font-medium text-slate-900">{invoice.invoiceNumber}</td><td className="px-2 py-2">{invoice.tenant?.name || '-'}</td><td className="px-2 py-2">{invoice.periodStart.slice(0, 7)}</td><td className="px-2 py-2">{centsToEuro(invoice.subTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.taxTotalCents)}</td><td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td><td className="px-2 py-2">{invoice.lifecycleStatus || invoice.status}</td><td className="px-2 py-2">{new Date(invoice.finalizedAt || invoice.issuedAt || invoice.createdAt).toLocaleDateString('de-DE')}</td><td className="px-2 py-2 text-xs text-slate-600">{invoice.items?.length ? invoice.items.map((item) => `${item.title}: ${centsToEuro(item.netAmountCents)}`).join(' • ') : 'Keine Positionen'}</td><td className="px-2 py-2">{(invoice.lifecycleStatus || invoice.status) !== 'DRAFT' ? <button type="button" onClick={() => void handleOpenInvoicePdf(invoice)} disabled={pdfLoadingInvoiceId === invoice.id} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50">{pdfLoadingInvoiceId === invoice.id ? 'Öffnet…' : 'PDF öffnen'}</button> : <span className="text-xs text-slate-400">Nur finalisiert</span>}</td></tr>)}{finalizedInvoices.length === 0 ? <tr><td colSpan={10} className="px-2 py-6 text-center text-slate-500">Noch keine finalisierten Rechnungen fuer diesen Monat vorhanden.</td></tr> : null}</tbody></table></div>
-          </section>
+          <p className="mt-1 text-sm text-slate-600">
+            Finalisierte Monatsrechnungen als Snapshot. Versand ins Postfach ist aktiv, E-Mail-Benachrichtigungen
+            bleiben optional.
+          </p>
+          {loading ? (
+            <p className="mt-4 text-sm text-slate-600">Lade Billing-Uebersicht...</p>
+          ) : (
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Marge (MVP)</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">
+                  {summaryCards ? centsToEuro(summaryCards.estimatedMarginNetCents) : '-'}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Im Kontingent</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.includedTenants ?? 0}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Kostenpflichtig</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{summaryCards?.chargeableTenants ?? 0}</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Finalisierte Rechnungen</p>
+                <p className="mt-1 text-lg font-semibold text-slate-900">{finalizedInvoices.length}</p>
+              </div>
+            </div>
+          )}
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-2">Rechnungsnummer</th>
+                  <th className="px-2 py-2">Tenant</th>
+                  <th className="px-2 py-2">Monat</th>
+                  <th className="px-2 py-2">Netto</th>
+                  <th className="px-2 py-2">MwSt.</th>
+                  <th className="px-2 py-2">Brutto</th>
+                  <th className="px-2 py-2">Status</th>
+                  <th className="px-2 py-2">Erstellt am</th>
+                  <th className="px-2 py-2">Postfach</th>
+                  <th className="px-2 py-2">E-Mail</th>
+                  <th className="px-2 py-2">Positionen</th>
+                  <th className="px-2 py-2">Aktionen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {finalizedInvoices.map((invoice) => {
+                  const mailboxEntry = mailboxByInvoiceId.get(invoice.id) || null
+                  const mailboxMetadata =
+                    mailboxEntry?.metadata && typeof mailboxEntry.metadata === 'object'
+                      ? (mailboxEntry.metadata as Record<string, unknown>)
+                      : null
+                  const emailStatus =
+                    mailboxMetadata && typeof mailboxMetadata.emailStatus === 'string'
+                      ? mailboxMetadata.emailStatus
+                      : 'NOT_CONFIGURED'
+                  return (
+                    <tr key={invoice.id} className="border-b border-slate-100 align-top">
+                      <td className="px-2 py-2 font-medium text-slate-900">{invoice.invoiceNumber}</td>
+                      <td className="px-2 py-2">{invoice.tenant?.name || '-'}</td>
+                      <td className="px-2 py-2">{invoice.periodStart.slice(0, 7)}</td>
+                      <td className="px-2 py-2">{centsToEuro(invoice.subTotalCents)}</td>
+                      <td className="px-2 py-2">{centsToEuro(invoice.taxTotalCents)}</td>
+                      <td className="px-2 py-2">{centsToEuro(invoice.totalGrossCents)}</td>
+                      <td className="px-2 py-2">{invoice.lifecycleStatus || invoice.status}</td>
+                      <td className="px-2 py-2">
+                        {new Date(invoice.finalizedAt || invoice.issuedAt || invoice.createdAt).toLocaleDateString('de-DE')}
+                      </td>
+                      <td className="px-2 py-2">
+                        {mailboxEntry ? (
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">
+                            {mailboxEntry.readAt ? 'Im Postfach' : 'Ungelesen im Postfach'}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleCreateMailboxEntry(invoice)}
+                            disabled={mailboxActionInvoiceId === invoice.id}
+                            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {mailboxActionInvoiceId === invoice.id ? 'Lege ab…' : 'Ins Postfach legen'}
+                          </button>
+                        )}
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="space-y-2">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                            {emailStatus === 'SENT'
+                              ? 'E-Mail gesendet'
+                              : emailStatus === 'FAILED'
+                                ? 'E-Mail fehlgeschlagen'
+                                : emailStatus === 'NO_RECIPIENT'
+                                  ? 'Keine Rechnungs-E-Mail'
+                                  : 'E-Mail nicht konfiguriert'}
+                          </span>
+                          <button
+                            type="button"
+                            disabled
+                            className="block rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-400"
+                          >
+                            Benachrichtigung erneut senden
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-2 py-2 text-xs text-slate-600">
+                        {invoice.items?.length
+                          ? invoice.items.map((item) => `${item.title}: ${centsToEuro(item.netAmountCents)}`).join(' • ')
+                          : 'Keine Positionen'}
+                      </td>
+                      <td className="px-2 py-2">
+                        {(invoice.lifecycleStatus || invoice.status) !== 'DRAFT' ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenInvoicePdf(invoice)}
+                            disabled={pdfLoadingInvoiceId === invoice.id}
+                            className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {pdfLoadingInvoiceId === invoice.id ? 'Öffnet…' : 'PDF öffnen'}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-400">Nur finalisiert</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {finalizedInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={12} className="px-2 py-6 text-center text-slate-500">
+                      Noch keine finalisierten Rechnungen fuer diesen Monat vorhanden.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
         </div>
       </BackofficeLayout>
   )

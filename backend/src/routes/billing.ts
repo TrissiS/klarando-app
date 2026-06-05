@@ -6,6 +6,7 @@ import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
 import { resolveInvoiceIssuerProfile, type InvoiceIssuerProfile } from '../lib/invoice-issuer-profile'
+import { isMailConfigured, sendMail } from '../lib/mail'
 import {
   assertInvoiceMutable,
   buildBillingInvoicePreview,
@@ -101,6 +102,10 @@ function centsToEuroLabel(cents: number) {
   return `${(Math.max(0, cents) / 100).toFixed(2).replace('.', ',')} €`
 }
 
+function getPublicAppUrl() {
+  return (process.env.PUBLIC_APP_URL || 'http://localhost:3000').trim().replace(/\/+$/, '')
+}
+
 function parseHexColor(input: string | null | undefined, fallback: [number, number, number]): [number, number, number] {
   if (!input) return fallback
   const value = input.trim().replace('#', '')
@@ -155,6 +160,136 @@ function resolveInvoiceLifecycleStatus(invoice: {
 }) {
   const metadata = invoice.metadata || {}
   return metadata.finalizationLocked === true && invoice.status !== InvoiceStatus.DRAFT
+}
+
+async function ensureInvoiceMailboxDelivery(input: {
+  invoiceId: string
+  forceEmailResend?: boolean
+}) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: input.invoiceId },
+    select: {
+      id: true,
+      invoiceNumber: true,
+      status: true,
+      tenantId: true,
+      chainId: true,
+      periodStart: true,
+      periodEnd: true,
+      metadata: true,
+    },
+  })
+  if (!invoice) {
+    const error = new Error('Rechnung nicht gefunden')
+    ;(error as Error & { code?: string }).code = 'INVOICE_NOT_FOUND'
+    throw error
+  }
+  if (!resolveInvoiceLifecycleStatus({
+    status: invoice.status,
+    metadata: (invoice.metadata as Record<string, unknown> | null) || null,
+  })) {
+    const error = new Error('Draft-Rechnungen dürfen nicht ins Postfach gelegt werden.')
+    ;(error as Error & { code?: string }).code = 'INVOICE_NOT_FINALIZED'
+    throw error
+  }
+
+  const metadata =
+    invoice.metadata && typeof invoice.metadata === 'object' ? (invoice.metadata as Record<string, unknown>) : {}
+  const recipient =
+    metadata.billingProfileSnapshot && typeof metadata.billingProfileSnapshot === 'object'
+      ? (metadata.billingProfileSnapshot as Record<string, unknown>)
+      : null
+  const recipientEmail =
+    recipient && typeof recipient.invoiceEmail === 'string' && recipient.invoiceEmail.trim().length > 0
+      ? recipient.invoiceEmail.trim()
+      : null
+  const appUrl = getPublicAppUrl()
+  const actionUrl = `/admin/finanzen?invoice=${invoice.id}`
+  const absoluteActionUrl = `${appUrl}${actionUrl}`
+  const periodLabel = `${invoice.periodStart.toLocaleDateString('de-DE')} bis ${invoice.periodEnd.toLocaleDateString('de-DE')}`
+
+  let mailboxMessage = await prisma.klarandoMailboxMessage.findFirst({
+    where: {
+      invoiceId: invoice.id,
+      messageType: 'INVOICE_ISSUED',
+    },
+    orderBy: { createdAt: 'desc' },
+  })
+
+  if (!mailboxMessage) {
+    mailboxMessage = await prisma.klarandoMailboxMessage.create({
+      data: {
+        tenantId: invoice.tenantId,
+        chainId: invoice.chainId,
+        invoiceId: invoice.id,
+        messageType: 'INVOICE_ISSUED',
+        title: `Neue Rechnung ${invoice.invoiceNumber}`,
+        body: `Ihre Klarando-Rechnung für den Leistungszeitraum ${periodLabel} wurde erstellt.`,
+        status: invoice.status,
+        actionUrl,
+        metadata: {
+          category: 'BILLING',
+          unread: true,
+          postboxStatus: 'CREATED',
+          emailStatus: 'PENDING',
+        },
+      },
+    })
+  }
+
+  const existingMetadata =
+    mailboxMessage.metadata && typeof mailboxMessage.metadata === 'object'
+      ? (mailboxMessage.metadata as Record<string, unknown>)
+      : {}
+
+  let emailStatus =
+    typeof existingMetadata.emailStatus === 'string' ? existingMetadata.emailStatus : 'PENDING'
+
+  const shouldAttemptMail = input.forceEmailResend || emailStatus === 'PENDING'
+  if (shouldAttemptMail) {
+    if (!recipientEmail) {
+      emailStatus = 'NO_RECIPIENT'
+    } else if (!isMailConfigured()) {
+      emailStatus = 'NOT_CONFIGURED'
+    } else {
+      try {
+        await sendMail({
+          to: recipientEmail,
+          subject: `Neue Klarando-Rechnung ${invoice.invoiceNumber}`,
+          text: `Ihre Klarando-Rechnung für den Leistungszeitraum ${periodLabel} wurde erstellt.\n\nBitte öffnen Sie die Rechnung im Klarando-Admin:\n${absoluteActionUrl}`,
+          html: `<p>Ihre Klarando-Rechnung für den Leistungszeitraum <strong>${periodLabel}</strong> wurde erstellt.</p><p>Bitte öffnen Sie die Rechnung im Klarando-Admin:</p><p><a href="${absoluteActionUrl}">${absoluteActionUrl}</a></p>`,
+        })
+        emailStatus = 'SENT'
+      } catch (mailError) {
+        console.error('BILLING_INVOICE_MAIL_ERROR', mailError)
+        emailStatus = 'FAILED'
+      }
+    }
+  }
+
+  mailboxMessage = await prisma.klarandoMailboxMessage.update({
+    where: { id: mailboxMessage.id },
+    data: {
+      status: invoice.status,
+      actionUrl,
+      metadata: {
+        ...existingMetadata,
+        category: 'BILLING',
+        unread: mailboxMessage.readAt ? false : true,
+        postboxStatus: 'CREATED',
+        emailStatus,
+        invoiceNumber: invoice.invoiceNumber,
+        actionUrl,
+        recipientEmail,
+      },
+    },
+  })
+
+  return {
+    message: mailboxMessage,
+    emailStatus,
+    emailConfigured: isMailConfigured(),
+  }
 }
 
 function serializeBillingInvoice(invoice: {
@@ -900,6 +1035,7 @@ router.post('/invoices/finalize', requireAuth, async (req, res) => {
       return res.status(404).json({ error: 'Filiale nicht gefunden' })
     }
 
+    let delivery: Awaited<ReturnType<typeof ensureInvoiceMailboxDelivery>> | null = null
     try {
       await writeAuditLog({
         req,
@@ -917,6 +1053,11 @@ router.post('/invoices/finalize', requireAuth, async (req, res) => {
     } catch (auditError) {
       console.error('POST FINALIZE INVOICE PREVIEW AUDIT ERROR:', auditError)
     }
+    try {
+      delivery = await ensureInvoiceMailboxDelivery({ invoiceId: invoice.id })
+    } catch (deliveryError) {
+      console.error('POST FINALIZE INVOICE PREVIEW MAILBOX ERROR:', deliveryError)
+    }
 
     return res.status(201).json({
       ok: true,
@@ -927,6 +1068,8 @@ router.post('/invoices/finalize', requireAuth, async (req, res) => {
       periodEnd: invoice.periodEnd.toISOString(),
       totalGrossCents: invoice.totalGrossCents,
       itemsCount: invoice.items.length,
+      postboxStatus: delivery?.message ? 'CREATED' : 'PENDING',
+      emailDeliveryStatus: delivery?.emailStatus || 'PENDING',
       invoice: serializeBillingInvoice({
         ...invoice,
         dueAt: invoice.dueAt,
@@ -1144,8 +1287,9 @@ router.post('/invoices/:invoiceId/finalize', requireAuth, async (req, res) => {
 
 router.get('/invoices/:invoiceId/pdf', requireAuth, async (req, res) => {
   try {
-    if (req.authUser?.role !== UserRole.SUPERADMIN) {
-      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    const authUser = req.authUser
+    if (!authUser) {
+      return res.status(401).json({ error: 'Nicht eingeloggt' })
     }
     const invoice = await prisma.invoice.findUnique({
       where: { id: String(req.params.invoiceId || '') },
@@ -1157,6 +1301,14 @@ router.get('/invoices/:invoiceId/pdf', requireAuth, async (req, res) => {
     })
     if (!invoice) {
       return res.status(404).json({ error: 'Rechnung nicht gefunden' })
+    }
+    if (authUser.role === UserRole.ADMIN || authUser.role === UserRole.CHAINADMIN) {
+      const scope = await resolveTenantScope(req, invoice.tenantId || undefined)
+      if (!invoice.tenantId || scope.tenantId !== invoice.tenantId) {
+        return res.status(403).json({ error: 'Kein Zugriff auf diese Rechnung' })
+      }
+    } else if (authUser.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Kein Zugriff auf diese Rechnung' })
     }
     if (!resolveInvoiceLifecycleStatus({
       status: invoice.status,
@@ -1210,6 +1362,35 @@ router.get('/invoices/:invoiceId/pdf', requireAuth, async (req, res) => {
     }
     console.error('GET BILLING INVOICE PDF ERROR:', error)
     return res.status(500).json({ error: 'PDF konnte nicht vorbereitet werden' })
+  }
+})
+
+router.post('/invoices/:invoiceId/mailbox', requireAuth, async (req, res) => {
+  try {
+    if (req.authUser?.role !== UserRole.SUPERADMIN) {
+      return res.status(403).json({ error: 'Nur Superadmin erlaubt' })
+    }
+    const delivery = await ensureInvoiceMailboxDelivery({
+      invoiceId: String(req.params.invoiceId || ''),
+    })
+    return res.json({
+      ok: true,
+      invoiceId: String(req.params.invoiceId || ''),
+      messageId: delivery.message.id,
+      postboxStatus: 'CREATED',
+      emailDeliveryStatus: delivery.emailStatus,
+      emailConfigured: delivery.emailConfigured,
+    })
+  } catch (error) {
+    const typedError = error as Error & { code?: string }
+    if (typedError.code === 'INVOICE_NOT_FOUND') {
+      return res.status(404).json({ error: typedError.message })
+    }
+    if (typedError.code === 'INVOICE_NOT_FINALIZED') {
+      return res.status(409).json({ error: typedError.message })
+    }
+    console.error('POST BILLING INVOICE MAILBOX ERROR:', error)
+    return res.status(500).json({ error: 'Postfach-Eintrag konnte nicht erstellt werden' })
   }
 })
 
@@ -1413,6 +1594,9 @@ router.get('/mailbox', requirePermission(PermissionKey.ORDERS_READ), async (req,
       where: {
         ...(tenantId ? { tenantId } : {}),
         ...(chainId ? { chainId } : {}),
+        NOT: {
+          status: InvoiceStatus.DRAFT,
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 200,

@@ -1007,21 +1007,6 @@ export async function createInvoiceDraftFromCalculation(input: {
       })
     }
 
-    if (billingRunId) {
-      await tx.klarandoMailboxMessage.create({
-        data: {
-          tenantId: tenantCalculation.tenantId,
-          chainId: tenantCalculation.chainId,
-          invoiceId: invoice.id,
-          messageType: 'INVOICE_ISSUED',
-          title: `Neue Rechnung ${invoice.invoiceNumber}`,
-          body: `Für den Zeitraum ${period.key} wurde eine Rechnung als Entwurf erstellt.`,
-          status: 'DRAFT',
-          actionUrl: `/admin/finanzen?invoice=${invoice.id}`,
-        },
-      })
-    }
-
     return invoice
   })
 }
