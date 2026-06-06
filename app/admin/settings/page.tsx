@@ -497,11 +497,14 @@ export default function AdminSettingsPage() {
             <div>
               <h2 className="text-2xl font-semibold text-slate-950">2. Lieferdienst</h2>
               <p className="mt-1 text-sm text-rose-900/70">
-                Lieferzeiten, Vorbestellung, Bestellannahme und die technische Kundensicht auf die Lieferverfügbarkeit.
+                Lieferzeiten, Mindestvorlauf, Vorbestellung, Bestellannahme und die technische Kundensicht auf die Lieferverfügbarkeit.
               </p>
             </div>
             <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
               <h3 className="text-xl font-semibold">Lieferbetrieb</h3>
+              <p className="mt-1 text-sm text-rose-900/70">
+                Diese Zeiten und Regeln gelten zentral für App und Checkout. Liefergebiete, PLZ, Radius und Polygon werden bewusst separat im nächsten Bereich verwaltet.
+              </p>
               <div className="mt-4">
                 <AppSettingsFields
                   settings={settings}
@@ -666,11 +669,14 @@ export default function AdminSettingsPage() {
             <div>
               <h2 className="text-2xl font-semibold text-slate-950">3. Liefergebiete & Kosten</h2>
               <p className="mt-1 text-sm text-rose-900/70">
-                Wo geliefert wird und welche Konditionen dafür gelten — ohne Zeitfenster und Ausnahmezeiten.
+                Wo geliefert wird und welche Konditionen dafür gelten — ohne Tageszeiten, Lieferfenster oder Vorbestell-Slots.
               </p>
             </div>
             <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
               <h3 className="text-xl font-semibold">Liefergebiet, Kosten & Mindestbestellwert</h3>
+              <p className="mt-1 text-sm text-rose-900/70">
+                Dieser Bereich enthält nur Gebiet und Kosten: PLZ, Radius, Polygon, Ausschlüsse, Liefergebühr und Mindestbestellwert.
+              </p>
               <div className="mt-4">
                 <AppSettingsFields
                   settings={settings}

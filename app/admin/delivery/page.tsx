@@ -11,39 +11,43 @@ import {
 
 export default function DeliveryWorkspacePage() {
   return (
-    <AdminLayout title="Lieferbetrieb-Workspace" subtitle="Lieferzonen und Touren fachlich getrennt verwalten.">
+    <AdminLayout title="Lieferbetrieb-Workspace" subtitle="Lieferdienst, Liefergebiete und Touren fachlich getrennt verwalten.">
       <div className="space-y-4">
         <WorkspaceHeader
           title="Workspace: Lieferung"
-          subtitle="Lieferzonen definieren das Liefergebiet und die Konditionen. Touren planen danach die operative Zustellung."
+          subtitle="Lieferdienst steuert Zeiten und Bestellannahme. Lieferzonen definieren separat Gebiet und Kosten. Touren planen danach die operative Zustellung."
         />
         <WorkspaceStats
           stats={[
+            { label: 'Lieferdienst', value: 'Aktiv' },
             { label: 'Lieferzonen', value: 'Aktiv' },
             { label: 'Kostenregeln', value: 'Aktiv' },
-            { label: 'Fahrerbereich', value: 'Aktiv' },
+            { label: 'Debug-Vorschau', value: 'Aktiv' },
             { label: 'Touren', value: 'Vorbereitet' },
           ]}
         />
         <WorkspaceTabs
           tabs={[
-            { href: '/admin/settings#delivery-area', label: 'Lieferzonen & Kosten' },
+            { href: '/admin/settings#lieferdienst', label: 'Lieferdienst' },
+            { href: '/admin/settings#liefergebiete-kosten', label: 'Lieferzonen & Kosten' },
             { href: '/admin/drivers', label: 'Fahrer' },
             { href: '/admin/tours', label: 'Touren' },
           ]}
         />
         <WorkspaceActions
           actions={[
-            { href: '/admin/settings#delivery-area', label: 'Lieferzonen & Kosten öffnen' },
+            { href: '/admin/settings#lieferdienst', label: 'Lieferdienst öffnen' },
+            { href: '/admin/settings#liefergebiete-kosten', label: 'Lieferzonen & Kosten öffnen' },
             { href: '/admin/drivers', label: 'Fahrer öffnen' },
             { href: '/admin/tours', label: 'Touren öffnen' },
           ]}
         />
         <WorkspaceWarnings
           warnings={[
-            'Lieferzonen und Kosten werden im Einstellungen-Bereich unter delivery-area gepflegt.',
+            'Lieferdienst wird im Einstellungen-Bereich unter lieferdienst gepflegt.',
+            'Lieferzonen und Kosten werden getrennt im Bereich liefergebiete-kosten gepflegt.',
             'Fahrer werden separat im Fahrerbereich verwaltet.',
-            'Touren bleiben fachlich getrennt von Lieferzonen und Kosten.',
+            'Touren bleiben fachlich getrennt von Lieferdienst sowie Lieferzonen und Kosten.',
           ]}
         />
       </div>
