@@ -199,17 +199,28 @@ export async function createExpressDashboardLoginLink(stripeAccountId: string) {
 }
 
 export async function refreshTenantStripeAccountStatus(tenantId: string) {
-  const config = await prisma.tenantPaymentConfig.findUnique({
-    where: { tenantId },
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
     select: {
-      tenantId: true,
-      stripeAccountId: true,
+      id: true,
+      paymentConfig: {
+        select: {
+          tenantId: true,
+          stripeAccountId: true,
+        },
+      },
     },
   })
 
+  if (!tenant) {
+    throw new Error('Filiale nicht gefunden')
+  }
+
+  const config = tenant.paymentConfig
+
   if (!config?.stripeAccountId) {
     return {
-      tenantId,
+      tenantId: tenant.id,
       stripeAccountId: null,
       onboarded: false,
       chargesEnabled: false,
@@ -232,7 +243,7 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
   const onboarded = Boolean(account.details_submitted) && currentlyDue.length === 0
 
   const status = {
-    tenantId,
+    tenantId: tenant.id,
     stripeAccountId: config.stripeAccountId,
     onboarded,
     chargesEnabled: Boolean(account.charges_enabled),

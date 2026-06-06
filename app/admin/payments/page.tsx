@@ -5,7 +5,6 @@ import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
   createStripeAccountLink,
   createStripeConnectedAccount,
-  createStripeDashboardLink,
   getStoredAccessToken,
   getStoredTenantId,
   getStripeConnectStatus,
@@ -14,6 +13,10 @@ import {
 
 const SUCCESS_CARD = 'border-[#36B37E] bg-[#E8F8EE] text-[#1F7A52]'
 const DEFAULT_CARD = 'border-rose-100 bg-rose-50 text-rose-900'
+
+function buildStripeDashboardUrl(accountId: string) {
+  return `https://dashboard.stripe.com/connect/accounts/${encodeURIComponent(accountId)}`
+}
 
 function CheckCircleIcon({ success }: { success: boolean }) {
   if (success) {
@@ -155,8 +158,8 @@ export default function AdminPaymentsPage() {
   }
 
   async function handleOpenDashboard() {
-    if (!token || !tenantId) {
-      setError('Bitte zuerst einloggen und eine Filiale auswählen.')
+    if (!status?.stripeAccountId) {
+      setError('Für diese Filiale ist noch kein Stripe-Konto hinterlegt.')
       return
     }
 
@@ -165,9 +168,8 @@ export default function AdminPaymentsPage() {
     setNotice(null)
 
     try {
-      const response = await createStripeDashboardLink(token, tenantId)
       if (typeof window !== 'undefined') {
-        window.location.assign(response.dashboardUrl)
+        window.open(buildStripeDashboardUrl(status.stripeAccountId), '_blank', 'noopener,noreferrer')
       }
     } catch (dashboardError) {
       setError(
