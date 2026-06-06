@@ -32,6 +32,7 @@ import screenRoutes from './routes/screen'
 import displayRuntimeRoutes from './routes/display-runtime'
 import displayPairingRoutes from './routes/display-pairing'
 import displayRoutes from './routes/display'
+import deliveryRoutes from './routes/delivery'
 import adminDisplayRoutes from './routes/admin-displays'
 import databaseManagementRoutes from './routes/database-management'
 import cashClosingRoutes from './routes/cash-closings'
@@ -345,6 +346,7 @@ app.use('/api/display-pairing', displayPairingRoutes)
 app.use('/api/displayPairing', displayPairingRoutes)
 app.use('/api/legacy/display-pairing', displayPairingRoutes)
 app.use('/api/display', displayRoutes)
+app.use('/api/delivery', deliveryRoutes)
 app.use('/api/admin/displays', adminDisplayRoutes)
 app.use('/api/database-management', databaseManagementRoutes)
 app.use('/api/cash-closings', cashClosingRoutes)
