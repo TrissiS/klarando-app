@@ -11,7 +11,17 @@ type Props = {
   disableCustomerApp?: boolean
   showAppReleaseControls?: boolean
   showComplianceControls?: boolean
+  showDeliveryCostControls?: boolean
+  showServiceFeeControls?: boolean
+  showServiceModeControls?: boolean
+  showOrderingControls?: boolean
+  showListingDisplayControls?: boolean
   showServiceAreaEditor?: boolean
+  serviceAreaTitle?: string
+  serviceAreaSubtitle?: string
+  showOpeningHours?: boolean
+  showDeliveryHours?: boolean
+  showHolidayHours?: boolean
   showDeliveryScheduling?: boolean
 }
 
@@ -62,7 +72,17 @@ export default function AppSettingsFields({
   disableCustomerApp = false,
   showAppReleaseControls = true,
   showComplianceControls = false,
+  showDeliveryCostControls = true,
+  showServiceFeeControls = true,
+  showServiceModeControls = true,
+  showOrderingControls = true,
+  showListingDisplayControls = true,
   showServiceAreaEditor = true,
+  serviceAreaTitle = 'Öffnungszeiten & Lieferzeiten',
+  serviceAreaSubtitle = 'Zentrale Master-Verwaltung für Liefergebiet, Zeiten und Ausnahmen.',
+  showOpeningHours = true,
+  showDeliveryHours = true,
+  showHolidayHours = true,
   showDeliveryScheduling = true,
 }: Props) {
   function patchTimeManagement(next: Partial<BusinessSettings['timeManagement']>) {
@@ -329,6 +349,7 @@ export default function AppSettingsFields({
 
   return (
     <>
+      {showDeliveryCostControls ? (
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Liefergebühr</span>
@@ -359,6 +380,8 @@ export default function AppSettingsFields({
           />
         </label>
       </div>
+      ) : null}
+      {showServiceFeeControls ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Servicegebühr
@@ -460,8 +483,9 @@ export default function AppSettingsFields({
           )}
         </div>
       </section>
+      ) : null}
 
-      {showDeliveryScheduling ? (
+      {showServiceModeControls ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Bestellmodus
@@ -532,6 +556,7 @@ export default function AppSettingsFields({
         </section>
       ) : null}
 
+      {showOrderingControls ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Bestellfenster & Vorbestellung
@@ -606,7 +631,9 @@ export default function AppSettingsFields({
           </label>
         </div>
       </section>
+      ) : null}
 
+      {showListingDisplayControls ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Suchübersicht in App
@@ -686,12 +713,13 @@ export default function AppSettingsFields({
           </label>
         </div>
       </section>
+      ) : null}
 
       {showServiceAreaEditor ? (
         <div className="mt-4 grid gap-4">
           <ServiceAreaEditor
-            title="Öffnungszeiten & Lieferzeiten"
-            subtitle="Zentrale Master-Verwaltung für Liefergebiet, Zeiten und Ausnahmen."
+            title={serviceAreaTitle}
+            subtitle={serviceAreaSubtitle}
             value={settings.deliveryArea}
             disabled={disableDelivery}
             onChange={(next) =>
@@ -704,6 +732,7 @@ export default function AppSettingsFields({
         </div>
       ) : null}
 
+      {showOpeningHours ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Öffnungszeiten
@@ -754,7 +783,9 @@ export default function AppSettingsFields({
           ))}
         </div>
       </section>
+      ) : null}
 
+      {showDeliveryHours ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Lieferdienstzeiten
@@ -805,7 +836,9 @@ export default function AppSettingsFields({
           ))}
         </div>
       </section>
+      ) : null}
 
+      {showHolidayHours ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -887,6 +920,7 @@ export default function AppSettingsFields({
           )}
         </div>
       </section>
+      ) : null}
 
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
