@@ -1,6 +1,7 @@
 import StripeConstructor = require('stripe')
 import { PaymentProvider, PaymentStatus } from '@prisma/client'
 import { prisma } from './prisma'
+import { getDefaultPlatformFeeConfig, resolveTenantPlatformFee } from './platform-fees'
 
 let stripeClient: StripeConstructor.Stripe | null = null
 
@@ -10,33 +11,6 @@ function requireEnv(name: string) {
     throw new Error(`${name} fehlt`)
   }
   return value
-}
-
-function readNumberEnv(name: string, fallback: number) {
-  const raw = process.env[name]
-  if (!raw || raw.trim().length === 0) {
-    return fallback
-  }
-
-  const parsed = Number(raw)
-  if (!Number.isFinite(parsed)) {
-    return fallback
-  }
-  return parsed
-}
-
-function readNumberEnvWithAliases(names: string[], fallback: number) {
-  for (const name of names) {
-    const raw = process.env[name]
-    if (!raw || raw.trim().length === 0) {
-      continue
-    }
-    const parsed = Number(raw)
-    if (Number.isFinite(parsed)) {
-      return parsed
-    }
-  }
-  return fallback
 }
 
 function normalizeRequirementList(value: unknown) {
@@ -68,16 +42,9 @@ export function getStripe() {
 
 export function calculatePlatformFee(amountCents: number) {
   const normalizedAmount = Math.max(0, Math.round(amountCents))
-  const percent = Math.max(
-    0,
-    readNumberEnvWithAliases(['STRIPE_PLATFORM_FEE_PERCENT', 'KLARANDO_PLATFORM_FEE_PERCENT'], 5)
-  )
-  const fixed = Math.max(
-    0,
-    Math.round(
-      readNumberEnvWithAliases(['STRIPE_PLATFORM_FEE_FIXED_CENTS', 'KLARANDO_PLATFORM_FEE_FIXED_CENTS'], 0)
-    )
-  )
+  const defaults = getDefaultPlatformFeeConfig()
+  const percent = defaults.percent
+  const fixed = defaults.fixedCents
   const percentFee = Math.round((normalizedAmount * percent) / 100)
   const totalFee = Math.max(0, percentFee + fixed)
 
@@ -85,39 +52,6 @@ export function calculatePlatformFee(amountCents: number) {
     percent,
     fixedCents: fixed,
     platformFeeCents: totalFee,
-  }
-}
-
-function parseDecimalPercent(value: unknown) {
-  const numeric = Number(value ?? 0)
-  if (!Number.isFinite(numeric)) {
-    return null
-  }
-  return Math.max(0, numeric)
-}
-
-export function calculatePlatformFeeForTenantConfig(input: {
-  amountCents: number
-  klarandoPlatformFeePercent?: unknown
-  klarandoPlatformFeeFixed?: number | null
-}) {
-  const fallback = calculatePlatformFee(input.amountCents)
-  const normalizedAmount = Math.max(0, Math.round(input.amountCents))
-  const configuredPercent = parseDecimalPercent(input.klarandoPlatformFeePercent)
-  const configuredFixed =
-    typeof input.klarandoPlatformFeeFixed === 'number' && Number.isFinite(input.klarandoPlatformFeeFixed)
-      ? Math.max(0, Math.round(input.klarandoPlatformFeeFixed))
-      : null
-
-  const percent = configuredPercent ?? fallback.percent
-  const fixedCents = configuredFixed ?? fallback.fixedCents
-  const percentFee = Math.round((normalizedAmount * percent) / 100)
-  const platformFeeCents = Math.max(0, percentFee + fixedCents)
-
-  return {
-    percent,
-    fixedCents,
-    platformFeeCents,
   }
 }
 
@@ -264,12 +198,26 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
         currentlyDue: [] as string[],
         eventuallyDue: [] as string[],
       },
+      payoutInterval: null as string | null,
+      nextPayoutAt: null as string | null,
       lastStatusSyncAt: null as string | null,
     }
   }
 
   const stripe = getStripe()
   const account = await stripe.accounts.retrieve(config.stripeAccountId)
+  const pendingPayout = await stripe.payouts
+    .list(
+      {
+        limit: 1,
+        status: 'pending',
+      },
+      {
+        stripeAccount: config.stripeAccountId,
+      }
+    )
+    .then((result) => result.data[0] || null)
+    .catch(() => null)
   const currentlyDue = normalizeRequirementList(account.requirements?.currently_due)
   const eventuallyDue = normalizeRequirementList(account.requirements?.eventually_due)
   const lastStatusSyncAt = new Date()
@@ -290,6 +238,14 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
       currentlyDue,
       eventuallyDue,
     },
+    payoutInterval:
+      typeof account.settings?.payouts?.schedule?.interval === 'string'
+        ? account.settings.payouts.schedule.interval
+        : null,
+    nextPayoutAt:
+      typeof pendingPayout?.arrival_date === 'number'
+        ? new Date(pendingPayout.arrival_date * 1000).toISOString()
+        : null,
     lastStatusSyncAt: lastStatusSyncAt.toISOString(),
   }
 
@@ -321,6 +277,69 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
   })
 
   return status
+}
+
+export async function syncStripeTransactionFeeSnapshot(input: {
+  id: string
+  providerPaymentId: string | null
+  stripeChargeId: string | null
+  platformFeeCents: number
+  providerFeeCents: number
+}) {
+  const stripe = getStripe()
+  let stripeChargeId = input.stripeChargeId
+  let platformFeeCents = Math.max(0, Math.round(input.platformFeeCents))
+  let providerFeeCents = Math.max(0, Math.round(input.providerFeeCents))
+
+  if (input.providerPaymentId) {
+    const intent = await stripe.paymentIntents.retrieve(input.providerPaymentId, {
+      expand: ['latest_charge.balance_transaction'],
+    })
+
+    const latestCharge = intent.latest_charge
+    if (latestCharge && typeof latestCharge !== 'string') {
+      stripeChargeId = latestCharge.id
+      if (typeof latestCharge.application_fee_amount === 'number') {
+        platformFeeCents = Math.max(0, latestCharge.application_fee_amount)
+      }
+      const balanceTransaction = latestCharge.balance_transaction
+      if (balanceTransaction && typeof balanceTransaction !== 'string') {
+        providerFeeCents = Math.max(0, balanceTransaction.fee || 0)
+      }
+    }
+  }
+
+  if (stripeChargeId && providerFeeCents <= 0) {
+    const charge = await stripe.charges.retrieve(stripeChargeId, {
+      expand: ['balance_transaction'],
+    })
+    if (typeof charge.application_fee_amount === 'number') {
+      platformFeeCents = Math.max(0, charge.application_fee_amount)
+    }
+    const balanceTransaction = charge.balance_transaction
+    if (balanceTransaction && typeof balanceTransaction !== 'string') {
+      providerFeeCents = Math.max(0, balanceTransaction.fee || 0)
+    }
+  }
+
+  const totalFeeCents = Math.max(0, platformFeeCents + providerFeeCents)
+
+  await prisma.paymentTransaction.update({
+    where: { id: input.id },
+    data: {
+      stripeChargeId,
+      platformFeeCents,
+      providerFeeCents,
+      feeAmountCents: totalFeeCents,
+    },
+  })
+
+  return {
+    stripeChargeId,
+    platformFeeCents,
+    providerFeeCents,
+    totalFeeCents,
+  }
 }
 
 export async function createOrderPaymentIntent(input: {
@@ -369,10 +388,9 @@ export async function createOrderPaymentIntent(input: {
   }
 
   const currency = (input.currency || config.stripeDefaultCurrency || 'eur').toLowerCase()
-  const fee = calculatePlatformFeeForTenantConfig({
+  const fee = await resolveTenantPlatformFee({
+    tenantId: input.tenantId,
     amountCents,
-    klarandoPlatformFeePercent: config.klarandoPlatformFeePercent,
-    klarandoPlatformFeeFixed: config.klarandoPlatformFeeFixed,
   })
 
   const stripe = getStripe()
@@ -475,10 +493,9 @@ export async function createOrderCheckoutSession(input: {
     throw new Error('Bestellsumme ist ungültig')
   }
 
-  const fee = calculatePlatformFeeForTenantConfig({
+  const fee = await resolveTenantPlatformFee({
+    tenantId: order.tenantId,
     amountCents,
-    klarandoPlatformFeePercent: config.klarandoPlatformFeePercent,
-    klarandoPlatformFeeFixed: config.klarandoPlatformFeeFixed,
   })
 
   const stripe = getStripe()

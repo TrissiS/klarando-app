@@ -17,7 +17,7 @@ export default function SuperadminModuleBillingLegacyPage() {
     <BackofficeLayout
       brand="Superadmin"
       title="Legacy: Modulfreigaben"
-      subtitle="Tarif- und Modulthemen werden schrittweise in die Masterseite „Billing & Finanzen“ überführt."
+      subtitle="Tarif- und Modulthemen werden schrittweise in die Masterseite „Abrechnung & Zahlungen“ überführt."
       navItems={SUPERADMIN_NAV_ITEMS}
     >
       <div className="space-y-4">
@@ -36,7 +36,7 @@ export default function SuperadminModuleBillingLegacyPage() {
               href="/superadmin/billing#tarife-module"
               className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
-              Billing & Finanzen öffnen
+              Abrechnung & Zahlungen öffnen
             </a>
             <a
               href="/superadmin/billing#nutzung"

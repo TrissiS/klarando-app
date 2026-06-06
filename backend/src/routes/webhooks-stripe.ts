@@ -2,7 +2,7 @@ import express from 'express'
 import { PaymentProvider, PaymentStatus } from '@prisma/client'
 import StripeConstructor = require('stripe')
 import { prisma } from '../lib/prisma'
-import { getStripe } from '../lib/stripe'
+import { getStripe, syncStripeTransactionFeeSnapshot } from '../lib/stripe'
 import {
   buildOrderPaymentStatusUpdate,
   normalizeOrderPaymentStatus,
@@ -119,6 +119,14 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
     return
   }
 
+  const feeSnapshot = await syncStripeTransactionFeeSnapshot({
+    id: tx.id,
+    providerPaymentId: intent.id,
+    stripeChargeId: tx.stripeChargeId,
+    platformFeeCents: tx.platformFeeCents,
+    providerFeeCents: tx.providerFeeCents,
+  }).catch(() => null)
+
   await prisma.$transaction(async (db) => {
     await db.paymentTransaction.update({
       where: { id: tx.id },
@@ -126,11 +134,14 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
         status: PaymentStatus.SUCCEEDED,
         processedAt: new Date(),
         providerPaymentId: intent.id,
-        stripeChargeId: typeof intent.latest_charge === 'string' ? intent.latest_charge : tx.stripeChargeId,
-        stripeTransferId:
-          typeof intent.transfer_data?.destination === 'string'
-            ? intent.transfer_data.destination
-            : tx.stripeTransferId,
+        stripeChargeId:
+          feeSnapshot?.stripeChargeId ||
+          (typeof intent.latest_charge === 'string' ? intent.latest_charge : tx.stripeChargeId),
+        platformFeeCents: feeSnapshot?.platformFeeCents ?? tx.platformFeeCents,
+        providerFeeCents: feeSnapshot?.providerFeeCents ?? tx.providerFeeCents,
+        feeAmountCents: feeSnapshot?.totalFeeCents ?? tx.feeAmountCents,
+        stripeAccountId:
+          typeof intent.transfer_data?.destination === 'string' ? intent.transfer_data.destination : tx.stripeAccountId,
         metadata: {
           ...(typeof tx.metadata === 'object' && tx.metadata ? (tx.metadata as Record<string, unknown>) : {}),
           stripeStatus: intent.status,

@@ -509,6 +509,31 @@ export type BranchOrderIntakeStatus = {
   }
 }
 
+export type DeliveryAvailabilityWindow = {
+  start: string
+  end: string
+  source: 'BASE_WINDOW' | 'SLOT'
+}
+
+export type DeliveryAvailabilityPreview = {
+  tenantId: string
+  evaluatedAt: string
+  input: {
+    zipCode: string | null
+    street: string | null
+    latitude: number | null
+    longitude: number | null
+  }
+  deliveryAvailability: {
+    isDeliveryAvailable: boolean
+    nextDeliveryAt: string | null
+    customerMessage: string
+    blockingReasons: string[]
+    debugReasons: string[]
+    todayDeliveryWindows: DeliveryAvailabilityWindow[]
+  }
+}
+
 export type BusinessServiceFeeSettings = {
   enabled: boolean
   mode: 'FIXED' | 'PERCENT'
@@ -2182,6 +2207,49 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
   return data
 }
 
+export async function getDeliveryAvailabilityPreview(params?: {
+  tenantId?: string
+  at?: string | null
+  zipCode?: string | null
+  street?: string | null
+  latitude?: number | null
+  longitude?: number | null
+}): Promise<DeliveryAvailabilityPreview> {
+  const tenantId = params?.tenantId ?? resolveTenantId()
+  const token = readBrowserAccessToken()
+  if (!tenantId) {
+    throw new Error('Bitte zuerst eine Filiale auswählen.')
+  }
+
+  const query = new URLSearchParams({ tenantId })
+  if (params?.at?.trim()) {
+    query.set('at', params.at.trim())
+  }
+  if (params?.zipCode?.trim()) {
+    query.set('zipCode', params.zipCode.trim())
+  }
+  if (params?.street?.trim()) {
+    query.set('street', params.street.trim())
+  }
+  if (typeof params?.latitude === 'number' && Number.isFinite(params.latitude)) {
+    query.set('latitude', String(params.latitude))
+  }
+  if (typeof params?.longitude === 'number' && Number.isFinite(params.longitude)) {
+    query.set('longitude', String(params.longitude))
+  }
+
+  const res = await fetch(`${API_BASE_URL}/api/delivery/availability?${query.toString()}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Delivery-Availability konnte nicht geladen werden')
+  }
+
+  return res.json()
+}
+
 export async function updateBusinessSettings(
   settings: BusinessSettings
 ): Promise<BusinessSettings> {
@@ -2363,6 +2431,8 @@ export type TenantStripeConnectStatus = {
     currentlyDue: string[]
     eventuallyDue: string[]
   }
+  payoutInterval: string | null
+  nextPayoutAt: string | null
   lastStatusSyncAt: string | null
 }
 
@@ -6354,6 +6424,17 @@ export type AdminFinanceOverviewResponse = {
     from: string
     to: string
   }
+  activeTariff: {
+    planType: string | null
+    isActive: boolean
+    monthlyFeeCents: number
+    includedOrders: number
+    commissionPercent: number
+    fixedFeePerOrderCents: number
+    paymentTermsDays: number | null
+    activeFrom: string | null
+    activeUntil: string | null
+  }
   feeConfig: {
     commissionPercent: number
     fixedFeePerOrderCents: number
@@ -6361,18 +6442,26 @@ export type AdminFinanceOverviewResponse = {
   summary: {
     grossAmountCents: number
     klarandoFeeCents: number
+    providerFeeCents: number
     merchantPayoutAmountCents: number
     tipAmountCents: number
+    orderCount: number
+    paidTransactions: number
+    averageOrderValueCents: number
+    onlineRevenueCents: number
   }
   transactions: Array<{
     orderId: string
     orderNumber: number | null
+    publicOrderCode: string | null
     paymentMethod: string | null
     paymentStatus: string
     grossAmountCents: number
     deliveryFeeCents: number
     tipAmountCents: number
     klarandoFeeCents: number
+    providerFeeCents: number
+    totalFeeCents: number
     merchantPayoutAmountCents: number
     customerNameMasked: string | null
     createdAt: string

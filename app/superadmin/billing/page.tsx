@@ -16,6 +16,7 @@ import {
   getBillingTenants,
   getFeatureModuleCatalog,
   getPlatformBillingSettings,
+  getSuperadminStripeTenantStatuses,
   getTenantBillingConfig,
   updateTenantBillingConfig,
   type BillingMailboxMessage,
@@ -28,6 +29,7 @@ import {
   type InvoiceIssuerReadiness,
   type InvoiceIssuerSnapshot,
   type PlatformBillingSettings,
+  type SuperadminStripeTenantStatusRow,
   type TenantBillingPricingSource,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
@@ -251,6 +253,7 @@ export default function SuperadminBillingPage() {
   const [finalizedInvoices, setFinalizedInvoices] = useState<BillingInvoice[]>([])
   const [mailboxMessages, setMailboxMessages] = useState<BillingMailboxMessage[]>([])
   const [platformBillingProfile, setPlatformBillingProfile] = useState<PlatformBillingSettings | null>(null)
+  const [stripeTenants, setStripeTenants] = useState<SuperadminStripeTenantStatusRow[]>([])
   const [issuerReadiness, setIssuerReadiness] = useState<InvoiceIssuerReadiness | null>(null)
   const [issuerSnapshotTemplate, setIssuerSnapshotTemplate] = useState<InvoiceIssuerSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
@@ -286,26 +289,29 @@ export default function SuperadminBillingPage() {
           contextResult,
           catalogResult,
           invoiceResult,
-          mailboxResult,
-          platformSettingsResult,
-        ] =
-          await Promise.all([
-            getBillingSummary(token, { month }),
+            mailboxResult,
+            platformSettingsResult,
+            stripeTenantStatuses,
+          ] =
+            await Promise.all([
+              getBillingSummary(token, { month }),
             getBillingTenants(token, { month }),
             getAccessContext(token),
             getFeatureModuleCatalog(token),
-            getBillingInvoices(token, { month }),
-            getBillingMailboxMessages(token),
-            getPlatformBillingSettings(token),
-          ])
+              getBillingInvoices(token, { month }),
+              getBillingMailboxMessages(token),
+              getPlatformBillingSettings(token),
+              getSuperadminStripeTenantStatuses(token),
+            ])
         setSummary(summaryResult)
         setTenantRows(tenantsResult.rows)
         setTenantOptions(contextResult.tenants.map((tenant) => ({ id: tenant.id, name: tenant.name })))
         setModuleCatalog(catalogResult.modules)
         setFinalizedInvoices(invoiceResult.filter((invoice) => invoice.status !== 'DRAFT'))
-        setMailboxMessages(mailboxResult)
-        setPlatformBillingProfile(platformSettingsResult.profile)
-        setIssuerReadiness(platformSettingsResult.readiness)
+          setMailboxMessages(mailboxResult)
+          setPlatformBillingProfile(platformSettingsResult.profile)
+          setStripeTenants(stripeTenantStatuses)
+          setIssuerReadiness(platformSettingsResult.readiness)
         setIssuerSnapshotTemplate(platformSettingsResult.issuerSnapshotTemplate)
         if (!selectedTenantId) {
           setSelectedTenantId(tenantsResult.rows[0]?.tenantId || contextResult.tenants[0]?.id || '')
@@ -693,12 +699,107 @@ export default function SuperadminBillingPage() {
     )
   }, [usageRows])
 
+  const stripeSummary = stripeTenants.reduce(
+    (acc, row) => {
+      const config = row.paymentConfig
+      if (!config?.stripeAccountId) {
+        acc.notConnected += 1
+      } else if (config.stripeChargesEnabled && config.stripePayoutsEnabled) {
+        acc.active += 1
+      } else {
+        acc.pending += 1
+      }
+      return acc
+    },
+    { active: 0, pending: 0, notConnected: 0 }
+  )
+
   return (
-    <BackofficeLayout brand="Superadmin" title="Billing & Finanzen" subtitle="Kanonische Masterseite fuer Gebuehrenquellen im Superadmin" navItems={SUPERADMIN_NAV_ITEMS}>
+    <BackofficeLayout
+      brand="Superadmin"
+      title="Abrechnung & Zahlungen"
+      subtitle="Zentrale Masterseite fuer Tarif, Provision, Module, Stripe-Status und Monatsabrechnung."
+      navItems={SUPERADMIN_NAV_ITEMS}
+    >
       <div className="space-y-5">
         {error ? <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         {info ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{info}</div> : null}
         <ImplementationNotice title="Serverseitige Gebuehrenquelle" message="Grundgebuehr, Modulgebuehren, Paketpreis, Inklusivbestellungen, Provision, Fixbetrag, Mindestgebuehr, MwSt. und Zahlungsziel werden hier zentral serverseitig gepflegt. Rechnungslogik, PDF und DATEV bleiben bewusst unveraendert." tone="info" />
+        <section id="stripe-connect" className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-[var(--brand-ink)]">Stripe Connect Übersicht</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Diese Übersicht ist jetzt Teil der zentralen Seite „Abrechnung & Zahlungen“ und nutzt keine
+                zweite Gebührenquelle mehr.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-emerald-800/70">Voll aktiv</p>
+              <p className="mt-1 text-2xl font-semibold text-emerald-900">{stripeSummary.active}</p>
+            </div>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-amber-800/70">KYC / Onboarding offen</p>
+              <p className="mt-1 text-2xl font-semibold text-amber-900">{stripeSummary.pending}</p>
+            </div>
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+              <p className="text-xs uppercase tracking-wide text-rose-800/70">Nicht verbunden</p>
+              <p className="mt-1 text-2xl font-semibold text-rose-900">{stripeSummary.notConnected}</p>
+            </div>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-2 py-2">Tenant</th>
+                  <th className="px-2 py-2">Stripe Account</th>
+                  <th className="px-2 py-2">Zahlungen</th>
+                  <th className="px-2 py-2">Auszahlungen</th>
+                  <th className="px-2 py-2">KYC</th>
+                  <th className="px-2 py-2">Letzte Sync</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stripeTenants.slice(0, 12).map((row) => (
+                  <tr key={row.id} className="border-b border-slate-100">
+                    <td className="px-2 py-2">
+                      <p className="font-medium text-slate-900">{row.name}</p>
+                      <p className="text-xs text-slate-500">{row.chain?.name || 'Ohne Chain'}</p>
+                    </td>
+                    <td className="px-2 py-2 text-xs text-slate-600">
+                      {row.paymentConfig?.stripeAccountId || '—'}
+                    </td>
+                    <td className="px-2 py-2">
+                      {row.paymentConfig?.stripeChargesEnabled ? 'Aktiv' : 'Nein'}
+                    </td>
+                    <td className="px-2 py-2">
+                      {row.paymentConfig?.stripePayoutsEnabled ? 'Aktiv' : 'Nein'}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-slate-600">
+                      {row.paymentConfig?.stripeRequirementsDue?.currentlyDue?.length
+                        ? row.paymentConfig.stripeRequirementsDue.currentlyDue.join(', ')
+                        : 'Keine offenen Felder'}
+                    </td>
+                    <td className="px-2 py-2 text-xs text-slate-600">
+                      {row.paymentConfig?.stripeLastStatusSyncAt
+                        ? new Date(row.paymentConfig.stripeLastStatusSyncAt).toLocaleString('de-DE')
+                        : '—'}
+                    </td>
+                  </tr>
+                ))}
+                {stripeTenants.length === 0 ? (
+                  <tr>
+                    <td className="px-2 py-3 text-sm text-slate-500" colSpan={6}>
+                      Noch keine Stripe-Statusdaten vorhanden.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
         <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-[var(--brand-ink)]">DATEV & E-Rechnung Vorbereitung</h3>
           <p className="mt-1 text-sm text-slate-600">

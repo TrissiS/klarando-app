@@ -175,18 +175,16 @@ export default function AdminSettingsPage() {
       setSettings(saved)
       const token = window.localStorage.getItem('accessToken')
       const tenantId = resolveTenantId()
-      if (token && tenantId && paypalConfig) {
-        const updatedPayment = await updateTenantPaypalPaymentConfig(token, tenantId, {
-          paypalMerchantId: paypalConfig.paypalMerchantId,
-          paypalEmail: paypalConfig.paypalEmail,
-          paypalOnboardingStatus: paypalConfig.paypalOnboardingStatus,
-          paypalEnvironment: paypalConfig.paypalEnvironment,
-          paypalPaymentsEnabled: paypalConfig.paypalPaymentsEnabled,
-          klarandoPlatformFeePercent: paypalConfig.klarandoPlatformFeePercent,
-          klarandoPlatformFeeFixed: paypalConfig.klarandoPlatformFeeFixed,
-        })
-        setPaypalConfig(updatedPayment)
-      }
+        if (token && tenantId && paypalConfig) {
+          const updatedPayment = await updateTenantPaypalPaymentConfig(token, tenantId, {
+            paypalMerchantId: paypalConfig.paypalMerchantId,
+            paypalEmail: paypalConfig.paypalEmail,
+            paypalOnboardingStatus: paypalConfig.paypalOnboardingStatus,
+            paypalEnvironment: paypalConfig.paypalEnvironment,
+            paypalPaymentsEnabled: paypalConfig.paypalPaymentsEnabled,
+          })
+          setPaypalConfig(updatedPayment)
+        }
       setSuccess('Einstellungen gespeichert.')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Einstellungen konnten nicht gespeichert werden')
@@ -672,48 +670,15 @@ export default function AdminSettingsPage() {
                     <option value="LIVE">Live</option>
                   </select>
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Plattformgebühr (%)</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={paypalConfig.klarandoPlatformFeePercent ?? ''}
-                    onChange={(event) =>
-                      setPaypalConfig((current) =>
-                        current
-                          ? {
-                              ...current,
-                              klarandoPlatformFeePercent: event.target.value || null,
-                            }
-                          : current
-                      )
-                    }
-                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Plattformgebühr (fix, Cent)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={paypalConfig.klarandoPlatformFeeFixed ?? ''}
-                    onChange={(event) =>
-                      setPaypalConfig((current) =>
-                        current
-                          ? {
-                              ...current,
-                              klarandoPlatformFeeFixed: event.target.value
-                                ? Number.parseInt(event.target.value, 10)
-                                : null,
-                            }
-                          : current
-                      )
-                    }
-                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-                  />
-                </label>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 sm:col-span-2">
+                  Plattformprovisionen und tarifbezogene Gebühren werden zentral unter
+                  {' '}
+                  <a href="/admin/finanzen" className="font-semibold text-slate-900 underline underline-offset-2">
+                    Abrechnung & Zahlungen
+                  </a>
+                  {' '}
+                  verwaltet und sind hier nicht mehr separat bearbeitbar.
+                </div>
                 <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85 sm:col-span-2">
                   <input
                     type="checkbox"

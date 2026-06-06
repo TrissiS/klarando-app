@@ -321,7 +321,7 @@ export default function SuperadminOnboardingPage() {
           <Link href="/superadmin/app-settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Betreiberlogo / Titelbild</Link>
           <Link href="/admin/settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Öffnungszeiten prüfen</Link>
           <Link href="/admin/settings" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Liefergebiet prüfen</Link>
-          <Link href="/superadmin/payments" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Zahlungsstatus prüfen</Link>
+          <Link href="/superadmin/billing#stripe-connect" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Abrechnung & Zahlungen öffnen</Link>
           <Link href="/superadmin/display-devices" className="rounded-xl border border-[var(--brand-border)] bg-rose-50 px-3 py-2 text-sm font-medium text-rose-900">Display / OrderDesk verbinden</Link>
         </div>
       </section>

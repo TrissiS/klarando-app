@@ -18,7 +18,7 @@ export const SUPERADMIN_NAV_ITEMS: BackofficeNavItem[] = [
   { href: '/superadmin/privacy-center', label: 'Kunden & Datenschutz' },
   { href: '/superadmin/orders', label: 'Bestellungen' },
   { href: '/superadmin/devices', label: 'Geräte' },
-  { href: '/superadmin/billing', label: 'Billing & Finanzen' },
-  { href: '/superadmin/payments', label: 'Zahlungsstatus' },
+  { href: '/superadmin/billing', label: 'Abrechnung & Zahlungen' },
+  { href: '/superadmin/payments', label: 'Legacy Zahlungsstatus' },
   { href: '/superadmin/app-settings', label: 'Einstellungen' },
 ]

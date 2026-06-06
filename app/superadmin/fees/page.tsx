@@ -17,7 +17,7 @@ export default function SuperadminFeesLegacyPage() {
     <BackofficeLayout
       brand="Superadmin"
       title="Legacy: Gebühren & Provisionen"
-      subtitle="Dieser frühere Einstieg wurde in die zentrale Masterseite „Billing & Finanzen“ überführt."
+      subtitle="Dieser frühere Einstieg wurde in die zentrale Masterseite „Abrechnung & Zahlungen“ überführt."
       navItems={SUPERADMIN_NAV_ITEMS}
     >
       <div className="space-y-4">
@@ -36,7 +36,7 @@ export default function SuperadminFeesLegacyPage() {
               href="/superadmin/billing#provisionen"
               className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
             >
-              Billing & Finanzen öffnen
+              Abrechnung & Zahlungen öffnen
             </a>
             <a
               href="/superadmin/billing#rechnungen"

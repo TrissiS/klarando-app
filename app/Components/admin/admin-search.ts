@@ -59,8 +59,8 @@ export const ADMIN_SEARCH_STATIC_ENTRIES: AdminSearchEntry[] = [
     keywords: ['einstellungen', 'config', 'verwaltung'],
   },
   {
-    href: '/admin/billing',
-    label: 'Abrechnung',
+    href: '/admin/finanzen',
+    label: 'Abrechnung & Zahlungen',
     domain: 'billing',
     keywords: ['abrechnung', 'billing', 'finanzen'],
   },

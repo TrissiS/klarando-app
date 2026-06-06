@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
 
 export default function AdminPaymentsConnectRefreshPage() {
-  redirect('/admin/payments?stripe=refresh')
+  redirect('/admin/finanzen?stripe=refresh#stripe-connect')
 }

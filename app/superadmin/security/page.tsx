@@ -242,7 +242,7 @@ export default function SuperadminSecurityPage() {
             ))}
           </div>
           <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-            Module und Pakete werden unter <strong>Modulfreigaben</strong> verwaltet. Gebühren und Provisionen liegen unter <strong>Gebühren & Provisionen</strong>.
+            Module, Tarife, Provisionen und Stripe-Status werden zentral unter <strong>Abrechnung & Zahlungen</strong> verwaltet.
           </div>
         </section>
 

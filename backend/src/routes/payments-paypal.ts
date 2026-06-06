@@ -5,6 +5,7 @@ import { requireAuth, requirePermission } from '../middleware/auth'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { writeAuditLog } from '../lib/audit'
 import { verifyAppAuthToken } from '../auth/app-token'
+import { resolveTenantPlatformFee } from '../lib/platform-fees'
 import {
   asOrderTransitionError,
   buildOrderPaymentStatusUpdate,
@@ -306,14 +307,11 @@ router.post('/create-order', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Bestellsumme ist ungültig' })
     }
 
-    const platformFeePercent = config.klarandoPlatformFeePercent
-      ? Number(config.klarandoPlatformFeePercent)
-      : 0
-    const platformFeeFixed = config.klarandoPlatformFeeFixed ?? 0
-    const calculatedPlatformFee = Math.max(
-      0,
-      Math.round((amountCents * platformFeePercent) / 100) + platformFeeFixed
-    )
+    const platformFee = await resolveTenantPlatformFee({
+      tenantId: order.tenantId,
+      amountCents,
+    })
+    const calculatedPlatformFee = platformFee.platformFeeCents
 
     const paymentInstruction: Record<string, unknown> = {}
     if (calculatedPlatformFee > 0) {

@@ -168,9 +168,9 @@ const sectionNavSections: NavSection[] = [
     id: 'finance',
     label: 'Finanzen',
     items: [
-      { href: '/admin/billing', label: 'Workspace', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/finanzen', label: 'Gebühren & Provisionen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
-      { href: '/admin/payments', label: 'Abrechnung', moduleKey: 'payment', requiredPermission: 'SETTINGS_READ' },
+      { href: '/admin/finanzen', label: 'Abrechnung & Zahlungen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/billing', label: 'Legacy Workspace', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+      { href: '/admin/payments', label: 'Legacy Zahlungen', moduleKey: 'payment', requiredPermission: 'SETTINGS_READ' },
       { href: '/admin/closings/daily', label: 'Tagesabschluss', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
       { href: '/admin/closings', label: 'Auswertungen', moduleKey: 'orders', requiredPermission: 'ORDERS_READ' },
     ],
@@ -195,7 +195,7 @@ const mainSidebarSections: MainNavSection[] = [
   { id: 'devices', label: 'Geräte', href: '/admin/devices', moduleKey: 'displays', requiredPermission: 'ORDERS_READ' },
   { id: 'delivery', label: 'Lieferung', href: '/admin/delivery', moduleKey: 'app-settings', requiredPermission: 'SETTINGS_READ' },
   { id: 'marketing', label: 'Marketing', href: '/admin/marketing', moduleKey: 'actions', requiredPermission: 'SETTINGS_READ' },
-  { id: 'finance', label: 'Finanzen', href: '/admin/billing', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
+  { id: 'finance', label: 'Finanzen', href: '/admin/finanzen', moduleKey: 'payment', requiredPermission: 'ORDERS_READ' },
   { id: 'admin', label: 'Verwaltung', href: '/admin/verwaltung', moduleKey: 'staff', requiredPermission: 'USERS_READ' },
 ]
 

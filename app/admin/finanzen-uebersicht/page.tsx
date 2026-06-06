@@ -38,8 +38,8 @@ export default function FinanceOverviewPage() {
       ]}
       warnings={[]}
       quickActions={[
-        { href: '/admin/finanzen', label: 'Gebühren & Provisionen' },
-        { href: '/admin/payments', label: 'Abrechnung öffnen' },
+        { href: '/admin/finanzen', label: 'Abrechnung & Zahlungen' },
+        { href: '/admin/finanzen#stripe-connect', label: 'Stripe Connect öffnen' },
         { href: '/admin/closings/daily', label: 'Tagesabschluss' },
       ]}
     />
