@@ -95,14 +95,25 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
     latest_charge?: string | null
     transfer_data?: { destination?: string | null }
     status?: string | null
+    metadata?: { orderId?: string | null } | null
   }
-  const tx = await prisma.paymentTransaction.findFirst({
+  let tx = await prisma.paymentTransaction.findFirst({
     where: {
       provider: PaymentProvider.STRIPE,
       providerPaymentId: intent.id,
     },
     orderBy: { createdAt: 'desc' },
   })
+
+  if (!tx && typeof intent.metadata?.orderId === 'string' && intent.metadata.orderId.trim().isNotEmpty) {
+    tx = await prisma.paymentTransaction.findFirst({
+      where: {
+        provider: PaymentProvider.STRIPE,
+        orderId: intent.metadata.orderId.trim(),
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
 
   if (!tx) {
     return
@@ -114,6 +125,7 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
       data: {
         status: PaymentStatus.SUCCEEDED,
         processedAt: new Date(),
+        providerPaymentId: intent.id,
         stripeChargeId: typeof intent.latest_charge === 'string' ? intent.latest_charge : tx.stripeChargeId,
         stripeTransferId:
           typeof intent.transfer_data?.destination === 'string'
@@ -140,12 +152,20 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
       }
       await db.order.update({
         where: { id: tx.orderId },
-        data: buildOrderPaymentStatusUpdate({
-          currentStatus: currentPaymentStatus,
-          nextStatus: 'PAID',
-          now: new Date(),
-          preservePaidAt: order.paidAt,
-        }),
+        data: {
+          ...buildOrderPaymentStatusUpdate({
+            currentStatus: currentPaymentStatus,
+            nextStatus: 'PAID',
+            now: new Date(),
+            preservePaidAt: order.paidAt,
+          }),
+          ...(order.status === 'pending_payment'
+            ? {
+                status: 'open',
+                forwardedToKitchenAt: new Date(),
+              }
+            : {}),
+        },
       })
     }
   })
@@ -155,14 +175,25 @@ async function handlePaymentIntentFailed(event: StripeEventLike) {
   const intent = event.data.object as Record<string, unknown> & {
     id: string
     last_payment_error?: { code?: string | null; message?: string | null } | null
+    metadata?: { orderId?: string | null } | null
   }
-  const tx = await prisma.paymentTransaction.findFirst({
+  let tx = await prisma.paymentTransaction.findFirst({
     where: {
       provider: PaymentProvider.STRIPE,
       providerPaymentId: intent.id,
     },
     orderBy: { createdAt: 'desc' },
   })
+
+  if (!tx && typeof intent.metadata?.orderId === 'string' && intent.metadata.orderId.trim().isNotEmpty) {
+    tx = await prisma.paymentTransaction.findFirst({
+      where: {
+        provider: PaymentProvider.STRIPE,
+        orderId: intent.metadata.orderId.trim(),
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+  }
 
   if (!tx) {
     return
@@ -174,6 +205,7 @@ async function handlePaymentIntentFailed(event: StripeEventLike) {
       data: {
         status: PaymentStatus.FAILED,
         processedAt: new Date(),
+        providerPaymentId: intent.id,
         failureCode: intent.last_payment_error?.code || null,
         failureMessage: intent.last_payment_error?.message || 'Stripe PaymentIntent fehlgeschlagen',
       },

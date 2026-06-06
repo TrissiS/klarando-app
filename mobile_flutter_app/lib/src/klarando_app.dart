@@ -12,6 +12,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import 'core/app_update_service.dart';
 import 'core/klarando_api.dart';
@@ -2758,6 +2759,8 @@ class _HomeShellState extends State<HomeShell> {
           initialDeliveryLatitude: _activeLatitude,
           initialDeliveryLongitude: _activeLongitude,
           submitOrder: _submitOrder,
+          startStripeCheckout: _startStripeCheckout,
+          reloadOrder: _reloadOrderForCheckout,
           validateCoupon: _validateCouponForCheckout,
         ),
       ),
@@ -2882,11 +2885,9 @@ class _HomeShellState extends State<HomeShell> {
 
     final paymentMethod = switch (paymentType) {
       _CheckoutPaymentType.cash => 'CASH',
-      _CheckoutPaymentType.card => 'CARD',
-      _CheckoutPaymentType.paypal => 'PAYPAL',
-      _CheckoutPaymentType.klarna => 'KLARNA',
+      _CheckoutPaymentType.online => 'STRIPE',
     };
-    final autoPaid = paymentType != _CheckoutPaymentType.cash;
+    final autoPaid = false;
 
     return _api.createOrder(
       baseUrl: _baseUrl,
@@ -2930,6 +2931,34 @@ class _HomeShellState extends State<HomeShell> {
       subtotalCents: subtotalCents,
       deliveryFeeCents: deliveryFeeCents,
       customerOrderCount: customerOrdersCount,
+    );
+  }
+
+  Future<StripeCheckoutSessionResponse> _startStripeCheckout({
+    required String orderId,
+  }) async {
+    if (_appAuthToken == null || _appAuthToken!.trim().isEmpty) {
+      throw const ApiException('Bitte zuerst einloggen, um online zu bezahlen.');
+    }
+    return _api.createStripeCheckoutSession(
+      baseUrl: _baseUrl,
+      orderId: orderId,
+      appAuthToken: _appAuthToken,
+    );
+  }
+
+  Future<PublicOrderSummary> _reloadOrderForCheckout({
+    required String orderId,
+    required String tenantId,
+  }) async {
+    if (_appAuthToken == null || _appAuthToken!.trim().isEmpty) {
+      throw const ApiException('Nicht eingeloggt.');
+    }
+    return _api.fetchOrderLiveTracking(
+      baseUrl: _baseUrl,
+      orderId: orderId,
+      tenantId: tenantId,
+      appAuthToken: _appAuthToken,
     );
   }
 
@@ -3684,6 +3713,8 @@ class _CheckoutFlowPage extends StatefulWidget {
     required this.initialDeliveryLatitude,
     required this.initialDeliveryLongitude,
     required this.submitOrder,
+    required this.startStripeCheckout,
+    required this.reloadOrder,
     required this.validateCoupon,
   });
 
@@ -3722,6 +3753,15 @@ class _CheckoutFlowPage extends StatefulWidget {
     String? couponCode,
   })
   submitOrder;
+  final Future<StripeCheckoutSessionResponse> Function({
+    required String orderId,
+  })
+  startStripeCheckout;
+  final Future<PublicOrderSummary> Function({
+    required String orderId,
+    required String tenantId,
+  })
+  reloadOrder;
   final Future<CouponValidationResult> Function({
     required String code,
     required String orderType,
@@ -4054,11 +4094,31 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
         tipAmount: _tipAmount,
         couponCode: _appliedCouponCode,
       );
+      PublicOrderSummary resolvedOrder = order;
+      if (_paymentType == _CheckoutPaymentType.online) {
+        final session = await widget.startStripeCheckout(orderId: order.id);
+        final paymentSucceeded = await Navigator.of(context).push<bool>(
+          MaterialPageRoute(
+            builder: (_) => _StripeCheckoutPage(
+              checkoutUrl: session.checkoutUrl,
+              orderNumber: _displayOrderNumber(order),
+            ),
+          ),
+        );
+
+        if (paymentSucceeded != true) {
+          throw const ApiException(
+            'Die Online-Zahlung wurde nicht abgeschlossen. Deine Bestellung wartet weiterhin auf Zahlung.',
+          );
+        }
+
+        resolvedOrder = await _waitForPaidOrder(order.id);
+      }
       if (!mounted) {
         return;
       }
       setState(() {
-        _createdOrder = order;
+        _createdOrder = resolvedOrder;
         _step = 2;
       });
     } on ApiException catch (error) {
@@ -4087,6 +4147,27 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
         });
       }
     }
+  }
+
+  Future<PublicOrderSummary> _waitForPaidOrder(String orderId) async {
+    PublicOrderSummary latest = await widget.reloadOrder(
+      orderId: orderId,
+      tenantId: widget.tenantId,
+    );
+
+    for (var attempt = 0; attempt < 5; attempt += 1) {
+      final paymentStatus = latest.paymentStatus.trim().toUpperCase();
+      if (paymentStatus == 'PAID') {
+        return latest;
+      }
+      await Future<void>.delayed(const Duration(seconds: 2));
+      latest = await widget.reloadOrder(
+        orderId: orderId,
+        tenantId: widget.tenantId,
+      );
+    }
+
+    return latest;
   }
 
   Future<bool?> _confirmHighLoadCheckout() {
@@ -4632,6 +4713,10 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                 const SizedBox(height: 4),
                 Text('Status: ${_statusLabel(order.status)}'),
                 const SizedBox(height: 4),
+                Text(
+                  'Zahlung: ${order.paymentStatus.toUpperCase() == 'PAID' ? 'Bezahlt' : 'Ausstehend'}',
+                ),
+                const SizedBox(height: 4),
                 Text('Zeit: ${_formatDateTime(order.createdAt)}'),
               ],
             ),
@@ -4689,6 +4774,100 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     return FilledButton(
       onPressed: () => Navigator.of(context).pop(_createdOrder),
       child: const Text('Zurück zur App'),
+    );
+  }
+}
+
+class _StripeCheckoutPage extends StatefulWidget {
+  const _StripeCheckoutPage({
+    required this.checkoutUrl,
+    required this.orderNumber,
+  });
+
+  final String checkoutUrl;
+  final String orderNumber;
+
+  @override
+  State<_StripeCheckoutPage> createState() => _StripeCheckoutPageState();
+}
+
+class _StripeCheckoutPageState extends State<_StripeCheckoutPage> {
+  late final WebViewController _controller;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (_) {
+            if (mounted) {
+              setState(() {
+                _loading = true;
+                _error = null;
+              });
+            }
+          },
+          onPageFinished: (_) {
+            if (mounted) {
+              setState(() {
+                _loading = false;
+              });
+            }
+          },
+          onWebResourceError: (error) {
+            if (mounted) {
+              setState(() {
+                _loading = false;
+                _error = error.description;
+              });
+            }
+          },
+          onNavigationRequest: (request) {
+            final url = request.url;
+            if (url.contains('/api/payments/checkout/success')) {
+              Navigator.of(context).pop(true);
+              return NavigationDecision.prevent;
+            }
+            if (url.contains('/api/payments/checkout/cancel')) {
+              Navigator.of(context).pop(false);
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.checkoutUrl));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('Online bezahlen #${widget.orderNumber}'),
+      ),
+      body: SafeArea(
+        child: Column(
+          children: [
+            if (_loading)
+              const LinearProgressIndicator(minHeight: 2),
+            if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  'Stripe-Checkout konnte nicht geladen werden: $_error',
+                  style: const TextStyle(color: Color(0xFFB91C1C)),
+                ),
+              ),
+            Expanded(
+              child: WebViewWidget(controller: _controller),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -5358,7 +5537,7 @@ class _CartLine {
 
 enum _CheckoutServiceType { delivery, pickup }
 
-enum _CheckoutPaymentType { cash, card, paypal, klarna }
+enum _CheckoutPaymentType { cash, online }
 
 bool _isValidZipCode(String value) {
   return RegExp(r'^\d{5}$').hasMatch(value.trim());
@@ -5500,12 +5679,8 @@ String _paymentTypeLabel(_CheckoutPaymentType value) {
   switch (value) {
     case _CheckoutPaymentType.cash:
       return 'Barzahlung';
-    case _CheckoutPaymentType.card:
-      return 'Kartenzahlung';
-    case _CheckoutPaymentType.paypal:
-      return 'PayPal';
-    case _CheckoutPaymentType.klarna:
-      return 'Klarna';
+    case _CheckoutPaymentType.online:
+      return 'Online bezahlen';
   }
 }
 

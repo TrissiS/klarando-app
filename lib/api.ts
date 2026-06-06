@@ -2380,6 +2380,8 @@ export type SuperadminStripeTenantStatusRow = {
     stripePayoutsEnabled: boolean
     stripeDetailsSubmitted: boolean
     stripeOnboardingCompleted: boolean
+    klarandoPlatformFeePercent: string | null
+    klarandoPlatformFeeFixed: number | null
     stripeRequirementsDue: {
       currentlyDue?: string[]
       eventuallyDue?: string[]
@@ -7227,6 +7229,34 @@ export async function getBillingTenants(
     buildApiUrl(`/api/billing/tenants?${query.toString()}`),
     { headers: authHeaders(token) },
     'Tenant-Abrechnung konnte nicht geladen werden'
+  )
+}
+
+export async function updateSuperadminStripeTenantConfig(
+  token: string,
+  tenantId: string,
+  settings: {
+    klarandoPlatformFeePercent: number | string | null
+    klarandoPlatformFeeFixed?: number | string | null
+  }
+): Promise<{
+  ok: boolean
+  tenantId: string
+  klarandoPlatformFeePercent: string | null
+  klarandoPlatformFeeFixed: number | null
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/connect/config'),
+    {
+      method: 'PUT',
+      headers: authHeaders(token),
+      body: JSON.stringify({
+        tenantId,
+        klarandoPlatformFeePercent: settings.klarandoPlatformFeePercent,
+        klarandoPlatformFeeFixed: settings.klarandoPlatformFeeFixed ?? null,
+      }),
+    },
+    'Stripe-Gebühren konnten nicht gespeichert werden'
   )
 }
 

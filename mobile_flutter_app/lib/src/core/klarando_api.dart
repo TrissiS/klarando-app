@@ -400,6 +400,46 @@ class TenantServiceFeeSettings {
   }
 }
 
+class StripeCheckoutSessionResponse {
+  const StripeCheckoutSessionResponse({
+    required this.orderId,
+    required this.tenantId,
+    required this.stripeAccountId,
+    required this.sessionId,
+    required this.checkoutUrl,
+    required this.amountCents,
+    required this.currency,
+    required this.platformFeeCents,
+    required this.platformFeePercent,
+  });
+
+  final String orderId;
+  final String tenantId;
+  final String stripeAccountId;
+  final String sessionId;
+  final String checkoutUrl;
+  final int amountCents;
+  final String currency;
+  final int platformFeeCents;
+  final num platformFeePercent;
+
+  factory StripeCheckoutSessionResponse.fromJson(Map<String, dynamic> json) {
+    return StripeCheckoutSessionResponse(
+      orderId: _readString(json['orderId']),
+      tenantId: _readString(json['tenantId']),
+      stripeAccountId: _readString(json['stripeAccountId']),
+      sessionId: _readString(json['sessionId']),
+      checkoutUrl: _readString(json['checkoutUrl']),
+      amountCents: _readInt(json['amountCents']),
+      currency: _readString(json['currency']),
+      platformFeeCents: _readInt(json['platformFeeCents']),
+      platformFeePercent: json['platformFeePercent'] is num
+          ? json['platformFeePercent'] as num
+          : num.tryParse('${json['platformFeePercent']}') ?? 0,
+    );
+  }
+}
+
 class TenantDiscoveryTenant {
   const TenantDiscoveryTenant({
     required this.tenantId,
@@ -2039,6 +2079,26 @@ class KlarandoApi {
       },
     );
     return PublicOrderSummary.fromJson(response);
+  }
+
+  Future<StripeCheckoutSessionResponse> createStripeCheckoutSession({
+    required String baseUrl,
+    required String orderId,
+    String? appAuthToken,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/payments/checkout-session',
+      headers: {
+        if (appAuthToken != null && appAuthToken.trim().isNotEmpty)
+          'Authorization': 'Bearer $appAuthToken',
+      },
+      body: {
+        'orderId': orderId,
+      },
+    );
+    return StripeCheckoutSessionResponse.fromJson(response);
   }
 
   Future<CouponValidationResult> validateCoupon({

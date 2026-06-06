@@ -55,7 +55,7 @@ import { buildOrderTrackingReadModel } from '../lib/order-tracking-read-model'
 
 const router = Router()
 
-const PAYMENT_METHODS = new Set(['CASH', 'CARD', 'PAYPAL', 'KLARNA'])
+const PAYMENT_METHODS = new Set(['CASH', 'CARD', 'PAYPAL', 'KLARNA', 'STRIPE'])
 const SOURCE_CHANNELS = new Set(['POS', 'TERMINAL', 'APP', 'DELIVERY', 'TABLET'])
 const APP_ORDER_CHANNELS = new Set(['APP', 'DELIVERY'])
 const RATING_COOLDOWN_MS = 60 * 60 * 1000
@@ -3320,8 +3320,11 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       normalizedPaymentMethod === 'PAYPAL' || normalizedPaymentMethod === 'KLARNA'
         ? true
         : Boolean(markPaid)
-    const shouldForward =
-      forwardToKitchen === undefined
+    const requiresOnlinePaymentBeforeForward =
+      normalizedPaymentMethod === 'STRIPE' && !shouldMarkPaid
+    const shouldForward = requiresOnlinePaymentBeforeForward
+      ? false
+      : forwardToKitchen === undefined
         ? terminal?.autoForwardToKitchen ?? true
         : Boolean(forwardToKitchen)
     let deliveryFee = 0

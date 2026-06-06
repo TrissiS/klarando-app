@@ -70,7 +70,7 @@ export function calculatePlatformFee(amountCents: number) {
   const normalizedAmount = Math.max(0, Math.round(amountCents))
   const percent = Math.max(
     0,
-    readNumberEnvWithAliases(['STRIPE_PLATFORM_FEE_PERCENT', 'KLARANDO_PLATFORM_FEE_PERCENT'], 12)
+    readNumberEnvWithAliases(['STRIPE_PLATFORM_FEE_PERCENT', 'KLARANDO_PLATFORM_FEE_PERCENT'], 5)
   )
   const fixed = Math.max(
     0,
@@ -85,6 +85,39 @@ export function calculatePlatformFee(amountCents: number) {
     percent,
     fixedCents: fixed,
     platformFeeCents: totalFee,
+  }
+}
+
+function parseDecimalPercent(value: unknown) {
+  const numeric = Number(value ?? 0)
+  if (!Number.isFinite(numeric)) {
+    return null
+  }
+  return Math.max(0, numeric)
+}
+
+export function calculatePlatformFeeForTenantConfig(input: {
+  amountCents: number
+  klarandoPlatformFeePercent?: unknown
+  klarandoPlatformFeeFixed?: number | null
+}) {
+  const fallback = calculatePlatformFee(input.amountCents)
+  const normalizedAmount = Math.max(0, Math.round(input.amountCents))
+  const configuredPercent = parseDecimalPercent(input.klarandoPlatformFeePercent)
+  const configuredFixed =
+    typeof input.klarandoPlatformFeeFixed === 'number' && Number.isFinite(input.klarandoPlatformFeeFixed)
+      ? Math.max(0, Math.round(input.klarandoPlatformFeeFixed))
+      : null
+
+  const percent = configuredPercent ?? fallback.percent
+  const fixedCents = configuredFixed ?? fallback.fixedCents
+  const percentFee = Math.round((normalizedAmount * percent) / 100)
+  const platformFeeCents = Math.max(0, percentFee + fixedCents)
+
+  return {
+    percent,
+    fixedCents,
+    platformFeeCents,
   }
 }
 
@@ -336,7 +369,11 @@ export async function createOrderPaymentIntent(input: {
   }
 
   const currency = (input.currency || config.stripeDefaultCurrency || 'eur').toLowerCase()
-  const fee = calculatePlatformFee(amountCents)
+  const fee = calculatePlatformFeeForTenantConfig({
+    amountCents,
+    klarandoPlatformFeePercent: config.klarandoPlatformFeePercent,
+    klarandoPlatformFeeFixed: config.klarandoPlatformFeeFixed,
+  })
 
   const stripe = getStripe()
   const intent = await stripe.paymentIntents.create({
@@ -387,6 +424,137 @@ export async function createOrderPaymentIntent(input: {
     platformFeeCents: fee.platformFeeCents,
     platformFeePercent: fee.percent,
     connectedAccountId: config.stripeAccountId,
+  }
+}
+
+export async function createOrderCheckoutSession(input: {
+  orderId: string
+  successUrl: string
+  cancelUrl: string
+}) {
+  const order = await prisma.order.findUnique({
+    where: { id: input.orderId },
+    select: {
+      id: true,
+      tenantId: true,
+      total: true,
+      paymentStatus: true,
+      paymentMethod: true,
+      publicOrderCode: true,
+      customerName: true,
+      appCustomerAccountId: true,
+      tenant: {
+        select: {
+          id: true,
+          name: true,
+          paymentConfig: true,
+        },
+      },
+    },
+  })
+
+  if (!order) {
+    throw new Error('Bestellung nicht gefunden')
+  }
+
+  if (String(order.paymentStatus).toUpperCase() === 'PAID') {
+    throw new Error('Bestellung ist bereits bezahlt')
+  }
+
+  if (String(order.paymentMethod || '').toUpperCase() !== 'STRIPE') {
+    throw new Error('Bestellung ist nicht für Stripe-Onlinezahlung markiert')
+  }
+
+  const config = order.tenant?.paymentConfig
+  if (!config?.stripeAccountId || !config.stripeChargesEnabled) {
+    throw new Error('Online-Zahlung ist für diese Filiale noch nicht eingerichtet.')
+  }
+
+  const amountCents = Math.max(0, Math.round(Number(order.total) * 100))
+  if (amountCents <= 0) {
+    throw new Error('Bestellsumme ist ungültig')
+  }
+
+  const fee = calculatePlatformFeeForTenantConfig({
+    amountCents,
+    klarandoPlatformFeePercent: config.klarandoPlatformFeePercent,
+    klarandoPlatformFeeFixed: config.klarandoPlatformFeeFixed,
+  })
+
+  const stripe = getStripe()
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    success_url: input.successUrl,
+    cancel_url: input.cancelUrl,
+    client_reference_id: order.id,
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: (config.stripeDefaultCurrency || 'eur').toLowerCase(),
+          unit_amount: amountCents,
+          product_data: {
+            name: order.publicOrderCode
+              ? `Bestellung #${order.publicOrderCode}`
+              : `Bestellung ${order.id}`,
+            description: order.tenant?.name || 'Klarando Bestellung',
+          },
+        },
+      },
+    ],
+    metadata: {
+      tenantId: order.tenantId,
+      orderId: order.id,
+      publicOrderCode: order.publicOrderCode || '',
+      customerName: order.customerName || '',
+    },
+    payment_intent_data: {
+      application_fee_amount: fee.platformFeeCents,
+      transfer_data: {
+        destination: config.stripeAccountId,
+      },
+      metadata: {
+        tenantId: order.tenantId,
+        orderId: order.id,
+        publicOrderCode: order.publicOrderCode || '',
+      },
+    },
+  })
+
+  if (!session.url) {
+    throw new Error('Stripe Checkout-URL fehlt in der Antwort')
+  }
+
+  await prisma.paymentTransaction.create({
+    data: {
+      tenantId: order.tenantId,
+      orderId: order.id,
+      provider: PaymentProvider.STRIPE,
+      status: PaymentStatus.PENDING,
+      providerPaymentId: session.payment_intent && typeof session.payment_intent === 'string' ? session.payment_intent : null,
+      amountCents,
+      currency: (config.currency || 'EUR').toUpperCase(),
+      platformFeeCents: fee.platformFeeCents,
+      feeAmountCents: fee.platformFeeCents,
+      stripeAccountId: config.stripeAccountId,
+      metadata: {
+        stripeCheckoutSessionId: session.id,
+        stripeCheckoutStatus: session.status,
+        stripePaymentStatus: session.payment_status,
+      },
+    },
+  })
+
+  return {
+    orderId: order.id,
+    tenantId: order.tenantId,
+    stripeAccountId: config.stripeAccountId,
+    sessionId: session.id,
+    checkoutUrl: session.url,
+    amountCents,
+    currency: (config.currency || 'EUR').toUpperCase(),
+    platformFeeCents: fee.platformFeeCents,
+    platformFeePercent: fee.percent,
   }
 }
 

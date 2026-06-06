@@ -3,13 +3,20 @@
 import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
-import { getStoredAccessToken, getSuperadminStripeTenantStatuses, type SuperadminStripeTenantStatusRow } from '@/lib/api'
+import {
+  getStoredAccessToken,
+  getSuperadminStripeTenantStatuses,
+  updateSuperadminStripeTenantConfig,
+  type SuperadminStripeTenantStatusRow,
+} from '@/lib/api'
 
 export default function SuperadminPaymentsPage() {
   const [token, setToken] = useState('')
   const [rows, setRows] = useState<SuperadminStripeTenantStatusRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [savingTenantId, setSavingTenantId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
 
   useEffect(() => {
     const stored = getStoredAccessToken()
@@ -58,11 +65,29 @@ export default function SuperadminPaymentsPage() {
     )
   }, [rows])
 
+  async function savePlatformFee(tenantId: string, currentValue: string) {
+    if (!token) return
+    setSavingTenantId(tenantId)
+    setError('')
+    setNotice('')
+    try {
+      await updateSuperadminStripeTenantConfig(token, tenantId, {
+        klarandoPlatformFeePercent: currentValue.trim() === '' ? 5 : currentValue.trim(),
+      })
+      setNotice('Plattformgebühr gespeichert.')
+      await load()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Plattformgebühr konnte nicht gespeichert werden')
+    } finally {
+      setSavingTenantId(null)
+    }
+  }
+
   return (
     <BackofficeLayout
       brand="superadmin"
       title="Stripe-Status je Filiale"
-      subtitle="Superadmin-Übersicht für Stripe Connect"
+      subtitle="Superadmin-Übersicht für Stripe Connect und Plattformgebühren"
       navItems={SUPERADMIN_NAV_ITEMS}
     >
       <section className="grid gap-4 sm:grid-cols-3">
@@ -93,6 +118,7 @@ export default function SuperadminPaymentsPage() {
         </div>
 
         {loading ? <p className="text-sm text-rose-900/70">Wird geladen...</p> : null}
+        {notice ? <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</p> : null}
         {error ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
 
         {!loading && !error ? (
@@ -106,15 +132,17 @@ export default function SuperadminPaymentsPage() {
                   <th className="px-2 py-2">Zahlungen</th>
                   <th className="px-2 py-2">Auszahlungen</th>
                   <th className="px-2 py-2">Details</th>
-                  <th className="px-2 py-2">Offene KYC-Felder</th>
+                  <th className="px-2 py-2">KYC</th>
+                  <th className="px-2 py-2">Gebühr %</th>
                   <th className="px-2 py-2">Letzte Sync</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => {
                   const cfg = row.paymentConfig
+                  const feeValue = cfg?.klarandoPlatformFeePercent ?? '5'
                   return (
-                    <tr key={row.id} className="border-b border-rose-50">
+                    <tr key={row.id} className="border-b border-rose-50 align-top">
                       <td className="px-2 py-2 font-medium text-rose-900">{row.name}</td>
                       <td className="px-2 py-2 text-rose-900/75">{row.chain?.name || '—'}</td>
                       <td className="px-2 py-2 text-xs text-rose-900/75">{cfg?.stripeAccountId || '—'}</td>
@@ -124,12 +152,28 @@ export default function SuperadminPaymentsPage() {
                       <td className="px-2 py-2 text-xs text-rose-900/75">
                         {cfg?.stripeRequirementsDue?.currentlyDue?.length
                           ? cfg.stripeRequirementsDue.currentlyDue.join(', ')
-                          : '—'}
+                          : 'Keine'}
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex min-w-[150px] items-center gap-2">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            defaultValue={feeValue}
+                            onBlur={(event) => void savePlatformFee(row.id, event.target.value)}
+                            className="w-20 rounded-md border border-rose-200 px-2 py-1 text-sm"
+                          />
+                          <span className="text-xs text-rose-900/60">Default 5%</span>
+                        </div>
                       </td>
                       <td className="px-2 py-2 text-xs text-rose-900/75">
                         {cfg?.stripeLastStatusSyncAt
                           ? new Date(cfg.stripeLastStatusSyncAt).toLocaleString('de-DE')
                           : '—'}
+                        {savingTenantId === row.id ? (
+                          <div className="mt-1 text-[11px] text-rose-500">Speichert...</div>
+                        ) : null}
                       </td>
                     </tr>
                   )
