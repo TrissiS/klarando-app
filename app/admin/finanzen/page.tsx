@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
+  createStripeAccountLink,
+  createStripeConnectedAccount,
+  createStripeDashboardLink,
   downloadBillingInvoicePdf,
   getAdminFinanceOverview,
   getBillingInvoices,
@@ -95,6 +98,9 @@ export default function AdminFinanzenPage() {
   const [notice, setNotice] = useState('')
   const [data, setData] = useState<AdminFinanceOverviewResponse | null>(null)
   const [stripeStatus, setStripeStatus] = useState<TenantStripeConnectStatus | null>(null)
+  const [stripeActionLoading, setStripeActionLoading] = useState<
+    'none' | 'setup' | 'continue' | 'dashboard' | 'refresh'
+  >('none')
   const [invoices, setInvoices] = useState<BillingInvoice[]>([])
   const [mailboxMessages, setMailboxMessages] = useState<BillingMailboxMessage[]>([])
   const [usage, setUsage] = useState<FinanceUsageCurrent | null>(null)
@@ -123,6 +129,66 @@ export default function AdminFinanzenPage() {
       }
     }
   }, [])
+
+  async function refreshStripeStatus(nextNotice?: string) {
+    if (!token || !tenantId) {
+      return
+    }
+    try {
+      setStripeActionLoading('refresh')
+      setError('')
+      const refreshed = await getStripeConnectStatus(token, tenantId)
+      setStripeStatus(refreshed)
+      if (nextNotice) {
+        setNotice(nextNotice)
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Stripe-Status konnte nicht geladen werden')
+    } finally {
+      setStripeActionLoading('none')
+    }
+  }
+
+  async function handleStartStripeSetup() {
+    if (!token || !tenantId) return
+    try {
+      setStripeActionLoading('setup')
+      setError('')
+      const response = await createStripeConnectedAccount(token, tenantId)
+      window.location.assign(response.onboardingUrl)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Stripe-Onboarding konnte nicht gestartet werden')
+      setStripeActionLoading('none')
+    }
+  }
+
+  async function handleContinueStripeSetup() {
+    if (!token || !tenantId) return
+    try {
+      setStripeActionLoading('continue')
+      setError('')
+      const response = await createStripeAccountLink(token, tenantId)
+      window.location.assign(response.onboardingUrl)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Stripe-Onboarding-Link konnte nicht erstellt werden')
+      setStripeActionLoading('none')
+    }
+  }
+
+  async function handleOpenStripeDashboard() {
+    if (!token || !tenantId) return
+    try {
+      setStripeActionLoading('dashboard')
+      setError('')
+      const response = await createStripeDashboardLink(token, tenantId)
+      window.open(response.dashboardUrl, '_blank', 'noopener,noreferrer')
+      setNotice('Stripe Dashboard wurde in einem neuen Tab geöffnet.')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Stripe-Dashboard-Link konnte nicht erstellt werden')
+    } finally {
+      setStripeActionLoading('none')
+    }
+  }
 
   useEffect(() => {
     if (!token || !tenantId) {
@@ -382,6 +448,60 @@ export default function AdminFinanzenPage() {
                 Offene KYC-Felder: {stripeStatus.requirements.currentlyDue.join(', ')}
               </p>
             ) : null}
+            <div className="mt-4 space-y-3">
+              {stripeStatus?.mode !== 'live' ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Testmodus aktiv: Stripe läuft derzeit im Testbetrieb. Es werden keine echten Live-Zahlungen
+                  verarbeitet.
+                </div>
+              ) : null}
+              {!stripeStatus?.publishableKeyConfigured ? (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  Der öffentliche Stripe-Key ist noch nicht konfiguriert. Checkout-Clients können aktuell keine
+                  Stripe-Zahlung initialisieren.
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleStartStripeSetup()}
+                  disabled={stripeActionLoading !== 'none'}
+                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {stripeStatus?.stripeAccountId ? 'Stripe-Konto erneut verbinden' : 'Stripe einrichten'}
+                </button>
+                {stripeStatus?.stripeAccountId && !stripeStatus.onboardingCompleted ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleContinueStripeSetup()}
+                    disabled={stripeActionLoading !== 'none'}
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Onboarding fortsetzen
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() =>
+                    void refreshStripeStatus('Stripe-Status wurde direkt bei Stripe aktualisiert.')
+                  }
+                  disabled={stripeActionLoading !== 'none'}
+                  className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {stripeActionLoading === 'refresh' ? 'Aktualisiert…' : 'Status aktualisieren'}
+                </button>
+                {stripeStatus?.stripeAccountId ? (
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenStripeDashboard()}
+                    disabled={stripeActionLoading !== 'none'}
+                    className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 transition hover:border-emerald-400 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Stripe Dashboard öffnen
+                  </button>
+                ) : null}
+              </div>
+            </div>
           </article>
         </section>
 

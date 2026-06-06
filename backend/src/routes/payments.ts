@@ -8,6 +8,7 @@ import {
   createExpressDashboardLoginLink,
   createOrderCheckoutSession,
   createOrderPaymentIntent,
+  createTenantStripeOnboardingLink,
   refreshTenantStripeAccountStatus,
   refundPayment,
 } from '../lib/stripe'
@@ -64,18 +65,6 @@ function buildCheckoutCallbackUrl(req: Request, path: string, orderId: string) {
   return url.toString()
 }
 
-async function buildStripeOnboardingLink(tenantId: string) {
-  const created = await createConnectedAccountForTenant(tenantId)
-  const link = await createAccountLink(created.stripeAccountId, tenantId)
-  return {
-    tenantId,
-    stripeAccountId: created.stripeAccountId,
-    created: created.created,
-    onboardingUrl: link.url,
-    expiresAt: link.expires_at,
-  }
-}
-
 router.post('/connect/onboard', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
   try {
     const scope = await resolveTenantScope(req, req.body?.tenantId)
@@ -83,7 +72,7 @@ router.post('/connect/onboard', requirePermission(PermissionKey.SETTINGS_WRITE),
       return res.status(400).json({ error: 'tenantId fehlt' })
     }
 
-    const onboarding = await buildStripeOnboardingLink(scope.tenantId)
+    const onboarding = await createTenantStripeOnboardingLink(scope.tenantId)
 
     await writeAuditLog({
       req,
@@ -121,7 +110,7 @@ router.post('/connect/account', requirePermission(PermissionKey.SETTINGS_WRITE),
     }
     return res.status(201).json({
       ok: true,
-      ...(await buildStripeOnboardingLink(scope.tenantId)),
+      ...(await createTenantStripeOnboardingLink(scope.tenantId)),
     })
   } catch (error) {
     const scopeError = asTenantScopeError(error)
@@ -131,6 +120,46 @@ router.post('/connect/account', requirePermission(PermissionKey.SETTINGS_WRITE),
     console.error('STRIPE CONNECT ACCOUNT LEGACY ERROR:', error)
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'Stripe-Konto konnte nicht verbunden werden',
+    })
+  }
+})
+
+router.post('/connect/onboarding-link', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.body?.tenantId)
+    if (!scope.tenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+
+    const config = await prisma.tenantPaymentConfig.findUnique({
+      where: { tenantId: scope.tenantId },
+      select: { stripeAccountId: true },
+    })
+
+    if (!config?.stripeAccountId) {
+      const onboarding = await createTenantStripeOnboardingLink(scope.tenantId)
+      return res.status(201).json({
+        ok: true,
+        ...onboarding,
+      })
+    }
+
+    const link = await createAccountLink(config.stripeAccountId, scope.tenantId)
+    return res.json({
+      ok: true,
+      tenantId: scope.tenantId,
+      stripeAccountId: config.stripeAccountId,
+      onboardingUrl: link.url,
+      expiresAt: link.expires_at,
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('STRIPE ONBOARDING LINK ERROR:', error)
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Stripe-Onboarding-Link konnte nicht erstellt werden',
     })
   }
 })
@@ -378,6 +407,78 @@ router.post('/create-intent', requireAuth, async (req, res) => {
   }
 })
 
+router.post('/stripe/payment-intent', async (req, res) => {
+  try {
+    const orderId = normalizeText(req.body?.orderId)
+    const tenantIdInput = normalizeText(req.body?.tenantId)
+    if (!orderId) {
+      return res.status(400).json({ error: 'orderId ist erforderlich' })
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        tenantId: true,
+        appCustomerAccountId: true,
+      },
+    })
+
+    if (!order) {
+      return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+    }
+
+    if (tenantIdInput && tenantIdInput !== order.tenantId) {
+      return res.status(400).json({ error: 'tenantId passt nicht zur Bestellung' })
+    }
+
+    const appCustomer = await resolveAppCustomerAccountFromHeader(req.header('authorization') || undefined)
+    if (appCustomer?.id) {
+      if (order.appCustomerAccountId !== appCustomer.id) {
+        return res.status(403).json({ error: 'Diese Bestellung gehört nicht zu diesem Kundenkonto' })
+      }
+    } else {
+      await resolveTenantScope(req, order.tenantId)
+    }
+
+    const amountInput = Number(req.body?.amountCents)
+    const amountCents = Number.isFinite(amountInput) ? Math.max(0, Math.round(amountInput)) : undefined
+
+    const intent = await createOrderPaymentIntent({
+      tenantId: order.tenantId,
+      orderId: order.id,
+      amountCents,
+    })
+
+    if (req.authUser) {
+      await writeAuditLog({
+        req,
+        module: 'payments',
+        action: 'stripe_payment_intent_created',
+        targetType: 'order',
+        targetId: order.id,
+        tenantId: order.tenantId,
+        metadata: {
+          paymentId: intent.paymentId,
+          stripePaymentIntentId: intent.paymentIntentId,
+          amountCents: intent.amountCents,
+          endpoint: '/api/payments/stripe/payment-intent',
+        },
+      })
+    }
+
+    return res.status(201).json(intent)
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    const message = error instanceof Error ? error.message : 'Stripe PaymentIntent konnte nicht erstellt werden'
+    console.error('STRIPE PUBLIC CREATE INTENT ERROR:', error)
+    return res.status(400).json({ error: message })
+  }
+})
+
 router.put('/connect/config', requireAuth, async (req, res) => {
   try {
     if (!req.authUser || req.authUser.role !== UserRole.SUPERADMIN) {
@@ -509,12 +610,15 @@ router.get('/superadmin/tenants', requireAuth, async (req, res) => {
         paymentConfig: {
           select: {
             stripeAccountId: true,
+            stripeOnboarded: true,
             stripeChargesEnabled: true,
             stripePayoutsEnabled: true,
             stripeDetailsSubmitted: true,
             stripeOnboardingCompleted: true,
             klarandoPlatformFeePercent: true,
             klarandoPlatformFeeFixed: true,
+            stripeRequirementsDue: true,
+            stripeLastStatusSyncAt: true,
           },
         },
       },

@@ -31,6 +31,15 @@ function appendConnectQuery(baseUrl: string, query: Record<string, string>) {
   return url.toString()
 }
 
+export function resolveStripeRuntimeMode() {
+  const secretKey = process.env.STRIPE_SECRET_KEY?.trim() || ''
+  return secretKey.startsWith('sk_live_') ? 'live' : 'test'
+}
+
+export function isStripePublishableKeyConfigured() {
+  return Boolean(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim())
+}
+
 export function getStripe() {
   if (stripeClient) {
     return stripeClient
@@ -160,6 +169,18 @@ export async function createAccountLink(stripeAccountId: string, tenantId?: stri
   })
 }
 
+export async function createTenantStripeOnboardingLink(tenantId: string) {
+  const created = await createConnectedAccountForTenant(tenantId)
+  const link = await createAccountLink(created.stripeAccountId, tenantId)
+  return {
+    tenantId,
+    stripeAccountId: created.stripeAccountId,
+    created: created.created,
+    onboardingUrl: link.url,
+    expiresAt: link.expires_at,
+  }
+}
+
 export async function createExpressDashboardLoginLink(stripeAccountId: string) {
   const stripe = getStripe()
   return stripe.accounts.createLoginLink(stripeAccountId)
@@ -201,6 +222,8 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
       payoutInterval: null as string | null,
       nextPayoutAt: null as string | null,
       lastStatusSyncAt: null as string | null,
+      mode: resolveStripeRuntimeMode(),
+      publishableKeyConfigured: isStripePublishableKeyConfigured(),
     }
   }
 
@@ -247,6 +270,8 @@ export async function refreshTenantStripeAccountStatus(tenantId: string) {
         ? new Date(pendingPayout.arrival_date * 1000).toISOString()
         : null,
     lastStatusSyncAt: lastStatusSyncAt.toISOString(),
+    mode: resolveStripeRuntimeMode(),
+    publishableKeyConfigured: isStripePublishableKeyConfigured(),
   }
 
   await prisma.tenantPaymentConfig.upsert({
@@ -355,6 +380,8 @@ export async function createOrderPaymentIntent(input: {
       tenantId: true,
       total: true,
       paymentStatus: true,
+      paymentMethod: true,
+      publicOrderCode: true,
     },
   })
 
@@ -368,6 +395,10 @@ export async function createOrderPaymentIntent(input: {
 
   if (String(order.paymentStatus).toUpperCase() === 'PAID') {
     throw new Error('Bestellung ist bereits bezahlt')
+  }
+
+  if (String(order.paymentMethod || '').trim().toUpperCase() !== 'STRIPE') {
+    throw new Error('Bestellung ist nicht für Stripe-Onlinezahlung markiert')
   }
 
   const config = await prisma.tenantPaymentConfig.findUnique({
@@ -404,6 +435,7 @@ export async function createOrderPaymentIntent(input: {
     metadata: {
       tenantId: input.tenantId,
       orderId: input.orderId,
+      publicOrderCode: order.publicOrderCode || '',
       platformFeeCents: String(fee.platformFeeCents),
       platformFeePercent: String(fee.percent),
     },
@@ -442,6 +474,8 @@ export async function createOrderPaymentIntent(input: {
     platformFeeCents: fee.platformFeeCents,
     platformFeePercent: fee.percent,
     connectedAccountId: config.stripeAccountId,
+    publishableKey: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY?.trim() || null,
+    mode: resolveStripeRuntimeMode(),
   }
 }
 

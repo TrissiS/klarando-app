@@ -41,6 +41,7 @@ import mobileUpdatesRoutes from './routes/mobile-updates'
 import onboardingRoutes from './routes/onboarding'
 import paypalPaymentRoutes from './routes/payments-paypal'
 import paymentRoutes from './routes/payments'
+import stripeConnectRoutes from './routes/stripe-connect'
 import stripeWebhookRoutes from './routes/webhooks-stripe'
 import financeRoutes from './routes/finance'
 import billingRoutes from './routes/billing'
@@ -354,6 +355,7 @@ app.use('/api/platform-branding', platformBrandingRoutes)
 app.use('/api/mobile-updates', mobileUpdatesRoutes)
 app.use('/api/onboarding', onboardingRoutes)
 app.use('/api/payments/paypal', paypalPaymentRoutes)
+app.use('/api/stripe', stripeConnectRoutes)
 app.use('/api/payments', paymentRoutes)
 app.use('/api/finance', financeRoutes)
 app.use('/api/billing', billingRoutes)

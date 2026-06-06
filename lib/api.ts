@@ -2427,6 +2427,8 @@ export type TenantStripeConnectStatus = {
   payoutsEnabled: boolean
   detailsSubmitted: boolean
   onboardingCompleted: boolean
+  mode: 'test' | 'live'
+  publishableKeyConfigured: boolean
   requirements: {
     currentlyDue: string[]
     eventuallyDue: string[]
@@ -2549,6 +2551,8 @@ export async function createStripePaymentIntent(input: {
   tenantId: string
   paymentIntentId: string
   clientSecret: string | null
+  publishableKey: string | null
+  mode: 'test' | 'live'
   amountCents: number
   currency: string
   platformFeeCents: number
@@ -2556,7 +2560,7 @@ export async function createStripePaymentIntent(input: {
   connectedAccountId: string
 }> {
   return apiJson(
-    buildApiUrl('/api/payments/create-intent'),
+    buildApiUrl('/api/payments/stripe/payment-intent'),
     {
       method: 'POST',
       headers: authHeaders(input.token),
