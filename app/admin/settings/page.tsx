@@ -5,12 +5,14 @@ import Link from 'next/link'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import AppSettingsFields from '@/app/Components/admin/AppSettingsFields'
 import {
+  getDeliveryAvailabilityPreview,
   getTenantPaypalPaymentConfig,
   getBusinessSettings,
   uploadBusinessSettingsImage,
   updateTenantPaypalPaymentConfig,
   updateBusinessSettings,
   type BusinessSettings,
+  type DeliveryAvailabilityPreview,
   type TenantPaypalPaymentConfig,
 } from '@/lib/api'
 import { resolveTenantId } from '@/lib/config'
@@ -23,6 +25,51 @@ function confirmDoubleSave() {
   return window.confirm('Zweite Bestätigung: Änderungen jetzt speichern?')
 }
 
+function formatPreviewDateTime(value: string | null) {
+  if (!value) {
+    return 'Keine nächste Lieferung berechnet.'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return parsed.toLocaleString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatWindowLabel(start: string, end: string) {
+  return `${start} - ${end} Uhr`
+}
+
+function deriveDebugCheckState(
+  preview: DeliveryAvailabilityPreview | null,
+  keywords: string[]
+): 'ok' | 'blocked' | 'unknown' {
+  if (!preview) {
+    return 'unknown'
+  }
+
+  const reasonText = [
+    ...preview.deliveryAvailability.blockingReasons,
+    ...preview.deliveryAvailability.debugReasons,
+  ]
+    .join(' ')
+    .toLowerCase()
+
+  if (!reasonText) {
+    return 'unknown'
+  }
+
+  return keywords.some((keyword) => reasonText.includes(keyword.toLowerCase())) ? 'blocked' : 'ok'
+}
+
 export default function AdminSettingsPage() {
   const [section, setSection] = useState('')
   const [settings, setSettings] = useState<BusinessSettings | null>(null)
@@ -33,18 +80,53 @@ export default function AdminSettingsPage() {
   const [uploadingCover, setUploadingCover] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [deliveryPreview, setDeliveryPreview] = useState<DeliveryAvailabilityPreview | null>(null)
+  const [deliveryPreviewLoading, setDeliveryPreviewLoading] = useState(false)
+  const [deliveryPreviewError, setDeliveryPreviewError] = useState('')
+  const [deliveryPreviewZipCode, setDeliveryPreviewZipCode] = useState('')
+  const [deliveryPreviewStreet, setDeliveryPreviewStreet] = useState('')
+
+  async function loadDeliveryPreview(sourceSettings?: BusinessSettings | null) {
+    const nextSettings = sourceSettings ?? settings
+    if (!nextSettings) {
+      setDeliveryPreview(null)
+      return
+    }
+
+    try {
+      setDeliveryPreviewLoading(true)
+      setDeliveryPreviewError('')
+      const preview = await getDeliveryAvailabilityPreview({
+        zipCode: (deliveryPreviewZipCode || nextSettings.zipCode || '').trim() || null,
+        street: (deliveryPreviewStreet || nextSettings.street || '').trim() || null,
+      })
+      setDeliveryPreview(preview)
+    } catch (previewError) {
+      setDeliveryPreview(null)
+      setDeliveryPreviewError(
+        previewError instanceof Error
+          ? previewError.message
+          : 'Delivery-Availability konnte nicht geladen werden.'
+      )
+    } finally {
+      setDeliveryPreviewLoading(false)
+    }
+  }
 
   async function loadData() {
     try {
       setLoading(true)
       const data = await getBusinessSettings()
       setSettings(data)
+      setDeliveryPreviewZipCode(data.zipCode || '')
+      setDeliveryPreviewStreet(data.street || '')
       const tenantId = resolveTenantId()
       const token = window.localStorage.getItem('accessToken')
       if (token && tenantId) {
         const paymentData = await getTenantPaypalPaymentConfig(token, tenantId)
         setPaypalConfig(paymentData)
       }
+      await loadDeliveryPreview(data)
       setError('')
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Einstellungen konnten nicht geladen werden')
@@ -173,6 +255,8 @@ export default function AdminSettingsPage() {
       setSuccess('')
       const saved = await updateBusinessSettings(settings)
       setSettings(saved)
+      setDeliveryPreviewZipCode((current) => current || saved.zipCode || '')
+      setDeliveryPreviewStreet((current) => current || saved.street || '')
       const token = window.localStorage.getItem('accessToken')
       const tenantId = resolveTenantId()
         if (token && tenantId && paypalConfig) {
@@ -185,6 +269,7 @@ export default function AdminSettingsPage() {
           })
           setPaypalConfig(updatedPayment)
         }
+      await loadDeliveryPreview(saved)
       setSuccess('Einstellungen gespeichert.')
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : 'Einstellungen konnten nicht gespeichert werden')
@@ -192,6 +277,33 @@ export default function AdminSettingsPage() {
       setSaving(false)
     }
   }
+
+  const debugChecks = [
+    {
+      label: 'Öffnungszeiten / Lieferzeiten',
+      state: deriveDebugCheckState(deliveryPreview, ['no_delivery_windows_available', 'outside_delivery_windows']),
+    },
+    {
+      label: 'Bestellannahme',
+      state: deriveDebugCheckState(deliveryPreview, ['order_intake_paused', 'order_intake_delivery_disabled', 'delivery_mode_disabled']),
+    },
+    {
+      label: 'Feiertage / Ausnahmen',
+      state: deriveDebugCheckState(deliveryPreview, ['holiday', 'feiertag']),
+    },
+    {
+      label: 'Liefergebiet',
+      state: deriveDebugCheckState(deliveryPreview, ['delivery_area']),
+    },
+    {
+      label: 'Mindestvorlauf',
+      state: deriveDebugCheckState(deliveryPreview, ['minimum_lead_time_active', 'mindestvorlauf']),
+    },
+    {
+      label: 'Vorbestellung / Slots',
+      state: deriveDebugCheckState(deliveryPreview, ['slot', 'preorder', 'vorbestell']),
+    },
+  ]
 
   return (
     <AdminLayout
@@ -569,6 +681,144 @@ export default function AdminSettingsPage() {
                 showServiceAreaEditor
                 showDeliveryScheduling
               />
+            </div>
+            <div className="mt-6 rounded-3xl border border-[var(--brand-border)] bg-slate-50/80 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">Kundensicht & Debug</h3>
+                  <p className="mt-1 text-sm text-rose-900/70">
+                    Diese Vorschau liest die zentrale Delivery-Availability-API und zeigt, was Kunden aktuell im Checkout sehen würden.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadDeliveryPreview()}
+                  disabled={deliveryPreviewLoading}
+                  className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                >
+                  {deliveryPreviewLoading ? 'Vorschau wird geladen…' : 'Vorschau aktualisieren'}
+                </button>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Test-PLZ</span>
+                  <input
+                    value={deliveryPreviewZipCode}
+                    onChange={(event) => setDeliveryPreviewZipCode(event.target.value)}
+                    placeholder={settings.zipCode || 'z. B. 57072'}
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Test-Straße</span>
+                  <input
+                    value={deliveryPreviewStreet}
+                    onChange={(event) => setDeliveryPreviewStreet(event.target.value)}
+                    placeholder={settings.street || 'z. B. Musterstraße 1'}
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
+                  />
+                </label>
+              </div>
+
+              {deliveryPreviewError ? (
+                <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {deliveryPreviewError}
+                </div>
+              ) : null}
+
+              <div className="mt-4 grid gap-3 xl:grid-cols-3">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Aktuell für Kunden lieferbar</p>
+                  <p className={`mt-2 text-2xl font-semibold ${deliveryPreview?.deliveryAvailability.isDeliveryAvailable ? 'text-green-700' : 'text-red-700'}`}>
+                    {deliveryPreview?.deliveryAvailability.isDeliveryAvailable ? 'Ja' : 'Nein'}
+                  </p>
+                  <p className="mt-2 text-xs text-rose-900/65">
+                    Bewertet am {formatPreviewDateTime(deliveryPreview?.evaluatedAt ?? null)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Nächste mögliche Lieferung</p>
+                  <p className="mt-2 text-sm font-medium text-slate-900">
+                    {formatPreviewDateTime(deliveryPreview?.deliveryAvailability.nextDeliveryAt ?? null)}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Kundentext</p>
+                  <p className="mt-2 text-sm text-slate-900">
+                    {deliveryPreview?.deliveryAvailability.customerMessage || 'Noch keine Vorschau geladen.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 xl:grid-cols-3">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4 xl:col-span-1">
+                  <h4 className="text-sm font-semibold text-slate-900">Lieferfenster heute</h4>
+                  {deliveryPreview?.deliveryAvailability.todayDeliveryWindows.length ? (
+                    <ul className="mt-3 space-y-2 text-sm text-slate-800">
+                      {deliveryPreview.deliveryAvailability.todayDeliveryWindows.map((window, index) => (
+                        <li key={`${window.start}-${window.end}-${index}`} className="rounded-xl border border-[var(--brand-border)] bg-slate-50 px-3 py-2">
+                          <div className="font-medium">{formatWindowLabel(window.start, window.end)}</div>
+                          <div className="mt-1 text-xs uppercase tracking-wide text-slate-500">
+                            Quelle: {window.source === 'SLOT' ? 'Slot' : 'Basisfenster'}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-rose-900/70">Heute sind aktuell keine gültigen Lieferfenster vorhanden.</p>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                  <h4 className="text-sm font-semibold text-slate-900">Blockierende Gründe</h4>
+                  {deliveryPreview?.deliveryAvailability.blockingReasons.length ? (
+                    <ul className="mt-3 space-y-2 text-sm text-red-700">
+                      {deliveryPreview.deliveryAvailability.blockingReasons.map((reason) => (
+                        <li key={reason} className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 font-mono text-xs">
+                          {reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 text-sm text-green-700">Aktuell keine blockierenden Gründe.</p>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                  <h4 className="text-sm font-semibold text-slate-900">Debug-Prüfung</h4>
+                  <ul className="mt-3 space-y-2 text-sm text-slate-800">
+                    {debugChecks.map((check) => (
+                      <li key={check.label} className="flex items-center justify-between rounded-xl border border-[var(--brand-border)] bg-slate-50 px-3 py-2">
+                        <span>{check.label}</span>
+                        <span
+                          className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                            check.state === 'blocked'
+                              ? 'bg-red-100 text-red-700'
+                              : check.state === 'ok'
+                                ? 'bg-green-100 text-green-700'
+                                : 'bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          {check.state === 'blocked' ? 'Blockiert' : check.state === 'ok' ? 'OK' : 'Unklar'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <h5 className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Debug-Gründe</h5>
+                  {deliveryPreview?.deliveryAvailability.debugReasons.length ? (
+                    <ul className="mt-2 space-y-2 text-sm text-slate-700">
+                      {deliveryPreview.deliveryAvailability.debugReasons.map((reason) => (
+                        <li key={reason} className="rounded-xl border border-[var(--brand-border)] bg-slate-50 px-3 py-2">
+                          {reason}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-2 text-sm text-rose-900/70">Noch keine Debug-Gründe vorhanden.</p>
+                  )}
+                </div>
+              </div>
             </div>
           </section>
 
