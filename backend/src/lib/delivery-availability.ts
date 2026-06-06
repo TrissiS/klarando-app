@@ -27,7 +27,10 @@ export type BuildDeliveryAvailabilityInput = {
   settings: BusinessSettings
   now?: Date
   deliveryAreaInput?: ServiceAreaMatchInput | null
+  timeZone?: string | null
 }
+
+export const DEFAULT_DELIVERY_TIME_ZONE = 'Europe/Berlin'
 
 const DAY_BY_INDEX: WeekDay[] = [
   'SUNDAY',
@@ -46,31 +49,146 @@ type TimeRange = {
   end: string
 }
 
-function toLocalIsoDate(value: Date) {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+type TenantLocalDateParts = {
+  year: number
+  month: number
+  day: number
+  hour: number
+  minute: number
+  second: number
+  isoDate: string
+  weekDay: WeekDay
 }
 
-function toIsoDate(value: Date) {
-  return toLocalIsoDate(value)
+const formatterByTimeZone = new Map<string, Intl.DateTimeFormat>()
+
+function getTenantDateFormatter(timeZone: string) {
+  const existing = formatterByTimeZone.get(timeZone)
+  if (existing) {
+    return existing
+  }
+
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  })
+  formatterByTimeZone.set(timeZone, formatter)
+  return formatter
 }
 
-function startOfDay(value: Date) {
-  const copy = new Date(value)
-  copy.setHours(0, 0, 0, 0)
-  return copy
+export function resolveDeliveryAvailabilityTimeZone(timeZone?: string | null) {
+  const candidate = typeof timeZone === 'string' ? timeZone.trim() : ''
+  if (!candidate) {
+    return DEFAULT_DELIVERY_TIME_ZONE
+  }
+
+  try {
+    new Intl.DateTimeFormat('de-DE', { timeZone: candidate }).format(new Date())
+    return candidate
+  } catch {
+    return DEFAULT_DELIVERY_TIME_ZONE
+  }
 }
 
-function addDays(value: Date, days: number) {
-  const copy = new Date(value)
-  copy.setDate(copy.getDate() + days)
-  return copy
+export function getTenantLocalDate(value: Date, timeZone = DEFAULT_DELIVERY_TIME_ZONE): TenantLocalDateParts {
+  const formatter = getTenantDateFormatter(timeZone)
+  const parts = formatter.formatToParts(value)
+  const values = new Map(parts.map((entry) => [entry.type, entry.value]))
+
+  const year = Number(values.get('year'))
+  const month = Number(values.get('month'))
+  const day = Number(values.get('day'))
+  const hour = Number(values.get('hour'))
+  const minute = Number(values.get('minute'))
+  const second = Number(values.get('second'))
+
+  const isoDate = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  const weekday = DAY_BY_INDEX[new Date(Date.UTC(year, month - 1, day)).getUTCDay()]
+
+  return {
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    isoDate,
+    weekDay: weekday,
+  }
 }
 
-function minutesFromDate(value: Date) {
-  return value.getHours() * 60 + value.getMinutes()
+function getTimeZoneOffsetMs(value: Date, timeZone: string) {
+  const parts = getTenantLocalDate(value, timeZone)
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second)
+  return asUtc - value.getTime()
+}
+
+function buildTenantDate(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  timeZone: string
+) {
+  let utcGuess = Date.UTC(year, month - 1, day, hour, minute, second)
+
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const offset = getTimeZoneOffsetMs(new Date(utcGuess), timeZone)
+    const adjusted = Date.UTC(year, month - 1, day, hour, minute, second) - offset
+    if (adjusted === utcGuess) {
+      break
+    }
+    utcGuess = adjusted
+  }
+
+  return new Date(utcGuess)
+}
+
+function addTenantDays(value: Date, days: number, timeZone: string, hour?: number, minute?: number, second?: number) {
+  const parts = getTenantLocalDate(value, timeZone)
+  const shifted = new Date(
+    Date.UTC(
+      parts.year,
+      parts.month - 1,
+      parts.day + days,
+      hour ?? parts.hour,
+      minute ?? parts.minute,
+      second ?? parts.second,
+    )
+  )
+
+  return buildTenantDate(
+    shifted.getUTCFullYear(),
+    shifted.getUTCMonth() + 1,
+    shifted.getUTCDate(),
+    hour ?? parts.hour,
+    minute ?? parts.minute,
+    second ?? parts.second,
+    timeZone
+  )
+}
+
+function startOfTenantDay(value: Date, timeZone: string) {
+  const parts = getTenantLocalDate(value, timeZone)
+  return buildTenantDate(parts.year, parts.month, parts.day, 0, 0, 0, timeZone)
+}
+
+function minutesFromTenantDate(value: Date, timeZone: string) {
+  const parts = getTenantLocalDate(value, timeZone)
+  return parts.hour * 60 + parts.minute
+}
+
+function formatTenantLocalDateTime(value: Date, timeZone: string) {
+  const parts = getTenantLocalDate(value, timeZone)
+  return `${parts.isoDate} ${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`
 }
 
 function toMinutes(value: string | null) {
@@ -93,8 +211,8 @@ function getWindowForDay(windows: DailyWindow[], day: WeekDay) {
   return windows.find((entry) => entry.day === day) || null
 }
 
-function getHolidayWindow(settings: BusinessSettings, date: Date) {
-  const currentDate = toLocalIsoDate(date)
+function getHolidayWindow(settings: BusinessSettings, date: Date, timeZone: string) {
+  const currentDate = getTenantLocalDate(date, timeZone).isoDate
   return settings.timeManagement.holidayHours.find((entry) => entry.date === currentDate) || null
 }
 
@@ -175,13 +293,13 @@ function getBaseLeadDays(settings: BusinessSettings['timeManagement']['deliveryS
   return 0
 }
 
-function applyCutoff(now: Date, leadDays: number, cutoffTime: string | null) {
+function applyCutoff(now: Date, leadDays: number, cutoffTime: string | null, timeZone: string) {
   const cutoffMinutes = toMinutes(cutoffTime)
   if (cutoffMinutes === null) {
     return leadDays
   }
 
-  return minutesFromDate(now) > cutoffMinutes ? Math.max(leadDays, 1) : leadDays
+  return minutesFromTenantDate(now, timeZone) > cutoffMinutes ? Math.max(leadDays, 1) : leadDays
 }
 
 function hasConfiguredTimeSlots(settings: BusinessSettings['timeManagement']['deliveryScheduling']) {
@@ -192,13 +310,13 @@ function hasConfiguredTimeSlots(settings: BusinessSettings['timeManagement']['de
   })
 }
 
-function buildSlotRangesForDate(settings: BusinessSettings, date: Date) {
-  const holiday = getHolidayWindow(settings, date)
+function buildSlotRangesForDate(settings: BusinessSettings, date: Date, timeZone: string) {
+  const holiday = getHolidayWindow(settings, date, timeZone)
   if (holiday?.isClosed) {
     return [] as TimeRange[]
   }
 
-  const weekday = DAY_BY_INDEX[date.getDay()]
+  const weekday = getTenantLocalDate(date, timeZone).weekDay
   const holidayStart = toMinutes(holiday?.open ?? null)
   const holidayEnd = toMinutes(holiday?.close ?? null)
 
@@ -229,9 +347,13 @@ function buildSlotRangesForDate(settings: BusinessSettings, date: Date) {
     .sort((left, right) => left.startMinutes - right.startMinutes)
 }
 
-function buildDeliveryWindowsForDate(settings: BusinessSettings, date: Date): DeliveryAvailabilityWindow[] {
-  const weekday = DAY_BY_INDEX[date.getDay()]
-  const holiday = getHolidayWindow(settings, date)
+function buildDeliveryWindowsForDate(
+  settings: BusinessSettings,
+  date: Date,
+  timeZone: string
+): DeliveryAvailabilityWindow[] {
+  const weekday = getTenantLocalDate(date, timeZone).weekDay
+  const holiday = getHolidayWindow(settings, date, timeZone)
   const openingWindow = applyHolidayOverride(
     getWindowForDay(settings.timeManagement.openingHours, weekday),
     weekday,
@@ -267,7 +389,7 @@ function buildDeliveryWindowsForDate(settings: BusinessSettings, date: Date): De
     ]
   }
 
-  const slotRanges = buildSlotRangesForDate(settings, date)
+  const slotRanges = buildSlotRangesForDate(settings, date, timeZone)
   return slotRanges
     .map((slotRange) => intersectRanges(baseRange, slotRange))
     .filter((entry): entry is TimeRange => entry !== null)
@@ -278,19 +400,27 @@ function buildDeliveryWindowsForDate(settings: BusinessSettings, date: Date): De
     }))
 }
 
-function getNextDeliveryAt(settings: BusinessSettings, now: Date) {
+function getNextDeliveryAt(settings: BusinessSettings, now: Date, timeZone: string) {
   const scheduling = settings.timeManagement.deliveryScheduling
-  const leadDays = applyCutoff(now, getBaseLeadDays(scheduling), scheduling.orderCutoffTime)
-  const firstDay = startOfDay(addDays(now, leadDays))
+  const leadDays = applyCutoff(now, getBaseLeadDays(scheduling), scheduling.orderCutoffTime, timeZone)
+  const firstDay = startOfTenantDay(addTenantDays(now, leadDays, timeZone), timeZone)
   const horizonDays = Math.max(1, scheduling.maxPreorderDays, 21)
 
   for (let offset = 0; offset <= horizonDays; offset += 1) {
-    const date = addDays(firstDay, offset)
-    const windows = buildDeliveryWindowsForDate(settings, date)
+    const date = addTenantDays(firstDay, offset, timeZone, 0, 0, 0)
+    const windows = buildDeliveryWindowsForDate(settings, date, timeZone)
+    const dateParts = getTenantLocalDate(date, timeZone)
     for (const window of windows) {
       const [hoursRaw, minutesRaw] = window.start.split(':')
-      const candidate = new Date(date)
-      candidate.setHours(Number(hoursRaw), Number(minutesRaw), 0, 0)
+      const candidate = buildTenantDate(
+        dateParts.year,
+        dateParts.month,
+        dateParts.day,
+        Number(hoursRaw),
+        Number(minutesRaw),
+        0,
+        timeZone
+      )
       if (candidate.getTime() > now.getTime()) {
         return candidate
       }
@@ -300,8 +430,8 @@ function getNextDeliveryAt(settings: BusinessSettings, now: Date) {
   return null
 }
 
-function isNowWithinWindows(windows: DeliveryAvailabilityWindow[], now: Date) {
-  const nowMinutes = minutesFromDate(now)
+function isNowWithinWindows(windows: DeliveryAvailabilityWindow[], now: Date, timeZone: string) {
+  const nowMinutes = minutesFromTenantDate(now, timeZone)
   return windows.some((window) => {
     const startMinutes = toMinutes(window.start)
     const endMinutes = toMinutes(window.end)
@@ -377,12 +507,13 @@ function resolveAreaBlockingReason(
   }
 }
 
-function formatCustomerDateTime(value: Date) {
+function formatCustomerDateTime(value: Date, timeZone: string) {
   return value.toLocaleString('de-DE', {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone,
   })
 }
 
@@ -391,13 +522,14 @@ export function buildDeliveryAvailability(
 ): DeliveryAvailabilityResult {
   const now = input.now ?? new Date()
   const settings = input.settings
+  const timeZone = resolveDeliveryAvailabilityTimeZone(input.timeZone)
   const blockingReasons: string[] = []
   const debugReasons: string[] = []
 
-  const todayDeliveryWindows = buildDeliveryWindowsForDate(settings, now)
+  const todayDeliveryWindows = buildDeliveryWindowsForDate(settings, now, timeZone)
   const hasWindowsToday = todayDeliveryWindows.length > 0
-  const isWithinTodayWindow = isNowWithinWindows(todayDeliveryWindows, now)
-  const nextDeliveryAt = getNextDeliveryAt(settings, now)
+  const isWithinTodayWindow = isNowWithinWindows(todayDeliveryWindows, now, timeZone)
+  const nextDeliveryAt = getNextDeliveryAt(settings, now, timeZone)
 
   if (!settings.customerApp.orderingEnabled) {
     blockingReasons.push('CUSTOMER_APP_ORDERING_DISABLED')
@@ -443,7 +575,8 @@ export function buildDeliveryAvailability(
   const leadDays = applyCutoff(
     now,
     getBaseLeadDays(settings.timeManagement.deliveryScheduling),
-    settings.timeManagement.deliveryScheduling.orderCutoffTime
+    settings.timeManagement.deliveryScheduling.orderCutoffTime,
+    timeZone
   )
   if (leadDays > 0) {
     blockingReasons.push('MINIMUM_LEAD_TIME_ACTIVE')
@@ -489,9 +622,9 @@ export function buildDeliveryAvailability(
   } else if (isDeliveryAvailable) {
     customerMessage = 'Bestellung ist moeglich.'
   } else if (nextDeliveryAt && settings.timeManagement.ordering.preorderEnabled) {
-    customerMessage = `Aktuell geschlossen. Du kannst vorbestellen. Erste Lieferung ab ${formatCustomerDateTime(nextDeliveryAt)} Uhr.`
+    customerMessage = `Aktuell geschlossen. Du kannst vorbestellen. Erste Lieferung ab ${formatCustomerDateTime(nextDeliveryAt, timeZone)} Uhr.`
   } else if (nextDeliveryAt) {
-    customerMessage = `Aktuell geschlossen. Naechste Lieferung ab ${formatCustomerDateTime(nextDeliveryAt)} Uhr moeglich.`
+    customerMessage = `Aktuell geschlossen. Naechste Lieferung ab ${formatCustomerDateTime(nextDeliveryAt, timeZone)} Uhr moeglich.`
   } else {
     customerMessage = 'Aktuell sind keine Liefertermine verfuegbar.'
   }
@@ -512,7 +645,17 @@ export async function buildDeliveryAvailabilityForTenant(
 ) {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
-    select: { id: true, name: true, email: true, businessSettings: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      businessSettings: true,
+      tenantBillingSettings: {
+        select: {
+          timezone: true,
+        },
+      },
+    },
   })
 
   if (!tenant) {
@@ -524,9 +667,19 @@ export async function buildDeliveryAvailabilityForTenant(
     email: tenant.email,
   })
 
-  return buildDeliveryAvailability({
+  const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
+  const now = input?.now ?? new Date()
+  const deliveryAvailability = buildDeliveryAvailability({
     settings,
-    now: input?.now,
+    now,
     deliveryAreaInput: input?.deliveryAreaInput,
+    timeZone,
   })
+
+  return {
+    deliveryAvailability,
+    timeZone,
+    serverTime: now.toISOString(),
+    tenantLocalTime: formatTenantLocalDateTime(now, timeZone),
+  }
 }

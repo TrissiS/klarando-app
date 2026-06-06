@@ -49,7 +49,7 @@ router.get('/availability', requirePermission(PermissionKey.SETTINGS_READ), asyn
     const latitude = readCoordinate(req.query.latitude)
     const longitude = readCoordinate(req.query.longitude)
 
-    const deliveryAvailability = await buildDeliveryAvailabilityForTenant(tenantId, {
+    const availabilityResult = await buildDeliveryAvailabilityForTenant(tenantId, {
       now: parsedAt ?? new Date(),
       deliveryAreaInput: {
         zipCode,
@@ -61,7 +61,10 @@ router.get('/availability', requirePermission(PermissionKey.SETTINGS_READ), asyn
 
     return res.json({
       tenantId,
-      evaluatedAt: (parsedAt ?? new Date()).toISOString(),
+      evaluatedAt: availabilityResult.serverTime,
+      serverTime: availabilityResult.serverTime,
+      tenantLocalTime: availabilityResult.tenantLocalTime,
+      timezone: availabilityResult.timeZone,
       input: {
         zipCode,
         street,
@@ -69,8 +72,8 @@ router.get('/availability', requirePermission(PermissionKey.SETTINGS_READ), asyn
         longitude,
       },
       deliveryAvailability: {
-        ...deliveryAvailability,
-        nextDeliveryAt: deliveryAvailability.nextDeliveryAt?.toISOString() ?? null,
+        ...availabilityResult.deliveryAvailability,
+        nextDeliveryAt: availabilityResult.deliveryAvailability.nextDeliveryAt?.toISOString() ?? null,
       },
     })
   } catch (error) {
