@@ -17,11 +17,13 @@ export default function DeliveryOverviewPage() {
       warnings={[
         'Lieferzonen steuern nur Gebiet, PLZ, Radius, Polygon, Ausschlüsse, Lieferkosten und Mindestbestellwert.',
         'Lieferzeiten, Mindestvorlauf, Vorbestellung und Kundensicht-Debug liegen bewusst im Bereich Lieferdienst.',
+        'Feiertage, Urlaub, Sonderöffnungszeiten und Sonderlieferzeiten werden separat im Bereich Feiertage & Ausnahmen gepflegt.',
         'Tourenplanung ist davon getrennt und bündelt später nur offene Lieferbestellungen zu Fahrer-Routen.',
       ]}
       quickActions={[
         { href: '/admin/settings#liefergebiete-kosten', label: 'Lieferzonen & Kosten öffnen' },
         { href: '/admin/settings#lieferdienst', label: 'Lieferdienst öffnen' },
+        { href: '/admin/settings#feiertage-ausnahmen', label: 'Ausnahmen öffnen' },
         { href: '/admin/drivers', label: 'Fahrer verwalten' },
         { href: '/admin/tours', label: 'Touren öffnen' },
       ]}

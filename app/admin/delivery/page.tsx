@@ -30,6 +30,7 @@ export default function DeliveryWorkspacePage() {
           tabs={[
             { href: '/admin/settings#lieferdienst', label: 'Lieferdienst' },
             { href: '/admin/settings#liefergebiete-kosten', label: 'Lieferzonen & Kosten' },
+            { href: '/admin/settings#feiertage-ausnahmen', label: 'Feiertage & Ausnahmen' },
             { href: '/admin/drivers', label: 'Fahrer' },
             { href: '/admin/tours', label: 'Touren' },
           ]}
@@ -38,6 +39,7 @@ export default function DeliveryWorkspacePage() {
           actions={[
             { href: '/admin/settings#lieferdienst', label: 'Lieferdienst öffnen' },
             { href: '/admin/settings#liefergebiete-kosten', label: 'Lieferzonen & Kosten öffnen' },
+            { href: '/admin/settings#feiertage-ausnahmen', label: 'Ausnahmen öffnen' },
             { href: '/admin/drivers', label: 'Fahrer öffnen' },
             { href: '/admin/tours', label: 'Touren öffnen' },
           ]}
@@ -46,6 +48,7 @@ export default function DeliveryWorkspacePage() {
           warnings={[
             'Lieferdienst wird im Einstellungen-Bereich unter lieferdienst gepflegt.',
             'Lieferzonen und Kosten werden getrennt im Bereich liefergebiete-kosten gepflegt.',
+            'Feiertage, Sonderöffnungszeiten und Sonderlieferzeiten werden separat im Bereich feiertage-ausnahmen gepflegt.',
             'Fahrer werden separat im Fahrerbereich verwaltet.',
             'Touren bleiben fachlich getrennt von Lieferdienst sowie Lieferzonen und Kosten.',
           ]}

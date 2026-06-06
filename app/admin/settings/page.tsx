@@ -461,6 +461,13 @@ export default function AdminSettingsPage() {
                 <p className="mt-1 text-sm text-rose-900/70">
                   Dieser Bereich steuert den allgemeinen Filialbetrieb und die Grundverfügbarkeit.
                 </p>
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Feiertage, Urlaub, Sonderöffnungen und sonstige Ausnahmen werden nicht hier gepflegt, sondern zentral im Bereich{' '}
+                  <a href="#feiertage-ausnahmen" className="font-semibold underline underline-offset-2">
+                    Feiertage & Ausnahmen
+                  </a>
+                  .
+                </div>
                 <div className="mt-4">
                   <AppSettingsFields
                     settings={settings}
@@ -505,6 +512,13 @@ export default function AdminSettingsPage() {
               <p className="mt-1 text-sm text-rose-900/70">
                 Diese Zeiten und Regeln gelten zentral für App und Checkout. Liefergebiete, PLZ, Radius und Polygon werden bewusst separat im nächsten Bereich verwaltet.
               </p>
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Sonderlieferzeiten, Feiertage und geschlossene Ausnahmetage werden nicht hier gepflegt, sondern zentral im Bereich{' '}
+                <a href="#feiertage-ausnahmen" className="font-semibold underline underline-offset-2">
+                  Feiertage & Ausnahmen
+                </a>
+                .
+              </div>
               <div className="mt-4">
                 <AppSettingsFields
                   settings={settings}
@@ -677,6 +691,13 @@ export default function AdminSettingsPage() {
               <p className="mt-1 text-sm text-rose-900/70">
                 Dieser Bereich enthält nur Gebiet und Kosten: PLZ, Radius, Polygon, Ausschlüsse, Liefergebühr und Mindestbestellwert.
               </p>
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Zeitfenster, Sonderöffnungszeiten und Feiertagsregeln werden hier bewusst nicht gepflegt. Ausnahmen liegen zentral im Bereich{' '}
+                <a href="#feiertage-ausnahmen" className="font-semibold underline underline-offset-2">
+                  Feiertage & Ausnahmen
+                </a>
+                .
+              </div>
               <div className="mt-4">
                 <AppSettingsFields
                   settings={settings}
@@ -709,6 +730,9 @@ export default function AdminSettingsPage() {
             </div>
             <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
               <h3 className="text-xl font-semibold">Ausnahmen verwalten</h3>
+              <p className="mt-1 text-sm text-rose-900/70">
+                Hier werden Feiertage, Urlaub, geschlossene Tage, Sonderöffnungszeiten, Sonderlieferzeiten und sonstige Abweichungen von den normalen Öffnungs- und Lieferzeiten gebündelt gepflegt.
+              </p>
               <div className="mt-4">
                 <AppSettingsFields
                   settings={settings}
