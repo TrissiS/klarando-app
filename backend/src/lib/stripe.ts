@@ -193,6 +193,11 @@ export async function createAccountLink(stripeAccountId: string, tenantId?: stri
   })
 }
 
+export async function createExpressDashboardLoginLink(stripeAccountId: string) {
+  const stripe = getStripe()
+  return stripe.accounts.createLoginLink(stripeAccountId)
+}
+
 export async function refreshTenantStripeAccountStatus(tenantId: string) {
   const config = await prisma.tenantPaymentConfig.findUnique({
     where: { tenantId },

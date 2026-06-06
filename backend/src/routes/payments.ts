@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma'
 import {
   createAccountLink,
   createConnectedAccountForTenant,
+  createExpressDashboardLoginLink,
   createOrderPaymentIntent,
   refreshTenantStripeAccountStatus,
   refundPayment,
@@ -182,6 +183,42 @@ router.get('/connect/status', requirePermission(PermissionKey.SETTINGS_READ), as
     console.error('STRIPE CONNECT STATUS ERROR:', error)
     return res.status(500).json({
       error: error instanceof Error ? error.message : 'Stripe-Status konnte nicht geladen werden',
+    })
+  }
+})
+
+router.post('/connect/dashboard-link', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
+  try {
+    const scope = await resolveTenantScope(req, req.body?.tenantId)
+    if (!scope.tenantId) {
+      return res.status(400).json({ error: 'tenantId fehlt' })
+    }
+
+    const config = await prisma.tenantPaymentConfig.findUnique({
+      where: { tenantId: scope.tenantId },
+      select: { stripeAccountId: true },
+    })
+
+    if (!config?.stripeAccountId) {
+      return res.status(400).json({ error: 'Für diese Filiale ist noch kein Stripe-Konto hinterlegt.' })
+    }
+
+    const loginLink = await createExpressDashboardLoginLink(config.stripeAccountId)
+    return res.json({
+      ok: true,
+      tenantId: scope.tenantId,
+      stripeAccountId: config.stripeAccountId,
+      dashboardUrl: loginLink.url,
+      createdAt: Date.now(),
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('STRIPE DASHBOARD LINK ERROR:', error)
+    return res.status(500).json({
+      error: error instanceof Error ? error.message : 'Stripe-Dashboard-Link konnte nicht erstellt werden',
     })
   }
 })

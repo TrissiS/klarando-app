@@ -2445,6 +2445,27 @@ export async function getStripeConnectStatus(
   )
 }
 
+export async function createStripeDashboardLink(
+  token: string,
+  tenantId: string
+): Promise<{
+  ok: boolean
+  tenantId: string
+  stripeAccountId: string
+  dashboardUrl: string
+  createdAt: number
+}> {
+  return apiJson(
+    buildApiUrl('/api/payments/connect/dashboard-link'),
+    {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify({ tenantId }),
+    },
+    'Stripe-Dashboard-Link konnte nicht erstellt werden'
+  )
+}
+
 export async function createStripePaymentIntent(input: {
   token: string
   tenantId: string
