@@ -105,7 +105,7 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
     orderBy: { createdAt: 'desc' },
   })
 
-  if (!tx && typeof intent.metadata?.orderId === 'string' && intent.metadata.orderId.trim().isNotEmpty) {
+  if (!tx && typeof intent.metadata?.orderId === 'string' && intent.metadata.orderId.trim().length > 0) {
     tx = await prisma.paymentTransaction.findFirst({
       where: {
         provider: PaymentProvider.STRIPE,
@@ -142,6 +142,7 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
       const order = await db.order.findUnique({
         where: { id: tx.orderId },
         select: {
+          status: true,
           paymentStatus: true,
           paidAt: true,
         },
@@ -185,7 +186,7 @@ async function handlePaymentIntentFailed(event: StripeEventLike) {
     orderBy: { createdAt: 'desc' },
   })
 
-  if (!tx && typeof intent.metadata?.orderId === 'string' && intent.metadata.orderId.trim().isNotEmpty) {
+  if (!tx && typeof intent.metadata?.orderId === 'string' && intent.metadata.orderId.trim().length > 0) {
     tx = await prisma.paymentTransaction.findFirst({
       where: {
         provider: PaymentProvider.STRIPE,
