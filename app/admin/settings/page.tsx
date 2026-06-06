@@ -762,14 +762,21 @@ export default function AdminSettingsPage() {
               </p>
             </div>
             <div className="grid gap-6 xl:grid-cols-2">
-              <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-                <h3 className="text-xl font-semibold">Stripe als aktive Zahlungsart</h3>
-                <p className="mt-2 text-sm text-rose-900/70">
-                  Stripe Connect ist die einzige aktive Zahlungsoption in Klarando. Konfiguration, Status und Gebühren werden zentral im Finanzbereich gepflegt.
-                </p>
-                <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                  PayPal bleibt nur als Legacy-Kompatibilität im Code bestehen und wird hier nicht mehr als aktive Oberfläche angezeigt.
-                </div>
+            <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+              <h3 className="text-xl font-semibold">Stripe als aktive Zahlungsart</h3>
+              <p className="mt-2 text-sm text-rose-900/70">
+                Stripe Connect ist die einzige aktive Zahlungsoption in Klarando. Konfiguration, Status und Gebühren werden zentral im Finanzbereich gepflegt.
+              </p>
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Rechtliche Kundentexte, DSGVO-Hinweise und Checkout-relevante Einwilligungen werden nicht hier gepflegt, sondern zentral im Bereich{' '}
+                <a href="#rechtliches-compliance" className="font-semibold underline underline-offset-2">
+                  Rechtliches & Compliance
+                </a>
+                .
+              </div>
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                PayPal bleibt nur als Legacy-Kompatibilität im Code bestehen und wird hier nicht mehr als aktive Oberfläche angezeigt.
+              </div>
                 <div className="mt-4 flex flex-wrap gap-3">
                   <Link
                     href="/admin/finanzen"
@@ -865,18 +872,61 @@ export default function AdminSettingsPage() {
             <div>
               <h2 className="text-2xl font-semibold text-slate-950">6. Rechtliches & Compliance</h2>
               <p className="mt-1 text-sm text-rose-900/70">
-                Rechtliche Pflichttexte und Compliance-Hinweise bleiben fachlich getrennt vom Liefer- und Zahlungsbereich.
+                Rechtliche Pflichttexte, DSGVO-Hinweise, Einwilligungen und sonstige rechtliche Kundentexte bleiben fachlich getrennt von App-Darstellung, Lieferbetrieb und Zahlungen.
               </p>
             </div>
-            <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-              <h3 className="text-xl font-semibold">Zentral verwaltete Rechtstexte</h3>
-              <p className="mt-1 text-sm text-rose-900/70">
-                Diese Einstellungen werden zentral im Superadminbereich von Klarando verwaltet.
-              </p>
-              <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 p-4 text-sm text-rose-900/80">
-                Für diese Filiale ist der Bereich aktuell nur als Hinweis sichtbar. PayPal-spezifische Hinweise werden hier nicht mehr angezeigt.
-              </div>
-            </article>
+            <div className="grid gap-6 xl:grid-cols-2">
+              <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+                <h3 className="text-xl font-semibold">Rechtstexte, Kontakte & Einwilligungen</h3>
+                <p className="mt-1 text-sm text-rose-900/70">
+                  Hier liegen Impressum, Datenschutz, AGB, Cookie-Einwilligung, DSGVO-Kontakte sowie weitere rechtliche Checkout- und Kontotexte.
+                </p>
+                <div className="mt-4">
+                  <AppSettingsFields
+                    settings={settings}
+                    onChange={setSettings}
+                    showAppReleaseControls={false}
+                    showComplianceControls
+                    showDeliveryCostControls={false}
+                    showServiceFeeControls={false}
+                    showServiceModeControls={false}
+                    showOrderingControls={false}
+                    showListingDisplayControls={false}
+                    showServiceAreaEditor={false}
+                    showOpeningHours={false}
+                    showDeliveryHours={false}
+                    showHolidayHours={false}
+                    showDeliveryScheduling={false}
+                  />
+                </div>
+              </article>
+
+              <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
+                <h3 className="text-xl font-semibold">Rechtliche Kundentexte & Hinweise</h3>
+                <p className="mt-1 text-sm text-rose-900/70">
+                  Dieser Bereich bündelt auch angrenzende Rechtsthemen, damit sie nicht mehr in App-Darstellung, Lieferdienst oder Zahlungen vermischt sind.
+                </p>
+                <div className="mt-4 space-y-3 text-sm text-rose-900/80">
+                  <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
+                    <p className="font-semibold text-slate-900">Enthaltene Themen</p>
+                    <ul className="mt-2 space-y-1">
+                      <li>Impressum</li>
+                      <li>Datenschutz</li>
+                      <li>AGB</li>
+                      <li>Cookies / Einwilligungen</li>
+                      <li>DSGVO-Hinweise</li>
+                      <li>sonstige rechtliche Kundentexte</li>
+                    </ul>
+                  </div>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
+                    <p className="font-semibold">Widerruf & Jugendschutz</p>
+                    <p className="mt-1">
+                      Diese Themen sind fachlich diesem Bereich zugeordnet. Wo heute noch keine eigenen Spezialfelder existieren, bleiben die bestehenden Texte und Compliance-Felder unverändert nutzbar und können später gezielt erweitert werden.
+                    </p>
+                  </div>
+                </div>
+              </article>
+            </div>
           </section>
 
           <section id="app-darstellung" className="space-y-4">
@@ -892,6 +942,13 @@ export default function AdminSettingsPage() {
                 <p className="mt-1 text-sm text-rose-900/70">
                   Hier pflegst du Betreiberlogo und Titelbild zentral an einer Stelle.
                 </p>
+                <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Rechtliche Kundentexte, Impressum, Datenschutz und AGB werden nicht hier gepflegt, sondern zentral im Bereich{' '}
+                  <a href="#rechtliches-compliance" className="font-semibold underline underline-offset-2">
+                    Rechtliches & Compliance
+                  </a>
+                  .
+                </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-[var(--brand-border)] bg-white p-3">
