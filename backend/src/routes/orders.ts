@@ -11,6 +11,7 @@ import { decodeStoredProductModifierName } from '../lib/product-modifiers'
 import { generateNextPickupNumberForTenant } from '../lib/pickup-number'
 import { createUniqueOrderPublicCode } from '../lib/order-public-code'
 import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-availability'
+import { buildDeliveryAvailability } from '../lib/delivery-availability'
 import { resolveDisplayRouting } from '../lib/order-routing'
 import { signDriverDeviceToken, verifyDriverDeviceToken } from '../auth/driver-device-token'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
@@ -3365,31 +3366,30 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             }
 
       const intake = settings.orderIntake
+      const availabilityNow = new Date()
       const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
         settings,
         'DELIVERY',
-        new Date()
+        availabilityNow
       )
       const pickupOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
         settings,
         'PICKUP',
-        new Date()
+        availabilityNow
       )
       const serviceAvailability =
-        resolvedServiceType === 'DELIVERY'
-          ? deliveryOrderingAvailability
-          : resolvedServiceType === 'PICKUP'
-            ? pickupOrderingAvailability
-            : null
+        resolvedServiceType === 'PICKUP'
+          ? pickupOrderingAvailability
+          : null
       const intakeServiceEnabled =
-        resolvedServiceType === 'DELIVERY'
-          ? intake.services.deliveryEnabledNow
-          : resolvedServiceType === 'PICKUP'
-            ? intake.services.pickupEnabledNow
-            : true
+        resolvedServiceType === 'PICKUP'
+          ? intake.services.pickupEnabledNow
+          : true
       const serviceAllowed =
-        resolvedServiceType === 'DELIVERY' || resolvedServiceType === 'PICKUP'
-          ? intake.orderIntakeEnabled && intakeServiceEnabled && Boolean(serviceAvailability?.canOrderNow)
+        resolvedServiceType === 'PICKUP'
+          ? intake.orderIntakeEnabled &&
+            intakeServiceEnabled &&
+            Boolean(serviceAvailability?.canOrderNow)
           : true
       if (!serviceAllowed) {
         return res.status(423).json({
@@ -3486,6 +3486,31 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
               rejectionReason: 'MISSING_COORDINATES',
               debugMessage: deliveryOrderingAvailability.message,
             },
+          })
+        }
+
+        const deliveryAvailability = buildDeliveryAvailability({
+          settings,
+          now: availabilityNow,
+          deliveryAreaInput: {
+            zipCode: normalizedCustomerZipCode,
+            street: normalizedCustomerAddress,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+          },
+        })
+
+        if (!deliveryAvailability.isDeliveryAvailable) {
+          console.info('DELIVERY_AVAILABILITY_CHECKOUT_BLOCKED', {
+            route: 'POST /api/orders',
+            tenantId: resolvedTenantId,
+            deliveryType: resolvedServiceType,
+            blockingReasons: deliveryAvailability.blockingReasons,
+          })
+          return res.status(409).json({
+            error: 'DELIVERY_NOT_AVAILABLE',
+            message: deliveryAvailability.customerMessage,
+            blockingReasons: deliveryAvailability.blockingReasons,
           })
         }
 

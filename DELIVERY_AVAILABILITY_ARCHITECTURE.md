@@ -8,7 +8,7 @@
 - Falls spaeter: wann wieder?
 - Welche Lieferfenster gelten heute?
 
-Die bestehende Discovery-, Checkout- und Tracking-Logik bleibt vorerst unveraendert. Diese Architekturdatei beschreibt die neue gemeinsame Ziel-Basis.
+Tracking bleibt vorerst unveraendert. Seit der Checkout-Umstellung nutzt `POST /api/orders` fuer Lieferbestellungen bereits dieselbe zentrale Availability-Berechnung. Diese Architekturdatei beschreibt die gemeinsame Ziel-Basis.
 
 ## Dateien
 - Kernlogik: [delivery-availability.ts](C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\backend\src\lib\delivery-availability.ts)
@@ -156,6 +156,38 @@ Aktuell bewusst defensiv:
 - intern
 - `SETTINGS_READ` erforderlich
 - Tenant-Scoping ueber `resolveTenantScope(...)`
+
+## Checkout-Nutzung
+
+### Verwendender Pfad
+- `POST /api/orders`
+- Datei: [orders.ts](C:\Users\Tristan Stenger\Documents\New project\klarando\klarando-app\backend\src\routes\orders.ts)
+
+### Regel
+- nur Lieferbestellungen (`serviceType = DELIVERY`) nutzen die zentrale `buildDeliveryAvailability(...)`-Pruefung
+- Abholung bleibt bewusst auf der bestehenden Pickup-Logik
+
+### Blockierungs-Response
+Wenn Lieferung laut zentraler Availability nicht moeglich ist, antwortet Checkout mit:
+
+```json
+{
+  "error": "DELIVERY_NOT_AVAILABLE",
+  "message": "...",
+  "blockingReasons": ["..."]
+}
+```
+
+HTTP-Status:
+- `409 Conflict`
+
+### Abgrenzung Lieferung vs. Abholung
+- Lieferung:
+  - nutzt zentrale Delivery-Availability
+  - kann ueber `blockingReasons` maschinenlesbar blockiert werden
+- Abholung:
+  - bleibt vorerst bei der bestehenden Pickup-Pruefung
+  - wird nicht versehentlich durch Lieferzeiten blockiert
 
 ## Beispiele
 
