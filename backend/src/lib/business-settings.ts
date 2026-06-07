@@ -948,13 +948,37 @@ export function readRawServiceAreaFromBusinessSettings(
   return null
 }
 
+function detectServiceAreaSource(
+  raw: unknown,
+  areaKey: 'deliveryArea' | 'pickupArea'
+) {
+  if (!raw || typeof raw !== 'object') {
+    return 'none'
+  }
+  const source = raw as Record<string, unknown>
+  if (source[areaKey] && typeof source[areaKey] === 'object') {
+    return `tenant.businessSettings.${areaKey}`
+  }
+  if (source.settings && typeof source.settings === 'object') {
+    const nestedSettings = source.settings as Record<string, unknown>
+    if (nestedSettings[areaKey] && typeof nestedSettings[areaKey] === 'object') {
+      return `tenant.businessSettings.settings.${areaKey}`
+    }
+  }
+  return 'parsedSettings'
+}
+
 export function resolveEffectiveServiceAreaFromBusinessSettings(
   rawBusinessSettings: unknown,
   parsedArea: ServiceAreaSettings,
-  areaKey: 'deliveryArea' | 'pickupArea' = 'deliveryArea'
+  areaKey: 'deliveryArea' | 'pickupArea' = 'deliveryArea',
+  options?: {
+    tenantId?: string | null
+  }
 ) {
   const rawArea = readRawServiceAreaFromBusinessSettings(rawBusinessSettings, areaKey)
   const effectiveArea = rawArea ? sanitizeServiceArea(rawArea, parsedArea) : parsedArea
+  const source = detectServiceAreaSource(rawBusinessSettings, areaKey)
   const rawPolygonSource =
     rawArea?.polygonPath ??
     rawArea?.polygonPoints ??
@@ -966,9 +990,23 @@ export function resolveEffectiveServiceAreaFromBusinessSettings(
     rawArea?.coordinates ??
     null
 
+  console.info('EFFECTIVE_SERVICE_AREA_DEBUG', {
+    tenantId: options?.tenantId ?? null,
+    areaKey,
+    source,
+    rawArea: rawArea ?? null,
+    strategy: effectiveArea.strategy,
+    polygonPath: effectiveArea.polygonPath,
+    zipCodes: effectiveArea.zipCodes,
+    radiusKm: effectiveArea.radiusKm,
+    rawPolygonPathPoints: Array.isArray(rawPolygonSource) ? rawPolygonSource.length : 0,
+    parsedPolygonPathPoints: parsedArea.polygonPath.length,
+    effectivePolygonPathPoints: effectiveArea.polygonPath.length,
+  })
+
   return {
     area: effectiveArea,
-    source: rawArea ? `businessSettings.${areaKey}` : 'parsedSettings',
+    source,
     rawPolygonPathPoints: Array.isArray(rawPolygonSource) ? rawPolygonSource.length : 0,
     parsedPolygonPathPoints: parsedArea.polygonPath.length,
     effectivePolygonPathPoints: effectiveArea.polygonPath.length,

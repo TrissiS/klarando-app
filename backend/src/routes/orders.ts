@@ -3306,7 +3306,8 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       const deliveryAreaResolution = resolveEffectiveServiceAreaFromBusinessSettings(
         tenant.businessSettings,
         settings.deliveryArea,
-        'deliveryArea'
+        'deliveryArea',
+        { tenantId: tenant.id }
       )
       const effectiveDeliveryArea = deliveryAreaResolution.area
 

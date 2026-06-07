@@ -843,7 +843,8 @@ router.get('/public/discovery', async (req, res) => {
         const deliveryAreaResolution = resolveEffectiveServiceAreaFromBusinessSettings(
           tenant.businessSettings,
           settings.deliveryArea,
-          'deliveryArea'
+          'deliveryArea',
+          { tenantId: tenant.id }
         )
         const effectiveDeliveryArea = deliveryAreaResolution.area
         console.info('PUBLIC_DISCOVERY_SETTINGS_SOURCE', {

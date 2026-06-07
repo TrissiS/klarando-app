@@ -678,7 +678,8 @@ export async function buildDeliveryAvailabilityForTenant(
   const deliveryAreaResolution = resolveEffectiveServiceAreaFromBusinessSettings(
     tenant.businessSettings,
     settings.deliveryArea,
-    'deliveryArea'
+    'deliveryArea',
+    { tenantId: tenant.id }
   )
 
   const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
