@@ -50,6 +50,7 @@ class StartPage extends StatefulWidget {
     required this.tenantRatings,
     required this.onSearchByZip,
     required this.onEditAddress,
+    required this.onUseCurrentLocation,
     required this.onSelectTenant,
     required this.onSelectUnavailableTenant,
     required this.onToggleFavorite,
@@ -67,6 +68,7 @@ class StartPage extends StatefulWidget {
   final Map<String, TenantRatingInfo> tenantRatings;
   final Future<void> Function(String zipCode, DiscoveryMode mode) onSearchByZip;
   final Future<void> Function() onEditAddress;
+  final Future<void> Function() onUseCurrentLocation;
   final void Function(TenantDiscoveryTenant tenant) onSelectTenant;
   final void Function(TenantDiscoveryTenant tenant) onSelectUnavailableTenant;
   final void Function(String tenantId) onToggleFavorite;
@@ -76,53 +78,36 @@ class StartPage extends StatefulWidget {
 }
 
 class _StartPageState extends State<StartPage> {
-  final _searchController = TextEditingController();
   DiscoveryMode _mode = DiscoveryMode.delivery;
-  bool _searchCollapsed = false;
 
   @override
-  void dispose() {
-    _searchController.dispose();
-    super.dispose();
-  }
+  void dispose() => super.dispose();
 
   bool _isZipCode(String input) {
     return RegExp(r'^\d{5}$').hasMatch(input.trim());
   }
 
-  Future<void> _submitSearch() async {
-    final value = _searchController.text.trim();
-    if (_isZipCode(value)) {
-      await widget.onSearchByZip(value, _mode);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _searchCollapsed = true;
-      });
-      return;
-    }
+  bool get _hasValidAddressSource =>
+      widget.userAddress.trim().isNotEmpty && _isZipCode(widget.activeZipCode);
 
-    if (!mounted) {
-      return;
+  String get _addressLabel {
+    final address = widget.userAddress.trim();
+    final zipCode = widget.activeZipCode.trim();
+    if (address.isEmpty && zipCode.isEmpty) {
+      return _t(widget.languageCode, 'home_address_missing');
     }
-    setState(() {
-      _searchCollapsed = value.isNotEmpty;
-    });
+    if (address.isEmpty) {
+      return zipCode;
+    }
+    if (zipCode.isEmpty || address.contains(zipCode)) {
+      return address;
+    }
+    return '$address, $zipCode';
   }
 
   @override
   Widget build(BuildContext context) {
-    final rawQuery = _searchController.text.trim();
-    final textQuery = _isZipCode(rawQuery) ? '' : rawQuery.toLowerCase();
-    final filtered = widget.results.where((entry) {
-      if (textQuery.isEmpty) {
-        return true;
-      }
-      final tenant = entry.tenantName.toLowerCase();
-      final chain = (entry.chainName ?? '').toLowerCase();
-      return tenant.contains(textQuery) || chain.contains(textQuery);
-    }).toList(growable: false);
+    final filtered = widget.results.toList(growable: false);
 
     final favorites = filtered
         .where((entry) => widget.favoriteTenantIds.contains(entry.tenantId))
@@ -144,22 +129,17 @@ class _StartPageState extends State<StartPage> {
                 languageCode: widget.languageCode,
                 loading: widget.loading,
                 mode: _mode,
-                userAddress: widget.userAddress,
-                zipCode: widget.activeZipCode,
-                searchController: _searchController,
-                collapsedSearch: _searchCollapsed,
+                addressLabel: _addressLabel,
+                hasValidAddress: _hasValidAddressSource,
                 onEditAddress: widget.onEditAddress,
-                onExpandSearch: () {
-                  setState(() {
-                    _searchCollapsed = false;
-                  });
-                },
-                onSubmitSearch: _submitSearch,
+                onUseCurrentLocation: widget.onUseCurrentLocation,
                 onModeChanged: (nextMode) {
                   setState(() {
                     _mode = nextMode;
                   });
-                  widget.onSearchByZip(widget.activeZipCode, nextMode);
+                  if (_hasValidAddressSource) {
+                    widget.onSearchByZip(widget.activeZipCode, nextMode);
+                  }
                 },
               );
             },
@@ -220,13 +200,10 @@ class _StartHeaderContent extends StatelessWidget {
     required this.languageCode,
     required this.loading,
     required this.mode,
-    required this.userAddress,
-    required this.zipCode,
-    required this.searchController,
-    required this.collapsedSearch,
+    required this.addressLabel,
+    required this.hasValidAddress,
     required this.onEditAddress,
-    required this.onExpandSearch,
-    required this.onSubmitSearch,
+    required this.onUseCurrentLocation,
     required this.onModeChanged,
   });
 
@@ -234,13 +211,10 @@ class _StartHeaderContent extends StatelessWidget {
   final String languageCode;
   final bool loading;
   final DiscoveryMode mode;
-  final String userAddress;
-  final String zipCode;
-  final TextEditingController searchController;
-  final bool collapsedSearch;
+  final String addressLabel;
+  final bool hasValidAddress;
   final Future<void> Function() onEditAddress;
-  final VoidCallback onExpandSearch;
-  final Future<void> Function() onSubmitSearch;
+  final Future<void> Function() onUseCurrentLocation;
   final ValueChanged<DiscoveryMode> onModeChanged;
 
   @override
@@ -317,8 +291,8 @@ class _StartHeaderContent extends StatelessWidget {
                           const SizedBox(width: 6),
                           Expanded(
                             child: Text(
-                              '$zipCode | $userAddress',
-                              maxLines: 1,
+                              addressLabel,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: Colors.white,
@@ -333,6 +307,50 @@ class _StartHeaderContent extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (subtitleOpacity > 0.05) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => onEditAddress(),
+                          icon: const Icon(Icons.edit_location_alt_outlined, size: 18),
+                          label: Text(
+                            _t(
+                              languageCode,
+                              hasValidAddress ? 'change_address' : 'enter_address',
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white54),
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => onUseCurrentLocation(),
+                          icon: const Icon(Icons.my_location_rounded, size: 18),
+                          label: Text(_t(languageCode, 'use_location')),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: Colors.white54),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (!hasValidAddress)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Text(
+                          _t(languageCode, 'address_required_hint'),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
                 ],
               ),
             ),
@@ -341,11 +359,7 @@ class _StartHeaderContent extends StatelessWidget {
               languageCode: languageCode,
               loading: loading,
               mode: mode,
-              searchController: searchController,
-              collapsed: collapsedSearch,
               compact: collapse > 0.5,
-              onExpand: onExpandSearch,
-              onSubmit: onSubmitSearch,
               onModeChanged: onModeChanged,
             ),
             if (loading) ...[
@@ -369,61 +383,18 @@ class _SearchPanel extends StatelessWidget {
     required this.languageCode,
     required this.loading,
     required this.mode,
-    required this.searchController,
-    required this.collapsed,
     required this.compact,
-    required this.onSubmit,
-    required this.onExpand,
     required this.onModeChanged,
   });
 
   final String languageCode;
   final bool loading;
   final DiscoveryMode mode;
-  final TextEditingController searchController;
-  final bool collapsed;
   final bool compact;
-  final Future<void> Function() onSubmit;
-  final VoidCallback onExpand;
   final ValueChanged<DiscoveryMode> onModeChanged;
 
   @override
   Widget build(BuildContext context) {
-    if (collapsed) {
-      return InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onExpand,
-        child: Ink(
-          padding: EdgeInsets.symmetric(horizontal: compact ? 12 : 14, vertical: compact ? 10 : 12),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            color: Colors.white,
-            border: Border.all(color: const Color(0xFFEDEDED)),
-          ),
-          child: Row(
-            children: [
-              const Icon(Icons.search, size: 18, color: Color(0xFFFF5A1F)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  searchController.text.trim().isEmpty
-                      ? _t(languageCode, 'home_search_hint')
-                      : searchController.text.trim(),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1F2937),
-                  ),
-                ),
-              ),
-              const Icon(Icons.expand_more, size: 18),
-            ],
-          ),
-        ),
-      );
-    }
-
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(compact ? 10 : 12),
@@ -471,31 +442,13 @@ class _SearchPanel extends StatelessWidget {
             ),
           ),
           SizedBox(height: compact ? 8 : 10),
-          TextField(
-            controller: searchController,
-            onSubmitted: (_) => onSubmit(),
-            decoration: InputDecoration(
-              hintText: _t(languageCode, 'home_search_hint'),
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(
-                horizontal: compact ? 10 : 12,
-                vertical: compact ? 10 : 12,
-              ),
-              prefixIcon: Icon(Icons.search, size: compact ? 20 : 22),
-              suffixIcon: IconButton(
-                onPressed: loading ? null : onSubmit,
-                icon: const Icon(Icons.arrow_forward),
-              ),
-              filled: true,
-              fillColor: const Color(0xFFF7F7F7),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-              ),
+          Text(
+            loading
+                ? _t(languageCode, 'home_results_refreshing')
+                : _t(languageCode, 'home_mode_hint'),
+            style: const TextStyle(
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF6B7280),
             ),
           ),
         ],
@@ -1046,6 +999,13 @@ String _t(String languageCode, String key) {
     'delivery': 'Lieferung',
     'pickup': 'Abholung',
     'home_search_hint': 'Lokale suchen oder neue PLZ eingeben',
+    'change_address': 'Adresse ändern',
+    'enter_address': 'Adresse eingeben',
+    'use_location': 'Standort verwenden',
+    'home_address_missing': 'Bitte Lieferadresse auswählen',
+    'address_required_hint': 'Bitte zuerst eine gültige Adresse auswählen oder den Standort verwenden.',
+    'home_mode_hint': 'Lokale werden automatisch anhand deiner Adresse und der gewählten Bestellart geladen.',
+    'home_results_refreshing': 'Lokale werden für deine gespeicherte Adresse aktualisiert …',
     'favorites_nearby': 'Favoriten in deiner Nähe',
     'other_places': 'Weitere verfügbare Lokale',
     'new_rating': 'Neu',
@@ -1066,6 +1026,13 @@ String _t(String languageCode, String key) {
     'delivery': 'Delivery',
     'pickup': 'Pickup',
     'home_search_hint': 'Search places or enter a new ZIP code',
+    'change_address': 'Change address',
+    'enter_address': 'Enter address',
+    'use_location': 'Use location',
+    'home_address_missing': 'Please choose a delivery address first',
+    'address_required_hint': 'Please select a valid address or use your location first.',
+    'home_mode_hint': 'Places are loaded automatically using your saved address and selected order type.',
+    'home_results_refreshing': 'Refreshing places for your saved address …',
     'favorites_nearby': 'Favorites near you',
     'other_places': 'More available places',
     'new_rating': 'New',
@@ -1086,6 +1053,13 @@ String _t(String languageCode, String key) {
     'delivery': 'Teslimat',
     'pickup': 'Gel al',
     'home_search_hint': 'Mekan ara veya yeni posta kodu gir',
+    'change_address': 'Adresi değiştir',
+    'enter_address': 'Adres gir',
+    'use_location': 'Konumu kullan',
+    'home_address_missing': 'Lütfen önce teslimat adresi seçin',
+    'address_required_hint': 'Lütfen önce geçerli bir adres seçin veya konumu kullanın.',
+    'home_mode_hint': 'Mekanlar kayıtlı adresine ve seçilen sipariş türüne göre otomatik yüklenir.',
+    'home_results_refreshing': 'Kayıtlı adresin için mekanlar yenileniyor …',
     'favorites_nearby': 'Yakindaki favoriler',
     'other_places': 'Diger mekanlar',
     'new_rating': 'Yeni',

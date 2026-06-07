@@ -3122,6 +3122,7 @@ class _HomeShellState extends State<HomeShell> {
                 tenantRatings: _tenantRatings,
                 onSearchByZip: _searchTenants,
                 onEditAddress: _openAddressManager,
+                onUseCurrentLocation: _useCurrentLocationForDiscovery,
                 onSelectTenant: _selectTenant,
                 onSelectUnavailableTenant: _selectUnavailableTenant,
                 onToggleFavorite: _toggleFavorite,
