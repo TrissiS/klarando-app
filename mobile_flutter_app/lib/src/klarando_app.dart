@@ -3918,45 +3918,45 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       );
     }
 
-    stripe.Stripe.publishableKey = publishableKey;
-    await stripe.Stripe.instance.applySettings();
-
-    final billingDetails = stripe.BillingDetails(
-      name: _customerNameController.text.trim().isEmpty
-          ? null
-          : _customerNameController.text.trim(),
-      phone: _customerPhoneController.text.trim().isEmpty
-          ? null
-          : _customerPhoneController.text.trim(),
-      address: _serviceType == _CheckoutServiceType.delivery
-          ? stripe.Address(
-              line1: _deliveryAddressController.text.trim().isEmpty
-                  ? null
-                  : _deliveryAddressController.text.trim(),
-              line2: '',
-              city: _deliveryCityController.text.trim().isEmpty
-                  ? null
-                  : _deliveryCityController.text.trim(),
-              postalCode: _deliveryZipController.text.trim().isEmpty
-                  ? null
-                  : _deliveryZipController.text.trim(),
-              country: 'DE',
-              state: null,
-            )
-          : null,
-    );
-
-    await stripe.Stripe.instance.initPaymentSheet(
-      paymentSheetParameters: stripe.SetupPaymentSheetParameters(
-        merchantDisplayName: widget.tenantName,
-        paymentIntentClientSecret: clientSecret,
-        style: ThemeMode.system,
-        billingDetails: billingDetails,
-        allowsDelayedPaymentMethods: false,
-      ),
-    );
-
     try {
+      stripe.Stripe.publishableKey = publishableKey;
+      await stripe.Stripe.instance.applySettings();
+
+      final billingDetails = stripe.BillingDetails(
+        name: _customerNameController.text.trim().isEmpty
+            ? null
+            : _customerNameController.text.trim(),
+        phone: _customerPhoneController.text.trim().isEmpty
+            ? null
+            : _customerPhoneController.text.trim(),
+        address: _serviceType == _CheckoutServiceType.delivery
+            ? stripe.Address(
+                line1: _deliveryAddressController.text.trim().isEmpty
+                    ? null
+                    : _deliveryAddressController.text.trim(),
+                line2: '',
+                city: _deliveryCityController.text.trim().isEmpty
+                    ? null
+                    : _deliveryCityController.text.trim(),
+                postalCode: _deliveryZipController.text.trim().isEmpty
+                    ? null
+                    : _deliveryZipController.text.trim(),
+                country: 'DE',
+                state: null,
+              )
+            : null,
+      );
+
+      await stripe.Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: stripe.SetupPaymentSheetParameters(
+          merchantDisplayName: widget.tenantName,
+          paymentIntentClientSecret: clientSecret,
+          style: ThemeMode.system,
+          billingDetails: billingDetails,
+          allowsDelayedPaymentMethods: false,
+        ),
+      );
+
       await stripe.Stripe.instance.presentPaymentSheet();
       return _StripePaymentSheetResult.success(
         mode: intent.mode,
@@ -3979,7 +3979,43 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
             ? localizedMessage!
             : 'Die Stripe-Zahlung ist fehlgeschlagen. Bitte versuche es erneut.',
       );
+    } on PlatformException catch (error) {
+      throw ApiException(_resolveUnexpectedCheckoutErrorMessage(error));
+    } catch (error) {
+      throw ApiException(_resolveUnexpectedCheckoutErrorMessage(error));
     }
+  }
+
+  String _resolveUnexpectedCheckoutErrorMessage(Object error) {
+    if (error is ApiException) {
+      return error.message;
+    }
+    if (error is PlatformException) {
+      final message = error.message?.trim();
+      if (message != null && message.isNotEmpty) {
+        return message;
+      }
+    }
+
+    final rawMessage = error.toString().trim();
+    if (rawMessage.isEmpty) {
+      return 'Bestellung konnte nicht gesendet werden. Bitte prüfe deine Angaben und versuche es erneut.';
+    }
+
+    if (rawMessage.startsWith('Exception: ')) {
+      return rawMessage.substring('Exception: '.length).trim();
+    }
+    if (rawMessage.startsWith('PlatformException(')) {
+      final parts = rawMessage.split(', ');
+      if (parts.length >= 2) {
+        final extracted = parts[1].trim();
+        if (extracted.isNotEmpty) {
+          return extracted;
+        }
+      }
+    }
+
+    return rawMessage;
   }
 
   @override
@@ -4255,14 +4291,15 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       }
       setState(() {
         _errorMessage = error.message;
+        _paymentInfoMessage = null;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) {
         return;
       }
       setState(() {
-        _errorMessage =
-            'Bestellung konnte nicht gesendet werden. Bitte prüfe deine Angaben und versuche es erneut.';
+        _errorMessage = _resolveUnexpectedCheckoutErrorMessage(error);
+        _paymentInfoMessage = null;
       });
     } finally {
       if (mounted) {
@@ -4996,6 +5033,16 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                       }
                       setState(() {
                         _errorMessage = error.message;
+                        _paymentInfoMessage = null;
+                      });
+                    } catch (error) {
+                      if (!mounted) {
+                        return;
+                      }
+                      setState(() {
+                        _errorMessage =
+                            _resolveUnexpectedCheckoutErrorMessage(error);
+                        _paymentInfoMessage = null;
                       });
                     } finally {
                       if (mounted) {

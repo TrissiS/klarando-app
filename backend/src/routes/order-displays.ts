@@ -1,5 +1,5 @@
 import crypto from 'crypto'
-import { OrderDisplayRole, PermissionKey } from '@prisma/client'
+import { OrderDisplayRole, PermissionKey, Prisma } from '@prisma/client'
 import { Router } from 'express'
 import {
   DISPLAY_AGE_ALERT_ANIMATION_MODES,
@@ -36,6 +36,7 @@ import {
 } from '../lib/driver-device-sessions'
 import { buildCustomerReceiptJob80mm, buildKitchenReceiptJob80mm } from '../lib/receipt-jobs-80mm'
 import { encodeReceiptToEscPosBytes } from '../lib/escpos-encoder-80mm'
+import { excludeOperationallyHiddenStripeOrders } from '../lib/order-operational-visibility'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
 import { rateLimitDisplayPairing } from '../middleware/rate-limit'
 import {
@@ -1092,7 +1093,7 @@ router.get('/public/:displayCode/feed', async (req, res) => {
     const statusList = feedStatusesForDisplay(display)
     const assignmentField = roleOrderField(display.displayRole)
 
-    const where: Record<string, unknown> = {
+    const where: Prisma.OrderWhereInput = {
       tenantId: display.tenantId,
       status: {
         in: statusList,
@@ -1122,7 +1123,7 @@ router.get('/public/:displayCode/feed', async (req, res) => {
     const sortNewest = display.sortMode === 'PRIORITY_NEWEST'
 
     const fetchedOrders = await prisma.order.findMany({
-      where,
+      where: excludeOperationallyHiddenStripeOrders(where),
       include: {
         terminal: {
           select: {

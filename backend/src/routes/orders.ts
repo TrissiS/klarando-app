@@ -51,6 +51,7 @@ import {
   startDriverRoute,
   validateDispatchReadiness,
 } from '../lib/order-dispatch'
+import { excludeOperationallyHiddenStripeOrders } from '../lib/order-operational-visibility'
 import {
   buildDriverAssignmentLookup,
   isDriverAssignmentMatch,
@@ -1756,8 +1757,13 @@ router.get('/', async (req, res) => {
       where.serviceType = serviceType
     }
 
+    const effectiveWhere =
+      appAccount || authUser?.role === UserRole.SUPERADMIN
+        ? where
+        : excludeOperationallyHiddenStripeOrders(where)
+
     const orders = await prisma.order.findMany({
-      where,
+      where: effectiveWhere,
       include: {
         tenant: {
           select: {
@@ -1998,7 +2004,7 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
       })
     }
 
-    const where: Record<string, unknown> = {
+    let where: Prisma.OrderWhereInput = {
       tenantId: {
         in: tenantIds,
       },
@@ -2022,6 +2028,10 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
     }
     if (serviceType) {
       where.serviceType = serviceType
+    }
+
+    if (req.authUser.role !== UserRole.SUPERADMIN) {
+      where = excludeOperationallyHiddenStripeOrders(where)
     }
 
     let orders: Awaited<ReturnType<typeof prisma.order.findMany>> = []
@@ -2214,13 +2224,13 @@ router.get('/dashboard/admin', requirePermission(PermissionKey.ORDERS_READ), asy
         },
       }),
       prisma.order.findMany({
-        where: {
+        where: excludeOperationallyHiddenStripeOrders({
           tenantId,
           createdAt: {
             gte: from,
             lte: to,
           },
-        },
+        }),
         select: {
           id: true,
           paymentStatus: true,
