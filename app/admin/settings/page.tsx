@@ -239,8 +239,12 @@ export default function AdminSettingsPage() {
   async function handleSave(event?: React.FormEvent) {
     event?.preventDefault()
     if (!settings) return
+    const requestUrl = '/api/business-settings'
+    const requestMethod = 'PUT'
 
     console.log('ADMIN_SETTINGS_SAVE_CLICKED', {
+      method: requestMethod,
+      url: requestUrl,
       strategy: settings.deliveryArea?.strategy ?? null,
       zipCodesCount: settings.deliveryArea?.zipCodes?.length ?? 0,
       polygonPathLength: settings.deliveryArea?.polygonPath?.length ?? 0,
@@ -255,6 +259,8 @@ export default function AdminSettingsPage() {
       setError('')
       setSuccess('')
       console.log('BUSINESS_SETTINGS_SAVE_REQUEST_START', {
+        method: requestMethod,
+        url: requestUrl,
         strategy: settings.deliveryArea?.strategy ?? null,
         zipCodesCount: settings.deliveryArea?.zipCodes?.length ?? 0,
         polygonPathLength: settings.deliveryArea?.polygonPath?.length ?? 0,

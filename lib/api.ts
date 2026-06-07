@@ -2193,8 +2193,10 @@ export async function getBusinessSettings(): Promise<BusinessSettings> {
   })
 
   const token = readBrowserAccessToken()
-  const res = await fetch(`${API_BASE_URL}/api/business-settings?${query.toString()}`, {
+  const requestUrl = `${API_BASE_URL}/api/business-settings?${query.toString()}`
+  const res = await fetch(requestUrl, {
     headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    cache: 'no-store',
   })
 
   if (!res.ok) {
@@ -2255,6 +2257,8 @@ export async function updateBusinessSettings(
 ): Promise<BusinessSettings> {
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
+  const requestMethod = 'PUT'
+  const requestUrl = `${API_BASE_URL}/api/business-settings`
   const strategy = settings.deliveryArea?.strategy
   const normalizedSelectedStrategy: BusinessServiceAreaStrategy =
     strategy === 'ZIP_LIST' ||
@@ -2324,6 +2328,8 @@ export async function updateBusinessSettings(
       fullPolygon: normalizedPolygon,
     })
     console.log('BUSINESS_SETTINGS_SAVE_REQUEST_START', {
+      method: requestMethod,
+      url: requestUrl,
       tenantId,
       strategy: normalizedSettings.deliveryArea?.strategy ?? null,
       zipCodesCount: normalizedSettings.deliveryArea?.zipCodes?.length ?? 0,
@@ -2331,8 +2337,9 @@ export async function updateBusinessSettings(
       radiusKm: normalizedSettings.deliveryArea?.radiusKm ?? null,
     })
   }
-  const res = await fetch(`${API_BASE_URL}/api/business-settings`, {
-    method: 'PUT',
+  const res = await fetch(requestUrl, {
+    method: requestMethod,
+    cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
