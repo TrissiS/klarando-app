@@ -535,7 +535,11 @@ class TenantDiscoveryTenant {
     required this.deliveryStatus,
     required this.deliveryStrategy,
     required this.deliveryPolygonPoints,
+    required this.deliveryRejectionReason,
+    required this.deliveryCustomerMessage,
     required this.pickupStatus,
+    required this.pickupRejectionReason,
+    required this.pickupCustomerMessage,
     required this.deliveryConfigPending,
     required this.pickupConfigPending,
     required this.deliveryNextAvailableAt,
@@ -566,7 +570,11 @@ class TenantDiscoveryTenant {
   final String deliveryStatus;
   final String deliveryStrategy;
   final int deliveryPolygonPoints;
+  final String? deliveryRejectionReason;
+  final String? deliveryCustomerMessage;
   final String pickupStatus;
+  final String? pickupRejectionReason;
+  final String? pickupCustomerMessage;
   final bool deliveryConfigPending;
   final bool pickupConfigPending;
   final DateTime? deliveryNextAvailableAt;
@@ -627,7 +635,19 @@ class TenantDiscoveryTenant {
       deliveryStatus: _readNullableString(delivery?['status']) ?? 'OUT_OF_AREA',
       deliveryStrategy: _readNullableString(delivery?['strategy']) ?? 'UNKNOWN',
       deliveryPolygonPoints: _readInt(delivery?['polygonPoints']),
+      deliveryRejectionReason: _readNullableString(
+        _readNullableMap(delivery?['debug'])?['rejectionReason'],
+      ),
+      deliveryCustomerMessage: _readNullableString(
+        _readNullableMap(delivery?['debug'])?['debugMessage'],
+      ),
       pickupStatus: _readNullableString(pickup?['status']) ?? 'OUT_OF_AREA',
+      pickupRejectionReason: _readNullableString(
+        _readNullableMap(pickup?['debug'])?['rejectionReason'],
+      ),
+      pickupCustomerMessage: _readNullableString(
+        _readNullableMap(pickup?['debug'])?['debugMessage'],
+      ),
       deliveryConfigPending: _readBool(delivery?['configurationIncomplete']),
       pickupConfigPending: _readBool(pickup?['configurationIncomplete']),
       deliveryNextAvailableAt: _readNullableDateTime(delivery?['nextAvailableAt']),

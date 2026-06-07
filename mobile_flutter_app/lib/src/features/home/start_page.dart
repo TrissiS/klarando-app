@@ -486,7 +486,8 @@ class _TenantCard extends StatelessWidget {
     final orderIntakeReason = item.orderIntake.reason?.trim().isNotEmpty == true
         ? item.orderIntake.reason!.trim()
         : 'Aufgrund hoher Auslastung nimmt dieses Lokal aktuell keine neuen Online-Bestellungen an.';
-    final isOpen = (serviceAvailable || isConfigPending) && item.orderingEnabled && !isOrderIntakePaused;
+    final isVisuallyAvailable = serviceAvailable || isConfigPending;
+    final isOpen = isVisuallyAvailable && item.orderingEnabled && !isOrderIntakePaused;
     final baseRatingAverage = item.ratingAverage ?? 0;
     final baseRatingCount = item.ratingCount;
     final localRatingAverage = rating?.average ?? 0;
@@ -506,7 +507,7 @@ class _TenantCard extends StatelessWidget {
           color: isSelected ? const Color(0xFFFF5A1F) : const Color(0xFFE7E5E4),
           width: isSelected ? 1.6 : 1,
         ),
-        color: isOpen ? Colors.white : const Color(0xFFF8FAFC),
+        color: isVisuallyAvailable ? Colors.white : const Color(0xFFF8FAFC),
         boxShadow: const [
           BoxShadow(
             color: Color(0x12000000),
@@ -673,6 +674,7 @@ class _TenantCard extends StatelessWidget {
                                       serviceStatus,
                                       isConfigPending,
                                       isOrderIntakePaused,
+                                      item.orderingEnabled,
                                       orderIntakeReason,
                                     ),
                             ),
@@ -684,7 +686,7 @@ class _TenantCard extends StatelessWidget {
                 ],
               ),
             ),
-            if (!isOpen)
+            if (!isVisuallyAvailable || isOrderIntakePaused)
               Positioned.fill(
                 child: Container(
                   decoration: BoxDecoration(
@@ -698,6 +700,7 @@ class _TenantCard extends StatelessWidget {
                       serviceStatus,
                       isConfigPending,
                       isOrderIntakePaused,
+                      item.orderingEnabled,
                       orderIntakeReason,
                     ),
                     textAlign: TextAlign.center,
@@ -719,10 +722,14 @@ class _TenantCard extends StatelessWidget {
     String serviceStatus,
     bool isConfigPending,
     bool isOrderIntakePaused,
+    bool orderingEnabled,
     String orderIntakeReason,
   ) {
     if (isOrderIntakePaused) {
       return 'Bestellannahme pausiert';
+    }
+    if (!orderingEnabled) {
+      return 'Bestellen deaktiviert';
     }
     if (isConfigPending || serviceStatus == 'CONFIG_PENDING') {
       return _t(languageCode, 'area_checking');
@@ -738,10 +745,14 @@ class _TenantCard extends StatelessWidget {
     String serviceStatus,
     bool isConfigPending,
     bool isOrderIntakePaused,
+    bool orderingEnabled,
     String orderIntakeReason,
   ) {
     if (isOrderIntakePaused) {
       return 'Bestellannahme aktuell pausiert\n$orderIntakeReason';
+    }
+    if (!orderingEnabled) {
+      return 'Bestellen aktuell deaktiviert';
     }
     if (isConfigPending || serviceStatus == 'CONFIG_PENDING') {
       return _t(languageCode, 'area_checking_overlay');

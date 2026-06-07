@@ -1804,6 +1804,11 @@ class _HomeShellState extends State<HomeShell> {
           debugPrint(
             'CUSTOMER_APP_DISCOVERY_RESPONSE {endpoint: $candidate/api/tenants/public/discovery, tenants: ${candidateRows.length}, deliveryAvailableCount: ${candidateRows.where((entry) => entry.deliveryAvailable).length}, pickupAvailableCount: ${candidateRows.where((entry) => entry.pickupAvailable).length}}',
           );
+          for (final tenant in candidateRows) {
+            debugPrint(
+              'CUSTOMER_APP_DISCOVERY_RESPONSE_TENANT {tenantId: ${tenant.tenantId}, name: ${tenant.tenantName}, deliveryAvailable: ${tenant.deliveryAvailable}, pickupAvailable: ${tenant.pickupAvailable}, orderingEnabled: ${tenant.orderingEnabled}, deliveryRejectionReason: ${tenant.deliveryRejectionReason ?? 'null'}, pickupRejectionReason: ${tenant.pickupRejectionReason ?? 'null'}, deliveryCustomerMessage: ${tenant.deliveryCustomerMessage ?? tenant.orderIntake.customerMessage ?? 'null'}, pickupCustomerMessage: ${tenant.pickupCustomerMessage ?? tenant.orderIntake.customerMessage ?? 'null'}}',
+            );
+          }
 
           if (resolvedBaseUrl == null) {
             rows = candidateRows;
