@@ -1667,16 +1667,34 @@ export function matchServiceArea(
     }
   }
 
+  const inputZipRaw = input.zipCode
   const inputZip = normalizeZipCode(input.zipCode)
   const inputStreet = normalizeStreetForMatch(input.street)
+  const configuredZipCodesRaw = Array.isArray(area.zipCodes) ? area.zipCodes : []
+  const configuredZipCodesNormalized = normalizeZipCodeList(configuredZipCodesRaw)
+  const excludedZipCodesNormalized = normalizeZipCodeList(area.excludedZipCodes)
 
-  const excludedByZip = Boolean(inputZip && area.excludedZipCodes.includes(inputZip))
+  const excludedByZip = Boolean(
+    inputZip && excludedZipCodesNormalized.includes(inputZip)
+  )
   const excludedByStreet = Boolean(
     inputStreet &&
       area.excludedStreets.some((blockedStreetToken) =>
         inputStreet.includes(blockedStreetToken)
       )
   )
+
+  console.info('DELIVERY_ZIP_DEBUG', {
+    customerZipRaw: inputZipRaw ?? null,
+    customerZipNormalized: inputZip,
+    configuredZipCodesRaw,
+    configuredZipCodesNormalized,
+    excludedZipCodesNormalized,
+    strategy: area.strategy,
+    matchedByZip: Boolean(
+      inputZip && configuredZipCodesNormalized.includes(inputZip)
+    ),
+  })
 
   if (excludedByZip || excludedByStreet) {
     return {
@@ -1693,20 +1711,10 @@ export function matchServiceArea(
     }
   }
 
-  const zipRuleConfigured = area.zipCodes.length > 0
+  const zipRuleConfigured = configuredZipCodesNormalized.length > 0
   const matchedByZip = zipRuleConfigured
-    ? Boolean(inputZip && area.zipCodes.includes(inputZip))
+    ? Boolean(inputZip && configuredZipCodesNormalized.includes(inputZip))
     : false
-
-  if (area.strategy === 'ZIP_LIST' || zipRuleConfigured) {
-    console.info('DELIVERY_ZIP_DEBUG', {
-      customerZip: inputZip,
-      configuredZipCodes: area.zipCodes,
-      configuredZipCodesCount: area.zipCodes.length,
-      strategy: area.strategy,
-      matchedByZip,
-    })
-  }
 
   let matchedByRadius = false
   let matchedByPolygon = false
