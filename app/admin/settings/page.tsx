@@ -698,6 +698,9 @@ export default function AdminSettingsPage() {
                 </a>
                 .
               </div>
+              <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+                Polygon benötigt mindestens 3 Punkte. Für schnelle Tests bitte PLZ-Liste verwenden.
+              </div>
               <div className="mt-4">
                 <AppSettingsFields
                   settings={settings}

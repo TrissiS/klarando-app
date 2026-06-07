@@ -6,6 +6,7 @@ import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import {
   parseSettings,
+  resolveEffectiveServiceAreaFromBusinessSettings,
   synchronizeLegacyTimeFields,
   type BusinessSettings,
 } from '../lib/business-settings'
@@ -264,7 +265,7 @@ function mirrorPickupAreaFromDelivery(settings: BusinessSettings) {
 }
 
 function validatePolygonSettings(area: BusinessSettings['deliveryArea']) {
-  if (!area.enabled || area.strategy !== 'POLYGON') {
+  if (area.strategy !== 'POLYGON') {
     return null
   }
   if (!Array.isArray(area.polygonPath) || area.polygonPath.length < 3) {
@@ -807,6 +808,27 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
         polygonPath: incomingNormalizedPolygon,
       }
     }
+
+    const shouldPersistZipListStrategy =
+      normalizedSettings.deliveryArea.strategy === 'POLYGON' &&
+      normalizedSettings.deliveryArea.polygonPath.length < 3 &&
+      normalizedSettings.deliveryArea.zipCodes.length > 0
+
+    if (shouldPersistZipListStrategy) {
+      normalizedSettings.deliveryArea = {
+        ...normalizedSettings.deliveryArea,
+        strategy: 'ZIP_LIST',
+      }
+      console.info('BUSINESS_SETTINGS_DELIVERY_STRATEGY_FALLBACK', {
+        tenantId,
+        fromStrategy: 'POLYGON',
+        toStrategy: 'ZIP_LIST',
+        reason: 'polygon_missing_but_zip_codes_present',
+        zipCodesCount: normalizedSettings.deliveryArea.zipCodes.length,
+        polygonPoints: normalizedSettings.deliveryArea.polygonPath.length,
+      })
+    }
+
     const rawPolygonPathLength =
       deliveryAreaInput &&
       typeof deliveryAreaInput === 'object' &&
@@ -936,12 +958,28 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       savedParsedSettings,
       savedTenant?.businessSettings
     )
+    const savedDeliveryAreaResolution = resolveEffectiveServiceAreaFromBusinessSettings(
+      savedTenant?.businessSettings,
+      savedResponseSettings.deliveryArea,
+      'deliveryArea',
+      { tenantId: tenant.id }
+    )
     console.log('SAVED_BUSINESS_SETTINGS_RAW_TYPE', typeof savedTenant?.businessSettings)
     console.log('SAVED_BUSINESS_SETTINGS_RAW_VALUE', savedTenant?.businessSettings)
     console.log(
       'SAVED_BUSINESS_SETTINGS_DELIVERY_AREA',
       JSON.stringify(savedResponseSettings.deliveryArea, null, 2)
     )
+    console.info('BUSINESS_SETTINGS_DELIVERY_SAVE_RESULT', {
+      tenantId: tenant.id,
+      strategy: savedDeliveryAreaResolution.area.strategy,
+      source: savedDeliveryAreaResolution.source,
+      rawPolygonPathPoints: savedDeliveryAreaResolution.rawPolygonPathPoints,
+      parsedPolygonPathPoints: savedDeliveryAreaResolution.parsedPolygonPathPoints,
+      effectivePolygonPathPoints: savedDeliveryAreaResolution.effectivePolygonPathPoints,
+      zipCodesCount: savedDeliveryAreaResolution.area.zipCodes.length,
+      radiusKm: savedDeliveryAreaResolution.area.radiusKm,
+    })
 
     await writeAuditLog({
       req,

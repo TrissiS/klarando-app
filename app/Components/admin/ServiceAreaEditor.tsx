@@ -155,6 +155,17 @@ export default function ServiceAreaEditor({
     onChange({ ...value, ...next })
   }
 
+  function patchZipCodes(rawValue: string) {
+    const nextZipCodes = parseZipList(rawValue)
+    const shouldSwitchToZipList =
+      nextZipCodes.length > 0 && value.strategy === 'POLYGON' && polygonPath.length < 3
+
+    patch({
+      zipCodes: nextZipCodes,
+      ...(shouldSwitchToZipList ? { strategy: 'ZIP_LIST' as BusinessServiceAreaStrategy } : {}),
+    })
+  }
+
   useEffect(() => {
     if (!zipCodesFocused) setZipCodesInput(serializeList(value.zipCodes))
   }, [value.zipCodes, zipCodesFocused])
@@ -264,11 +275,11 @@ export default function ServiceAreaEditor({
             onFocus={() => setZipCodesFocused(true)}
             onChange={(event) => {
               setZipCodesInput(event.target.value)
-              patch({ zipCodes: parseZipList(event.target.value) })
+              patchZipCodes(event.target.value)
             }}
             onBlur={(event) => {
               setZipCodesFocused(false)
-              patch({ zipCodes: parseZipList(event.target.value) })
+              patchZipCodes(event.target.value)
             }}
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
@@ -389,7 +400,7 @@ export default function ServiceAreaEditor({
           </p>
           {value.strategy === 'POLYGON' && polygonPath.length < 3 ? (
             <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-              Für Polygonprüfung ist noch kein gültiges Gebiet gezeichnet. Bis dahin wird die PLZ-Regel verwendet.
+              Polygon benötigt mindestens 3 Punkte. Für schnelle Tests bitte PLZ-Liste verwenden.
             </p>
           ) : null}
           {!mapsConsentGranted ? (
