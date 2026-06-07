@@ -991,16 +991,67 @@ export function readRawServiceAreaFromBusinessSettings(
     return null
   }
   const source = raw as Record<string, unknown>
-  if (source[areaKey] && typeof source[areaKey] === 'object') {
-    return source[areaKey] as Record<string, unknown>
+  const directArea =
+    source[areaKey] && typeof source[areaKey] === 'object'
+      ? (source[areaKey] as Record<string, unknown>)
+      : null
+  const nestedArea =
+    source.settings && typeof source.settings === 'object'
+      ? (((source.settings as Record<string, unknown>)[areaKey] as Record<string, unknown> | null) &&
+          typeof (source.settings as Record<string, unknown>)[areaKey] === 'object'
+          ? ((source.settings as Record<string, unknown>)[areaKey] as Record<string, unknown>)
+          : null)
+      : null
+
+  if (!directArea) {
+    return nestedArea
   }
-  if (source.settings && typeof source.settings === 'object') {
-    const nestedSettings = source.settings as Record<string, unknown>
-    if (nestedSettings[areaKey] && typeof nestedSettings[areaKey] === 'object') {
-      return nestedSettings[areaKey] as Record<string, unknown>
-    }
+
+  if (!nestedArea) {
+    return directArea
   }
-  return null
+
+  const directZipCodes = normalizeZipCodeList(directArea.zipCodes)
+  const nestedZipCodes = normalizeZipCodeList(nestedArea.zipCodes)
+  const directPolygonPoints = normalizePolygonPath(
+    directArea.polygonPath ??
+      directArea.polygonPoints ??
+      directArea.polygon ??
+      directArea.deliveryZone ??
+      directArea.geoJson ??
+      directArea.geojson ??
+      directArea.geoJSON ??
+      directArea.coordinates ??
+      null
+  ).length
+  const nestedPolygonPoints = normalizePolygonPath(
+    nestedArea.polygonPath ??
+      nestedArea.polygonPoints ??
+      nestedArea.polygon ??
+      nestedArea.deliveryZone ??
+      nestedArea.geoJson ??
+      nestedArea.geojson ??
+      nestedArea.geoJSON ??
+      nestedArea.coordinates ??
+      null
+  ).length
+  const directRadius = normalizeRadius(directArea.radiusKm)
+  const nestedRadius = normalizeRadius(nestedArea.radiusKm)
+
+  const directScore =
+    (directZipCodes.length > 0 ? 1 : 0) +
+    (directPolygonPoints >= 3 ? 1 : 0) +
+    (typeof directRadius === 'number' && directRadius > 0 ? 1 : 0)
+  const nestedScore =
+    (nestedZipCodes.length > 0 ? 1 : 0) +
+    (nestedPolygonPoints >= 3 ? 1 : 0) +
+    (typeof nestedRadius === 'number' && nestedRadius > 0 ? 1 : 0)
+
+  if (nestedScore > directScore) {
+    return nestedArea
+  }
+
+  return directArea
 }
 
 function detectServiceAreaSource(
@@ -1649,6 +1700,16 @@ export function matchServiceArea(
   const matchedByZip = zipRuleConfigured
     ? Boolean(inputZip && area.zipCodes.includes(inputZip))
     : false
+
+  if (area.strategy === 'ZIP_LIST' || zipRuleConfigured) {
+    console.info('DELIVERY_ZIP_DEBUG', {
+      customerZip: inputZip,
+      configuredZipCodes: area.zipCodes,
+      configuredZipCodesCount: area.zipCodes.length,
+      strategy: area.strategy,
+      matchedByZip,
+    })
+  }
 
   let matchedByRadius = false
   let matchedByPolygon = false
