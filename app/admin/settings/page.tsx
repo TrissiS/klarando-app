@@ -108,17 +108,23 @@ export default function AdminSettingsPage() {
     }
   }
 
+  function applySettingsSnapshot(data: BusinessSettings) {
+    setSettings(data)
+    setDeliveryPreviewZipCode(data.zipCode || '')
+    setDeliveryPreviewStreet(data.street || '')
+  }
+
   async function loadData() {
     try {
       setLoading(true)
       const data = await getBusinessSettings()
-      setSettings(data)
-      setDeliveryPreviewZipCode(data.zipCode || '')
-      setDeliveryPreviewStreet(data.street || '')
+      applySettingsSnapshot(data)
       await loadDeliveryPreview(data)
       setError('')
+      return data
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Einstellungen konnten nicht geladen werden')
+      return null
     } finally {
       setLoading(false)
     }
@@ -230,9 +236,15 @@ export default function AdminSettingsPage() {
     }
   }
 
-  async function handleSave(event: React.FormEvent) {
-    event.preventDefault()
+  async function handleSave(event?: React.FormEvent) {
+    event?.preventDefault()
     if (!settings) return
+
+    console.log('ADMIN_SETTINGS_SAVE_CLICKED', {
+      strategy: settings.deliveryArea?.strategy ?? null,
+      zipCodesCount: settings.deliveryArea?.zipCodes?.length ?? 0,
+      polygonPathLength: settings.deliveryArea?.polygonPath?.length ?? 0,
+    })
 
     if (!confirmDoubleSave()) {
       return
@@ -242,14 +254,35 @@ export default function AdminSettingsPage() {
       setSaving(true)
       setError('')
       setSuccess('')
+      console.log('BUSINESS_SETTINGS_SAVE_REQUEST_START', {
+        strategy: settings.deliveryArea?.strategy ?? null,
+        zipCodesCount: settings.deliveryArea?.zipCodes?.length ?? 0,
+        polygonPathLength: settings.deliveryArea?.polygonPath?.length ?? 0,
+      })
       const saved = await updateBusinessSettings(settings)
-      setSettings(saved)
-      setDeliveryPreviewZipCode((current) => current || saved.zipCode || '')
-      setDeliveryPreviewStreet((current) => current || saved.street || '')
+      applySettingsSnapshot(saved)
       await loadDeliveryPreview(saved)
+
+      const reloaded = await getBusinessSettings()
+      applySettingsSnapshot(reloaded)
+      await loadDeliveryPreview(reloaded)
+
+      console.log('BUSINESS_SETTINGS_SAVE_SUCCESS', {
+        strategy: reloaded.deliveryArea?.strategy ?? null,
+        zipCodesCount: reloaded.deliveryArea?.zipCodes?.length ?? 0,
+        polygonPathLength: reloaded.deliveryArea?.polygonPath?.length ?? 0,
+      })
       setSuccess('Einstellungen gespeichert.')
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Einstellungen konnten nicht gespeichert werden')
+      const message =
+        saveError instanceof Error ? saveError.message : 'Einstellungen konnten nicht gespeichert werden'
+      console.error('BUSINESS_SETTINGS_SAVE_ERROR', {
+        message,
+        strategy: settings.deliveryArea?.strategy ?? null,
+        zipCodesCount: settings.deliveryArea?.zipCodes?.length ?? 0,
+        polygonPathLength: settings.deliveryArea?.polygonPath?.length ?? 0,
+      })
+      setError(message)
     } finally {
       setSaving(false)
     }
@@ -1087,8 +1120,9 @@ export default function AdminSettingsPage() {
 
           <div className="flex justify-end">
             <button
-              type="submit"
+              type="button"
               disabled={saving}
+              onClick={() => void handleSave()}
               className="rounded-xl bg-orange-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? 'Speichert...' : 'Einstellungen speichern'}

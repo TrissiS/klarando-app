@@ -2323,6 +2323,13 @@ export async function updateBusinessSettings(
       polygonSample: normalizedPolygon.slice(0, 3),
       fullPolygon: normalizedPolygon,
     })
+    console.log('BUSINESS_SETTINGS_SAVE_REQUEST_START', {
+      tenantId,
+      strategy: normalizedSettings.deliveryArea?.strategy ?? null,
+      zipCodesCount: normalizedSettings.deliveryArea?.zipCodes?.length ?? 0,
+      polygonPathLength: normalizedPolygon.length,
+      radiusKm: normalizedSettings.deliveryArea?.radiusKm ?? null,
+    })
   }
   const res = await fetch(`${API_BASE_URL}/api/business-settings`, {
     method: 'PUT',
@@ -2336,17 +2343,57 @@ export async function updateBusinessSettings(
     }),
   })
 
+  const responseText = await res.text()
+  const responseData = responseText
+    ? (() => {
+        try {
+          return JSON.parse(responseText)
+        } catch {
+          return null
+        }
+      })()
+    : null
+
   if (!res.ok) {
-    const errorData = await res.json().catch(() => null)
+    if (typeof window !== 'undefined') {
+      console.error('BUSINESS_SETTINGS_SAVE_ERROR', {
+        tenantId,
+        status: res.status,
+        statusText: res.statusText,
+        response: responseData,
+      })
+    }
     throw new Error(
       formatBusinessSettingsValidationError(
-        errorData,
+        responseData,
         'Einstellungen konnten nicht gespeichert werden'
       )
     )
   }
 
-  return res.json()
+  if (!responseData || typeof responseData !== 'object') {
+    if (typeof window !== 'undefined') {
+      console.error('BUSINESS_SETTINGS_SAVE_ERROR', {
+        tenantId,
+        status: res.status,
+        statusText: res.statusText,
+        responseText,
+      })
+    }
+    throw new Error('Einstellungen wurden gespeichert, aber die Antwort war ungültig.')
+  }
+
+  if (typeof window !== 'undefined') {
+    const savedSettings = responseData as BusinessSettings
+    console.log('BUSINESS_SETTINGS_SAVE_SUCCESS', {
+      tenantId,
+      strategy: savedSettings.deliveryArea?.strategy ?? null,
+      zipCodesCount: savedSettings.deliveryArea?.zipCodes?.length ?? 0,
+      polygonPathLength: savedSettings.deliveryArea?.polygonPath?.length ?? 0,
+    })
+  }
+
+  return responseData as BusinessSettings
 }
 
 export async function uploadBusinessSettingsImage(
