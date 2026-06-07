@@ -279,6 +279,7 @@ class _StartHeaderContent extends StatelessWidget {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           const Icon(Icons.location_on_rounded, color: Colors.white, size: 16),
                           const SizedBox(width: 6),
@@ -295,45 +296,44 @@ class _StartHeaderContent extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 6),
-                          const Icon(Icons.edit_location_alt_rounded, color: Colors.white, size: 16),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                onPressed: () => onUseCurrentLocation(),
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                padding: EdgeInsets.zero,
+                                icon: const Icon(
+                                  Icons.my_location_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                tooltip: _t(languageCode, 'use_location'),
+                              ),
+                              IconButton(
+                                onPressed: () => onEditAddress(),
+                                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                                padding: EdgeInsets.zero,
+                                icon: const Icon(
+                                  Icons.edit_location_alt_rounded,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                tooltip: _t(
+                                  languageCode,
+                                  hasValidAddress ? 'change_address' : 'enter_address',
+                                ),
+                              ),
+                            ],
+                          ),
                         ],
                       ),
                     ),
                   ),
                   if (subtitleOpacity > 0.05) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () => onEditAddress(),
-                          icon: const Icon(Icons.edit_location_alt_outlined, size: 18),
-                          label: Text(
-                            _t(
-                              languageCode,
-                              hasValidAddress ? 'change_address' : 'enter_address',
-                            ),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white54),
-                          ),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () => onUseCurrentLocation(),
-                          icon: const Icon(Icons.my_location_rounded, size: 18),
-                          label: Text(_t(languageCode, 'use_location')),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: Colors.white,
-                            side: const BorderSide(color: Colors.white54),
-                          ),
-                        ),
-                      ],
-                    ),
                     if (!hasValidAddress)
                       Padding(
-                        padding: const EdgeInsets.only(top: 8),
+                        padding: const EdgeInsets.only(top: 10),
                         child: Text(
                           _t(languageCode, 'address_required_hint'),
                           style: const TextStyle(
