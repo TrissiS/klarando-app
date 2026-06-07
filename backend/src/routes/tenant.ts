@@ -18,6 +18,7 @@ import {
 } from '../lib/database-provisioning'
 import { mergePayoutProfile, readDefaultPayoutProfile } from '../lib/payout-profile'
 import { decodeStoredProductModifierName } from '../lib/product-modifiers'
+import { isStripePublishableKeyConfigured, resolveStripeRuntimeMode } from '../lib/stripe'
 
 const router = Router()
 const MAX_PUBLIC_INLINE_ASSET_LENGTH = 12_000_000
@@ -813,6 +814,12 @@ router.get('/public/discovery', async (req, res) => {
         email: true,
         chainId: true,
         businessSettings: true,
+        paymentConfig: {
+          select: {
+            stripeAccountId: true,
+            stripeChargesEnabled: true,
+          },
+        },
         chain: {
           select: {
             id: true,
@@ -1101,6 +1108,13 @@ router.get('/public/discovery', async (req, res) => {
           minOrderValue: settings.minOrderValue,
           serviceFee: settings.serviceFee,
           customerApp: sanitizePublicCustomerApp(settings.customerApp),
+          payments: {
+            stripeAvailable:
+              Boolean(tenant.paymentConfig?.stripeAccountId) &&
+              Boolean(tenant.paymentConfig?.stripeChargesEnabled),
+            stripeMode: resolveStripeRuntimeMode(),
+            publishableKeyConfigured: isStripePublishableKeyConfigured(),
+          },
           orderIntake: {
             enabled: intake.orderIntakeEnabled,
             paused,
@@ -1246,6 +1260,12 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         name: true,
         email: true,
         businessSettings: true,
+        paymentConfig: {
+          select: {
+            stripeAccountId: true,
+            stripeChargesEnabled: true,
+          },
+        },
         chain: {
           select: {
             id: true,
@@ -1534,6 +1554,13 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         deliveryFeeNote: settings.deliveryFeeNote,
         minOrderValue: settings.minOrderValue,
         serviceFee: settings.serviceFee,
+        payments: {
+          stripeAvailable:
+            Boolean(tenant.paymentConfig?.stripeAccountId) &&
+            Boolean(tenant.paymentConfig?.stripeChargesEnabled),
+          stripeMode: resolveStripeRuntimeMode(),
+          publishableKeyConfigured: isStripePublishableKeyConfigured(),
+        },
       },
       customerApp: sanitizePublicCustomerApp(settings.customerApp),
       orderIntake: {

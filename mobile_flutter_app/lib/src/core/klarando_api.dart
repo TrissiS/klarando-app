@@ -440,6 +440,79 @@ class StripeCheckoutSessionResponse {
   }
 }
 
+class TenantPublicPayments {
+  const TenantPublicPayments({
+    required this.stripeAvailable,
+    required this.stripeMode,
+    required this.publishableKeyConfigured,
+  });
+
+  final bool stripeAvailable;
+  final String stripeMode;
+  final bool publishableKeyConfigured;
+
+  factory TenantPublicPayments.fromJson(Object? json) {
+    final source = _readNullableMap(json);
+    return TenantPublicPayments(
+      stripeAvailable: source == null ? false : _readBool(source['stripeAvailable']),
+      stripeMode: source == null
+          ? 'test'
+          : (_readNullableString(source['stripeMode']) ?? 'test').toLowerCase(),
+      publishableKeyConfigured:
+          source == null ? false : _readBool(source['publishableKeyConfigured']),
+    );
+  }
+}
+
+class StripePaymentIntentResponse {
+  const StripePaymentIntentResponse({
+    required this.paymentId,
+    required this.orderId,
+    required this.tenantId,
+    required this.paymentIntentId,
+    required this.clientSecret,
+    required this.publishableKey,
+    required this.mode,
+    required this.amountCents,
+    required this.currency,
+    required this.platformFeeCents,
+    required this.platformFeePercent,
+    required this.connectedAccountId,
+  });
+
+  final String paymentId;
+  final String orderId;
+  final String tenantId;
+  final String paymentIntentId;
+  final String? clientSecret;
+  final String? publishableKey;
+  final String mode;
+  final int amountCents;
+  final String currency;
+  final int platformFeeCents;
+  final num platformFeePercent;
+  final String connectedAccountId;
+
+  factory StripePaymentIntentResponse.fromJson(Map<String, dynamic> json) {
+    return StripePaymentIntentResponse(
+      paymentId: _readString(json['paymentId']),
+      orderId: _readString(json['orderId']),
+      tenantId: _readString(json['tenantId']),
+      paymentIntentId: _readString(json['paymentIntentId']),
+      clientSecret: _readNullableString(json['clientSecret']),
+      publishableKey: _readNullableString(json['publishableKey']),
+      mode: (_readNullableString(json['mode']) ?? 'test').toLowerCase(),
+      amountCents: _readInt(json['amountCents']),
+      currency: _readString(json['currency']),
+      platformFeeCents: _readInt(json['platformFeeCents']),
+      platformFeePercent: json['platformFeePercent'] is num
+          ? json['platformFeePercent'] as num
+          : num.tryParse('${json['platformFeePercent']}') ?? 0,
+      connectedAccountId: _readString(json['connectedAccountId']),
+    );
+  }
+}
+
 class TenantDiscoveryTenant {
   const TenantDiscoveryTenant({
     required this.tenantId,
@@ -468,6 +541,7 @@ class TenantDiscoveryTenant {
     required this.orderingEnabled,
     required this.guestCheckoutEnabled,
     required this.orderIntake,
+    required this.payments,
     required this.ratingAverage,
     required this.ratingCount,
   });
@@ -498,6 +572,7 @@ class TenantDiscoveryTenant {
   final bool orderingEnabled;
   final bool guestCheckoutEnabled;
   final TenantOrderIntakeInfo orderIntake;
+  final TenantPublicPayments payments;
   final double? ratingAverage;
   final int ratingCount;
 
@@ -562,6 +637,7 @@ class TenantDiscoveryTenant {
           ? false
           : _readBool(customerApp['guestCheckoutEnabled']),
       orderIntake: TenantOrderIntakeInfo.fromJson(orderIntake),
+      payments: TenantPublicPayments.fromJson(json['payments']),
       ratingAverage: _readNullableDouble(json['ratingAverage']),
       ratingCount: _readInt(json['ratingCount']),
     );
@@ -887,6 +963,7 @@ class TenantCatalog {
     required this.deliveryFeeNote,
     required this.serviceFee,
     required this.orderIntake,
+    required this.payments,
     required this.products,
   });
 
@@ -903,6 +980,7 @@ class TenantCatalog {
   final String? deliveryFeeNote;
   final TenantServiceFeeSettings serviceFee;
   final TenantOrderIntakeInfo orderIntake;
+  final TenantPublicPayments payments;
   final List<TenantCatalogProduct> products;
 
   factory TenantCatalog.fromJson(
@@ -943,6 +1021,7 @@ class TenantCatalog {
       deliveryFeeNote: _readNullableString(tenant['deliveryFeeNote']),
       serviceFee: TenantServiceFeeSettings.fromJson(tenant['serviceFee']),
       orderIntake: TenantOrderIntakeInfo.fromJson(orderIntake),
+      payments: TenantPublicPayments.fromJson(tenant['payments']),
       products: productsRaw is List
           ? productsRaw
                 .whereType<Map<String, dynamic>>()
@@ -2099,6 +2178,30 @@ class KlarandoApi {
       },
     );
     return StripeCheckoutSessionResponse.fromJson(response);
+  }
+
+  Future<StripePaymentIntentResponse> createStripePaymentIntent({
+    required String baseUrl,
+    required String orderId,
+    required String tenantId,
+    String? appAuthToken,
+    int? amountCents,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/payments/stripe/payment-intent',
+      headers: {
+        if (appAuthToken != null && appAuthToken.trim().isNotEmpty)
+          'Authorization': 'Bearer $appAuthToken',
+      },
+      body: {
+        'orderId': orderId,
+        'tenantId': tenantId,
+        if (amountCents != null) 'amountCents': amountCents,
+      },
+    );
+    return StripePaymentIntentResponse.fromJson(response);
   }
 
   Future<CouponValidationResult> validateCoupon({
