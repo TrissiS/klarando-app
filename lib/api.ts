@@ -2255,6 +2255,15 @@ export async function updateBusinessSettings(
 ): Promise<BusinessSettings> {
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
+  const normalizedZipCodes = Array.isArray(settings.deliveryArea?.zipCodes)
+    ? Array.from(
+        new Set(
+          settings.deliveryArea.zipCodes
+            .map((entry) => String(entry ?? '').replace(/[^\d]/g, '').trim())
+            .filter((entry) => /^\d{5}$/.test(entry))
+        )
+      )
+    : []
   const normalizedPolygon = (Array.isArray(settings.deliveryArea?.polygonPath)
     ? settings.deliveryArea.polygonPath
     : []
@@ -2273,6 +2282,13 @@ export async function updateBusinessSettings(
     deliveryScheduling: settings.timeManagement.deliveryScheduling,
     deliveryArea: {
       ...settings.deliveryArea,
+      strategy:
+        normalizedZipCodes.length > 0 &&
+        settings.deliveryArea?.strategy === 'POLYGON' &&
+        normalizedPolygon.length < 3
+          ? 'ZIP_LIST'
+          : settings.deliveryArea.strategy,
+      zipCodes: normalizedZipCodes,
       polygonPath: normalizedPolygon,
     },
   }
@@ -2281,6 +2297,8 @@ export async function updateBusinessSettings(
       tenantId,
       strategy: normalizedSettings.deliveryArea?.strategy ?? null,
       deliveryAreaEnabled: normalizedSettings.deliveryArea?.enabled ?? null,
+      zipCodes: normalizedSettings.deliveryArea?.zipCodes ?? [],
+      zipCodesCount: normalizedSettings.deliveryArea?.zipCodes?.length ?? 0,
       polygonPoints: normalizedPolygon.length,
       polygonSample: normalizedPolygon.slice(0, 3),
       fullPolygon: normalizedPolygon,

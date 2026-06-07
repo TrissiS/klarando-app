@@ -157,12 +157,11 @@ export default function ServiceAreaEditor({
 
   function patchZipCodes(rawValue: string) {
     const nextZipCodes = parseZipList(rawValue)
-    const shouldSwitchToZipList =
-      nextZipCodes.length > 0 && value.strategy === 'POLYGON' && polygonPath.length < 3
-
     patch({
       zipCodes: nextZipCodes,
-      ...(shouldSwitchToZipList ? { strategy: 'ZIP_LIST' as BusinessServiceAreaStrategy } : {}),
+      ...(nextZipCodes.length > 0
+        ? { strategy: 'ZIP_LIST' as BusinessServiceAreaStrategy }
+        : {}),
     })
   }
 
