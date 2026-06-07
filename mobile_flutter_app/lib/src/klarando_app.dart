@@ -3932,6 +3932,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
               line1: _deliveryAddressController.text.trim().isEmpty
                   ? null
                   : _deliveryAddressController.text.trim(),
+              line2: '',
               city: _deliveryCityController.text.trim().isEmpty
                   ? null
                   : _deliveryCityController.text.trim(),
