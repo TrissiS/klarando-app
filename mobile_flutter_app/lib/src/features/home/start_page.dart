@@ -118,30 +118,23 @@ class _StartPageState extends State<StartPage> {
 
     return CustomScrollView(
       slivers: [
-        SliverPersistentHeader(
-          pinned: true,
-          delegate: _StartHeaderDelegate(
-            minHeight: 104,
-            maxHeight: 252,
-            builder: (context, collapse) {
-              return _StartHeaderContent(
-                collapse: collapse,
-                languageCode: widget.languageCode,
-                loading: widget.loading,
-                mode: _mode,
-                addressLabel: _addressLabel,
-                hasValidAddress: _hasValidAddressSource,
-                onEditAddress: widget.onEditAddress,
-                onUseCurrentLocation: widget.onUseCurrentLocation,
-                onModeChanged: (nextMode) {
-                  setState(() {
-                    _mode = nextMode;
-                  });
-                  if (_hasValidAddressSource) {
-                    widget.onSearchByZip(widget.activeZipCode, nextMode);
-                  }
-                },
-              );
+        SliverToBoxAdapter(
+          child: _StartHeaderContent(
+            collapse: 0,
+            languageCode: widget.languageCode,
+            loading: widget.loading,
+            mode: _mode,
+            addressLabel: _addressLabel,
+            hasValidAddress: _hasValidAddressSource,
+            onEditAddress: widget.onEditAddress,
+            onUseCurrentLocation: widget.onUseCurrentLocation,
+            onModeChanged: (nextMode) {
+              setState(() {
+                _mode = nextMode;
+              });
+              if (_hasValidAddressSource) {
+                widget.onSearchByZip(widget.activeZipCode, nextMode);
+              }
             },
           ),
         ),
@@ -454,38 +447,6 @@ class _SearchPanel extends StatelessWidget {
         ],
       ),
     );
-  }
-}
-
-class _StartHeaderDelegate extends SliverPersistentHeaderDelegate {
-  _StartHeaderDelegate({
-    required this.minHeight,
-    required this.maxHeight,
-    required this.builder,
-  });
-
-  final double minHeight;
-  final double maxHeight;
-  final Widget Function(BuildContext context, double collapse) builder;
-
-  @override
-  double get minExtent => minHeight;
-
-  @override
-  double get maxExtent => maxHeight;
-
-  @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
-    final extentDelta = (maxExtent - minExtent).clamp(1, double.infinity);
-    final collapse = (shrinkOffset / extentDelta).clamp(0.0, 1.0);
-    return builder(context, collapse);
-  }
-
-  @override
-  bool shouldRebuild(covariant _StartHeaderDelegate oldDelegate) {
-    return oldDelegate.minHeight != minHeight ||
-        oldDelegate.maxHeight != maxHeight ||
-        oldDelegate.builder != builder;
   }
 }
 
