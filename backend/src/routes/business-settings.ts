@@ -378,6 +378,28 @@ function readDeliveryAreaFromRawSettings(raw: unknown): Record<string, unknown> 
   return direct
 }
 
+function resolvePersistedDeliveryAreaStrategy(
+  rawDeliveryArea: Record<string, unknown> | null,
+  fallback: BusinessSettings['deliveryArea']['strategy']
+): BusinessSettings['deliveryArea']['strategy'] {
+  if (!rawDeliveryArea || typeof rawDeliveryArea.strategy !== 'string') {
+    return fallback
+  }
+
+  const normalized = rawDeliveryArea.strategy.trim().toUpperCase()
+  if (
+    normalized === 'ZIP_LIST' ||
+    normalized === 'RADIUS' ||
+    normalized === 'ZIP_OR_RADIUS' ||
+    normalized === 'ZIP_AND_RADIUS' ||
+    normalized === 'POLYGON'
+  ) {
+    return normalized as BusinessSettings['deliveryArea']['strategy']
+  }
+
+  return fallback
+}
+
 function withPersistedDeliveryPolygon(
   parsedSettings: BusinessSettings,
   rawBusinessSettings: unknown
@@ -399,6 +421,10 @@ function withPersistedDeliveryPolygon(
     ...parsedSettings,
     deliveryArea: {
       ...parsedSettings.deliveryArea,
+      strategy: resolvePersistedDeliveryAreaStrategy(
+        rawDeliveryArea,
+        parsedSettings.deliveryArea.strategy
+      ),
       polygonPath: persistedPolygon,
     },
   }
