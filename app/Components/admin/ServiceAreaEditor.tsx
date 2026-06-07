@@ -157,6 +157,12 @@ export default function ServiceAreaEditor({
 
   function patchZipCodes(rawValue: string) {
     const nextZipCodes = parseZipList(rawValue)
+    console.log('SERVICE_AREA_EDITOR_ZIPCODES_CHANGED', {
+      strategyBefore: value.strategy,
+      zipCodesLength: nextZipCodes.length,
+      polygonPathLength: polygonPath.length,
+      radiusKm: value.radiusKm,
+    })
     patch({
       zipCodes: nextZipCodes,
       ...(nextZipCodes.length > 0

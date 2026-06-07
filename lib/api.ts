@@ -2273,6 +2273,29 @@ export async function updateBusinessSettings(
       lng: Number(point?.lng),
     }))
     .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng))
+  const normalizedRadiusKm =
+    typeof settings.deliveryArea?.radiusKm === 'number' &&
+    Number.isFinite(settings.deliveryArea.radiusKm) &&
+    settings.deliveryArea.radiusKm > 0
+      ? settings.deliveryArea.radiusKm
+      : null
+  const hasRadiusConfiguration =
+    normalizedRadiusKm !== null &&
+    ((typeof settings.deliveryArea?.centerLatitude === 'number' &&
+      Number.isFinite(settings.deliveryArea.centerLatitude) &&
+      typeof settings.deliveryArea?.centerLongitude === 'number' &&
+      Number.isFinite(settings.deliveryArea.centerLongitude)) ||
+      Boolean((settings.deliveryArea?.centerZipCode ?? '').trim()))
+  const normalizedDeliveryStrategy =
+    normalizedPolygon.length >= 3
+      ? settings.deliveryArea.strategy === 'POLYGON'
+        ? 'POLYGON'
+        : settings.deliveryArea.strategy
+      : normalizedZipCodes.length > 0
+        ? 'ZIP_LIST'
+        : hasRadiusConfiguration
+          ? 'RADIUS'
+          : settings.deliveryArea.strategy
   const normalizedSettings: BusinessSettings = {
     ...settings,
     openingHours: settings.timeManagement.openingHours,
@@ -2282,13 +2305,9 @@ export async function updateBusinessSettings(
     deliveryScheduling: settings.timeManagement.deliveryScheduling,
     deliveryArea: {
       ...settings.deliveryArea,
-      strategy:
-        normalizedZipCodes.length > 0 &&
-        settings.deliveryArea?.strategy === 'POLYGON' &&
-        normalizedPolygon.length < 3
-          ? 'ZIP_LIST'
-          : settings.deliveryArea.strategy,
+      strategy: normalizedDeliveryStrategy,
       zipCodes: normalizedZipCodes,
+      radiusKm: normalizedRadiusKm,
       polygonPath: normalizedPolygon,
     },
   }
@@ -2299,7 +2318,8 @@ export async function updateBusinessSettings(
       deliveryAreaEnabled: normalizedSettings.deliveryArea?.enabled ?? null,
       zipCodes: normalizedSettings.deliveryArea?.zipCodes ?? [],
       zipCodesCount: normalizedSettings.deliveryArea?.zipCodes?.length ?? 0,
-      polygonPoints: normalizedPolygon.length,
+      polygonPathLength: normalizedPolygon.length,
+      radiusKm: normalizedSettings.deliveryArea?.radiusKm ?? null,
       polygonSample: normalizedPolygon.slice(0, 3),
       fullPolygon: normalizedPolygon,
     })
