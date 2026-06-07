@@ -922,6 +922,7 @@ export default function AppSettingsFields({
       </section>
       ) : null}
 
+      {showDeliveryScheduling ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
           Lieferzeiten je Tag
@@ -1220,6 +1221,7 @@ export default function AppSettingsFields({
           </div>
         </div>
       </section>
+      ) : null}
 
       {showComplianceControls ? (
         <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
