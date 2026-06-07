@@ -499,7 +499,9 @@ class StripePaymentIntentResponse {
       orderId: _readString(json['orderId']),
       tenantId: _readString(json['tenantId']),
       paymentIntentId: _readString(json['paymentIntentId']),
-      clientSecret: _readNullableString(json['clientSecret']),
+      clientSecret:
+          _readNullableString(json['clientSecret']) ??
+          _readNullableString(json['client_secret']),
       publishableKey: _readNullableString(json['publishableKey']),
       mode: (_readNullableString(json['mode']) ?? 'test').toLowerCase(),
       amountCents: _readInt(json['amountCents']),

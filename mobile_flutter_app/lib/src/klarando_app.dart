@@ -3906,17 +3906,27 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     final intent = await widget.startStripePaymentIntent(orderId: order.id);
     final publishableKey = intent.publishableKey?.trim();
     final clientSecret = intent.clientSecret?.trim();
+    final hasUsableClientSecret =
+        clientSecret != null &&
+        clientSecret.isNotEmpty &&
+        clientSecret.contains('_secret_') &&
+        clientSecret != intent.paymentIntentId;
+
+    debugPrint(
+      'CUSTOMER_CHECKOUT_PAYMENT_INTENT_SUCCESS { orderId: ${order.id}, paymentIntentId: ${intent.paymentIntentId}, hasClientSecret: ${clientSecret != null && clientSecret.isNotEmpty}, hasUsableClientSecret: $hasUsableClientSecret }',
+    );
 
     if (publishableKey == null || publishableKey.isEmpty) {
       throw const ApiException(
         'Stripe ist für diese Filiale noch nicht vollständig eingerichtet. Der öffentliche Zahlungsschlüssel fehlt.',
       );
     }
-    if (clientSecret == null || clientSecret.isEmpty) {
+    if (!hasUsableClientSecret) {
       throw const ApiException(
-        'Stripe konnte keinen gültigen Zahlungs-Client-Secret liefern.',
+        'Stripe-Zahlung konnte nicht vorbereitet werden: client_secret fehlt.',
       );
     }
+    final resolvedClientSecret = clientSecret!;
 
     try {
       stripe.Stripe.publishableKey = publishableKey;
@@ -3950,7 +3960,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       await stripe.Stripe.instance.initPaymentSheet(
         paymentSheetParameters: stripe.SetupPaymentSheetParameters(
           merchantDisplayName: widget.tenantName,
-          paymentIntentClientSecret: clientSecret,
+          paymentIntentClientSecret: resolvedClientSecret,
           style: ThemeMode.system,
           billingDetails: billingDetails,
           allowsDelayedPaymentMethods: false,
