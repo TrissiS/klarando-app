@@ -2395,6 +2395,7 @@ export async function updateBusinessSettings(
     console.log('BUSINESS_SETTINGS_SAVE_SUCCESS', {
       tenantId,
       strategy: savedSettings.deliveryArea?.strategy ?? null,
+      zipCodes: savedSettings.deliveryArea?.zipCodes ?? [],
       zipCodesCount: savedSettings.deliveryArea?.zipCodes?.length ?? 0,
       polygonPathLength: savedSettings.deliveryArea?.polygonPath?.length ?? 0,
     })

@@ -5,7 +5,6 @@ import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import {
-  normalizeServiceAreaStrategy,
   parseSettings,
   resolveEffectiveServiceAreaFromBusinessSettings,
   synchronizeLegacyTimeFields,
@@ -836,26 +835,6 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       }
     }
 
-    const normalizedDeliveryStrategy = normalizeServiceAreaStrategy(
-      normalizedSettings.deliveryArea
-    )
-
-    if (normalizedDeliveryStrategy !== normalizedSettings.deliveryArea.strategy) {
-      normalizedSettings.deliveryArea = {
-        ...normalizedSettings.deliveryArea,
-        strategy: normalizedDeliveryStrategy,
-      }
-      console.info('BUSINESS_SETTINGS_DELIVERY_STRATEGY_FALLBACK', {
-        tenantId,
-        fromStrategy: settings.deliveryArea.strategy,
-        toStrategy: normalizedDeliveryStrategy,
-        reason: 'strategy_normalized_from_available_delivery_area_configuration',
-        zipCodes: normalizedSettings.deliveryArea.zipCodes,
-        polygonPoints: normalizedSettings.deliveryArea.polygonPath.length,
-        radiusKm: normalizedSettings.deliveryArea.radiusKm,
-      })
-    }
-
     const rawPolygonPathLength =
       deliveryAreaInput &&
       typeof deliveryAreaInput === 'object' &&
@@ -964,6 +943,7 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       tenantId: tenant.id,
       strategy: finalSettingsForDb.deliveryArea.strategy,
       zipCodes: finalSettingsForDb.deliveryArea.zipCodes,
+      zipCodesCount: finalSettingsForDb.deliveryArea.zipCodes.length,
       polygonPoints: finalSettingsForDb.deliveryArea.polygonPath.length,
       radiusKm: finalSettingsForDb.deliveryArea.radiusKm,
     })

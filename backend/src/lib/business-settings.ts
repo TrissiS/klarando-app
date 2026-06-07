@@ -927,10 +927,7 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
     notes: normalizeText(source.notes),
   }
 
-  return {
-    ...sanitizedArea,
-    strategy: normalizeServiceAreaStrategy(sanitizedArea),
-  }
+  return sanitizedArea
 }
 
 export function normalizeServiceAreaStrategy(area: Pick<

@@ -275,6 +275,7 @@ export default function AdminSettingsPage() {
 
       console.log('BUSINESS_SETTINGS_SAVE_SUCCESS', {
         strategy: reloaded.deliveryArea?.strategy ?? null,
+        zipCodes: reloaded.deliveryArea?.zipCodes ?? [],
         zipCodesCount: reloaded.deliveryArea?.zipCodes?.length ?? 0,
         polygonPathLength: reloaded.deliveryArea?.polygonPath?.length ?? 0,
       })
