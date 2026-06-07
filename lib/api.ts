@@ -2255,6 +2255,15 @@ export async function updateBusinessSettings(
 ): Promise<BusinessSettings> {
   const tenantId = resolveTenantId()
   const token = readBrowserAccessToken()
+  const strategy = settings.deliveryArea?.strategy
+  const normalizedSelectedStrategy: BusinessServiceAreaStrategy =
+    strategy === 'ZIP_LIST' ||
+    strategy === 'RADIUS' ||
+    strategy === 'ZIP_OR_RADIUS' ||
+    strategy === 'ZIP_AND_RADIUS' ||
+    strategy === 'POLYGON'
+      ? strategy
+      : 'ZIP_LIST'
   const normalizedZipCodes = Array.isArray(settings.deliveryArea?.zipCodes)
     ? Array.from(
         new Set(
@@ -2286,16 +2295,6 @@ export async function updateBusinessSettings(
       typeof settings.deliveryArea?.centerLongitude === 'number' &&
       Number.isFinite(settings.deliveryArea.centerLongitude)) ||
       Boolean((settings.deliveryArea?.centerZipCode ?? '').trim()))
-  const normalizedDeliveryStrategy =
-    normalizedPolygon.length >= 3
-      ? settings.deliveryArea.strategy === 'POLYGON'
-        ? 'POLYGON'
-        : settings.deliveryArea.strategy
-      : normalizedZipCodes.length > 0
-        ? 'ZIP_LIST'
-        : hasRadiusConfiguration
-          ? 'RADIUS'
-          : settings.deliveryArea.strategy
   const normalizedSettings: BusinessSettings = {
     ...settings,
     openingHours: settings.timeManagement.openingHours,
@@ -2305,7 +2304,7 @@ export async function updateBusinessSettings(
     deliveryScheduling: settings.timeManagement.deliveryScheduling,
     deliveryArea: {
       ...settings.deliveryArea,
-      strategy: normalizedDeliveryStrategy,
+      strategy: normalizedSelectedStrategy,
       zipCodes: normalizedZipCodes,
       radiusKm: normalizedRadiusKm,
       polygonPath: normalizedPolygon,
@@ -2320,6 +2319,7 @@ export async function updateBusinessSettings(
       zipCodesCount: normalizedSettings.deliveryArea?.zipCodes?.length ?? 0,
       polygonPathLength: normalizedPolygon.length,
       radiusKm: normalizedSettings.deliveryArea?.radiusKm ?? null,
+      hasRadiusConfiguration,
       polygonSample: normalizedPolygon.slice(0, 3),
       fullPolygon: normalizedPolygon,
     })

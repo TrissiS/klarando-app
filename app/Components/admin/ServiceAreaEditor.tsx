@@ -155,6 +155,17 @@ export default function ServiceAreaEditor({
     onChange({ ...value, ...next })
   }
 
+  function patchStrategy(nextStrategy: BusinessServiceAreaStrategy) {
+    console.log('SERVICE_AREA_EDITOR_STRATEGY_CHANGED', {
+      previousStrategy: value.strategy,
+      nextStrategy,
+      zipCodesLength: value.zipCodes.length,
+      polygonPathLength: polygonPath.length,
+      radiusKm: value.radiusKm,
+    })
+    patch({ strategy: nextStrategy })
+  }
+
   function patchZipCodes(rawValue: string) {
     const nextZipCodes = parseZipList(rawValue)
     console.log('SERVICE_AREA_EDITOR_ZIPCODES_CHANGED', {
@@ -165,9 +176,6 @@ export default function ServiceAreaEditor({
     })
     patch({
       zipCodes: nextZipCodes,
-      ...(nextZipCodes.length > 0
-        ? { strategy: 'ZIP_LIST' as BusinessServiceAreaStrategy }
-        : {}),
     })
   }
 
@@ -187,7 +195,6 @@ export default function ServiceAreaEditor({
     const next = normalizePolygonPath([...polygonPath, point])
     patch({
       polygonPath: next,
-      strategy: next.length >= 3 ? 'POLYGON' : value.strategy,
     })
   }
 
@@ -258,7 +265,7 @@ export default function ServiceAreaEditor({
           <select
             value={value.strategy}
             disabled={disabled || !value.enabled}
-            onChange={(event) => patch({ strategy: event.target.value as BusinessServiceAreaStrategy })}
+            onChange={(event) => patchStrategy(event.target.value as BusinessServiceAreaStrategy)}
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           >
             {STRATEGY_OPTIONS.map((entry) => (
@@ -473,7 +480,7 @@ export default function ServiceAreaEditor({
                 <button
                   type="button"
                   disabled={!canEditMap}
-                  onClick={() => patch({ strategy: 'POLYGON' })}
+                  onClick={() => patchStrategy('POLYGON')}
                   className="rounded-lg border border-[var(--brand-border)] bg-white px-2 py-1 font-semibold text-slate-800 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Polygon-Modus aktivieren
