@@ -5,6 +5,7 @@ import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import {
+  normalizeServiceAreaStrategy,
   parseSettings,
   resolveEffectiveServiceAreaFromBusinessSettings,
   synchronizeLegacyTimeFields,
@@ -809,23 +810,23 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       }
     }
 
-    const shouldPersistZipListStrategy =
-      normalizedSettings.deliveryArea.strategy === 'POLYGON' &&
-      normalizedSettings.deliveryArea.polygonPath.length < 3 &&
-      normalizedSettings.deliveryArea.zipCodes.length > 0
+    const normalizedDeliveryStrategy = normalizeServiceAreaStrategy(
+      normalizedSettings.deliveryArea
+    )
 
-    if (shouldPersistZipListStrategy) {
+    if (normalizedDeliveryStrategy !== normalizedSettings.deliveryArea.strategy) {
       normalizedSettings.deliveryArea = {
         ...normalizedSettings.deliveryArea,
-        strategy: 'ZIP_LIST',
+        strategy: normalizedDeliveryStrategy,
       }
       console.info('BUSINESS_SETTINGS_DELIVERY_STRATEGY_FALLBACK', {
         tenantId,
-        fromStrategy: 'POLYGON',
-        toStrategy: 'ZIP_LIST',
-        reason: 'polygon_missing_but_zip_codes_present',
-        zipCodesCount: normalizedSettings.deliveryArea.zipCodes.length,
+        fromStrategy: settings.deliveryArea.strategy,
+        toStrategy: normalizedDeliveryStrategy,
+        reason: 'strategy_normalized_from_available_delivery_area_configuration',
+        zipCodes: normalizedSettings.deliveryArea.zipCodes,
         polygonPoints: normalizedSettings.deliveryArea.polygonPath.length,
+        radiusKm: normalizedSettings.deliveryArea.radiusKm,
       })
     }
 
@@ -933,6 +934,13 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       'FINAL_DELIVERY_AREA_BEFORE_DB_SAVE',
       JSON.stringify(finalSettingsForDb.deliveryArea, null, 2)
     )
+    console.info('BUSINESS_SETTINGS_DELIVERY_AREA_SAVED', {
+      tenantId: tenant.id,
+      strategy: finalSettingsForDb.deliveryArea.strategy,
+      zipCodes: finalSettingsForDb.deliveryArea.zipCodes,
+      polygonPoints: finalSettingsForDb.deliveryArea.polygonPath.length,
+      radiusKm: finalSettingsForDb.deliveryArea.radiusKm,
+    })
 
     await prisma.tenant.update({
       where: { id: tenant.id },

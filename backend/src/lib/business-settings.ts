@@ -908,7 +908,7 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
     source.coordinates ??
     null
 
-  return {
+  const sanitizedArea = {
     enabled:
       typeof source.enabled === 'boolean'
         ? source.enabled
@@ -926,6 +926,61 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
     centerStreet: normalizeText(source.centerStreet),
     notes: normalizeText(source.notes),
   }
+
+  return {
+    ...sanitizedArea,
+    strategy: normalizeServiceAreaStrategy(sanitizedArea),
+  }
+}
+
+export function normalizeServiceAreaStrategy(area: Pick<
+  ServiceAreaSettings,
+  | 'strategy'
+  | 'zipCodes'
+  | 'radiusKm'
+  | 'polygonPath'
+  | 'centerLatitude'
+  | 'centerLongitude'
+  | 'centerZipCode'
+>) {
+  const hasZipCodes = area.zipCodes.length > 0
+  const hasPolygon = area.polygonPath.length >= 3
+  const hasRadius =
+    typeof area.radiusKm === 'number' &&
+    area.radiusKm > 0 &&
+    ((typeof area.centerLatitude === 'number' &&
+      typeof area.centerLongitude === 'number') ||
+      Boolean(area.centerZipCode))
+
+  if (area.strategy === 'POLYGON') {
+    if (hasPolygon) return 'POLYGON' as ServiceAreaStrategy
+    if (hasZipCodes) return 'ZIP_LIST' as ServiceAreaStrategy
+    if (hasRadius) return 'RADIUS' as ServiceAreaStrategy
+    return 'ZIP_LIST' as ServiceAreaStrategy
+  }
+
+  if (area.strategy === 'RADIUS') {
+    if (hasRadius) return 'RADIUS' as ServiceAreaStrategy
+    if (hasZipCodes) return 'ZIP_LIST' as ServiceAreaStrategy
+    if (hasPolygon) return 'POLYGON' as ServiceAreaStrategy
+    return 'ZIP_LIST' as ServiceAreaStrategy
+  }
+
+  if (area.strategy === 'ZIP_OR_RADIUS' || area.strategy === 'ZIP_AND_RADIUS') {
+    if (hasZipCodes && hasRadius) return area.strategy
+    if (hasZipCodes) return 'ZIP_LIST' as ServiceAreaStrategy
+    if (hasRadius) return 'RADIUS' as ServiceAreaStrategy
+    if (hasPolygon) return 'POLYGON' as ServiceAreaStrategy
+    return 'ZIP_LIST' as ServiceAreaStrategy
+  }
+
+  if (area.strategy === 'ZIP_LIST') {
+    if (hasZipCodes) return 'ZIP_LIST' as ServiceAreaStrategy
+    if (hasRadius) return 'RADIUS' as ServiceAreaStrategy
+    if (hasPolygon) return 'POLYGON' as ServiceAreaStrategy
+  }
+
+  return area.strategy
 }
 
 export function readRawServiceAreaFromBusinessSettings(
@@ -1593,7 +1648,7 @@ export function matchServiceArea(
   const zipRuleConfigured = area.zipCodes.length > 0
   const matchedByZip = zipRuleConfigured
     ? Boolean(inputZip && area.zipCodes.includes(inputZip))
-    : true
+    : false
 
   let matchedByRadius = false
   let matchedByPolygon = false
@@ -1636,11 +1691,21 @@ export function matchServiceArea(
 
   let matched = false
   if (area.strategy === 'ZIP_LIST') {
-    matched = matchedByZip
+    matched = zipRuleConfigured ? matchedByZip : false
+    configurationIncomplete = !zipRuleConfigured
   } else if (area.strategy === 'RADIUS') {
     // Fallback: if radius strategy is selected but radius configuration is incomplete,
     // use ZIP matching so a branch is not silently hidden in the app.
-    matched = radiusConfigured ? matchedByRadius : matchedByZip
+    if (radiusConfigured) {
+      matched = matchedByRadius
+    } else if (zipRuleConfigured) {
+      matched = matchedByZip
+      usedZipFallback = true
+      configurationIncomplete = true
+    } else {
+      matched = false
+      configurationIncomplete = true
+    }
   } else if (area.strategy === 'POLYGON') {
     if (polygonConfigured && hasInputCoordinates) {
       matched = matchedByPolygon
@@ -1655,10 +1720,26 @@ export function matchServiceArea(
       requiresLocation = polygonConfigured && !hasInputCoordinates
     }
   } else if (area.strategy === 'ZIP_OR_RADIUS') {
-    matched = matchedByZip || matchedByRadius
+    if (!zipRuleConfigured && !radiusConfigured) {
+      matched = false
+      configurationIncomplete = true
+    } else {
+      matched = (zipRuleConfigured ? matchedByZip : false) || (radiusConfigured ? matchedByRadius : false)
+    }
   } else {
     // ZIP_AND_RADIUS also falls back to ZIP when radius data is missing.
-    matched = radiusConfigured ? matchedByZip && matchedByRadius : matchedByZip
+    if (!zipRuleConfigured && !radiusConfigured) {
+      matched = false
+      configurationIncomplete = true
+    } else if (radiusConfigured && zipRuleConfigured) {
+      matched = matchedByZip && matchedByRadius
+    } else if (zipRuleConfigured) {
+      matched = matchedByZip
+      configurationIncomplete = true
+    } else {
+      matched = false
+      configurationIncomplete = true
+    }
   }
 
   return {
