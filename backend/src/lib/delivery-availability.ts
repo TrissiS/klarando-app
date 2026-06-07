@@ -5,7 +5,9 @@ import {
   type BusinessSettings,
   type DailyWindow,
   type ServiceAreaMatchInput,
+  type ServiceAreaSettings,
   type WeekDay,
+  resolveEffectiveServiceAreaFromBusinessSettings,
 } from './business-settings'
 
 export type DeliveryAvailabilityWindow = {
@@ -27,6 +29,7 @@ export type BuildDeliveryAvailabilityInput = {
   settings: BusinessSettings
   now?: Date
   deliveryAreaInput?: ServiceAreaMatchInput | null
+  deliveryAreaOverride?: ServiceAreaSettings | null
   timeZone?: string | null
 }
 
@@ -444,9 +447,10 @@ function isNowWithinWindows(windows: DeliveryAvailabilityWindow[], now: Date, ti
 
 function resolveAreaBlockingReason(
   settings: BusinessSettings,
-  deliveryAreaInput: ServiceAreaMatchInput | null | undefined
+  deliveryAreaInput: ServiceAreaMatchInput | null | undefined,
+  deliveryAreaOverride?: ServiceAreaSettings | null
 ) {
-  const area = settings.deliveryArea
+  const area = deliveryAreaOverride ?? settings.deliveryArea
   if (!area.enabled) {
     return {
       blockingReason: null,
@@ -566,7 +570,12 @@ export function buildDeliveryAvailability(
     debugReasons.push('Keine manuelle Lieferpause gesetzt.')
   }
 
-  const areaEvaluation = resolveAreaBlockingReason(settings, input.deliveryAreaInput)
+  const effectiveArea = input.deliveryAreaOverride ?? settings.deliveryArea
+  const areaEvaluation = resolveAreaBlockingReason(
+    settings,
+    input.deliveryAreaInput,
+    effectiveArea
+  )
   if (areaEvaluation.blockingReason) {
     blockingReasons.push(areaEvaluation.blockingReason)
   }
@@ -666,6 +675,11 @@ export async function buildDeliveryAvailabilityForTenant(
     name: tenant.name,
     email: tenant.email,
   })
+  const deliveryAreaResolution = resolveEffectiveServiceAreaFromBusinessSettings(
+    tenant.businessSettings,
+    settings.deliveryArea,
+    'deliveryArea'
+  )
 
   const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
   const now = input?.now ?? new Date()
@@ -673,6 +687,7 @@ export async function buildDeliveryAvailabilityForTenant(
     settings,
     now,
     deliveryAreaInput: input?.deliveryAreaInput,
+    deliveryAreaOverride: deliveryAreaResolution.area,
     timeZone,
   })
 

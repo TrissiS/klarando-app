@@ -928,6 +928,53 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
   }
 }
 
+export function readRawServiceAreaFromBusinessSettings(
+  raw: unknown,
+  areaKey: 'deliveryArea' | 'pickupArea' = 'deliveryArea'
+) {
+  if (!raw || typeof raw !== 'object') {
+    return null
+  }
+  const source = raw as Record<string, unknown>
+  if (source[areaKey] && typeof source[areaKey] === 'object') {
+    return source[areaKey] as Record<string, unknown>
+  }
+  if (source.settings && typeof source.settings === 'object') {
+    const nestedSettings = source.settings as Record<string, unknown>
+    if (nestedSettings[areaKey] && typeof nestedSettings[areaKey] === 'object') {
+      return nestedSettings[areaKey] as Record<string, unknown>
+    }
+  }
+  return null
+}
+
+export function resolveEffectiveServiceAreaFromBusinessSettings(
+  rawBusinessSettings: unknown,
+  parsedArea: ServiceAreaSettings,
+  areaKey: 'deliveryArea' | 'pickupArea' = 'deliveryArea'
+) {
+  const rawArea = readRawServiceAreaFromBusinessSettings(rawBusinessSettings, areaKey)
+  const effectiveArea = rawArea ? sanitizeServiceArea(rawArea, parsedArea) : parsedArea
+  const rawPolygonSource =
+    rawArea?.polygonPath ??
+    rawArea?.polygonPoints ??
+    rawArea?.polygon ??
+    rawArea?.deliveryZone ??
+    rawArea?.geoJson ??
+    rawArea?.geojson ??
+    rawArea?.geoJSON ??
+    rawArea?.coordinates ??
+    null
+
+  return {
+    area: effectiveArea,
+    source: rawArea ? `businessSettings.${areaKey}` : 'parsedSettings',
+    rawPolygonPathPoints: Array.isArray(rawPolygonSource) ? rawPolygonSource.length : 0,
+    parsedPolygonPathPoints: parsedArea.polygonPath.length,
+    effectivePolygonPathPoints: effectiveArea.polygonPath.length,
+  }
+}
+
 function sanitizeCustomerAppNavigation(
   value: unknown,
   fallback: CustomerAppNavigationSettings

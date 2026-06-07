@@ -4,7 +4,11 @@ import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import { resolveProductOffers } from '../lib/action-pricing'
-import { matchServiceArea, parseSettings } from '../lib/business-settings'
+import {
+  matchServiceArea,
+  parseSettings,
+  resolveEffectiveServiceAreaFromBusinessSettings,
+} from '../lib/business-settings'
 import { verifyAppAuthToken } from '../auth/app-token'
 import { hashPassword, needsPasswordRehash, verifyPassword } from '../auth/password'
 import { decodeStoredProductModifierName } from '../lib/product-modifiers'
@@ -76,60 +80,6 @@ const ORDER_MANAGEMENT_SOURCE_FILTERS = new Set([
 const ORDER_MANAGEMENT_STATUS_FILTERS = new Set(['all', ...ORDER_WORKFLOW_STATUSES])
 const ORDER_PAYMENT_STATUS_FILTERS = new Set(ORDER_PAYMENT_STATUSES)
 const ORDER_SERVICE_TYPES = new Set(['DELIVERY', 'PICKUP', 'DINE_IN'])
-
-function parseCoordinate(value: unknown) {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value
-  }
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      return null
-    }
-    const parsed = Number(trimmed.replace(',', '.'))
-    if (Number.isFinite(parsed)) {
-      return parsed
-    }
-  }
-  return null
-}
-
-function normalizePolygonPointsFromUnknown(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [] as Array<{ lat: number; lng: number }>
-  }
-  return value
-    .map((point) => {
-      if (!point || typeof point !== 'object') {
-        return null
-      }
-      const source = point as Record<string, unknown>
-      const lat = parseCoordinate(source.lat ?? source.latitude ?? null)
-      const lng = parseCoordinate(source.lng ?? source.longitude ?? null)
-      if (lat === null || lng === null) {
-        return null
-      }
-      return { lat, lng }
-    })
-    .filter((point): point is { lat: number; lng: number } => point !== null)
-}
-
-function readRawDeliveryAreaFromBusinessSettings(raw: unknown) {
-  if (!raw || typeof raw !== 'object') {
-    return null
-  }
-  const source = raw as Record<string, unknown>
-  if (source.deliveryArea && typeof source.deliveryArea === 'object') {
-    return source.deliveryArea as Record<string, unknown>
-  }
-  if (source.settings && typeof source.settings === 'object') {
-    const nestedSettings = source.settings as Record<string, unknown>
-    if (nestedSettings.deliveryArea && typeof nestedSettings.deliveryArea === 'object') {
-      return nestedSettings.deliveryArea as Record<string, unknown>
-    }
-  }
-  return null
-}
 
 function sanitizeOrderManagementSource(value: string | null) {
   if (!value) return 'ALL'
@@ -3353,17 +3303,12 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         name: tenant.name,
         email: tenant.email,
       })
-      const rawDeliveryArea = readRawDeliveryAreaFromBusinessSettings(tenant.businessSettings)
-      const rawPolygonPath = normalizePolygonPointsFromUnknown(
-        rawDeliveryArea?.polygonPath ?? rawDeliveryArea?.polygonPoints ?? null
+      const deliveryAreaResolution = resolveEffectiveServiceAreaFromBusinessSettings(
+        tenant.businessSettings,
+        settings.deliveryArea,
+        'deliveryArea'
       )
-      const effectiveDeliveryArea =
-        settings.deliveryArea.polygonPath.length >= 3 || rawPolygonPath.length < 3
-          ? settings.deliveryArea
-          : {
-              ...settings.deliveryArea,
-              polygonPath: rawPolygonPath,
-            }
+      const effectiveDeliveryArea = deliveryAreaResolution.area
 
       const intake = settings.orderIntake
       const availabilityNow = new Date()
@@ -3492,6 +3437,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         const deliveryAvailability = buildDeliveryAvailability({
           settings,
           now: availabilityNow,
+          deliveryAreaOverride: effectiveDeliveryArea,
           deliveryAreaInput: {
             zipCode: normalizedCustomerZipCode,
             street: normalizedCustomerAddress,
@@ -3506,6 +3452,13 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             tenantId: resolvedTenantId,
             deliveryType: resolvedServiceType,
             blockingReasons: deliveryAvailability.blockingReasons,
+            strategy: effectiveDeliveryArea.strategy,
+            rawPolygonPathPoints: deliveryAreaResolution.rawPolygonPathPoints,
+            parsedPolygonPathPoints: deliveryAreaResolution.parsedPolygonPathPoints,
+            effectivePolygonPathPoints: deliveryAreaResolution.effectivePolygonPathPoints,
+            zipCodesCount: effectiveDeliveryArea.zipCodes.length,
+            radiusKm: effectiveDeliveryArea.radiusKm,
+            deliveryAreaSource: deliveryAreaResolution.source,
           })
           return res.status(409).json({
             error: 'DELIVERY_NOT_AVAILABLE',
