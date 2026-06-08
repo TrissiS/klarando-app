@@ -870,6 +870,7 @@ router.get('/public/discovery', async (req, res) => {
 
         const deliveryMatch = includeDelivery
           ? matchServiceArea(effectiveDeliveryArea, {
+              tenantId: tenant.id,
               zipCode,
               street,
               latitude: effectiveLatitude,
@@ -878,6 +879,7 @@ router.get('/public/discovery', async (req, res) => {
           : null
         const pickupMatch = includePickup
           ? matchServiceArea(settings.pickupArea, {
+              tenantId: tenant.id,
               zipCode,
               street,
               latitude: effectiveLatitude,
@@ -899,6 +901,7 @@ router.get('/public/discovery', async (req, res) => {
             longitude: effectiveLongitude,
             insidePolygon: Boolean(deliveryMatch?.matchedByPolygon),
             polygonPoints: effectiveDeliveryArea.polygonPath.length,
+            polygonPath: effectiveDeliveryArea.polygonPath,
           })
         }
 

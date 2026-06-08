@@ -244,6 +244,7 @@ export type ServiceAreaMatchInput = {
   street: string | null
   latitude: number | null
   longitude: number | null
+  tenantId?: string | null
 }
 
 export type ServiceAreaMatchResult = {
@@ -1619,6 +1620,35 @@ function normalizeStreetForMatch(value: string | null) {
     .replace(/\s+/g, ' ')
 }
 
+function isPointOnLineSegment(
+  latitude: number,
+  longitude: number,
+  start: ServiceAreaPolygonPoint,
+  end: ServiceAreaPolygonPoint
+) {
+  const epsilon = 1e-9
+  const crossProduct =
+    (longitude - start.lng) * (end.lat - start.lat) -
+    (latitude - start.lat) * (end.lng - start.lng)
+
+  if (Math.abs(crossProduct) > epsilon) {
+    return false
+  }
+
+  const dotProduct =
+    (longitude - start.lng) * (end.lng - start.lng) +
+    (latitude - start.lat) * (end.lat - start.lat)
+  if (dotProduct < -epsilon) {
+    return false
+  }
+
+  const squaredLength =
+    (end.lng - start.lng) * (end.lng - start.lng) +
+    (end.lat - start.lat) * (end.lat - start.lat)
+
+  return dotProduct <= squaredLength + epsilon
+}
+
 function isPointInPolygon(
   latitude: number,
   longitude: number,
@@ -1633,6 +1663,11 @@ function isPointInPolygon(
   for (let i = 0, j = pointCount - 1; i < pointCount; j = i++) {
     const pointI = polygonPath[i]
     const pointJ = polygonPath[j]
+
+    if (isPointOnLineSegment(latitude, longitude, pointI, pointJ)) {
+      return true
+    }
+
     const intersect =
       pointI.lng > longitude !== pointJ.lng > longitude &&
       latitude <
@@ -1753,6 +1788,18 @@ export function matchServiceArea(
       input.longitude as number,
       area.polygonPath
     )
+  }
+
+  if (area.strategy === 'POLYGON' || polygonConfigured) {
+    console.info('DELIVERY_POLYGON_DEBUG', {
+      tenantId: input.tenantId ?? null,
+      customerLat: input.latitude ?? null,
+      customerLng: input.longitude ?? null,
+      polygonPoints: area.polygonPath.length,
+      polygonPath: area.polygonPath,
+      matchedByPolygon,
+      strategy: area.strategy,
+    })
   }
 
   let matched = false
