@@ -438,7 +438,6 @@ function normalizePolygonPath(value: unknown) {
     }
   }
 
-  const rawPointSamples = Array.isArray(value) ? value.slice(0, 2) : []
   const points: ServiceAreaPolygonPoint[] = []
   const addPoint = (latCandidate: unknown, lngCandidate: unknown) => {
     const lat = normalizeCoordinate(latCandidate, -90, 90)
@@ -601,21 +600,7 @@ function normalizePolygonPath(value: unknown) {
     }
   }
 
-  const result = normalized.slice(0, 200)
-
-  console.info('NORMALIZE_POLYGON_PATH_DEBUG', {
-    inputIsArray: Array.isArray(value),
-    inputLength: Array.isArray(value) ? value.length : null,
-    rawPointSample1: rawPointSamples[0] ?? null,
-    rawPointSample2: rawPointSamples[1] ?? null,
-    parsedPointsBeforeDedup: points.slice(0, 2),
-    parsedPointsBeforeDedupCount: points.length,
-    normalizedPointSample1: result[0] ?? null,
-    normalizedPointSample2: result[1] ?? null,
-    normalizedPointCount: result.length,
-  })
-
-  return result
+  return normalized.slice(0, 200)
 }
 
 function normalizeUniqueList(items: string[]) {
