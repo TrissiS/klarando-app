@@ -23,6 +23,8 @@ import { isStripePublishableKeyConfigured, resolveStripeRuntimeMode } from '../l
 
 const router = Router()
 const MAX_PUBLIC_INLINE_ASSET_LENGTH = 12_000_000
+const ENABLE_PUBLIC_DISCOVERY_DEBUG_LOGS =
+  String(process.env.DELIVERY_AREA_DEBUG || '').trim().toLowerCase() === 'true'
 
 function scopedTenantWhere(req: Request) {
   const actor = req.authUser
@@ -1204,16 +1206,18 @@ router.get('/public/discovery', async (req, res) => {
         entry.services.delivery.matchedByRadius
     )
 
-    console.info('PUBLIC_DISCOVERY_MATCH_SUMMARY', {
-      checkedTenants: tenants.length,
-      deliveryAreaEnabledTenants,
-      polygonMatches: polygonMatchedRows.length,
-      zipMatches: zipMatchedRows.length,
-      radiusMatches: radiusMatchedRows.length,
-      returnedTenants: sortedRows.length,
-      matchedTenantIds: matchedRows.map((entry) => entry.tenantId),
-      matchedTenantNames: matchedRows.map((entry) => entry.tenantName),
-    })
+    if (ENABLE_PUBLIC_DISCOVERY_DEBUG_LOGS) {
+      console.info('PUBLIC_DISCOVERY_MATCH_SUMMARY', {
+        checkedTenants: tenants.length,
+        deliveryAreaEnabledTenants,
+        polygonMatches: polygonMatchedRows.length,
+        zipMatches: zipMatchedRows.length,
+        radiusMatches: radiusMatchedRows.length,
+        returnedTenants: sortedRows.length,
+        matchedTenantIds: matchedRows.map((entry) => entry.tenantId),
+        matchedTenantNames: matchedRows.map((entry) => entry.tenantName),
+      })
+    }
 
     return res.json({
       query: {
