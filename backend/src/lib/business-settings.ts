@@ -1040,16 +1040,32 @@ export function readRawServiceAreaFromBusinessSettings(
     return null
   }
 
+  const nestedSettingsSource = (() => {
+    if (!source?.settings) {
+      return null
+    }
+    if (typeof source.settings === 'string') {
+      try {
+        const parsed = JSON.parse(source.settings)
+        return parsed && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : null
+      } catch {
+        return null
+      }
+    }
+    return typeof source.settings === 'object'
+      ? (source.settings as Record<string, unknown>)
+      : null
+  })()
+
   const directArea =
     source[areaKey] && typeof source[areaKey] === 'object'
       ? (source[areaKey] as Record<string, unknown>)
       : null
   const nestedArea =
-    source.settings && typeof source.settings === 'object'
-      ? (((source.settings as Record<string, unknown>)[areaKey] as Record<string, unknown> | null) &&
-          typeof (source.settings as Record<string, unknown>)[areaKey] === 'object'
-          ? ((source.settings as Record<string, unknown>)[areaKey] as Record<string, unknown>)
-          : null)
+    nestedSettingsSource?.[areaKey] && typeof nestedSettingsSource[areaKey] === 'object'
+      ? (nestedSettingsSource[areaKey] as Record<string, unknown>)
       : null
 
   if (!directArea) {
@@ -1137,14 +1153,30 @@ function detectServiceAreaSource(
     return 'none'
   }
 
+  const nestedSettingsSource = (() => {
+    if (!source?.settings) {
+      return null
+    }
+    if (typeof source.settings === 'string') {
+      try {
+        const parsed = JSON.parse(source.settings)
+        return parsed && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : null
+      } catch {
+        return null
+      }
+    }
+    return typeof source.settings === 'object'
+      ? (source.settings as Record<string, unknown>)
+      : null
+  })()
+
   if (source[areaKey] && typeof source[areaKey] === 'object') {
     return `tenant.businessSettings.${areaKey}`
   }
-  if (source.settings && typeof source.settings === 'object') {
-    const nestedSettings = source.settings as Record<string, unknown>
-    if (nestedSettings[areaKey] && typeof nestedSettings[areaKey] === 'object') {
-      return `tenant.businessSettings.settings.${areaKey}`
-    }
+  if (nestedSettingsSource?.[areaKey] && typeof nestedSettingsSource[areaKey] === 'object') {
+    return `tenant.businessSettings.settings.${areaKey}`
   }
   return 'parsedSettings'
 }
