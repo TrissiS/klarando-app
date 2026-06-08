@@ -1009,6 +1009,8 @@ export function readRawServiceAreaFromBusinessSettings(
     return directArea
   }
 
+  const directStrategy = parseStrategy(directArea.strategy, 'ZIP_LIST')
+  const nestedStrategy = parseStrategy(nestedArea.strategy, 'ZIP_LIST')
   const directZipCodes = normalizeZipCodeList(directArea.zipCodes)
   const nestedZipCodes = normalizeZipCodeList(nestedArea.zipCodes)
   const directPolygonPoints = normalizePolygonPath(
@@ -1044,6 +1046,14 @@ export function readRawServiceAreaFromBusinessSettings(
     (nestedZipCodes.length > 0 ? 1 : 0) +
     (nestedPolygonPoints >= 3 ? 1 : 0) +
     (typeof nestedRadius === 'number' && nestedRadius > 0 ? 1 : 0)
+
+  if (directStrategy === 'POLYGON' && directPolygonPoints >= 3) {
+    return directArea
+  }
+
+  if (nestedStrategy === 'POLYGON' && nestedPolygonPoints >= 3) {
+    return nestedArea
+  }
 
   if (nestedScore > directScore) {
     return nestedArea
@@ -1093,6 +1103,7 @@ export function resolveEffectiveServiceAreaFromBusinessSettings(
     rawArea?.geoJSON ??
     rawArea?.coordinates ??
     null
+  const normalizedRawPolygon = normalizePolygonPath(rawPolygonSource)
 
   console.info('EFFECTIVE_SERVICE_AREA_DEBUG', {
     tenantId: options?.tenantId ?? null,
@@ -1103,15 +1114,25 @@ export function resolveEffectiveServiceAreaFromBusinessSettings(
     polygonPath: effectiveArea.polygonPath,
     zipCodes: effectiveArea.zipCodes,
     radiusKm: effectiveArea.radiusKm,
-    rawPolygonPathPoints: Array.isArray(rawPolygonSource) ? rawPolygonSource.length : 0,
+    rawPolygonPathPoints: normalizedRawPolygon.length,
     parsedPolygonPathPoints: parsedArea.polygonPath.length,
     effectivePolygonPathPoints: effectiveArea.polygonPath.length,
+  })
+
+  console.info('SERVICE_AREA_POLYGON_LOAD_DEBUG', {
+    tenantId: options?.tenantId ?? null,
+    strategy: effectiveArea.strategy,
+    rawPolygonPathPoints: normalizedRawPolygon.length,
+    parsedPolygonPathPoints: parsedArea.polygonPath.length,
+    effectivePolygonPathPoints: effectiveArea.polygonPath.length,
+    rawPolygonPathSample: normalizedRawPolygon.slice(0, 3),
+    effectivePolygonPathSample: effectiveArea.polygonPath.slice(0, 3),
   })
 
   return {
     area: effectiveArea,
     source,
-    rawPolygonPathPoints: Array.isArray(rawPolygonSource) ? rawPolygonSource.length : 0,
+    rawPolygonPathPoints: normalizedRawPolygon.length,
     parsedPolygonPathPoints: parsedArea.polygonPath.length,
     effectivePolygonPathPoints: effectiveArea.polygonPath.length,
   }
