@@ -448,6 +448,19 @@ function normalizePolygonPath(value: unknown) {
     points.push({ lat, lng })
   }
 
+  const readCoordinateCandidate = (
+    source: Record<string, unknown>,
+    keys: string[]
+  ) => {
+    for (const [key, candidate] of Object.entries(source)) {
+      const normalizedKey = key.trim().toLowerCase()
+      if (keys.includes(normalizedKey)) {
+        return candidate
+      }
+    }
+    return undefined
+  }
+
   const parseEntry = (entry: unknown): void => {
     if (Array.isArray(entry)) {
       if (entry.length >= 2 && !Array.isArray(entry[0])) {
@@ -468,6 +481,8 @@ function normalizePolygonPath(value: unknown) {
     const source = entry as {
       lat?: unknown
       lng?: unknown
+      lon?: unknown
+      long?: unknown
       latitude?: unknown
       longitude?: unknown
       type?: unknown
@@ -479,21 +494,54 @@ function normalizePolygonPath(value: unknown) {
       geoJson?: unknown
       geojson?: unknown
       geoJSON?: unknown
+      point?: unknown
+      location?: unknown
+      latLng?: unknown
+      latlng?: unknown
+      geometry?: unknown
     }
     if (typeof source.type === 'string' && source.type.toUpperCase() === 'POLYGON' && Array.isArray(source.coordinates)) {
       parseEntry(source.coordinates)
       return
     }
+
+    const record = entry as Record<string, unknown>
+    const latCandidate =
+      source.lat ??
+      source.latitude ??
+      readCoordinateCandidate(record, ['lat', 'latitude'])
+    const lngCandidate =
+      source.lng ??
+      source.lon ??
+      source.long ??
+      source.longitude ??
+      readCoordinateCandidate(record, ['lng', 'lon', 'long', 'longitude'])
+
     if (
-      source.lat !== undefined ||
-      source.lng !== undefined ||
-      source.latitude !== undefined ||
-      source.longitude !== undefined
+      latCandidate !== undefined ||
+      lngCandidate !== undefined
     ) {
-      addPoint(
-        source.lat !== undefined ? source.lat : source.latitude,
-        source.lng !== undefined ? source.lng : source.longitude
-      )
+      addPoint(latCandidate, lngCandidate)
+      return
+    }
+    if (source.point) {
+      parseEntry(source.point)
+      return
+    }
+    if (source.location) {
+      parseEntry(source.location)
+      return
+    }
+    if (source.latLng) {
+      parseEntry(source.latLng)
+      return
+    }
+    if (source.latlng) {
+      parseEntry(source.latlng)
+      return
+    }
+    if (source.geometry && typeof source.geometry === 'object') {
+      parseEntry(source.geometry)
       return
     }
     if (Array.isArray(source.polygonPath)) {
