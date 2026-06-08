@@ -1187,6 +1187,34 @@ router.get('/public/discovery', async (req, res) => {
       return left.tenantName.localeCompare(right.tenantName, 'de-DE')
     })
 
+    const deliveryAreaEnabledTenants = tenants.filter((tenant) => {
+      const settings = parseSettings(tenant.businessSettings, {
+        name: tenant.name,
+        email: tenant.email,
+      })
+      return settings.deliveryArea.enabled
+    }).length
+    const polygonMatchedRows = rows.filter((entry) => entry.services.delivery.matchedByPolygon)
+    const zipMatchedRows = rows.filter((entry) => entry.services.delivery.matchedByZip)
+    const radiusMatchedRows = rows.filter((entry) => entry.services.delivery.matchedByRadius)
+    const matchedRows = rows.filter(
+      (entry) =>
+        entry.services.delivery.matchedByPolygon ||
+        entry.services.delivery.matchedByZip ||
+        entry.services.delivery.matchedByRadius
+    )
+
+    console.info('PUBLIC_DISCOVERY_MATCH_SUMMARY', {
+      checkedTenants: tenants.length,
+      deliveryAreaEnabledTenants,
+      polygonMatches: polygonMatchedRows.length,
+      zipMatches: zipMatchedRows.length,
+      radiusMatches: radiusMatchedRows.length,
+      returnedTenants: sortedRows.length,
+      matchedTenantIds: matchedRows.map((entry) => entry.tenantId),
+      matchedTenantNames: matchedRows.map((entry) => entry.tenantName),
+    })
+
     return res.json({
       query: {
         zipCode,
