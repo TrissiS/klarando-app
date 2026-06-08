@@ -1189,9 +1189,87 @@ export function resolveEffectiveServiceAreaFromBusinessSettings(
     tenantId?: string | null
   }
 ) {
+  let rootSource: Record<string, unknown> | null = null
+
+  if (typeof rawBusinessSettings === 'string') {
+    try {
+      const parsed = JSON.parse(rawBusinessSettings)
+      rootSource =
+        parsed && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : null
+    } catch {
+      rootSource = null
+    }
+  } else if (rawBusinessSettings && typeof rawBusinessSettings === 'object') {
+    rootSource = rawBusinessSettings as Record<string, unknown>
+  }
+
+  const nestedSettingsSource = (() => {
+    if (!rootSource?.settings) {
+      return null
+    }
+    if (typeof rootSource.settings === 'string') {
+      try {
+        const parsed = JSON.parse(rootSource.settings)
+        return parsed && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : null
+      } catch {
+        return null
+      }
+    }
+    return typeof rootSource.settings === 'object'
+      ? (rootSource.settings as Record<string, unknown>)
+      : null
+  })()
+
+  const candidateEntries = [
+    {
+      sourceName: `tenant.businessSettings.${areaKey}`,
+      area:
+        rootSource?.[areaKey] && typeof rootSource[areaKey] === 'object'
+          ? (rootSource[areaKey] as Record<string, unknown>)
+          : null,
+    },
+    {
+      sourceName: `tenant.businessSettings.settings.${areaKey}`,
+      area:
+        nestedSettingsSource?.[areaKey] && typeof nestedSettingsSource[areaKey] === 'object'
+          ? (nestedSettingsSource[areaKey] as Record<string, unknown>)
+          : null,
+    },
+  ] as const
+
+  const candidateSources = candidateEntries.map((candidate) => {
+    const candidateArea = candidate.area
+    const polygonPathLength = candidateArea
+      ? normalizePolygonPath(
+          candidateArea.polygonPath ??
+            candidateArea.polygonPoints ??
+            candidateArea.polygon ??
+            candidateArea.deliveryZone ??
+            candidateArea.geoJson ??
+            candidateArea.geojson ??
+            candidateArea.geoJSON ??
+            candidateArea.coordinates ??
+            null
+        ).length
+      : 0
+
+    return {
+      sourceName: candidate.sourceName,
+      strategy: candidateArea ? parseStrategy(candidateArea.strategy, 'ZIP_LIST') : null,
+      polygonPathLength,
+      hasSettingsString: typeof rootSource?.settings === 'string',
+      hasDeliveryArea: Boolean(rootSource?.[areaKey] && typeof rootSource[areaKey] === 'object'),
+      hasSettingsDeliveryArea: Boolean(
+        nestedSettingsSource?.[areaKey] && typeof nestedSettingsSource[areaKey] === 'object'
+      ),
+    }
+  })
+
   const rawArea = readRawServiceAreaFromBusinessSettings(rawBusinessSettings, areaKey)
-  const effectiveArea = rawArea ? sanitizeServiceArea(rawArea, parsedArea) : parsedArea
-  const source = detectServiceAreaSource(rawBusinessSettings, areaKey)
   const rawPolygonSource =
     rawArea?.polygonPath ??
     rawArea?.polygonPoints ??
@@ -1203,6 +1281,35 @@ export function resolveEffectiveServiceAreaFromBusinessSettings(
     rawArea?.coordinates ??
     null
   const normalizedRawPolygon = normalizePolygonPath(rawPolygonSource)
+  const source = detectServiceAreaSource(rawBusinessSettings, areaKey)
+  const normalizedRawStrategy = rawArea
+    ? parseStrategy(rawArea.strategy, parsedArea.strategy)
+    : parsedArea.strategy
+  const resolvedParsedArea =
+    normalizedRawPolygon.length >= 3 && parsedArea.polygonPath.length === 0
+      ? {
+          ...parsedArea,
+          strategy:
+            normalizedRawStrategy === 'POLYGON'
+              ? ('POLYGON' as ServiceAreaStrategy)
+              : parsedArea.strategy,
+          polygonPath: normalizedRawPolygon,
+        }
+      : parsedArea
+  const sanitizedRawArea = rawArea
+    ? sanitizeServiceArea(rawArea, resolvedParsedArea)
+    : resolvedParsedArea
+  const effectiveArea =
+    normalizedRawPolygon.length >= 3 && sanitizedRawArea.polygonPath.length === 0
+      ? {
+          ...sanitizedRawArea,
+          strategy:
+            normalizedRawStrategy === 'POLYGON'
+              ? ('POLYGON' as ServiceAreaStrategy)
+              : sanitizedRawArea.strategy,
+          polygonPath: normalizedRawPolygon,
+        }
+      : sanitizedRawArea
 
   console.info('EFFECTIVE_SERVICE_AREA_DEBUG', {
     tenantId: options?.tenantId ?? null,
@@ -1214,15 +1321,18 @@ export function resolveEffectiveServiceAreaFromBusinessSettings(
     zipCodes: effectiveArea.zipCodes,
     radiusKm: effectiveArea.radiusKm,
     rawPolygonPathPoints: normalizedRawPolygon.length,
-    parsedPolygonPathPoints: parsedArea.polygonPath.length,
+    parsedPolygonPathPoints: resolvedParsedArea.polygonPath.length,
     effectivePolygonPathPoints: effectiveArea.polygonPath.length,
   })
 
   console.info('SERVICE_AREA_POLYGON_LOAD_DEBUG', {
     tenantId: options?.tenantId ?? null,
+    areaKey,
+    checkedCandidateSources: candidateSources,
+    selectedSource: source,
     strategy: effectiveArea.strategy,
     rawPolygonPathPoints: normalizedRawPolygon.length,
-    parsedPolygonPathPoints: parsedArea.polygonPath.length,
+    parsedPolygonPathPoints: resolvedParsedArea.polygonPath.length,
     effectivePolygonPathPoints: effectiveArea.polygonPath.length,
     rawPolygonPathSample: normalizedRawPolygon.slice(0, 3),
     effectivePolygonPathSample: effectiveArea.polygonPath.slice(0, 3),
@@ -1232,7 +1342,7 @@ export function resolveEffectiveServiceAreaFromBusinessSettings(
     area: effectiveArea,
     source,
     rawPolygonPathPoints: normalizedRawPolygon.length,
-    parsedPolygonPathPoints: parsedArea.polygonPath.length,
+    parsedPolygonPathPoints: resolvedParsedArea.polygonPath.length,
     effectivePolygonPathPoints: effectiveArea.polygonPath.length,
   }
 }
