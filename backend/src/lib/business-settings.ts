@@ -1020,10 +1020,26 @@ export function readRawServiceAreaFromBusinessSettings(
   raw: unknown,
   areaKey: 'deliveryArea' | 'pickupArea' = 'deliveryArea'
 ) {
-  if (!raw || typeof raw !== 'object') {
+  let source: Record<string, unknown> | null = null
+
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      source =
+        parsed && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : null
+    } catch {
+      source = null
+    }
+  } else if (raw && typeof raw === 'object') {
+    source = raw as Record<string, unknown>
+  }
+
+  if (!source) {
     return null
   }
-  const source = raw as Record<string, unknown>
+
   const directArea =
     source[areaKey] && typeof source[areaKey] === 'object'
       ? (source[areaKey] as Record<string, unknown>)
@@ -1101,10 +1117,26 @@ function detectServiceAreaSource(
   raw: unknown,
   areaKey: 'deliveryArea' | 'pickupArea'
 ) {
-  if (!raw || typeof raw !== 'object') {
+  let source: Record<string, unknown> | null = null
+
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      source =
+        parsed && typeof parsed === 'object'
+          ? (parsed as Record<string, unknown>)
+          : null
+    } catch {
+      source = null
+    }
+  } else if (raw && typeof raw === 'object') {
+    source = raw as Record<string, unknown>
+  }
+
+  if (!source) {
     return 'none'
   }
-  const source = raw as Record<string, unknown>
+
   if (source[areaKey] && typeof source[areaKey] === 'object') {
     return `tenant.businessSettings.${areaKey}`
   }

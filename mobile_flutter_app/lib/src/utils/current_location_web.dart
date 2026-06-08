@@ -68,6 +68,24 @@ Future<CurrentLocationData> fetchCurrentLocation() async {
   }
 }
 
+Future<CurrentLocationData> geocodeAddress({
+  required String street,
+  required String zipCode,
+  String? city,
+}) async {
+  final resolved = await _forwardGeocode(
+    street: street,
+    zipCode: zipCode,
+    city: city,
+  );
+  if (resolved == null) {
+    throw const CurrentLocationException(
+      'Adresse konnte nicht genau genug gefunden werden. Bitte Straße und Hausnummer prüfen.',
+    );
+  }
+  return resolved;
+}
+
 Future<(String?, String?, String?)> _reverseGeocode({
   required double latitude,
   required double longitude,
@@ -130,6 +148,92 @@ Future<(String?, String?, String?)> _reverseGeocode({
     return (addressLine, postcode, city);
   } catch (_) {
     return (null, null, null);
+  }
+}
+
+Future<CurrentLocationData?> _forwardGeocode({
+  required String street,
+  required String zipCode,
+  String? city,
+}) async {
+  final normalizedStreet = street.trim();
+  final normalizedZip = zipCode.trim();
+  final normalizedCity = city?.trim() ?? '';
+  final query = [
+    normalizedStreet,
+    '$normalizedZip ${normalizedCity.trim()}'.trim(),
+    'Deutschland',
+  ].where((entry) => entry.isNotEmpty).join(', ');
+
+  final uri = Uri.parse(
+    'https://nominatim.openstreetmap.org/search'
+    '?format=jsonv2'
+    '&limit=1'
+    '&addressdetails=1'
+    '&countrycodes=de'
+    '&accept-language=de'
+    '&q=${Uri.encodeQueryComponent(query)}',
+  );
+
+  try {
+    final response = await http.get(
+      uri,
+      headers: const {
+        'Accept': 'application/json',
+      },
+    ).timeout(const Duration(seconds: 8));
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      return null;
+    }
+
+    final decoded = jsonDecode(response.body);
+    if (decoded is! List || decoded.isEmpty) {
+      return null;
+    }
+
+    final first = decoded.first;
+    if (first is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final latitude = double.tryParse('${first['lat'] ?? ''}');
+    final longitude = double.tryParse('${first['lon'] ?? ''}');
+    if (latitude == null || longitude == null) {
+      return null;
+    }
+
+    final address = first['address'];
+    final addressMap = address is Map<String, dynamic> ? address : const <String, dynamic>{};
+    final road = _normalizeText(addressMap['road']) ??
+        _normalizeText(addressMap['pedestrian']) ??
+        _normalizeText(addressMap['footway']);
+    final houseNumber = _normalizeText(addressMap['house_number']);
+    final postcode = _normalizeText(addressMap['postcode']) ?? normalizedZip;
+    final resolvedCity = _normalizeText(addressMap['city']) ??
+        _normalizeText(addressMap['town']) ??
+        _normalizeText(addressMap['village']) ??
+        _normalizeText(addressMap['municipality']) ??
+        (normalizedCity.isEmpty ? null : normalizedCity);
+    final addressLine = () {
+      if (road != null && houseNumber != null) {
+        return '$road $houseNumber';
+      }
+      if (road != null) {
+        return road;
+      }
+      return normalizedStreet;
+    }();
+
+    return CurrentLocationData(
+      latitude: latitude,
+      longitude: longitude,
+      addressLine: addressLine,
+      postalCode: postcode,
+      city: resolvedCity,
+    );
+  } catch (_) {
+    return null;
   }
 }
 

@@ -30,3 +30,15 @@ class CurrentLocationException implements Exception {
 Future<CurrentLocationData> fetchCurrentLocation() {
   return impl.fetchCurrentLocation();
 }
+
+Future<CurrentLocationData> geocodeAddress({
+  required String street,
+  required String zipCode,
+  String? city,
+}) {
+  return impl.geocodeAddress(
+    street: street,
+    zipCode: zipCode,
+    city: city,
+  );
+}

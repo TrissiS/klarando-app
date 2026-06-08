@@ -155,11 +155,18 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
     }
     try {
       final location = await fetchCurrentLocation();
-      await _saveLocationCoordinates(location.latitude, location.longitude);
       final zip = (location.postalCode ?? '').trim();
       final address = (location.addressLine ?? '').trim();
-      if (_isValidZipCode(zip) && address.isNotEmpty) {
-        await _saveAddressData(address, zip);
+      final mergedAddress = _combineStreetAndCity(address, location.city);
+      if (_isValidZipCode(zip) && mergedAddress.isNotEmpty) {
+        await _saveAddressData(
+          mergedAddress,
+          zip,
+          latitude: location.latitude,
+          longitude: location.longitude,
+        );
+      } else {
+        await _saveLocationCoordinates(location.latitude, location.longitude);
       }
     } on CurrentLocationException catch (error) {
       if (!mounted) {
@@ -247,12 +254,32 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
     final profileStreet = user.street?.trim();
     final profileCity = user.city?.trim();
     if (profileZip != null && _isValidZipCode(profileZip)) {
-      final mergedAddress = [
-        profileStreet ?? '',
-        profileCity ?? '',
-      ].where((entry) => entry.trim().isNotEmpty).join(', ');
+      final mergedAddress = _combineStreetAndCity(profileStreet ?? '', profileCity);
       if (mergedAddress.trim().isNotEmpty) {
-        await _saveAddressData(mergedAddress, profileZip);
+        try {
+          final resolved = await geocodeAddress(
+            street: profileStreet ?? mergedAddress,
+            zipCode: profileZip,
+            city: profileCity,
+          );
+          await _saveAddressData(
+            _combineStreetAndCity(
+              resolved.addressLine ?? profileStreet ?? mergedAddress,
+              resolved.city ?? profileCity,
+            ),
+            resolved.postalCode?.trim().isNotEmpty == true
+                ? resolved.postalCode!.trim()
+                : profileZip,
+            latitude: resolved.latitude,
+            longitude: resolved.longitude,
+          );
+        } on CurrentLocationException {
+          await _saveAddressData(
+            mergedAddress,
+            profileZip,
+            clearCoordinates: true,
+          );
+        }
       }
     }
   }
@@ -334,16 +361,36 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
     });
   }
 
-  Future<void> _saveAddressData(String address, String zipCode) async {
+  Future<void> _saveAddressData(
+    String address,
+    String zipCode, {
+    double? latitude,
+    double? longitude,
+    bool clearCoordinates = false,
+  }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsKeyUserAddress, address);
     await prefs.setString(_prefsKeyUserZipCode, zipCode);
+    if (latitude != null && longitude != null) {
+      await prefs.setDouble(_prefsKeyUserLatitude, latitude);
+      await prefs.setDouble(_prefsKeyUserLongitude, longitude);
+    } else if (clearCoordinates) {
+      await prefs.remove(_prefsKeyUserLatitude);
+      await prefs.remove(_prefsKeyUserLongitude);
+    }
     if (!mounted) {
       return;
     }
     setState(() {
       _userAddress = address;
       _userZipCode = zipCode;
+      if (latitude != null && longitude != null) {
+        _userLatitude = latitude;
+        _userLongitude = longitude;
+      } else if (clearCoordinates) {
+        _userLatitude = null;
+        _userLongitude = null;
+      }
     });
   }
 
@@ -426,7 +473,6 @@ class _AppBootstrapGateState extends State<_AppBootstrapGate> {
       return _AddressCapturePage(
         initialLanguageCode: _languageCode,
         onAddressSaved: _saveAddressData,
-        onCoordinatesSaved: _saveLocationCoordinates,
       );
     }
 
@@ -1119,13 +1165,23 @@ class _HomeShellState extends State<HomeShell> {
     required String zipCode,
     double? latitude,
     double? longitude,
+    bool clearCoordinates = false,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsKeyUserAddress, address);
     await prefs.setString(_prefsKeyUserZipCode, zipCode);
+    var nextLatitude = _activeLatitude;
+    var nextLongitude = _activeLongitude;
     if (latitude != null && longitude != null) {
       await prefs.setDouble(_prefsKeyUserLatitude, latitude);
       await prefs.setDouble(_prefsKeyUserLongitude, longitude);
+      nextLatitude = latitude;
+      nextLongitude = longitude;
+    } else if (clearCoordinates) {
+      await prefs.remove(_prefsKeyUserLatitude);
+      await prefs.remove(_prefsKeyUserLongitude);
+      nextLatitude = null;
+      nextLongitude = null;
     }
     if (!mounted) {
       return;
@@ -1133,8 +1189,8 @@ class _HomeShellState extends State<HomeShell> {
     setState(() {
       _activeAddress = address;
       _activeZipCode = zipCode;
-      _activeLatitude = latitude;
-      _activeLongitude = longitude;
+      _activeLatitude = nextLatitude;
+      _activeLongitude = nextLongitude;
     });
   }
 
@@ -1147,6 +1203,18 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
+  Future<CurrentLocationData> _resolveAddressCoordinates({
+    required String street,
+    required String zipCode,
+    required String city,
+  }) {
+    return geocodeAddress(
+      street: street,
+      zipCode: zipCode,
+      city: city,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1154,10 +1222,53 @@ class _HomeShellState extends State<HomeShell> {
     _activeLongitude = widget.userLongitude;
     _restoreAppAuthFromPrefs();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _searchTenants(_activeZipCode, DiscoveryMode.delivery);
+      unawaited(_bootstrapDiscoveryState());
       unawaited(_checkForCustomerAppUpdate(silentWhenCurrent: true));
       _startTenantStatusSyncTicker();
     });
+  }
+
+  Future<void> _bootstrapDiscoveryState() async {
+    await _ensureStoredDiscoveryCoordinates();
+    if (!mounted) {
+      return;
+    }
+    await _searchTenants(_activeZipCode, DiscoveryMode.delivery);
+  }
+
+  Future<void> _ensureStoredDiscoveryCoordinates() async {
+    if (_activeLatitude != null && _activeLongitude != null) {
+      return;
+    }
+    final street = _streetForDiscovery();
+    final city = _cityForDiscovery();
+    if (!_isCompleteDeliveryAddress(
+      address: street,
+      zipCode: _activeZipCode,
+      city: city,
+    )) {
+      return;
+    }
+    try {
+      final resolved = await _resolveAddressCoordinates(
+        street: street,
+        zipCode: _activeZipCode,
+        city: city,
+      );
+      await _persistDiscoveryAddress(
+        address: _combineStreetAndCity(
+          resolved.addressLine ?? street,
+          resolved.city ?? city,
+        ),
+        zipCode: resolved.postalCode?.trim().isNotEmpty == true
+            ? resolved.postalCode!.trim()
+            : _activeZipCode,
+        latitude: resolved.latitude,
+        longitude: resolved.longitude,
+      );
+    } on CurrentLocationException {
+      // Discovery can still geocode on the backend as a fallback.
+    }
   }
 
   @override
@@ -1261,9 +1372,31 @@ class _HomeShellState extends State<HomeShell> {
           profileStreet.isNotEmpty &&
           profileZip != null &&
           _isValidZipCode(profileZip)) {
-        final merged = [profileStreet, if (profileCity != null && profileCity.isNotEmpty) profileCity]
-            .join(', ');
-        await _persistDiscoveryAddress(address: merged, zipCode: profileZip);
+        final merged = _combineStreetAndCity(profileStreet ?? '', profileCity);
+        try {
+          final resolved = await _resolveAddressCoordinates(
+            street: profileStreet ?? merged,
+            zipCode: profileZip,
+            city: profileCity ?? '',
+          );
+          await _persistDiscoveryAddress(
+            address: _combineStreetAndCity(
+              resolved.addressLine ?? profileStreet ?? merged,
+              resolved.city ?? profileCity,
+            ),
+            zipCode: resolved.postalCode?.trim().isNotEmpty == true
+                ? resolved.postalCode!.trim()
+                : profileZip,
+            latitude: resolved.latitude,
+            longitude: resolved.longitude,
+          );
+        } on CurrentLocationException {
+          await _persistDiscoveryAddress(
+            address: merged,
+            zipCode: profileZip,
+            clearCoordinates: true,
+          );
+        }
       }
       unawaited(_syncSubmittedOrdersFromServer(force: true));
     } catch (_) {
@@ -1599,7 +1732,9 @@ class _HomeShellState extends State<HomeShell> {
     final resolvedZip = (location.postalCode ?? '').trim();
     final fallbackAddress =
         'Standort ${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}';
-    final addressToStore = resolvedAddress.isNotEmpty ? resolvedAddress : fallbackAddress;
+    final addressToStore = resolvedAddress.isNotEmpty
+        ? _combineStreetAndCity(resolvedAddress, location.city)
+        : fallbackAddress;
     final zipToStore = _isValidZipCode(resolvedZip) ? resolvedZip : _activeZipCode;
     await _persistDiscoveryAddress(
       address: addressToStore,
@@ -1678,9 +1813,41 @@ class _HomeShellState extends State<HomeShell> {
     final street = addressController.text.trim();
     final zip = zipController.text.trim();
     final city = cityController.text.trim();
-    final mergedAddress = '$street, $city';
-    await _persistDiscoveryAddress(address: mergedAddress, zipCode: zip);
-    await _searchTenants(zip, DiscoveryMode.delivery);
+    var searchZip = zip;
+    try {
+      final resolved = await _resolveAddressCoordinates(
+        street: street,
+        zipCode: zip,
+        city: city,
+      );
+      await _persistDiscoveryAddress(
+        address: _combineStreetAndCity(
+          resolved.addressLine ?? street,
+          resolved.city ?? city,
+        ),
+        zipCode: resolved.postalCode?.trim().isNotEmpty == true
+            ? resolved.postalCode!.trim()
+            : zip,
+        latitude: resolved.latitude,
+        longitude: resolved.longitude,
+      );
+      searchZip = resolved.postalCode?.trim().isNotEmpty == true
+          ? resolved.postalCode!.trim()
+          : zip;
+    } on CurrentLocationException {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Adresse konnte nicht genau genug gefunden werden. Bitte Straße und Hausnummer prüfen.',
+          ),
+        ),
+      );
+      return;
+    }
+    await _searchTenants(searchZip, DiscoveryMode.delivery);
   }
 
   Future<void> _openAddressManager() async {
@@ -1712,11 +1879,41 @@ class _HomeShellState extends State<HomeShell> {
                     subtitle: Text('$profileStreet, ${profileZip!} ${profileCity ?? ''}'.trim()),
                     onTap: () async {
                       Navigator.of(sheetContext).pop();
-                      await _persistDiscoveryAddress(
-                        address: '$profileStreet${(profileCity ?? '').isEmpty ? '' : ', $profileCity'}',
-                        zipCode: profileZip,
-                      );
-                      await _searchTenants(profileZip, DiscoveryMode.delivery);
+                      var searchZip = profileZip;
+                      try {
+                        final resolved = await _resolveAddressCoordinates(
+                          street: profileStreet,
+                          zipCode: profileZip,
+                          city: profileCity ?? '',
+                        );
+                        await _persistDiscoveryAddress(
+                          address: _combineStreetAndCity(
+                            resolved.addressLine ?? profileStreet,
+                            resolved.city ?? profileCity,
+                          ),
+                          zipCode: resolved.postalCode?.trim().isNotEmpty == true
+                              ? resolved.postalCode!.trim()
+                              : profileZip,
+                          latitude: resolved.latitude,
+                          longitude: resolved.longitude,
+                        );
+                        searchZip = resolved.postalCode?.trim().isNotEmpty == true
+                            ? resolved.postalCode!.trim()
+                            : profileZip;
+                      } on CurrentLocationException {
+                        if (!mounted) {
+                          return;
+                        }
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Adresse konnte nicht genau genug gefunden werden. Bitte Straße und Hausnummer prüfen.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      await _searchTenants(searchZip, DiscoveryMode.delivery);
                     },
                   ),
                 ListTile(
@@ -2721,6 +2918,16 @@ class _HomeShellState extends State<HomeShell> {
     final tenant = _selectedTenant!;
     final allowDelivery = tenant.deliveryAvailable;
     final allowPickup = tenant.pickupAvailable;
+    final fallbackStreet = _streetFromStoredAddress(_activeAddress);
+    final fallbackCity = _cityFromStoredAddress(_activeAddress);
+    final usesProfileAddress = (_appCustomer?.street?.trim().isNotEmpty ?? false);
+    final initialStreet = usesProfileAddress ? _appCustomer!.street!.trim() : fallbackStreet;
+    final initialCity = (_appCustomer?.city?.trim().isNotEmpty ?? false)
+        ? _appCustomer!.city!.trim()
+        : fallbackCity;
+    final initialMergedAddress = _combineStreetAndCity(initialStreet, initialCity);
+    final initialCoordinatesMatchAddress =
+        initialMergedAddress.trim().toLowerCase() == _activeAddress.trim().toLowerCase();
 
     if (!allowDelivery && !allowPickup) {
       if (!mounted) {
@@ -2748,15 +2955,12 @@ class _HomeShellState extends State<HomeShell> {
           stripeAvailable: tenant.payments.stripeAvailable,
           stripeMode: tenant.payments.stripeMode,
           publishableKeyConfigured: tenant.payments.publishableKeyConfigured,
-          initialAddress:
-              (_appCustomer?.street?.trim().isNotEmpty ?? false)
-                  ? _appCustomer!.street!.trim()
-                  : _activeAddress,
+          initialAddress: initialStreet,
           initialZipCode:
               (_appCustomer?.zipCode?.trim().isNotEmpty ?? false)
                   ? _appCustomer!.zipCode!.trim()
                   : _activeZipCode,
-          initialCity: _appCustomer?.city?.trim(),
+          initialCity: initialCity,
           appCustomerName: _appCustomer?.fullName,
           appCustomerPhone: _appCustomer?.phone,
           requireCustomerLogin: true,
@@ -2764,8 +2968,10 @@ class _HomeShellState extends State<HomeShell> {
           orderIntakeEnabled: tenant.orderIntake.enabled,
           orderIntakeMessage: tenant.orderIntake.customerMessage,
           requiresDeliveryCoordinates: tenant.deliveryStrategy.toUpperCase() == 'POLYGON',
-          initialDeliveryLatitude: _activeLatitude,
-          initialDeliveryLongitude: _activeLongitude,
+          initialDeliveryLatitude:
+              initialCoordinatesMatchAddress ? _activeLatitude : null,
+          initialDeliveryLongitude:
+              initialCoordinatesMatchAddress ? _activeLongitude : null,
           submitOrder: _submitOrder,
           startStripePaymentIntent: _startStripePaymentIntent,
           reloadOrder: _reloadOrderForCheckout,
@@ -2872,6 +3078,31 @@ class _HomeShellState extends State<HomeShell> {
         throw const ApiException(
           'Für Lieferung bitte eine vollständige Adresse mit Straße, Hausnummer, PLZ und Ort eingeben.',
         );
+      }
+
+      if (resolvedCustomerLatitude == null || resolvedCustomerLongitude == null) {
+        try {
+          final resolved = await _resolveAddressCoordinates(
+            street: resolvedAddress!,
+            zipCode: resolvedZipCode!,
+            city: resolvedCity!,
+          );
+          resolvedCustomerLatitude = resolved.latitude;
+          resolvedCustomerLongitude = resolved.longitude;
+          await _persistDiscoveryAddress(
+            address: _combineStreetAndCity(
+              resolved.addressLine ?? resolvedAddress,
+              resolved.city ?? resolvedCity,
+            ),
+            zipCode: resolved.postalCode?.trim().isNotEmpty == true
+                ? resolved.postalCode!.trim()
+                : resolvedZipCode,
+            latitude: resolved.latitude,
+            longitude: resolved.longitude,
+          );
+        } on CurrentLocationException {
+          // Fall back to the device location or backend geocoding below.
+        }
       }
 
       if (resolvedCustomerLatitude == null || resolvedCustomerLongitude == null) {
@@ -3478,12 +3709,17 @@ class _AddressCapturePage extends StatefulWidget {
   const _AddressCapturePage({
     required this.initialLanguageCode,
     required this.onAddressSaved,
-    required this.onCoordinatesSaved,
   });
 
   final String initialLanguageCode;
-  final Future<void> Function(String address, String zipCode) onAddressSaved;
-  final Future<void> Function(double latitude, double longitude) onCoordinatesSaved;
+  final Future<void> Function(
+    String address,
+    String zipCode, {
+    double? latitude,
+    double? longitude,
+    bool clearCoordinates,
+  })
+  onAddressSaved;
 
   @override
   State<_AddressCapturePage> createState() => _AddressCapturePageState();
@@ -3492,26 +3728,71 @@ class _AddressCapturePage extends StatefulWidget {
 class _AddressCapturePageState extends State<_AddressCapturePage> {
   final _addressController = TextEditingController();
   final _zipController = TextEditingController();
+  final _cityController = TextEditingController();
   bool _saving = false;
   bool _locationBusy = false;
+  double? _resolvedLatitude;
+  double? _resolvedLongitude;
 
   @override
   void dispose() {
     _addressController.dispose();
     _zipController.dispose();
+    _cityController.dispose();
     super.dispose();
   }
 
-  Future<void> _saveAddress(String address, String zipCode) async {
+  Future<void> _saveAddress({
+    required String street,
+    required String zipCode,
+    required String city,
+  }) async {
     setState(() {
       _saving = true;
     });
-    await widget.onAddressSaved(address, zipCode);
-    if (!mounted) {
+    try {
+      var latitude = _resolvedLatitude;
+      var longitude = _resolvedLongitude;
+
+      if (latitude == null || longitude == null) {
+        final resolved = await geocodeAddress(
+          street: street,
+          zipCode: zipCode,
+          city: city,
+        );
+        latitude = resolved.latitude;
+        longitude = resolved.longitude;
+      }
+
+      await widget.onAddressSaved(
+        _combineStreetAndCity(street, city),
+        zipCode,
+        latitude: latitude,
+        longitude: longitude,
+      );
+    } on CurrentLocationException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+        });
+      }
+    }
+  }
+
+  void _clearResolvedCoordinates() {
+    if (_resolvedLatitude == null && _resolvedLongitude == null) {
       return;
     }
     setState(() {
-      _saving = false;
+      _resolvedLatitude = null;
+      _resolvedLongitude = null;
     });
   }
 
@@ -3535,11 +3816,7 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
       final resolvedCity = (location.city ?? '').trim();
 
       if (resolvedAddress.isNotEmpty) {
-        if (resolvedCity.isNotEmpty && !resolvedAddress.toLowerCase().contains(resolvedCity.toLowerCase())) {
-          _addressController.text = '$resolvedAddress, $resolvedCity';
-        } else {
-          _addressController.text = resolvedAddress;
-        }
+        _addressController.text = resolvedAddress;
       } else {
         _addressController.text =
             'Standort ${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)}';
@@ -3548,15 +3825,21 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
       if (_isValidZipCode(resolvedZip)) {
         _zipController.text = resolvedZip;
       }
+      if (resolvedCity.isNotEmpty) {
+        _cityController.text = resolvedCity;
+      }
 
-      await widget.onCoordinatesSaved(location.latitude, location.longitude);
+      setState(() {
+        _resolvedLatitude = location.latitude;
+        _resolvedLongitude = location.longitude;
+      });
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _isValidZipCode(_zipController.text)
+            _isValidZipCode(_zipController.text) && _cityController.text.trim().length >= 2
                 ? 'Standort erfolgreich übernommen.'
-                : 'Standort übernommen. Bitte PLZ prüfen oder eintragen.',
+                : 'Standort übernommen. Bitte PLZ und Ort prüfen oder ergänzen.',
           ),
         ),
       );
@@ -3609,24 +3892,26 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'Bitte gib deine Adresse und PLZ ein oder erlaube den Standortzugriff.',
+              'Bitte gib Straße, Hausnummer, PLZ und Ort ein oder erlaube den Standortzugriff.',
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _addressController,
+              onChanged: (_) => _clearResolvedCoordinates(),
               textInputAction: TextInputAction.next,
               decoration: const InputDecoration(
-                labelText: 'Adresse',
-                hintText: 'Straße, Hausnummer, Ort',
+                labelText: 'Straße + Hausnummer',
+                hintText: 'z. B. Nordstraße 14',
                 border: OutlineInputBorder(),
               ),
             ),
             const SizedBox(height: 10),
             TextField(
               controller: _zipController,
+              onChanged: (_) => _clearResolvedCoordinates(),
               keyboardType: TextInputType.number,
-              textInputAction: TextInputAction.done,
+              textInputAction: TextInputAction.next,
               inputFormatters: [
                 FilteringTextInputFormatter.digitsOnly,
                 LengthLimitingTextInputFormatter(5),
@@ -3634,6 +3919,17 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
               decoration: const InputDecoration(
                 labelText: 'PLZ',
                 hintText: '5-stellige PLZ',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _cityController,
+              onChanged: (_) => _clearResolvedCoordinates(),
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Ort',
+                hintText: 'z. B. Kreuztal',
                 border: OutlineInputBorder(),
               ),
             ),
@@ -3675,12 +3971,13 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
                 onPressed: _saving
                     ? null
                     : () async {
-                        final address = _addressController.text.trim();
+                        final street = _addressController.text.trim();
                         final zipCode = _zipController.text.trim();
-                        if (address.isEmpty) {
+                        final city = _cityController.text.trim();
+                        if (!_looksLikeStreetWithHouseNumber(street)) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(
-                              content: Text('Bitte zuerst eine Adresse eingeben.'),
+                              content: Text('Bitte Straße und Hausnummer eingeben.'),
                             ),
                           );
                           return;
@@ -3693,7 +3990,19 @@ class _AddressCapturePageState extends State<_AddressCapturePage> {
                           );
                           return;
                         }
-                        await _saveAddress(address, zipCode);
+                        if (city.length < 2) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Bitte einen Ort eingeben.'),
+                            ),
+                          );
+                          return;
+                        }
+                        await _saveAddress(
+                          street: street,
+                          zipCode: zipCode,
+                          city: city,
+                        );
                       },
                 child: Text(_saving ? 'Wird gespeichert...' : 'Zur Startseite'),
               ),
@@ -3819,6 +4128,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   final TextEditingController _customTipController = TextEditingController();
   double? _checkoutLatitude;
   double? _checkoutLongitude;
+  String? _resolvedDeliveryAddressSignature;
   final TextEditingController _secondaryAddressController = TextEditingController();
   final TextEditingController _secondaryZipController = TextEditingController();
   final TextEditingController _secondaryCityController = TextEditingController();
@@ -4001,6 +4311,12 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     }
   }
 
+  String get _deliveryAddressSignature => [
+    _deliveryAddressController.text.trim().toLowerCase(),
+    _deliveryZipController.text.trim(),
+    _deliveryCityController.text.trim().toLowerCase(),
+  ].join('|');
+
   String _resolveUnexpectedCheckoutErrorMessage(Object error) {
     if (error is ApiException) {
       return error.message;
@@ -4045,6 +4361,9 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     _deliveryCityController = TextEditingController(text: widget.initialCity?.trim() ?? '');
     _checkoutLatitude = widget.initialDeliveryLatitude;
     _checkoutLongitude = widget.initialDeliveryLongitude;
+    if (_checkoutLatitude != null && _checkoutLongitude != null) {
+      _resolvedDeliveryAddressSignature = _deliveryAddressSignature;
+    }
     if (!_supportsStripePayment) {
       _paymentType = _CheckoutPaymentType.cash;
     }
@@ -4057,17 +4376,41 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
 
   Future<void> _resolveDeliveryCoordinatesForCheckout() async {
     try {
-      final location = await fetchCurrentLocation();
+      CurrentLocationData? resolved;
+      if (_deliveryAddressReady) {
+        resolved = await geocodeAddress(
+          street: _deliveryAddressController.text.trim(),
+          zipCode: _deliveryZipController.text.trim(),
+          city: _deliveryCityController.text.trim(),
+        );
+      } else {
+        resolved = await fetchCurrentLocation();
+      }
       if (!mounted) {
         return;
       }
       setState(() {
-        _checkoutLatitude = location.latitude;
-        _checkoutLongitude = location.longitude;
+        _checkoutLatitude = resolved!.latitude;
+        _checkoutLongitude = resolved.longitude;
+        _resolvedDeliveryAddressSignature = _deliveryAddressSignature;
       });
     } catch (_) {
       // Keep the state as-is; checkout shows an explicit hint when coordinates are missing.
     }
+  }
+
+  void _handleDeliveryAddressChanged() {
+    final currentSignature = _deliveryAddressSignature;
+    if (_resolvedDeliveryAddressSignature == null ||
+        _resolvedDeliveryAddressSignature == currentSignature) {
+      setState(() {});
+      return;
+    }
+    setState(() {
+      _checkoutLatitude = null;
+      _checkoutLongitude = null;
+      _resolvedDeliveryAddressSignature = null;
+    });
   }
 
   @override
@@ -4231,6 +4574,19 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     });
 
     try {
+      if (_serviceType == _CheckoutServiceType.delivery &&
+          widget.requiresDeliveryCoordinates &&
+          !_hasDeliveryCoordinates &&
+          _deliveryAddressReady) {
+        await _resolveDeliveryCoordinatesForCheckout();
+      }
+      if (_serviceType == _CheckoutServiceType.delivery &&
+          widget.requiresDeliveryCoordinates &&
+          !_hasDeliveryCoordinates) {
+        throw const ApiException(
+          'Adresse konnte nicht genau genug gefunden werden. Bitte Straße und Hausnummer prüfen.',
+        );
+      }
       final order = await widget.submitOrder(
         lines: _lines,
         serviceType: _serviceType,
@@ -4718,7 +5074,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                     const SizedBox(height: 8),
                     TextField(
                       controller: _deliveryAddressController,
-                      onChanged: (_) => setState(() {}),
+                      onChanged: (_) => _handleDeliveryAddressChanged(),
                       decoration: const InputDecoration(
                         labelText: 'Straße und Hausnummer',
                         hintText: 'z. B. Musterstraße 12',
@@ -4732,7 +5088,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                           flex: 2,
                           child: TextField(
                             controller: _deliveryZipController,
-                            onChanged: (_) => setState(() {}),
+                            onChanged: (_) => _handleDeliveryAddressChanged(),
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
                               labelText: 'PLZ',
@@ -4746,7 +5102,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                           flex: 3,
                           child: TextField(
                             controller: _deliveryCityController,
-                            onChanged: (_) => setState(() {}),
+                            onChanged: (_) => _handleDeliveryAddressChanged(),
                             decoration: const InputDecoration(
                               labelText: 'Ort',
                               hintText: 'z. B. Kreuztal',
@@ -5822,6 +6178,27 @@ bool _isCompleteDeliveryAddress({
     return false;
   }
   return true;
+}
+
+String _combineStreetAndCity(String street, String? city) {
+  final parts = <String>[
+    street.trim(),
+    if (city != null && city.trim().isNotEmpty) city.trim(),
+  ].where((entry) => entry.isNotEmpty).toList(growable: false);
+  return parts.join(', ');
+}
+
+String _streetFromStoredAddress(String value) {
+  final parts = value.split(',');
+  return parts.first.trim();
+}
+
+String _cityFromStoredAddress(String value) {
+  final parts = value.split(',');
+  if (parts.length < 2) {
+    return '';
+  }
+  return parts.sublist(1).join(',').trim();
 }
 
 String _normalizedLanguageCode(String? value) {
