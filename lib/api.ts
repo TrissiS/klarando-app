@@ -2322,6 +2322,7 @@ export async function updateBusinessSettings(
       zipCodes: normalizedSettings.deliveryArea?.zipCodes ?? [],
       zipCodesCount: normalizedSettings.deliveryArea?.zipCodes?.length ?? 0,
       polygonPathLength: normalizedPolygon.length,
+      polygonPathSample: normalizedPolygon.slice(0, 3),
       radiusKm: normalizedSettings.deliveryArea?.radiusKm ?? null,
       hasRadiusConfiguration,
       polygonSample: normalizedPolygon.slice(0, 3),

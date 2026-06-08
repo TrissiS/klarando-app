@@ -822,17 +822,30 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       settingsInput && typeof settingsInput === 'object'
         ? ((settingsInput as { deliveryArea?: unknown }).deliveryArea as Record<string, unknown> | undefined)
         : undefined
+    const requestedDeliveryStrategy =
+      finalInputDeliveryArea && typeof finalInputDeliveryArea.strategy === 'string'
+        ? finalInputDeliveryArea.strategy.trim().toUpperCase()
+        : null
     const incomingPolygonSource =
       Array.isArray(finalInputDeliveryArea?.polygonPath) &&
       finalInputDeliveryArea.polygonPath.length > 0
         ? finalInputDeliveryArea.polygonPath
         : finalInputDeliveryArea?.polygonPoints
     const incomingNormalizedPolygon = normalizePolygonInput(incomingPolygonSource)
-    if (incomingNormalizedPolygon.length >= 3) {
-      normalizedSettings.deliveryArea = {
-        ...normalizedSettings.deliveryArea,
-        polygonPath: incomingNormalizedPolygon,
-      }
+    normalizedSettings.deliveryArea = {
+      ...normalizedSettings.deliveryArea,
+      strategy:
+        requestedDeliveryStrategy === 'ZIP_LIST' ||
+        requestedDeliveryStrategy === 'RADIUS' ||
+        requestedDeliveryStrategy === 'ZIP_OR_RADIUS' ||
+        requestedDeliveryStrategy === 'ZIP_AND_RADIUS' ||
+        requestedDeliveryStrategy === 'POLYGON'
+          ? (requestedDeliveryStrategy as BusinessSettings['deliveryArea']['strategy'])
+          : normalizedSettings.deliveryArea.strategy,
+      polygonPath:
+        incomingNormalizedPolygon.length >= 3
+          ? incomingNormalizedPolygon
+          : normalizedSettings.deliveryArea.polygonPath,
     }
 
     const rawPolygonPathLength =
@@ -944,7 +957,8 @@ router.put('/', requirePermission(PermissionKey.SETTINGS_WRITE), async (req, res
       strategy: finalSettingsForDb.deliveryArea.strategy,
       zipCodes: finalSettingsForDb.deliveryArea.zipCodes,
       zipCodesCount: finalSettingsForDb.deliveryArea.zipCodes.length,
-      polygonPoints: finalSettingsForDb.deliveryArea.polygonPath.length,
+      polygonPathLength: finalSettingsForDb.deliveryArea.polygonPath.length,
+      polygonPathSample: finalSettingsForDb.deliveryArea.polygonPath.slice(0, 3),
       radiusKm: finalSettingsForDb.deliveryArea.radiusKm,
     })
 
