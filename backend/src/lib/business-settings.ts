@@ -451,8 +451,8 @@ function normalizePolygonPath(value: unknown) {
   const parseEntry = (entry: unknown): void => {
     if (Array.isArray(entry)) {
       if (entry.length >= 2 && !Array.isArray(entry[0])) {
-        // GeoJSON coordinate order: [lng, lat]
-        addPoint(entry[1], entry[0])
+        // Stored Klarando point order: [lat, lng]
+        addPoint(entry[0], entry[1])
         return
       }
       for (const nested of entry) {
@@ -472,6 +472,13 @@ function normalizePolygonPath(value: unknown) {
       longitude?: unknown
       type?: unknown
       coordinates?: unknown
+      polygonPath?: unknown
+      polygonPoints?: unknown
+      polygon?: unknown
+      deliveryZone?: unknown
+      geoJson?: unknown
+      geojson?: unknown
+      geoJSON?: unknown
     }
     if (typeof source.type === 'string' && source.type.toUpperCase() === 'POLYGON' && Array.isArray(source.coordinates)) {
       parseEntry(source.coordinates)
@@ -487,6 +494,34 @@ function normalizePolygonPath(value: unknown) {
         source.lat !== undefined ? source.lat : source.latitude,
         source.lng !== undefined ? source.lng : source.longitude
       )
+      return
+    }
+    if (Array.isArray(source.polygonPath)) {
+      parseEntry(source.polygonPath)
+      return
+    }
+    if (Array.isArray(source.polygonPoints)) {
+      parseEntry(source.polygonPoints)
+      return
+    }
+    if (Array.isArray(source.polygon)) {
+      parseEntry(source.polygon)
+      return
+    }
+    if (Array.isArray(source.deliveryZone)) {
+      parseEntry(source.deliveryZone)
+      return
+    }
+    if (Array.isArray(source.geoJson)) {
+      parseEntry(source.geoJson)
+      return
+    }
+    if (Array.isArray(source.geojson)) {
+      parseEntry(source.geojson)
+      return
+    }
+    if (Array.isArray(source.geoJSON)) {
+      parseEntry(source.geoJSON)
       return
     }
     if (Array.isArray(source.coordinates)) {
