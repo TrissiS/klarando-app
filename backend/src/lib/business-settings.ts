@@ -464,7 +464,16 @@ function normalizePolygonPath(value: unknown) {
 
   const parseEntry = (entry: unknown): void => {
     if (Array.isArray(entry)) {
-      if (entry.length >= 2 && !Array.isArray(entry[0])) {
+      const looksLikeCoordinateTuple =
+        entry.length >= 2 &&
+        !Array.isArray(entry[0]) &&
+        !Array.isArray(entry[1]) &&
+        (typeof entry[0] === 'number' ||
+          typeof entry[0] === 'string') &&
+        (typeof entry[1] === 'number' ||
+          typeof entry[1] === 'string')
+
+      if (looksLikeCoordinateTuple) {
         // Stored Klarando point order: [lat, lng]
         addPoint(entry[0], entry[1])
         return
