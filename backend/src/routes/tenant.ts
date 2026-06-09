@@ -9,6 +9,8 @@ import {
   normalizeZipCode,
   parseSettings,
   resolveEffectiveServiceAreaFromBusinessSettings,
+  type DeliveryZoneSettings,
+  type ServiceAreaSettings,
   type WeekDay,
 } from '../lib/business-settings'
 import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-availability'
@@ -20,11 +22,38 @@ import {
 import { mergePayoutProfile, readDefaultPayoutProfile } from '../lib/payout-profile'
 import { decodeStoredProductModifierName } from '../lib/product-modifiers'
 import { isStripePublishableKeyConfigured, resolveStripeRuntimeMode } from '../lib/stripe'
+import {
+  ensureProductBadgesColumn,
+  isMissingProductBadgesColumnError,
+  readStoredProductBadges,
+} from '../lib/product-badges-store'
+import {
+  getLegacyProductBadgeFlags,
+  normalizeProductBadges,
+} from '../lib/product-badges'
 
 const router = Router()
 const MAX_PUBLIC_INLINE_ASSET_LENGTH = 12_000_000
 const ENABLE_PUBLIC_DISCOVERY_DEBUG_LOGS =
   String(process.env.DELIVERY_AREA_DEBUG || '').trim().toLowerCase() === 'true'
+
+function deliveryZoneToServiceArea(zone: DeliveryZoneSettings): ServiceAreaSettings {
+  return {
+    enabled: zone.enabled,
+    strategy: zone.strategy,
+    zipCodes: zone.zipCodes,
+    excludedZipCodes: zone.excludedZipCodes,
+    excludedStreets: zone.excludedStreets,
+    radiusKm: zone.radiusKm,
+    polygonPath: zone.polygonPath,
+    centerLatitude: zone.centerLatitude,
+    centerLongitude: zone.centerLongitude,
+    centerZipCode: zone.centerZipCode,
+    centerCity: zone.centerCity,
+    centerStreet: zone.centerStreet,
+    notes: zone.notes,
+  }
+}
 
 function scopedTenantWhere(req: Request) {
   const actor = req.authUser
@@ -402,6 +431,7 @@ function isMissingProductColumnsError(error: unknown) {
   }
 
   return (
+    isMissingProductBadgesColumnError(error) ||
     error.message.includes('Product.beverageContainerType') ||
     error.message.includes('beverageContainerType') ||
     error.message.includes('Product.deposit') ||
@@ -482,6 +512,7 @@ async function ensureProductColumns() {
     ADD COLUMN IF NOT EXISTS "isBeverage" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "contentVolumeLiters" DECIMAL(10, 3),
     ADD COLUMN IF NOT EXISTS "ageRestriction" "ProductAgeRestriction" NOT NULL DEFAULT 'NONE',
+    ADD COLUMN IF NOT EXISTS "badges" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     ADD COLUMN IF NOT EXISTS "isVegetarian" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isVegan" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isSpicy" BOOLEAN NOT NULL DEFAULT false,
@@ -489,6 +520,18 @@ async function ensureProductColumns() {
     ADD COLUMN IF NOT EXISTS "isNew" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isPopular" BOOLEAN NOT NULL DEFAULT false;
   `)
+}
+
+async function loadProductBadges(productIds: string[]) {
+  try {
+    return await readStoredProductBadges(productIds)
+  } catch (error) {
+    if (!isMissingProductBadgesColumnError(error)) {
+      throw error
+    }
+    await ensureProductBadgesColumn()
+    return readStoredProductBadges(productIds)
+  }
 }
 
 async function copyTenantBaseData(
@@ -870,14 +913,57 @@ router.get('/public/discovery', async (req, res) => {
           return null
         }
 
-        const deliveryMatch = includeDelivery
-          ? matchServiceArea(effectiveDeliveryArea, {
-              tenantId: tenant.id,
-              zipCode,
-              street,
-              latitude: effectiveLatitude,
-              longitude: effectiveLongitude,
+        const activeDeliveryZones = (settings.deliveryZones ?? [])
+          .filter((zone) => zone.enabled)
+          .sort((left, right) => {
+            if (left.priority !== right.priority) {
+              return left.priority - right.priority
+            }
+            return left.name.localeCompare(right.name, 'de-DE')
+          })
+
+        const deliveryZoneMatches = includeDelivery
+          ? activeDeliveryZones.map((zone) => {
+              const zoneArea = deliveryZoneToServiceArea(zone)
+              const zoneMatch = matchServiceArea(zoneArea, {
+                tenantId: tenant.id,
+                zipCode,
+                street,
+                latitude: effectiveLatitude,
+                longitude: effectiveLongitude,
+              })
+              const strictZoneMatch =
+                zoneArea.strategy === 'POLYGON'
+                  ? zoneArea.polygonPath.length >= 3 &&
+                    effectiveLatitude !== null &&
+                    effectiveLongitude !== null &&
+                    Boolean(zoneMatch.matchedByPolygon)
+                  : Boolean(zoneMatch.matched)
+
+              return {
+                zone,
+                area: zoneArea,
+                match: zoneMatch,
+                matched: strictZoneMatch,
+              }
             })
+          : []
+
+        const matchedDeliveryZoneEntry =
+          deliveryZoneMatches.find((entry) => entry.matched) ?? null
+        const useDeliveryZones = activeDeliveryZones.length > 0
+
+        const deliveryMatch = includeDelivery
+          ? matchedDeliveryZoneEntry?.match ??
+            (!useDeliveryZones
+              ? matchServiceArea(effectiveDeliveryArea, {
+                  tenantId: tenant.id,
+                  zipCode,
+                  street,
+                  latitude: effectiveLatitude,
+                  longitude: effectiveLongitude,
+                })
+              : null)
           : null
         const pickupMatch = includePickup
           ? matchServiceArea(settings.pickupArea, {
@@ -889,21 +975,24 @@ router.get('/public/discovery', async (req, res) => {
             })
           : null
 
-        const strictDeliveryMatch =
-          effectiveDeliveryArea.strategy === 'POLYGON'
-            ? effectiveDeliveryArea.polygonPath.length >= 3 &&
+        const effectiveDiscoveryDeliveryArea =
+          matchedDeliveryZoneEntry?.area ?? effectiveDeliveryArea
+        const strictDeliveryMatch = matchedDeliveryZoneEntry
+          ? matchedDeliveryZoneEntry.matched
+          : effectiveDiscoveryDeliveryArea.strategy === 'POLYGON'
+            ? effectiveDiscoveryDeliveryArea.polygonPath.length >= 3 &&
               effectiveLatitude !== null &&
               effectiveLongitude !== null &&
               Boolean(deliveryMatch?.matchedByPolygon)
             : Boolean(deliveryMatch?.matched)
-        if (effectiveDeliveryArea.strategy === 'POLYGON') {
+        if (effectiveDiscoveryDeliveryArea.strategy === 'POLYGON') {
           console.info('DISCOVERY_POLYGON_RESULT', {
             tenantId: tenant.id,
             latitude: effectiveLatitude,
             longitude: effectiveLongitude,
             insidePolygon: Boolean(deliveryMatch?.matchedByPolygon),
-            polygonPoints: effectiveDeliveryArea.polygonPath.length,
-            polygonPath: effectiveDeliveryArea.polygonPath,
+            polygonPoints: effectiveDiscoveryDeliveryArea.polygonPath.length,
+            polygonPath: effectiveDiscoveryDeliveryArea.polygonPath,
           })
         }
 
@@ -984,14 +1073,25 @@ router.get('/public/discovery', async (req, res) => {
           route: 'GET /api/tenants/public/discovery',
           tenantId: tenant.id,
           branchId: tenant.id,
-          strategy: effectiveDeliveryArea.strategy,
-          zipCodes: effectiveDeliveryArea.zipCodes,
+          strategy: effectiveDiscoveryDeliveryArea.strategy,
+          zipCodes: effectiveDiscoveryDeliveryArea.zipCodes,
           zipCode,
           street,
           city,
-          polygonPoints: effectiveDeliveryArea.polygonPath.length,
+          polygonPoints: effectiveDiscoveryDeliveryArea.polygonPath.length,
           customerLat: effectiveLatitude,
           customerLng: effectiveLongitude,
+          zoneMatches: deliveryZoneMatches
+            .filter((entry) => entry.matched)
+            .map((entry) => ({
+              id: entry.zone.id,
+              name: entry.zone.name,
+              priority: entry.zone.priority,
+              strategy: entry.zone.strategy,
+            })),
+          matchedZoneNames: deliveryZoneMatches
+            .filter((entry) => entry.matched)
+            .map((entry) => entry.zone.name),
           matchedByZip: deliveryMatch?.matchedByZip ?? false,
           matchedByRadius: deliveryMatch?.matchedByRadius ?? false,
           matchedByPolygon: deliveryMatch?.matchedByPolygon ?? false,
@@ -1006,14 +1106,14 @@ router.get('/public/discovery', async (req, res) => {
           deliveryEnabledNow: intake.services.deliveryEnabledNow,
           rejectionReason: deliveryRejectionReason,
           usedCheck:
-            effectiveDeliveryArea.strategy === 'POLYGON'
+            effectiveDiscoveryDeliveryArea.strategy === 'POLYGON'
               ? 'POLYGON'
-              : effectiveDeliveryArea.strategy === 'RADIUS'
+              : effectiveDiscoveryDeliveryArea.strategy === 'RADIUS'
                 ? 'RADIUS'
-                : effectiveDeliveryArea.strategy === 'ZIP_LIST'
+                : effectiveDiscoveryDeliveryArea.strategy === 'ZIP_LIST'
                   ? 'POSTAL_CODES'
-                  : effectiveDeliveryArea.strategy === 'ZIP_OR_RADIUS' ||
-                      effectiveDeliveryArea.strategy === 'ZIP_AND_RADIUS'
+                  : effectiveDiscoveryDeliveryArea.strategy === 'ZIP_OR_RADIUS' ||
+                      effectiveDiscoveryDeliveryArea.strategy === 'ZIP_AND_RADIUS'
                     ? deliveryMatch?.matchedByRadius
                       ? 'RADIUS'
                       : 'POSTAL_CODES'
@@ -1106,8 +1206,22 @@ router.get('/public/discovery', async (req, res) => {
           services: {
             delivery: {
               available: matchesDelivery,
-              strategy: effectiveDeliveryArea.strategy,
-              polygonPoints: effectiveDeliveryArea.polygonPath.length,
+              strategy: effectiveDiscoveryDeliveryArea.strategy,
+              matchedZone: matchedDeliveryZoneEntry
+                ? {
+                    id: matchedDeliveryZoneEntry.zone.id,
+                    name: matchedDeliveryZoneEntry.zone.name,
+                    color: matchedDeliveryZoneEntry.zone.color,
+                    priority: matchedDeliveryZoneEntry.zone.priority,
+                    strategy: matchedDeliveryZoneEntry.zone.strategy,
+                    minOrderValue: matchedDeliveryZoneEntry.zone.minOrderValue,
+                    deliveryFee: matchedDeliveryZoneEntry.zone.deliveryFee,
+                    freeDeliveryFrom: matchedDeliveryZoneEntry.zone.freeDeliveryFrom,
+                    estimatedDeliveryMinutes:
+                      matchedDeliveryZoneEntry.zone.estimatedDeliveryMinutes,
+                  }
+                : null,
+              polygonPoints: effectiveDiscoveryDeliveryArea.polygonPath.length,
               matchedByZip: deliveryMatch?.matchedByZip ?? false,
               matchedByRadius: deliveryMatch?.matchedByRadius ?? false,
               matchedByPolygon: deliveryMatch?.matchedByPolygon ?? false,
@@ -1378,6 +1492,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       await ensureProductColumns()
       products = await loadCatalogProducts()
     }
+    const badgeMap = await loadProductBadges(products.map((product) => product.id))
 
     const categories = await prisma.category.findMany({
       where: {
@@ -1406,6 +1521,17 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
 
     const mappedProducts = products
       .map((product) => {
+        const badges = normalizeProductBadges({
+          badges: badgeMap.get(product.id) ?? [],
+          ageRestriction: product.ageRestriction,
+          isVegetarian: product.isVegetarian,
+          isVegan: product.isVegan,
+          isSpicy: product.isSpicy,
+          isVerySpicy: product.isVerySpicy,
+          isNew: product.isNew,
+          isPopular: product.isPopular,
+        })
+        const legacyFlags = getLegacyProductBadgeFlags(badges)
         const allergenSet = new Set<string>()
         const ingredients = product.ingredients
           .filter((entry) => entry.showInCustomerApp !== false)
@@ -1450,14 +1576,15 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           contentVolumeLiters: contentVolumeLiters == null ? null : contentVolumeLiters.toFixed(3),
           articleInfo: normalizeText(product.articleInfo),
           foodBusinessOperator: normalizeText(product.foodBusinessOperator),
-          ageRestriction: normalizeAgeRestriction(product.ageRestriction),
+          ageRestriction: legacyFlags.ageRestriction,
+          badges,
           tags: {
-            vegetarian: Boolean(product.isVegetarian),
-            vegan: Boolean(product.isVegan),
-            spicy: Boolean(product.isSpicy),
-            verySpicy: Boolean(product.isVerySpicy),
-            isNew: Boolean(product.isNew),
-            popular: Boolean(product.isPopular),
+            vegetarian: legacyFlags.isVegetarian,
+            vegan: legacyFlags.isVegan,
+            spicy: legacyFlags.isSpicy,
+            verySpicy: legacyFlags.isVerySpicy,
+            isNew: legacyFlags.isNew,
+            popular: legacyFlags.isPopular,
           },
           nutritionInfo: normalizeText(product.nutritionInfo),
           nutrition:

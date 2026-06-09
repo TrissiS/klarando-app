@@ -1,4 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
+import ProductBadge from '@/app/Components/products/ProductBadge'
+import ProductBadgeList from '@/app/Components/products/ProductBadgeList'
+import {
+  PRODUCT_BADGE_GROUPS,
+  getRequiredAge,
+  toggleProductBadgeSelection,
+  type ProductBadgeKey,
+} from '@/lib/product-badges'
 import type { Category, Product, UnitEanEntry } from '@/lib/api'
 
 type NutritionDraft = {
@@ -39,20 +47,8 @@ type Props = {
   setContentVolumeLiters: (value: string) => void
   productDeposit: string
   setProductDeposit: (value: string) => void
-  ageRestriction: 'NONE' | 'AGE_16' | 'AGE_18'
-  setAgeRestriction: (value: 'NONE' | 'AGE_16' | 'AGE_18') => void
-  isVegetarian: boolean
-  setIsVegetarian: (value: boolean) => void
-  isVegan: boolean
-  setIsVegan: (value: boolean) => void
-  isSpicy: boolean
-  setIsSpicy: (value: boolean) => void
-  isVerySpicy: boolean
-  setIsVerySpicy: (value: boolean) => void
-  isNew: boolean
-  setIsNew: (value: boolean) => void
-  isPopular: boolean
-  setIsPopular: (value: boolean) => void
+  productBadges: ProductBadgeKey[]
+  setProductBadges: (value: ProductBadgeKey[] | ((current: ProductBadgeKey[]) => ProductBadgeKey[])) => void
   articleInfo: string
   setArticleInfo: (value: string) => void
   foodBusinessOperator: string
@@ -108,20 +104,8 @@ export default function AdminProductsSection({
   setContentVolumeLiters,
   productDeposit,
   setProductDeposit,
-  ageRestriction,
-  setAgeRestriction,
-  isVegetarian,
-  setIsVegetarian,
-  isVegan,
-  setIsVegan,
-  isSpicy,
-  setIsSpicy,
-  isVerySpicy,
-  setIsVerySpicy,
-  isNew,
-  setIsNew,
-  isPopular,
-  setIsPopular,
+  productBadges,
+  setProductBadges,
   articleInfo,
   setArticleInfo,
   foodBusinessOperator,
@@ -238,6 +222,9 @@ export default function AdminProductsSection({
     }
     return null
   }
+
+  const selectedAge = getRequiredAge({ badges: productBadges })
+  const shouldWarnAboutAlcoholAge = productBadges.includes('ALCOHOL') && selectedAge === null
 
   return (
     <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(300px,390px)_minmax(0,1fr)]">
@@ -370,14 +357,51 @@ export default function AdminProductsSection({
 
           <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/40 px-3 py-2">
             <p className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">Kennzeichnungen</p>
-            <div className="mt-2 grid gap-2 text-sm text-rose-900/85 md:grid-cols-3">
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isVegetarian} onChange={(event) => setIsVegetarian(event.target.checked)} />Vegetarisch</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isVegan} onChange={(event) => setIsVegan(event.target.checked)} />Vegan</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isSpicy} onChange={(event) => setIsSpicy(event.target.checked)} />Scharf</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isVerySpicy} onChange={(event) => setIsVerySpicy(event.target.checked)} />Sehr scharf</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isNew} onChange={(event) => setIsNew(event.target.checked)} />Neu</label>
-              <label className="inline-flex items-center gap-2"><input type="checkbox" checked={isPopular} onChange={(event) => setIsPopular(event.target.checked)} />Beliebt</label>
+            <div className="mt-3 space-y-4">
+              {PRODUCT_BADGE_GROUPS.map((group) => (
+                <div key={group.category}>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-rose-900/65">
+                    {group.label}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {group.badges.map((badgeKey) => {
+                      const checked = productBadges.includes(badgeKey)
+                      return (
+                        <label
+                          key={badgeKey}
+                          className={`inline-flex cursor-pointer items-center rounded-full transition ${checked ? 'ring-2 ring-offset-1 ring-[var(--brand-orange)]/30' : ''}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(event) =>
+                              setProductBadges((current) =>
+                                toggleProductBadgeSelection(current, badgeKey, event.target.checked)
+                              )
+                            }
+                            className="sr-only"
+                          />
+                          <ProductBadge badgeKey={badgeKey} compact />
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
+            {productBadges.length > 0 ? (
+              <div className="mt-3 rounded-xl border border-[var(--brand-border)] bg-white px-3 py-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                  Aktive Kennzeichnungen
+                </p>
+                <ProductBadgeList badges={productBadges} className="mt-2" maxVisible={10} />
+              </div>
+            ) : null}
+            {shouldWarnAboutAlcoholAge ? (
+              <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Bitte Altersfreigabe prüfen: Alkoholhaltige Produkte sollten mit 16+ oder 18+ gekennzeichnet sein.
+              </p>
+            ) : null}
           </div>
 
           <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/40 px-3 py-2">
@@ -422,21 +446,6 @@ export default function AdminProductsSection({
             <p className="mt-1 text-xs text-rose-900/70">
               Nur für Getränke: wird auf der Verkaufsseite klein angezeigt.
             </p>
-          </label>
-
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-rose-900/85">Altersfreigabe</span>
-            <select
-              value={ageRestriction}
-              onChange={(event) =>
-                setAgeRestriction(event.target.value as 'NONE' | 'AGE_16' | 'AGE_18')
-              }
-              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-orange)] focus:ring-2 focus:ring-orange-200/60"
-            >
-              <option value="NONE">Keine</option>
-              <option value="AGE_16">ab 16</option>
-              <option value="AGE_18">ab 18</option>
-            </select>
           </label>
 
           <div className="rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-3">
@@ -919,13 +928,7 @@ export default function AdminProductsSection({
                           {formatBeverageContainerType(product.beverageContainerType)}
                         </p>
                       ) : null}
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {product.isVegetarian ? <span className="rounded bg-emerald-100 px-1.5 text-[10px] text-emerald-700">Vegetarisch</span> : null}
-                        {product.isVegan ? <span className="rounded bg-lime-100 px-1.5 text-[10px] text-lime-700">Vegan</span> : null}
-                        {product.isSpicy ? <span className="rounded bg-orange-100 px-1.5 text-[10px] text-orange-700">Scharf</span> : null}
-                        {product.ageRestriction === 'AGE_16' ? <span className="rounded bg-amber-100 px-1.5 text-[10px] text-amber-700">ab 16</span> : null}
-                        {product.ageRestriction === 'AGE_18' ? <span className="rounded bg-red-100 px-1.5 text-[10px] text-red-700">ab 18</span> : null}
-                      </div>
+                      <ProductBadgeList badges={product.badges} className="mt-1" compact maxVisible={5} />
                     </td>
                     <td className="border-t border-slate-100 px-3 py-2 text-sm text-rose-900/85">
                       <p>Brutto: {Number(product.price).toFixed(2)} EUR</p>

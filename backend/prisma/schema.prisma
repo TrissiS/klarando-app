@@ -759,6 +759,7 @@ model Product {
   contentVolumeLiters   Decimal?              @db.Decimal(10, 3)
   deposit               Decimal               @default(0) @db.Decimal(10, 2)
   ageRestriction        ProductAgeRestriction @default(NONE)
+  badges                String[]              @default([])
   isVegetarian          Boolean               @default(false)
   isVegan               Boolean               @default(false)
   isSpicy               Boolean               @default(false)

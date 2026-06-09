@@ -4,6 +4,17 @@ import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
+import {
+  ensureProductBadgesColumn,
+  isMissingProductBadgesColumnError,
+  readStoredProductBadges,
+  writeStoredProductBadges,
+} from '../lib/product-badges-store'
+import {
+  getLegacyProductBadgeFlags,
+  normalizeProductBadges,
+  sanitizeProductBadgeKeys,
+} from '../lib/product-badges'
 
 const router = Router()
 const BEVERAGE_CONTAINER_TYPES = new Set(['NONE', 'EINWEG', 'MEHRWEG'])
@@ -140,6 +151,7 @@ function collectAllergens(product: {
 
 function mapProductOutput(
   product: {
+    id: string
     ean: string | null
     unitEans: Prisma.JsonValue | null
     deposit?: Prisma.Decimal | number | string | null
@@ -157,8 +169,21 @@ function mapProductOutput(
     nutritionInfo?: string | null
     nutrition?: Prisma.JsonValue | null
     ingredients?: Array<{ ingredient: { allergens: string | null } }>
+    badges?: unknown
   } & Record<string, unknown>
 ) {
+  const badges = normalizeProductBadges({
+    badges: product.badges,
+    ageRestriction: product.ageRestriction,
+    isVegetarian: product.isVegetarian,
+    isVegan: product.isVegan,
+    isSpicy: product.isSpicy,
+    isVerySpicy: product.isVerySpicy,
+    isNew: product.isNew,
+    isPopular: product.isPopular,
+  })
+  const legacyFlags = getLegacyProductBadgeFlags(badges)
+
   return {
     ...product,
     ean: normalizeEan(product.ean) ?? null,
@@ -173,13 +198,14 @@ function mapProductOutput(
       Boolean(product.isBeverage) && normalizeMoney(product.contentVolumeLiters, 0) > 0
         ? (normalizeMoney(product.price, 0) / normalizeMoney(product.contentVolumeLiters, 0)).toFixed(2)
         : null,
-    ageRestriction: normalizeAgeRestriction(product.ageRestriction) ?? 'NONE',
-    isVegetarian: Boolean(product.isVegetarian),
-    isVegan: Boolean(product.isVegan),
-    isSpicy: Boolean(product.isSpicy),
-    isVerySpicy: Boolean(product.isVerySpicy),
-    isNew: Boolean(product.isNew),
-    isPopular: Boolean(product.isPopular),
+    ageRestriction: legacyFlags.ageRestriction,
+    badges,
+    isVegetarian: legacyFlags.isVegetarian,
+    isVegan: legacyFlags.isVegan,
+    isSpicy: legacyFlags.isSpicy,
+    isVerySpicy: legacyFlags.isVerySpicy,
+    isNew: legacyFlags.isNew,
+    isPopular: legacyFlags.isPopular,
     articleInfo: normalizeText(product.articleInfo) ?? null,
     foodBusinessOperator: normalizeText(product.foodBusinessOperator) ?? null,
     nutritionInfo: normalizeText(product.nutritionInfo) ?? null,
@@ -228,6 +254,7 @@ function isMissingProductColumnsError(error: unknown) {
   }
 
   return (
+    isMissingProductBadgesColumnError(error) ||
     error.message.includes('Product.beverageContainerType') ||
     error.message.includes('beverageContainerType') ||
     error.message.includes('Product.deposit') ||
@@ -308,6 +335,7 @@ async function ensureProductColumns() {
     ADD COLUMN IF NOT EXISTS "isBeverage" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "contentVolumeLiters" DECIMAL(10, 3),
     ADD COLUMN IF NOT EXISTS "ageRestriction" "ProductAgeRestriction" NOT NULL DEFAULT 'NONE',
+    ADD COLUMN IF NOT EXISTS "badges" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
     ADD COLUMN IF NOT EXISTS "isVegetarian" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isVegan" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isSpicy" BOOLEAN NOT NULL DEFAULT false,
@@ -315,6 +343,18 @@ async function ensureProductColumns() {
     ADD COLUMN IF NOT EXISTS "isNew" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isPopular" BOOLEAN NOT NULL DEFAULT false;
   `)
+}
+
+async function loadProductBadges(productIds: string[]) {
+  try {
+    return await readStoredProductBadges(productIds)
+  } catch (error) {
+    if (!isMissingProductBadgesColumnError(error)) {
+      throw error
+    }
+    await ensureProductBadgesColumn()
+    return readStoredProductBadges(productIds)
+  }
 }
 
 async function validateCategoryScope(tenantId: string, categoryId: string | null | undefined) {
@@ -372,7 +412,15 @@ router.get('/', requirePermission(PermissionKey.PRODUCTS_READ), async (req, res)
       products = await loadProducts()
     }
 
-    return res.json(products.map(mapProductOutput))
+    const badgeMap = await loadProductBadges(products.map((product) => product.id))
+    return res.json(
+      products.map((product) =>
+        mapProductOutput({
+          ...product,
+          badges: badgeMap.get(product.id) ?? [],
+        })
+      )
+    )
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
@@ -402,6 +450,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       isBeverage,
       contentVolumeLiters,
       ageRestriction,
+      badges,
       isVegetarian,
       isVegan,
       isSpicy,
@@ -428,6 +477,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       isBeverage?: boolean
       contentVolumeLiters?: number | null
       ageRestriction?: string
+      badges?: unknown
       isVegetarian?: boolean
       isVegan?: boolean
       isSpicy?: boolean
@@ -479,7 +529,10 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
 
     const normalizedUnitEans = normalizeUnitEans(unitEans)
     const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType)
-    const normalizedAgeRestriction = normalizeAgeRestriction(ageRestriction) ?? 'NONE'
+    const normalizedBadges = sanitizeProductBadgeKeys(badges)
+    const legacyBadgeFlags = getLegacyProductBadgeFlags(normalizedBadges)
+    const normalizedAgeRestriction =
+      normalizeAgeRestriction(ageRestriction) ?? legacyBadgeFlags.ageRestriction ?? 'NONE'
 
     const createProductRecord = () =>
       prisma.product.create({
@@ -497,12 +550,24 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
             contentVolumeLiters == null ? null : normalizeMoney(contentVolumeLiters, 0),
           deposit: normalizeMoney(deposit, 0),
           ageRestriction: normalizedAgeRestriction,
-          isVegetarian: normalizeBoolean(isVegetarian, false),
-          isVegan: normalizeBoolean(isVegan, false),
-          isSpicy: normalizeBoolean(isSpicy, false),
-          isVerySpicy: normalizeBoolean(isVerySpicy, false),
-          isNew: normalizeBoolean(isNew, false),
-          isPopular: normalizeBoolean(isPopular, false),
+          isVegetarian:
+            normalizedBadges.length > 0
+              ? legacyBadgeFlags.isVegetarian
+              : normalizeBoolean(isVegetarian, false),
+          isVegan:
+            normalizedBadges.length > 0 ? legacyBadgeFlags.isVegan : normalizeBoolean(isVegan, false),
+          isSpicy:
+            normalizedBadges.length > 0 ? legacyBadgeFlags.isSpicy : normalizeBoolean(isSpicy, false),
+          isVerySpicy:
+            normalizedBadges.length > 0
+              ? legacyBadgeFlags.isVerySpicy
+              : normalizeBoolean(isVerySpicy, false),
+          isNew:
+            normalizedBadges.length > 0 ? legacyBadgeFlags.isNew : normalizeBoolean(isNew, false),
+          isPopular:
+            normalizedBadges.length > 0
+              ? legacyBadgeFlags.isPopular
+              : normalizeBoolean(isPopular, false),
           articleInfo: normalizeText(articleInfo),
           foodBusinessOperator: normalizeText(foodBusinessOperator),
           nutritionInfo: normalizeText(nutritionInfo),
@@ -540,6 +605,20 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       product = await createProductRecord()
     }
 
+    const storedBadges =
+      normalizedBadges.length > 0
+        ? normalizedBadges
+        : normalizeProductBadges({
+            ageRestriction: normalizedAgeRestriction,
+            isVegetarian: product.isVegetarian,
+            isVegan: product.isVegan,
+            isSpicy: product.isSpicy,
+            isVerySpicy: product.isVerySpicy,
+            isNew: product.isNew,
+            isPopular: product.isPopular,
+          })
+    await writeStoredProductBadges(product.id, storedBadges)
+
     await writeAuditLog({
       req,
       module: 'product',
@@ -554,7 +633,7 @@ router.post('/', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, re
       },
     })
 
-    return res.status(201).json(mapProductOutput(product))
+    return res.status(201).json(mapProductOutput({ ...product, badges: storedBadges }))
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
@@ -583,6 +662,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       isBeverage,
       contentVolumeLiters,
       ageRestriction,
+      badges,
       isVegetarian,
       isVegan,
       isSpicy,
@@ -607,6 +687,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       isBeverage?: boolean
       contentVolumeLiters?: number | null
       ageRestriction?: string
+      badges?: unknown
       isVegetarian?: boolean
       isVegan?: boolean
       isSpicy?: boolean
@@ -649,6 +730,9 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
     const normalizedUnitEans = unitEans === undefined ? undefined : normalizeUnitEans(unitEans)
     const normalizedContainerType = normalizeBeverageContainerType(beverageContainerType)
     const normalizedAgeRestriction = normalizeAgeRestriction(ageRestriction)
+    const normalizedBadges = badges === undefined ? undefined : sanitizeProductBadgeKeys(badges)
+    const normalizedBadgeFlags =
+      normalizedBadges === undefined ? undefined : getLegacyProductBadgeFlags(normalizedBadges)
     const normalizedProductNumber = normalizeProductNumber(productNumber)
     const existingNormalizedProductNumber = normalizeProductNumber(existingProduct.productNumber)
     const targetAvailable = available ?? existingProduct.available
@@ -715,16 +799,46 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
           deposit: deposit === undefined ? undefined : normalizeMoney(deposit, 0),
           ageRestriction:
             ageRestriction === undefined
-              ? undefined
-              : normalizedAgeRestriction ?? 'NONE',
+              ? normalizedBadges === undefined
+                ? undefined
+                : normalizedBadgeFlags?.ageRestriction ?? 'NONE'
+              : normalizedAgeRestriction ?? normalizedBadgeFlags?.ageRestriction ?? 'NONE',
           isVegetarian:
-            isVegetarian === undefined ? undefined : normalizeBoolean(isVegetarian, false),
-          isVegan: isVegan === undefined ? undefined : normalizeBoolean(isVegan, false),
-          isSpicy: isSpicy === undefined ? undefined : normalizeBoolean(isSpicy, false),
+            normalizedBadges !== undefined
+              ? normalizedBadgeFlags?.isVegetarian
+              : isVegetarian === undefined
+                ? undefined
+                : normalizeBoolean(isVegetarian, false),
+          isVegan:
+            normalizedBadges !== undefined
+              ? normalizedBadgeFlags?.isVegan
+              : isVegan === undefined
+                ? undefined
+                : normalizeBoolean(isVegan, false),
+          isSpicy:
+            normalizedBadges !== undefined
+              ? normalizedBadgeFlags?.isSpicy
+              : isSpicy === undefined
+                ? undefined
+                : normalizeBoolean(isSpicy, false),
           isVerySpicy:
-            isVerySpicy === undefined ? undefined : normalizeBoolean(isVerySpicy, false),
-          isNew: isNew === undefined ? undefined : normalizeBoolean(isNew, false),
-          isPopular: isPopular === undefined ? undefined : normalizeBoolean(isPopular, false),
+            normalizedBadges !== undefined
+              ? normalizedBadgeFlags?.isVerySpicy
+              : isVerySpicy === undefined
+                ? undefined
+                : normalizeBoolean(isVerySpicy, false),
+          isNew:
+            normalizedBadges !== undefined
+              ? normalizedBadgeFlags?.isNew
+              : isNew === undefined
+                ? undefined
+                : normalizeBoolean(isNew, false),
+          isPopular:
+            normalizedBadges !== undefined
+              ? normalizedBadgeFlags?.isPopular
+              : isPopular === undefined
+                ? undefined
+                : normalizeBoolean(isPopular, false),
           articleInfo: articleInfo === undefined ? undefined : normalizeText(articleInfo),
           foodBusinessOperator:
             foodBusinessOperator === undefined ? undefined : normalizeText(foodBusinessOperator),
@@ -768,6 +882,14 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       product = await updateProductRecord()
     }
 
+    if (normalizedBadges !== undefined) {
+      await writeStoredProductBadges(product.id, normalizedBadges)
+    }
+
+    const resolvedBadges =
+      normalizedBadges ??
+      (await loadProductBadges([product.id]).then((map) => map.get(product.id) ?? []))
+
     await writeAuditLog({
       req,
       module: 'product',
@@ -781,7 +903,7 @@ router.put('/:id', requirePermission(PermissionKey.PRODUCTS_WRITE), async (req, 
       },
     })
 
-    return res.json(mapProductOutput(product))
+    return res.json(mapProductOutput({ ...product, badges: resolvedBadges }))
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {

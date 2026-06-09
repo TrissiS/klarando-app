@@ -1,5 +1,6 @@
 import { API_BASE_URL, resolveTenantId } from './config'
 import { apiFetch, apiJson, normalizeApiPath } from './api-client'
+import type { ProductBadgeKey } from './product-badges'
 
 export type Category = {
   id: string
@@ -59,6 +60,7 @@ export type Product = {
   literPrice?: string | null
   deposit: string
   ageRestriction: 'NONE' | 'AGE_16' | 'AGE_18'
+  badges: ProductBadgeKey[]
   isVegetarian: boolean
   isVegan: boolean
   isSpicy: boolean
@@ -389,14 +391,20 @@ export type BusinessDeliveryZone = {
   strategy: BusinessServiceAreaStrategy
   polygonPath: BusinessServiceAreaPolygonPoint[]
   zipCodes: string[]
+  excludedZipCodes: string[]
+  excludedStreets: string[]
   centerLatitude: number | null
   centerLongitude: number | null
+  centerZipCode: string | null
+  centerCity: string | null
+  centerStreet: string | null
   radiusKm: number | null
   minOrderValue: number | null
   deliveryFee: number | null
   freeDeliveryFrom: number | null
   estimatedDeliveryMinutes: number | null
   priority: number
+  notes: string | null
 }
 
 export type BusinessCustomerAppListingDisplaySettings = {
@@ -732,6 +740,17 @@ export type PublicTenantDiscoveryTenant = {
     delivery: {
       available: boolean
       strategy: BusinessServiceAreaStrategy
+      matchedZone?: {
+        id: string
+        name: string
+        color: string
+        priority: number
+        strategy: BusinessServiceAreaStrategy
+        minOrderValue: number | null
+        deliveryFee: number | null
+        freeDeliveryFrom: number | null
+        estimatedDeliveryMinutes: number | null
+      } | null
       matchedByZip: boolean
       matchedByRadius: boolean
       matchedByPolygon: boolean
@@ -1957,6 +1976,7 @@ export async function createProduct(data: {
   contentVolumeLiters?: number | null
   deposit?: number
   ageRestriction?: 'NONE' | 'AGE_16' | 'AGE_18'
+  badges?: ProductBadgeKey[]
   isVegetarian?: boolean
   isVegan?: boolean
   isSpicy?: boolean
@@ -1995,6 +2015,7 @@ export async function createProduct(data: {
       contentVolumeLiters: data.contentVolumeLiters ?? null,
       deposit: data.deposit ?? 0,
       ageRestriction: data.ageRestriction ?? 'NONE',
+      badges: data.badges ?? [],
       isVegetarian: data.isVegetarian ?? false,
       isVegan: data.isVegan ?? false,
       isSpicy: data.isSpicy ?? false,
@@ -2032,6 +2053,7 @@ export async function updateProduct(
     contentVolumeLiters?: number | null
     deposit?: number
     ageRestriction?: 'NONE' | 'AGE_16' | 'AGE_18'
+    badges?: ProductBadgeKey[]
     isVegetarian?: boolean
     isVegan?: boolean
     isSpicy?: boolean

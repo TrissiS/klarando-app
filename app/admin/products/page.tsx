@@ -8,6 +8,11 @@ import AdminLayout from '@/app/Components/admin/AdminLayout'
 import AdminProductsSection from '@/app/Components/admin/AdminProductsSection'
 import ProductIngredientsManager from '@/app/Components/admin/ProductIngredientsManager'
 import {
+  getLegacyProductBadgeFlags,
+  normalizeProductBadges,
+  type ProductBadgeKey,
+} from '@/lib/product-badges'
+import {
   createCategory,
   createIngredient,
   createProductIngredient,
@@ -256,13 +261,7 @@ function AdminProductsPageContent() {
   >('NONE')
   const [isBeverage, setIsBeverage] = useState(false)
   const [contentVolumeLiters, setContentVolumeLiters] = useState('')
-  const [ageRestriction, setAgeRestriction] = useState<'NONE' | 'AGE_16' | 'AGE_18'>('NONE')
-  const [isVegetarian, setIsVegetarian] = useState(false)
-  const [isVegan, setIsVegan] = useState(false)
-  const [isSpicy, setIsSpicy] = useState(false)
-  const [isVerySpicy, setIsVerySpicy] = useState(false)
-  const [isNew, setIsNew] = useState(false)
-  const [isPopular, setIsPopular] = useState(false)
+  const [productBadges, setProductBadges] = useState<ProductBadgeKey[]>([])
   const [productDeposit, setProductDeposit] = useState('0')
   const [articleInfo, setArticleInfo] = useState('')
   const [foodBusinessOperator, setFoodBusinessOperator] = useState('')
@@ -489,13 +488,7 @@ function AdminProductsPageContent() {
     setBeverageContainerType('NONE')
     setIsBeverage(false)
     setContentVolumeLiters('')
-    setAgeRestriction('NONE')
-    setIsVegetarian(false)
-    setIsVegan(false)
-    setIsSpicy(false)
-    setIsVerySpicy(false)
-    setIsNew(false)
-    setIsPopular(false)
+    setProductBadges([])
     setProductDeposit('0')
     setArticleInfo('')
     setFoodBusinessOperator('')
@@ -589,6 +582,8 @@ function AdminProductsPageContent() {
       setSuccess('')
       setProductNumberError('')
 
+      const legacyBadgeFlags = getLegacyProductBadgeFlags(productBadges)
+
       const payload = {
         categoryId: categoryId || null,
         productNumber: productNumber.trim() || null,
@@ -600,13 +595,14 @@ function AdminProductsPageContent() {
         isBeverage,
         contentVolumeLiters: contentVolumeLiters.trim() ? Number(contentVolumeLiters) : null,
         deposit: Number(productDeposit || 0),
-        ageRestriction,
-        isVegetarian,
-        isVegan,
-        isSpicy,
-        isVerySpicy,
-        isNew,
-        isPopular,
+        ageRestriction: legacyBadgeFlags.ageRestriction,
+        badges: productBadges,
+        isVegetarian: legacyBadgeFlags.isVegetarian,
+        isVegan: legacyBadgeFlags.isVegan,
+        isSpicy: legacyBadgeFlags.isSpicy,
+        isVerySpicy: legacyBadgeFlags.isVerySpicy,
+        isNew: legacyBadgeFlags.isNew,
+        isPopular: legacyBadgeFlags.isPopular,
         articleInfo: articleInfo.trim() || null,
         foodBusinessOperator: foodBusinessOperator.trim() || null,
         nutritionInfo: nutritionInfo.trim() || null,
@@ -739,6 +735,7 @@ function AdminProductsPageContent() {
         contentVolumeLiters: null,
         deposit: 0,
         ageRestriction: 'NONE',
+        badges: [],
         isVegetarian: false,
         isVegan: false,
         isSpicy: false,
@@ -854,6 +851,7 @@ function AdminProductsPageContent() {
           product.contentVolumeLiters != null ? Number(product.contentVolumeLiters) : null,
         deposit: Number(product.deposit || 0),
         ageRestriction: product.ageRestriction || 'NONE',
+        badges: normalizeProductBadges(product),
         isVegetarian: product.isVegetarian || false,
         isVegan: product.isVegan || false,
         isSpicy: product.isSpicy || false,
@@ -1216,20 +1214,8 @@ function AdminProductsPageContent() {
             setContentVolumeLiters={setContentVolumeLiters}
             productDeposit={productDeposit}
             setProductDeposit={setProductDeposit}
-            ageRestriction={ageRestriction}
-            setAgeRestriction={setAgeRestriction}
-            isVegetarian={isVegetarian}
-            setIsVegetarian={setIsVegetarian}
-            isVegan={isVegan}
-            setIsVegan={setIsVegan}
-            isSpicy={isSpicy}
-            setIsSpicy={setIsSpicy}
-            isVerySpicy={isVerySpicy}
-            setIsVerySpicy={setIsVerySpicy}
-            isNew={isNew}
-            setIsNew={setIsNew}
-            isPopular={isPopular}
-            setIsPopular={setIsPopular}
+            productBadges={productBadges}
+            setProductBadges={setProductBadges}
             articleInfo={articleInfo}
             setArticleInfo={setArticleInfo}
             foodBusinessOperator={foodBusinessOperator}
@@ -1266,13 +1252,7 @@ function AdminProductsPageContent() {
               setBeverageContainerType(product.beverageContainerType || 'NONE')
               setIsBeverage(product.isBeverage || false)
               setContentVolumeLiters(product.contentVolumeLiters || '')
-              setAgeRestriction(product.ageRestriction || 'NONE')
-              setIsVegetarian(product.isVegetarian || false)
-              setIsVegan(product.isVegan || false)
-              setIsSpicy(product.isSpicy || false)
-              setIsVerySpicy(product.isVerySpicy || false)
-              setIsNew(product.isNew || false)
-              setIsPopular(product.isPopular || false)
+              setProductBadges(normalizeProductBadges(product))
               setProductDeposit(product.deposit || '0')
               setArticleInfo(product.articleInfo || '')
               setFoodBusinessOperator(product.foodBusinessOperator || '')
