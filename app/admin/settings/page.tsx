@@ -111,7 +111,7 @@ function createDefaultDeliveryZone(priority: number): BusinessDeliveryZone {
     deliveryFee: null,
     freeDeliveryFrom: null,
     estimatedDeliveryMinutes: null,
-    priority,
+    priority: Math.max(1, priority),
   }
 }
 
@@ -147,6 +147,31 @@ function mergeServiceAreaIntoZone(
     centerLongitude: nextArea.centerLongitude,
     radiusKm: nextArea.radiusKm,
   }
+}
+
+function validateDeliveryZone(zone: BusinessDeliveryZone) {
+  const errors: string[] = []
+
+  if (!zone.name.trim()) {
+    errors.push('Name darf nicht leer sein.')
+  }
+  if (zone.priority < 1) {
+    errors.push('Priorität muss mindestens 1 sein.')
+  }
+  if (zone.minOrderValue !== null && zone.minOrderValue < 0) {
+    errors.push('Mindestbestellwert darf nicht negativ sein.')
+  }
+  if (zone.deliveryFee !== null && zone.deliveryFee < 0) {
+    errors.push('Lieferkosten dürfen nicht negativ sein.')
+  }
+  if (zone.freeDeliveryFrom !== null && zone.freeDeliveryFrom < 0) {
+    errors.push('Kostenlos ab darf nicht negativ sein.')
+  }
+  if (zone.estimatedDeliveryMinutes !== null && zone.estimatedDeliveryMinutes < 0) {
+    errors.push('Lieferzeit darf nicht negativ sein.')
+  }
+
+  return errors
 }
 
 export default function AdminSettingsPage() {
@@ -305,11 +330,33 @@ export default function AdminSettingsPage() {
     const nextPriority =
       (settings?.deliveryZones ?? []).reduce(
         (maxPriority, zone) => Math.max(maxPriority, zone.priority),
-        -1
+        0
       ) + 1
     const nextZone = createDefaultDeliveryZone(nextPriority)
     updateDeliveryZones((zones) => [...zones, nextZone])
     setSelectedDeliveryZoneId(nextZone.id)
+  }
+
+  function handleDeleteDeliveryZone(zoneId: string) {
+    if (!window.confirm('Lieferzone wirklich löschen?')) {
+      return
+    }
+
+    const currentZones = settings?.deliveryZones ?? []
+    const sortedZones = [...currentZones].sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority
+      }
+      return left.name.localeCompare(right.name, 'de-DE')
+    })
+    const currentIndex = sortedZones.findIndex((zone) => zone.id === zoneId)
+    const fallbackZone =
+      sortedZones[currentIndex + 1] ??
+      sortedZones[currentIndex - 1] ??
+      null
+
+    updateDeliveryZones((zones) => zones.filter((zone) => zone.id !== zoneId))
+    setSelectedDeliveryZoneId(fallbackZone?.id ?? null)
   }
 
   async function handleLogoFile(file: File | null) {
@@ -380,6 +427,16 @@ export default function AdminSettingsPage() {
   async function handleSave(event?: React.FormEvent) {
     event?.preventDefault()
     if (!settings) return
+    const invalidZone = (settings.deliveryZones ?? []).find(
+      (zone) => validateDeliveryZone(zone).length > 0
+    )
+    if (invalidZone) {
+      setError(
+        `Lieferzone „${invalidZone.name.trim() || 'Ohne Namen'}“ ist ungültig: ${validateDeliveryZone(invalidZone).join(' ')}`
+      )
+      setSelectedDeliveryZoneId(invalidZone.id)
+      return
+    }
     const requestUrl = '/api/business-settings'
     const requestMethod = 'PUT'
 
@@ -482,6 +539,9 @@ export default function AdminSettingsPage() {
   })
   const selectedDeliveryZone =
     deliveryZones.find((zone) => zone.id === selectedDeliveryZoneId) ?? null
+  const selectedDeliveryZoneErrors = selectedDeliveryZone
+    ? validateDeliveryZone(selectedDeliveryZone)
+    : []
 
   return (
     <AdminLayout
@@ -915,6 +975,7 @@ export default function AdminSettingsPage() {
                       <div className="space-y-2">
                         {sortedDeliveryZones.map((zone) => {
                           const isSelected = zone.id === selectedDeliveryZoneId
+                          const zoneErrors = validateDeliveryZone(zone)
                           return (
                             <button
                               key={zone.id}
@@ -937,9 +998,25 @@ export default function AdminSettingsPage() {
                                       {zone.name || 'Unbenannte Lieferzone'}
                                     </span>
                                   </div>
-                                  <p className="mt-1 text-xs text-rose-900/70">
-                                    Priorität {zone.priority} · {zone.strategy}
-                                  </p>
+                                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                                    <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
+                                      Priorität {zone.priority}
+                                    </span>
+                                    <span className="rounded-full bg-sky-100 px-2 py-1 text-sky-700">
+                                      {zone.strategy}
+                                    </span>
+                                    <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-800">
+                                      Mindestwert {zone.minOrderValue !== null ? `${zone.minOrderValue.toFixed(2)} €` : '—'}
+                                    </span>
+                                    <span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-800">
+                                      Lieferkosten {zone.deliveryFee !== null ? `${zone.deliveryFee.toFixed(2)} €` : '—'}
+                                    </span>
+                                  </div>
+                                  {zoneErrors.length > 0 ? (
+                                    <p className="mt-2 text-xs text-red-700">
+                                      {zoneErrors[0]}
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <span
                                   className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
@@ -958,6 +1035,16 @@ export default function AdminSettingsPage() {
 
                       {selectedDeliveryZone ? (
                         <div className="space-y-4">
+                          {selectedDeliveryZoneErrors.length > 0 ? (
+                            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                              <p className="font-semibold">Bitte Lieferzone prüfen</p>
+                              <ul className="mt-2 list-disc pl-5">
+                                {selectedDeliveryZoneErrors.map((entry) => (
+                                  <li key={entry}>{entry}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          ) : null}
                           <div className="grid gap-3 rounded-2xl border border-[var(--brand-border)] bg-white p-4 md:grid-cols-2 xl:grid-cols-3">
                             <label className="block">
                               <span className="mb-1 block text-sm font-medium text-rose-900/85">Name</span>
@@ -969,7 +1056,11 @@ export default function AdminSettingsPage() {
                                     name: event.target.value,
                                   }))
                                 }
-                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                                  !selectedDeliveryZone.name.trim()
+                                    ? 'border border-red-300 bg-red-50'
+                                    : 'border border-[var(--brand-border)]'
+                                }`}
                               />
                             </label>
                             <label className="block">
@@ -1015,16 +1106,20 @@ export default function AdminSettingsPage() {
                               <span className="mb-1 block text-sm font-medium text-rose-900/85">Priorität</span>
                               <input
                                 type="number"
-                                min={0}
+                                min={1}
                                 step={1}
                                 value={selectedDeliveryZone.priority}
                                 onChange={(event) =>
                                   updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
                                     ...zone,
-                                    priority: parseNullableInteger(event.target.value) ?? 0,
+                                    priority: parseNullableInteger(event.target.value) ?? 1,
                                   }))
                                 }
-                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                                  selectedDeliveryZone.priority < 1
+                                    ? 'border border-red-300 bg-red-50'
+                                    : 'border border-[var(--brand-border)]'
+                                }`}
                               />
                             </label>
                             <label className="block">
@@ -1040,7 +1135,11 @@ export default function AdminSettingsPage() {
                                     minOrderValue: parseNullableNumber(event.target.value),
                                   }))
                                 }
-                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                                  selectedDeliveryZone.minOrderValue !== null && selectedDeliveryZone.minOrderValue < 0
+                                    ? 'border border-red-300 bg-red-50'
+                                    : 'border border-[var(--brand-border)]'
+                                }`}
                               />
                             </label>
                             <label className="block">
@@ -1056,7 +1155,11 @@ export default function AdminSettingsPage() {
                                     deliveryFee: parseNullableNumber(event.target.value),
                                   }))
                                 }
-                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                                  selectedDeliveryZone.deliveryFee !== null && selectedDeliveryZone.deliveryFee < 0
+                                    ? 'border border-red-300 bg-red-50'
+                                    : 'border border-[var(--brand-border)]'
+                                }`}
                               />
                             </label>
                             <label className="block">
@@ -1072,7 +1175,11 @@ export default function AdminSettingsPage() {
                                     freeDeliveryFrom: parseNullableNumber(event.target.value),
                                   }))
                                 }
-                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                                  selectedDeliveryZone.freeDeliveryFrom !== null && selectedDeliveryZone.freeDeliveryFrom < 0
+                                    ? 'border border-red-300 bg-red-50'
+                                    : 'border border-[var(--brand-border)]'
+                                }`}
                               />
                             </label>
                             <label className="block">
@@ -1088,9 +1195,23 @@ export default function AdminSettingsPage() {
                                     estimatedDeliveryMinutes: parseNullableInteger(event.target.value),
                                   }))
                                 }
-                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                className={`w-full rounded-xl px-3 py-2 text-sm outline-none ${
+                                  selectedDeliveryZone.estimatedDeliveryMinutes !== null &&
+                                  selectedDeliveryZone.estimatedDeliveryMinutes < 0
+                                    ? 'border border-red-300 bg-red-50'
+                                    : 'border border-[var(--brand-border)]'
+                                }`}
                               />
                             </label>
+                            <div className="flex items-end">
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteDeliveryZone(selectedDeliveryZone.id)}
+                                className="w-full rounded-xl border border-red-300 bg-white px-4 py-2.5 text-sm font-semibold text-red-700 transition hover:bg-red-50"
+                              >
+                                Zone löschen
+                              </button>
+                            </div>
                           </div>
 
                           <ServiceAreaEditor
