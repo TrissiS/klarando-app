@@ -255,7 +255,6 @@ const BADGE_KEY_ALIASES: Record<string, ProductBadgeKey> = {
   vegan: 'VEGAN',
   vegetarian: 'VEGETARIAN',
   veggie: 'VEGETARIAN',
-  veggIE: 'VEGETARIAN',
   halal: 'HALAL',
   gluten_free: 'GLUTEN_FREE',
   glutenfrei: 'GLUTEN_FREE',
@@ -422,6 +421,12 @@ function resolveMobileProductBadges(value: unknown): ResolvedProductBadge[] {
     }
     return left.label.localeCompare(right.label, 'de-DE')
   })
+}
+
+export function getRenderedMobileProductBadgeKeys(value: unknown): string[] {
+  return resolveMobileProductBadges(value).map((badge) =>
+    badge.kind === 'known' ? badge.key : `UNKNOWN:${badge.rawKey}`
+  )
 }
 
 function MobileProductBadgeIcon({

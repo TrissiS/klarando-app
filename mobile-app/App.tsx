@@ -24,7 +24,7 @@ import {
   requestAppCustomerDeletion,
 } from './src/api'
 import { DEFAULT_API_BASE_URL } from './src/config'
-import { ProductBadgeList } from './src/product-badges'
+import { getRenderedMobileProductBadgeKeys, ProductBadgeList } from './src/product-badges'
 import {
   clearStoredAppAuthToken,
   readStoredApiBaseUrl,
@@ -788,6 +788,18 @@ export default function App() {
                   </View>
                   {(product.badges ?? []).length > 0 ? (
                     <ProductBadgeList badges={product.badges ?? []} compact />
+                  ) : null}
+                  {__DEV__ ? (
+                    <View style={styles.panelMuted}>
+                      <Text style={styles.metaStrong}>Badge-Debug</Text>
+                      <Text style={styles.meta}>product.name: {product.name}</Text>
+                      <Text style={styles.meta}>
+                        raw badge keys: {(product.badgeKeys ?? product.badges ?? []).join(', ') || '-'}
+                      </Text>
+                      <Text style={styles.meta}>
+                        rendered badge keys: {getRenderedMobileProductBadgeKeys(product.badgeKeys ?? product.badges ?? []).join(', ') || '-'}
+                      </Text>
+                    </View>
                   ) : null}
                   {parseEuroValue(product.depositAmount || '0') > 0 ? (
                     <Text style={styles.meta}>

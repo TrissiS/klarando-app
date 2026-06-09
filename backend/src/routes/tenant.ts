@@ -930,6 +930,7 @@ router.get('/public/discovery', async (req, res) => {
           select: {
             stripeAccountId: true,
             stripeChargesEnabled: true,
+            stripeOnboardingCompleted: true,
           },
         },
         chain: {
@@ -1316,7 +1317,8 @@ router.get('/public/discovery', async (req, res) => {
           payments: {
             stripeAvailable:
               Boolean(tenant.paymentConfig?.stripeAccountId) &&
-              Boolean(tenant.paymentConfig?.stripeChargesEnabled),
+              Boolean(tenant.paymentConfig?.stripeChargesEnabled) &&
+              Boolean(tenant.paymentConfig?.stripeOnboardingCompleted),
             stripeMode: resolveStripeRuntimeMode(),
             publishableKeyConfigured: isStripePublishableKeyConfigured(),
           },
@@ -1503,6 +1505,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           select: {
             stripeAccountId: true,
             stripeChargesEnabled: true,
+            stripeOnboardingCompleted: true,
           },
         },
         chain: {
@@ -1815,13 +1818,27 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           foodBusinessOperator: normalizeText(product.foodBusinessOperator),
           ageRestriction: legacyFlags.ageRestriction,
           badges,
+          badgeKeys: badges,
+          labels: badges,
           tags: {
             vegetarian: legacyFlags.isVegetarian,
             vegan: legacyFlags.isVegan,
+            halal: badges.includes('HALAL'),
+            glutenFree: badges.includes('GLUTEN_FREE'),
+            lactoseFree: badges.includes('LACTOSE_FREE'),
             spicy: legacyFlags.isSpicy,
             verySpicy: legacyFlags.isVerySpicy,
             isNew: legacyFlags.isNew,
             popular: legacyFlags.isPopular,
+            bestseller: badges.includes('BESTSELLER'),
+            recommended: badges.includes('RECOMMENDED'),
+            limited: badges.includes('LIMITED'),
+            caffeine: badges.includes('CAFFEINE'),
+            alcohol: badges.includes('ALCOHOL'),
+            age16: badges.includes('AGE_16'),
+            age18: badges.includes('AGE_18'),
+            organic: badges.includes('ORGANIC'),
+            regional: badges.includes('REGIONAL'),
           },
           nutritionInfo: normalizeText(product.nutritionInfo),
           nutrition:
@@ -1916,7 +1933,8 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         payments: {
           stripeAvailable:
             Boolean(tenant.paymentConfig?.stripeAccountId) &&
-            Boolean(tenant.paymentConfig?.stripeChargesEnabled),
+            Boolean(tenant.paymentConfig?.stripeChargesEnabled) &&
+            Boolean(tenant.paymentConfig?.stripeOnboardingCompleted),
           stripeMode: resolveStripeRuntimeMode(),
           publishableKeyConfigured: isStripePublishableKeyConfigured(),
         },

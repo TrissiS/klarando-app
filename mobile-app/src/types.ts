@@ -144,6 +144,9 @@ export type CatalogProduct = {
   vatRate: string
   available: boolean
   badges: string[]
+  badgeKeys?: string[]
+  labels?: string[]
+  tags?: Record<string, boolean>
   allergens: string[]
   ingredients: Array<{
     id: string
