@@ -5,6 +5,9 @@ import { getDefaultPlatformFeeConfig, resolveTenantPlatformFee } from './platfor
 
 let stripeClient: StripeConstructor.Stripe | null = null
 
+const STRIPE_ONBOARDING_INCOMPLETE_MESSAGE =
+  'Stripe-Onboarding für diesen Händler ist noch nicht abgeschlossen.'
+
 function requireEnv(name: string) {
   const value = process.env[name]?.trim()
   if (!value) {
@@ -405,8 +408,12 @@ export async function createOrderPaymentIntent(input: {
     where: { tenantId: input.tenantId },
   })
 
-  if (!config?.stripeAccountId || !config.stripeChargesEnabled) {
-    throw new Error('Zahlungen für diese Filiale sind noch nicht eingerichtet.')
+  if (
+    !config?.stripeAccountId ||
+    !config.stripeChargesEnabled ||
+    !config.stripeOnboardingCompleted
+  ) {
+    throw new Error(STRIPE_ONBOARDING_INCOMPLETE_MESSAGE)
   }
 
   const orderAmountCents = Math.max(0, Math.round(Number(order.total) * 100))
@@ -518,8 +525,12 @@ export async function createOrderCheckoutSession(input: {
   }
 
   const config = order.tenant?.paymentConfig
-  if (!config?.stripeAccountId || !config.stripeChargesEnabled) {
-    throw new Error('Online-Zahlung ist für diese Filiale noch nicht eingerichtet.')
+  if (
+    !config?.stripeAccountId ||
+    !config.stripeChargesEnabled ||
+    !config.stripeOnboardingCompleted
+  ) {
+    throw new Error(STRIPE_ONBOARDING_INCOMPLETE_MESSAGE)
   }
 
   const amountCents = Math.max(0, Math.round(Number(order.total) * 100))

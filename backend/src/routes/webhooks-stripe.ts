@@ -1,5 +1,5 @@
 import express from 'express'
-import { PaymentProvider, PaymentStatus } from '@prisma/client'
+import { PaymentProvider, PaymentStatus, Prisma } from '@prisma/client'
 import StripeConstructor = require('stripe')
 import { prisma } from '../lib/prisma'
 import { getStripe, syncStripeTransactionFeeSnapshot } from '../lib/stripe'
@@ -149,36 +149,107 @@ async function handlePaymentIntentSucceeded(event: StripeEventLike) {
       },
     })
 
-    if (tx.orderId) {
-      const order = await db.order.findUnique({
-        where: { id: tx.orderId },
-        select: {
-          status: true,
-          paymentStatus: true,
-          paidAt: true,
+    await markStripeOrderPaid(db, tx.orderId)
+  })
+}
+
+async function markStripeOrderPaid(
+  db: Prisma.TransactionClient,
+  orderId: string | null | undefined
+) {
+  if (!orderId) {
+    return
+  }
+
+  const order = await db.order.findUnique({
+    where: { id: orderId },
+    select: {
+      status: true,
+      paymentStatus: true,
+      paidAt: true,
+    },
+  })
+  const currentPaymentStatus = normalizeOrderPaymentStatus(order?.paymentStatus)
+  if (!order || !currentPaymentStatus) {
+    throw new Error(`Ungueltiger bestehender Zahlungsstatus fuer Bestellung ${orderId}`)
+  }
+
+  await db.order.update({
+    where: { id: orderId },
+    data: {
+      ...buildOrderPaymentStatusUpdate({
+        currentStatus: currentPaymentStatus,
+        nextStatus: 'PAID',
+        now: new Date(),
+        preservePaidAt: order.paidAt,
+      }),
+      ...(order.status === 'pending_payment'
+        ? {
+            status: 'open',
+            forwardedToKitchenAt: new Date(),
+          }
+        : {}),
+    },
+  })
+}
+
+async function handleCheckoutSessionCompleted(event: StripeEventLike) {
+  const session = event.data.object as Record<string, unknown> & {
+    id: string
+    payment_intent?: string | null
+    payment_status?: string | null
+    status?: string | null
+    metadata?: { orderId?: string | null } | null
+  }
+
+  let tx =
+    (typeof session.payment_intent === 'string'
+      ? await prisma.paymentTransaction.findFirst({
+          where: {
+            provider: PaymentProvider.STRIPE,
+            providerPaymentId: session.payment_intent,
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null) ??
+    (typeof session.metadata?.orderId === 'string' && session.metadata.orderId.trim().length > 0
+      ? await prisma.paymentTransaction.findFirst({
+          where: {
+            provider: PaymentProvider.STRIPE,
+            orderId: session.metadata.orderId.trim(),
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : null)
+
+  if (!tx) {
+    return
+  }
+
+  const nextStatus =
+    String(session.payment_status || '').toLowerCase() === 'paid'
+      ? PaymentStatus.SUCCEEDED
+      : PaymentStatus.PENDING
+
+  await prisma.$transaction(async (db) => {
+    await db.paymentTransaction.update({
+      where: { id: tx.id },
+      data: {
+        status: nextStatus,
+        processedAt: nextStatus === PaymentStatus.SUCCEEDED ? new Date() : tx.processedAt,
+        providerPaymentId:
+          typeof session.payment_intent === 'string' ? session.payment_intent : tx.providerPaymentId,
+        metadata: {
+          ...(typeof tx.metadata === 'object' && tx.metadata ? (tx.metadata as Record<string, unknown>) : {}),
+          stripeCheckoutSessionId: session.id,
+          stripeCheckoutStatus: session.status,
+          stripePaymentStatus: session.payment_status,
         },
-      })
-      const currentPaymentStatus = normalizeOrderPaymentStatus(order?.paymentStatus)
-      if (!order || !currentPaymentStatus) {
-        throw new Error(`Ungueltiger bestehender Zahlungsstatus fuer Bestellung ${tx.orderId}`)
-      }
-      await db.order.update({
-        where: { id: tx.orderId },
-        data: {
-          ...buildOrderPaymentStatusUpdate({
-            currentStatus: currentPaymentStatus,
-            nextStatus: 'PAID',
-            now: new Date(),
-            preservePaidAt: order.paidAt,
-          }),
-          ...(order.status === 'pending_payment'
-            ? {
-                status: 'open',
-                forwardedToKitchenAt: new Date(),
-              }
-            : {}),
-        },
-      })
+      },
+    })
+
+    if (nextStatus === PaymentStatus.SUCCEEDED) {
+      await markStripeOrderPaid(db, tx.orderId)
     }
   })
 }
@@ -409,6 +480,9 @@ router.post('/', express.raw({ type: 'application/json' }), async (req, res) => 
       switch (event.type) {
         case 'payment_intent.succeeded':
           await handlePaymentIntentSucceeded(event)
+          break
+        case 'checkout.session.completed':
+          await handleCheckoutSessionCompleted(event)
           break
         case 'payment_intent.payment_failed':
           await handlePaymentIntentFailed(event)

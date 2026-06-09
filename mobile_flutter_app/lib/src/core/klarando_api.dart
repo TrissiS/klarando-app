@@ -2190,7 +2190,7 @@ class KlarandoApi {
     final response = await _request(
       baseUrl: baseUrl,
       method: 'POST',
-      path: '/api/payments/checkout-session',
+      path: '/api/mobile/checkout/stripe',
       headers: {
         if (appAuthToken != null && appAuthToken.trim().isNotEmpty)
           'Authorization': 'Bearer $appAuthToken',

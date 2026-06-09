@@ -7,7 +7,6 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_stripe/flutter_stripe.dart' as stripe;
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -2973,7 +2972,7 @@ class _HomeShellState extends State<HomeShell> {
           initialDeliveryLongitude:
               initialCoordinatesMatchAddress ? _activeLongitude : null,
           submitOrder: _submitOrder,
-          startStripePaymentIntent: _startStripePaymentIntent,
+          startStripeCheckoutSession: _startStripeCheckoutSession,
           reloadOrder: _reloadOrderForCheckout,
           validateCoupon: _validateCouponForCheckout,
         ),
@@ -3173,20 +3172,15 @@ class _HomeShellState extends State<HomeShell> {
     );
   }
 
-  Future<StripePaymentIntentResponse> _startStripePaymentIntent({
+  Future<StripeCheckoutSessionResponse> _startStripeCheckoutSession({
     required String orderId,
   }) async {
     if (_appAuthToken == null || _appAuthToken!.trim().isEmpty) {
       throw const ApiException('Bitte zuerst einloggen, um online zu bezahlen.');
     }
-    final tenant = _selectedTenant;
-    if (tenant == null) {
-      throw const ApiException('Keine Filiale ausgewählt.');
-    }
-    return _api.createStripePaymentIntent(
+    return _api.createStripeCheckoutSession(
       baseUrl: _baseUrl,
       orderId: orderId,
-      tenantId: tenant.tenantId,
       appAuthToken: _appAuthToken,
     );
   }
@@ -4039,7 +4033,7 @@ class _CheckoutFlowPage extends StatefulWidget {
     required this.initialDeliveryLatitude,
     required this.initialDeliveryLongitude,
     required this.submitOrder,
-    required this.startStripePaymentIntent,
+    required this.startStripeCheckoutSession,
     required this.reloadOrder,
     required this.validateCoupon,
   });
@@ -4082,10 +4076,10 @@ class _CheckoutFlowPage extends StatefulWidget {
     String? couponCode,
   })
   submitOrder;
-  final Future<StripePaymentIntentResponse> Function({
+  final Future<StripeCheckoutSessionResponse> Function({
     required String orderId,
   })
-  startStripePaymentIntent;
+  startStripeCheckoutSession;
   final Future<PublicOrderSummary> Function({
     required String orderId,
     required String tenantId,
@@ -4139,8 +4133,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   String? _couponFeedback;
   bool _couponIsError = false;
 
-  bool get _supportsStripePayment =>
-      widget.stripeAvailable && widget.publishableKeyConfigured;
+  bool get _supportsStripePayment => widget.stripeAvailable;
   bool get _requiresLoginForOnlinePayment => true;
 
   int get _itemsCount => _lines.fold<int>(0, (sum, line) => sum + line.quantity);
@@ -4215,100 +4208,31 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     return values;
   }
 
-  Future<_StripePaymentSheetResult> _runStripePaymentSheet({
+  Future<_StripeCheckoutLaunchResult> _openStripeCheckout({
     required PublicOrderSummary order,
   }) async {
-    final intent = await widget.startStripePaymentIntent(orderId: order.id);
-    final publishableKey = intent.publishableKey?.trim();
-    final clientSecret = intent.clientSecret?.trim();
-    final hasUsableClientSecret =
-        clientSecret != null &&
-        clientSecret.isNotEmpty &&
-        clientSecret.contains('_secret_') &&
-        clientSecret != intent.paymentIntentId;
+    final session = await widget.startStripeCheckoutSession(orderId: order.id);
+    final checkoutUrl = session.checkoutUrl.trim();
+    final uri = Uri.tryParse(checkoutUrl);
 
-    debugPrint(
-      'CUSTOMER_CHECKOUT_PAYMENT_INTENT_SUCCESS { orderId: ${order.id}, paymentIntentId: ${intent.paymentIntentId}, hasClientSecret: ${clientSecret != null && clientSecret.isNotEmpty}, hasUsableClientSecret: $hasUsableClientSecret }',
+    if (uri == null || !(uri.hasScheme && uri.host.isNotEmpty)) {
+      throw const ApiException(
+        'Stripe-Checkout konnte nicht gestartet werden: Checkout-URL fehlt oder ist ungültig.',
+      );
+    }
+
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched) {
+      throw const ApiException(
+        'Stripe-Checkout konnte nicht geöffnet werden. Bitte versuche es erneut.',
+      );
+    }
+
+    return _StripeCheckoutLaunchResult(
+      order: await widget.reloadOrder(orderId: order.id, tenantId: widget.tenantId),
+      message:
+          'Stripe Checkout wurde geöffnet. Bitte schließe die Zahlung im Browser ab und kehre danach zur App zurück.',
     );
-
-    if (publishableKey == null || publishableKey.isEmpty) {
-      throw const ApiException(
-        'Stripe ist für diese Filiale noch nicht vollständig eingerichtet. Der öffentliche Zahlungsschlüssel fehlt.',
-      );
-    }
-    if (!hasUsableClientSecret) {
-      throw const ApiException(
-        'Stripe-Zahlung konnte nicht vorbereitet werden: client_secret fehlt.',
-      );
-    }
-    final resolvedClientSecret = clientSecret!;
-
-    try {
-      stripe.Stripe.publishableKey = publishableKey;
-      await stripe.Stripe.instance.applySettings();
-
-      final billingDetails = stripe.BillingDetails(
-        name: _customerNameController.text.trim().isEmpty
-            ? null
-            : _customerNameController.text.trim(),
-        phone: _customerPhoneController.text.trim().isEmpty
-            ? null
-            : _customerPhoneController.text.trim(),
-        address: _serviceType == _CheckoutServiceType.delivery
-            ? stripe.Address(
-                line1: _deliveryAddressController.text.trim().isEmpty
-                    ? null
-                    : _deliveryAddressController.text.trim(),
-                line2: '',
-                city: _deliveryCityController.text.trim().isEmpty
-                    ? null
-                    : _deliveryCityController.text.trim(),
-                postalCode: _deliveryZipController.text.trim().isEmpty
-                    ? null
-                    : _deliveryZipController.text.trim(),
-                country: 'DE',
-                state: null,
-              )
-            : null,
-      );
-
-      await stripe.Stripe.instance.initPaymentSheet(
-        paymentSheetParameters: stripe.SetupPaymentSheetParameters(
-          merchantDisplayName: widget.tenantName,
-          paymentIntentClientSecret: resolvedClientSecret,
-          style: ThemeMode.system,
-          billingDetails: billingDetails,
-          allowsDelayedPaymentMethods: false,
-        ),
-      );
-
-      await stripe.Stripe.instance.presentPaymentSheet();
-      return _StripePaymentSheetResult.success(
-        mode: intent.mode,
-        order: await _waitForPaidOrder(order.id),
-      );
-    } on stripe.StripeException catch (error) {
-      final localizedMessage = error.error.localizedMessage?.trim();
-      final code = error.error.code;
-      if (code == stripe.FailureCode.Canceled) {
-        return _StripePaymentSheetResult.cancelled(
-          mode: intent.mode,
-          message:
-              localizedMessage?.isNotEmpty == true
-                  ? localizedMessage!
-                  : 'Die Online-Zahlung wurde abgebrochen. Deine Bestellung wartet weiterhin auf Zahlung.',
-        );
-      }
-      throw ApiException(
-        localizedMessage?.isNotEmpty == true
-            ? localizedMessage!
-            : 'Die Stripe-Zahlung ist fehlgeschlagen. Bitte versuche es erneut.',
-      );
-    } on PlatformException catch (error) {
-      throw ApiException(_resolveUnexpectedCheckoutErrorMessage(error));
-    } catch (error) {
-      throw ApiException(_resolveUnexpectedCheckoutErrorMessage(error));
-    }
   }
 
   String get _deliveryAddressSignature => [
@@ -4623,27 +4547,14 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
         setState(() {
           _paymentInfoMessage = 'Zahlung wird vorbereitet …';
         });
-        final paymentResult = await _runStripePaymentSheet(order: order);
-        if (paymentResult.wasCancelled) {
-          resolvedOrder = paymentResult.order ?? order;
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            _paymentInfoMessage = paymentResult.message;
-          });
-        } else {
-          resolvedOrder = paymentResult.order ?? order;
-          if (!mounted) {
-            return;
-          }
-          setState(() {
-            _paymentInfoMessage =
-                paymentResult.mode == 'test'
-                    ? 'Testzahlung gesendet. Zahlung wird serverseitig per Webhook bestätigt.'
-                    : 'Zahlung wird bestätigt. Bitte warte einen Moment.';
-          });
+        final paymentResult = await _openStripeCheckout(order: order);
+        resolvedOrder = paymentResult.order ?? order;
+        if (!mounted) {
+          return;
         }
+        setState(() {
+          _paymentInfoMessage = paymentResult.message;
+        });
       }
       if (!mounted) {
         return;
@@ -4679,27 +4590,6 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
         });
       }
     }
-  }
-
-  Future<PublicOrderSummary> _waitForPaidOrder(String orderId) async {
-    PublicOrderSummary latest = await widget.reloadOrder(
-      orderId: orderId,
-      tenantId: widget.tenantId,
-    );
-
-    for (var attempt = 0; attempt < 5; attempt += 1) {
-      final paymentStatus = latest.paymentStatus.trim().toUpperCase();
-      if (paymentStatus == 'PAID') {
-        return latest;
-      }
-      await Future<void>.delayed(const Duration(seconds: 2));
-      latest = await widget.reloadOrder(
-        orderId: orderId,
-        tenantId: widget.tenantId,
-      );
-    }
-
-    return latest;
   }
 
   Future<bool?> _confirmHighLoadCheckout() {
@@ -5388,15 +5278,28 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                       _paymentInfoMessage = 'Stripe-Zahlung wird erneut geöffnet …';
                     });
                     try {
-                      final paymentResult = await _runStripePaymentSheet(order: existingOrder);
+                      final refreshedOrder = await widget.reloadOrder(
+                        orderId: existingOrder.id,
+                        tenantId: widget.tenantId,
+                      );
+                      if (refreshedOrder.paymentStatus.trim().toUpperCase() ==
+                          'PAID') {
+                        setState(() {
+                          _createdOrder = refreshedOrder;
+                          _paymentInfoMessage =
+                              'Zahlung wurde bereits bestätigt.';
+                        });
+                        return;
+                      }
+                      final paymentResult = await _openStripeCheckout(
+                        order: refreshedOrder,
+                      );
                       if (!mounted) {
                         return;
                       }
                       setState(() {
-                        _createdOrder = paymentResult.order ?? existingOrder;
-                        _paymentInfoMessage = paymentResult.wasCancelled
-                            ? paymentResult.message
-                            : 'Zahlung wird bestätigt. Der Status wird in Kürze aktualisiert.';
+                        _createdOrder = paymentResult.order ?? refreshedOrder;
+                        _paymentInfoMessage = paymentResult.message;
                       });
                     } on ApiException catch (error) {
                       if (!mounted) {
@@ -5441,42 +5344,14 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   }
 }
 
-class _StripePaymentSheetResult {
-  const _StripePaymentSheetResult({
-    required this.wasCancelled,
-    required this.mode,
+class _StripeCheckoutLaunchResult {
+  const _StripeCheckoutLaunchResult({
     this.order,
     this.message,
   });
 
-  final bool wasCancelled;
-  final String mode;
   final PublicOrderSummary? order;
   final String? message;
-
-  factory _StripePaymentSheetResult.success({
-    required String mode,
-    required PublicOrderSummary order,
-  }) {
-    return _StripePaymentSheetResult(
-      wasCancelled: false,
-      mode: mode,
-      order: order,
-    );
-  }
-
-  factory _StripePaymentSheetResult.cancelled({
-    required String mode,
-    required String message,
-    PublicOrderSummary? order,
-  }) {
-    return _StripePaymentSheetResult(
-      wasCancelled: true,
-      mode: mode,
-      order: order,
-      message: message,
-    );
-  }
 }
 
 class _CustomerOrderTrackingSheet extends StatefulWidget {

@@ -38,6 +38,7 @@ import databaseManagementRoutes from './routes/database-management'
 import cashClosingRoutes from './routes/cash-closings'
 import platformBrandingRoutes from './routes/platform-branding'
 import mobileUpdatesRoutes from './routes/mobile-updates'
+import mobileCheckoutRoutes from './routes/mobile-checkout'
 import onboardingRoutes from './routes/onboarding'
 import paypalPaymentRoutes from './routes/payments-paypal'
 import paymentRoutes from './routes/payments'
@@ -353,6 +354,7 @@ app.use('/api/database-management', databaseManagementRoutes)
 app.use('/api/cash-closings', cashClosingRoutes)
 app.use('/api/platform-branding', platformBrandingRoutes)
 app.use('/api/mobile-updates', mobileUpdatesRoutes)
+app.use('/api/mobile/checkout', mobileCheckoutRoutes)
 app.use('/api/onboarding', onboardingRoutes)
 app.use('/api/payments/paypal', paypalPaymentRoutes)
 app.use('/api/stripe', stripeConnectRoutes)
