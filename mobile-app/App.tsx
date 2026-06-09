@@ -24,7 +24,11 @@ import {
   requestAppCustomerDeletion,
 } from './src/api'
 import { DEFAULT_API_BASE_URL } from './src/config'
-import { getRenderedMobileProductBadgeKeys, ProductBadgeList } from './src/product-badges'
+import {
+  getRenderedMobileProductBadgeKeys,
+  ProductBadgeList,
+  sanitizeMobileProductBadgeKeys,
+} from './src/product-badges'
 import {
   clearStoredAppAuthToken,
   readStoredApiBaseUrl,
@@ -102,6 +106,44 @@ function formatShortTime(value: string | null | undefined) {
 
   const normalized = value.trim()
   return /^\d{2}:\d{2}$/.test(normalized) ? normalized : null
+}
+
+function getProductBadgeCandidates(product: CatalogProduct) {
+  const candidates = new Set<string>()
+
+  for (const source of [product.badges, product.badgeKeys, product.labels]) {
+    if (!Array.isArray(source)) {
+      continue
+    }
+    for (const entry of source) {
+      if (typeof entry === 'string' && entry.trim()) {
+        candidates.add(entry.trim())
+      }
+    }
+  }
+
+  if (product.tags) {
+    if (product.tags.vegetarian) candidates.add('VEGETARIAN')
+    if (product.tags.vegan) candidates.add('VEGAN')
+    if (product.tags.halal) candidates.add('HALAL')
+    if (product.tags.glutenFree) candidates.add('GLUTEN_FREE')
+    if (product.tags.lactoseFree) candidates.add('LACTOSE_FREE')
+    if (product.tags.spicy) candidates.add('SPICY')
+    if (product.tags.verySpicy) candidates.add('VERY_SPICY')
+    if (product.tags.isNew) candidates.add('NEW')
+    if (product.tags.popular) candidates.add('POPULAR')
+    if (product.tags.bestseller) candidates.add('BESTSELLER')
+    if (product.tags.recommended) candidates.add('RECOMMENDED')
+    if (product.tags.limited) candidates.add('LIMITED')
+    if (product.tags.caffeine) candidates.add('CAFFEINE')
+    if (product.tags.alcohol) candidates.add('ALCOHOL')
+    if (product.tags.age16) candidates.add('AGE_16')
+    if (product.tags.age18) candidates.add('AGE_18')
+    if (product.tags.organic) candidates.add('ORGANIC')
+    if (product.tags.regional) candidates.add('REGIONAL')
+  }
+
+  return Array.from(candidates)
 }
 
 function formatAddress(parts: {
@@ -780,24 +822,34 @@ export default function App() {
                   {product.imageUrl ? (
                     <Image source={{ uri: product.imageUrl }} style={styles.productImage} resizeMode="cover" />
                   ) : null}
+                  {(() => {
+                    const badgeCandidates = getProductBadgeCandidates(product)
+                    const normalizedBadgeKeys = sanitizeMobileProductBadgeKeys(badgeCandidates)
+                    const renderedBadgeKeys = getRenderedMobileProductBadgeKeys(badgeCandidates)
+
+                    return (
+                      <>
                   <View style={styles.rowBetween}>
                     <Text style={styles.titleSmall}>{product.name}</Text>
                     <View style={styles.priceTag}>
                       <Text style={styles.priceTagText}>{formatEuro(parseEuroValue(product.price))}</Text>
                     </View>
                   </View>
-                  {(product.badges ?? []).length > 0 ? (
-                    <ProductBadgeList badges={product.badges ?? []} compact />
+                  {badgeCandidates.length > 0 ? (
+                    <ProductBadgeList badges={badgeCandidates} compact />
                   ) : null}
                   {__DEV__ ? (
                     <View style={styles.panelMuted}>
                       <Text style={styles.metaStrong}>Badge-Debug</Text>
                       <Text style={styles.meta}>product.name: {product.name}</Text>
                       <Text style={styles.meta}>
-                        raw badge keys: {(product.badgeKeys ?? product.badges ?? []).join(', ') || '-'}
+                        raw badges: {badgeCandidates.join(', ') || '-'}
                       </Text>
                       <Text style={styles.meta}>
-                        rendered badge keys: {getRenderedMobileProductBadgeKeys(product.badgeKeys ?? product.badges ?? []).join(', ') || '-'}
+                        normalized badges: {normalizedBadgeKeys.join(', ') || '-'}
+                      </Text>
+                      <Text style={styles.meta}>
+                        rendered badges: {renderedBadgeKeys.join(', ') || '-'}
                       </Text>
                     </View>
                   ) : null}
@@ -826,6 +878,9 @@ export default function App() {
                       {canAddToCart ? 'In den Warenkorb' : 'Aktuell nicht bestellbar'}
                     </Text>
                   </TouchableOpacity>
+                      </>
+                    )
+                  })()}
                 </View>
               ))}
 
@@ -1444,8 +1499,8 @@ export default function App() {
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
               <Text style={styles.titleSmall}>{customizingProduct?.name || 'Produkt'}</Text>
-              {(customizingProduct?.badges ?? []).length > 0 ? (
-                <ProductBadgeList badges={customizingProduct?.badges ?? []} />
+              {customizingProduct && getProductBadgeCandidates(customizingProduct).length > 0 ? (
+                <ProductBadgeList badges={getProductBadgeCandidates(customizingProduct)} />
               ) : null}
               <Text style={styles.meta}>Optionen auswaehlen</Text>
               {customizerError ? <Text style={styles.metaWarning}>{customizerError}</Text> : null}
