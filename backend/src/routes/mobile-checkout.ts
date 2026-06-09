@@ -67,17 +67,39 @@ router.post('/stripe', async (req, res) => {
       where: { id: orderId },
       select: {
         id: true,
+        tenantId: true,
         appCustomerAccountId: true,
+        serviceType: true,
+        customerAddress: true,
+        customerZipCode: true,
+        customerCity: true,
       },
     })
 
     if (!order) {
+      console.error('MOBILE_CHECKOUT_ERROR', { reason: 'order_not_found' })
       return res.status(404).json({ error: 'Bestellung nicht gefunden' })
     }
 
     if (order.appCustomerAccountId !== appCustomer.id) {
+      console.error('MOBILE_CHECKOUT_ERROR', { reason: 'order_customer_mismatch' })
       return res.status(403).json({ error: 'Diese Bestellung gehört nicht zu diesem Kundenkonto' })
     }
+
+    console.info('MOBILE_CHECKOUT_DEBUG', {
+      branchId: order.tenantId,
+      tenantId: order.tenantId,
+      orderType: order.serviceType ?? null,
+      deliveryType: order.serviceType ?? null,
+      customerAddress:
+        [order.customerAddress, order.customerZipCode, order.customerCity]
+          .filter((entry) => typeof entry === 'string' && entry.trim().length > 0)
+          .join(', ') || null,
+      latitude: null,
+      longitude: null,
+      deliveryAvailable: null,
+      rejectionReason: null,
+    })
 
     const successUrl = buildCheckoutCallbackUrl(req, '/api/payments/checkout/success', order.id)
     const cancelUrl = buildCheckoutCallbackUrl(req, '/api/payments/checkout/cancel', order.id)
@@ -93,6 +115,9 @@ router.post('/stripe', async (req, res) => {
       ...session,
     })
   } catch (error) {
+    console.error('MOBILE_CHECKOUT_ERROR', {
+      reason: error instanceof Error ? error.message : 'unknown',
+    })
     console.error('MOBILE STRIPE CHECKOUT ERROR:', error)
     return res.status(400).json({
       error: error instanceof Error ? error.message : 'Stripe-Checkout konnte nicht gestartet werden',

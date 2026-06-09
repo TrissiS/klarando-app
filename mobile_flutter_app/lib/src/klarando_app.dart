@@ -3027,14 +3027,6 @@ class _HomeShellState extends State<HomeShell> {
       'MOBILE_CHECKOUT_DEBUG {branchId: ${tenant.tenantId}, tenantId: ${tenant.tenantId}, orderType: ${serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'PICKUP'}, deliveryType: ${serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'PICKUP'}, customerAddress: ${trimmedDeliveryAddress ?? 'null'}, latitude: ${deliveryLatitude ?? _activeLatitude}, longitude: ${deliveryLongitude ?? _activeLongitude}, deliveryAvailable: ${tenant.deliveryAvailable}, rejectionReason: ${tenant.deliveryRejectionReason ?? 'null'}}',
     );
 
-    if (serviceType == _CheckoutServiceType.delivery &&
-        !tenant.orderIntake.deliveryEnabled) {
-      debugPrint(
-        'MOBILE_CHECKOUT_ERROR {reason: local_delivery_disabled_guard}',
-      );
-      throw const ApiException('Lieferung ist für diese Filiale aktuell deaktiviert.');
-    }
-
     if (serviceType == _CheckoutServiceType.pickup &&
         !tenant.orderIntake.pickupEnabled) {
       debugPrint(

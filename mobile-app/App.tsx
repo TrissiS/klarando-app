@@ -824,6 +824,8 @@ export default function App() {
                   {(() => {
                     const badgeCandidates = getProductBadgeCandidates(product)
                     const normalizedBadges = sanitizeMobileProductBadgeKeys(badgeCandidates)
+                    const renderedBadgeKeys = normalizedBadges
+                    const shouldShowBadgeDebug = __DEV__ && product.name === 'Spaghetti Carbonara'
 
                     return (
                       <>
@@ -835,6 +837,18 @@ export default function App() {
                   </View>
                   {badgeCandidates.length > 0 ? (
                     <ProductBadgeList badges={normalizedBadges} compact />
+                  ) : null}
+                  {shouldShowBadgeDebug ? (
+                    <View style={styles.badgeDebugBox}>
+                      <Text style={styles.badgeDebugTitle}>Badge Debug</Text>
+                      <Text style={styles.badgeDebugLine}>RAW_BADGES: {product.badges.join(', ') || '-'}</Text>
+                      <Text style={styles.badgeDebugLine}>
+                        NORMALIZED_BADGES: {normalizedBadges.join(', ') || '-'}
+                      </Text>
+                      <Text style={styles.badgeDebugLine}>
+                        RENDERED_BADGES: {renderedBadgeKeys.join(', ') || '-'}
+                      </Text>
+                    </View>
                   ) : null}
                   {parseEuroValue(product.depositAmount || '0') > 0 ? (
                     <Text style={styles.meta}>
@@ -1694,6 +1708,27 @@ const styles = StyleSheet.create({
   meta: { color: '#475569', fontSize: 13, lineHeight: 18 },
   metaStrong: { color: '#0f172a', fontSize: 13, fontWeight: '700' },
   metaWarning: { color: '#b45309', fontSize: 13, fontWeight: '700' },
+  badgeDebugBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#cbd5e1',
+    backgroundColor: '#f1f5f9',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    gap: 4,
+  },
+  badgeDebugTitle: {
+    color: '#334155',
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+  badgeDebugLine: {
+    color: '#475569',
+    fontSize: 11,
+    lineHeight: 15,
+  },
   label: { color: '#1e293b', fontSize: 13, fontWeight: '700' },
   input: {
     borderWidth: 1,

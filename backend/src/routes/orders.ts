@@ -227,6 +227,104 @@ function resolveDeliveryValidationReason(input: {
   return 'OUTSIDE_SCHEDULE'
 }
 
+type DeliveryCheckoutRejectionCode =
+  | 'branch_delivery_disabled'
+  | 'missing_delivery_address'
+  | 'outside_service_area'
+  | 'below_minimum_order_value'
+  | 'invalid_coordinates'
+  | 'polygon_not_configured'
+
+function logDeliveryCheckoutDebug(input: {
+  branchId: string
+  orderType: string
+  address: string | null
+  zipCode: string | null
+  city: string | null
+  latitude: number | null
+  longitude: number | null
+  matchedByPolygon?: boolean | null
+  matchedByRadius?: boolean | null
+  rejectionReason: DeliveryCheckoutRejectionCode | string | null
+  extra?: Record<string, unknown>
+}) {
+  console.info('MOBILE_DELIVERY_CHECKOUT_DEBUG', {
+    branchId: input.branchId,
+    orderType: input.orderType,
+    address: input.address,
+    zipCode: input.zipCode,
+    city: input.city,
+    coordinates:
+      typeof input.latitude === 'number' && typeof input.longitude === 'number'
+        ? {
+            latitude: input.latitude,
+            longitude: input.longitude,
+          }
+        : null,
+    matchedByPolygon: input.matchedByPolygon ?? null,
+    matchedByRadius: input.matchedByRadius ?? null,
+    rejectionReason: input.rejectionReason,
+    ...(input.extra ?? {}),
+  })
+}
+
+function createDeliveryCheckoutError(input: {
+  status: number
+  code: DeliveryCheckoutRejectionCode
+  message: string
+  branchId: string
+  orderType: string
+  address: string | null
+  zipCode: string | null
+  city: string | null
+  latitude: number | null
+  longitude: number | null
+  matchedByPolygon?: boolean | null
+  matchedByRadius?: boolean | null
+  extra?: Record<string, unknown>
+}) {
+  logDeliveryCheckoutDebug({
+    branchId: input.branchId,
+    orderType: input.orderType,
+    address: input.address,
+    zipCode: input.zipCode,
+    city: input.city,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    matchedByPolygon: input.matchedByPolygon,
+    matchedByRadius: input.matchedByRadius,
+    rejectionReason: input.code,
+    extra: input.extra,
+  })
+
+  return {
+    status: input.status,
+    body: {
+      error: input.message,
+      message: input.message,
+      code: input.code,
+      debug: {
+        branchId: input.branchId,
+        orderType: input.orderType,
+        address: input.address,
+        zipCode: input.zipCode,
+        city: input.city,
+        coordinates:
+          typeof input.latitude === 'number' && typeof input.longitude === 'number'
+            ? {
+                latitude: input.latitude,
+                longitude: input.longitude,
+              }
+            : null,
+        matchedByPolygon: input.matchedByPolygon ?? false,
+        matchedByRadius: input.matchedByRadius ?? false,
+        rejectionReason: input.code,
+        ...(input.extra ?? {}),
+      },
+    },
+  }
+}
+
 function isPrismaUniqueConstraintError(error: unknown) {
   if (!error || typeof error !== 'object') return false
   return (error as { code?: string }).code === 'P2002'
@@ -3339,18 +3437,41 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       const serviceAvailability =
         resolvedServiceType === 'PICKUP'
           ? pickupOrderingAvailability
-          : null
+          : deliveryOrderingAvailability
       const intakeServiceEnabled =
         resolvedServiceType === 'PICKUP'
           ? intake.services.pickupEnabledNow
-          : true
+          : intake.services.deliveryEnabledNow
       const serviceAllowed =
-        resolvedServiceType === 'PICKUP'
-          ? intake.orderIntakeEnabled &&
-            intakeServiceEnabled &&
-            Boolean(serviceAvailability?.canOrderNow)
-          : true
+        intake.orderIntakeEnabled &&
+        intakeServiceEnabled &&
+        Boolean(serviceAvailability?.canOrderNow)
       if (!serviceAllowed) {
+        if (resolvedServiceType === 'DELIVERY') {
+          const deliveryDisabledError = createDeliveryCheckoutError({
+            status: 409,
+            code: 'branch_delivery_disabled',
+            message:
+              serviceAvailability?.message ||
+              intake.orderIntakePausedReason ||
+              'Lieferung ist für diese Filiale aktuell deaktiviert.',
+            branchId: resolvedTenantId,
+            orderType: resolvedServiceType,
+            address: normalizedCustomerAddress,
+            zipCode: normalizedCustomerZipCode,
+            city: normalizedCustomerCity,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+            extra: {
+              orderIntakeEnabled: intake.orderIntakeEnabled,
+              serviceEnabledNow: intakeServiceEnabled,
+              canOrderNow: serviceAvailability?.canOrderNow ?? null,
+              canPreorder: serviceAvailability?.canPreorder ?? null,
+              isOpen: serviceAvailability?.isOpen ?? null,
+            },
+          })
+          return res.status(deliveryDisabledError.status).json(deliveryDisabledError.body)
+        }
         return res.status(423).json({
           error:
             serviceAvailability?.message ||
@@ -3390,6 +3511,23 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       }
 
       if (resolvedServiceType === 'DELIVERY') {
+        if (!normalizedCustomerAddress || !normalizedCustomerZipCode || !normalizedCustomerCity) {
+          const missingAddressError = createDeliveryCheckoutError({
+            status: 422,
+            code: 'missing_delivery_address',
+            message:
+              'Für Lieferung bitte eine vollständige Adresse mit Straße, Hausnummer, PLZ und Ort eingeben.',
+            branchId: resolvedTenantId,
+            orderType: resolvedServiceType,
+            address: normalizedCustomerAddress,
+            zipCode: normalizedCustomerZipCode,
+            city: normalizedCustomerCity,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+          })
+          return res.status(missingAddressError.status).json(missingAddressError.body)
+        }
+
         if (
           (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null) &&
           normalizedCustomerZipCode &&
@@ -3427,42 +3565,58 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           requiresPolygonCoordinates &&
           (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null)
         ) {
-          console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
-            route: 'POST /api/orders',
-            sourceFile: 'backend/src/routes/orders.ts',
-            strategy: effectiveCheckoutDeliveryArea.strategy,
-            zipCodesCount: effectiveCheckoutDeliveryArea.zipCodes.length,
-            polygonPointsCount: effectiveCheckoutDeliveryArea.polygonPath.length,
-            customerPostalCode: normalizedCustomerZipCode,
-            customerLat: normalizedCustomerLatitude,
-            customerLng: normalizedCustomerLongitude,
-            zoneMatches: deliveryZoneSelection.zoneMatches,
-            usedCheck: 'POLYGON',
-            result: false,
-            reason: 'MISSING_COORDINATES',
-          })
-          return res.status(422).json({
-            error:
-              'Für Lieferungen im Polygon-Modus werden Koordinaten benötigt. Bitte Adresse erneut auswählen oder Standort freigeben.',
-            code: 'DELIVERY_COORDINATES_REQUIRED',
-            debug: {
-              customerLatitude: normalizedCustomerLatitude,
-              customerLongitude: normalizedCustomerLongitude,
-              customerZipCode: normalizedCustomerZipCode,
-              customerAddress: normalizedCustomerAddress,
+          const invalidCoordinatesError = createDeliveryCheckoutError({
+            status: 422,
+            code: 'invalid_coordinates',
+            message:
+              'Für diese Lieferung werden gültige Koordinaten benötigt. Bitte Adresse erneut auswählen oder Standort freigeben.',
+            branchId: resolvedTenantId,
+            orderType: resolvedServiceType,
+            address: normalizedCustomerAddress,
+            zipCode: normalizedCustomerZipCode,
+            city: normalizedCustomerCity,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+            matchedByPolygon: false,
+            matchedByRadius: false,
+            extra: {
+              strategy: effectiveCheckoutDeliveryArea.strategy,
               polygonPoints: effectiveCheckoutDeliveryArea.polygonPath.length,
-              matchedByZip: false,
-              matchedByRadius: false,
-              matchedByPolygon: false,
-              openingStatus: deliveryOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
-              canOrderNow: deliveryOrderingAvailability.canOrderNow,
-              canPreorder: deliveryOrderingAvailability.canPreorder,
-              orderIntakeEnabled: intake.orderIntakeEnabled,
-              serviceEnabledNow: intake.services.deliveryEnabledNow,
-              rejectionReason: 'MISSING_COORDINATES',
-              debugMessage: deliveryOrderingAvailability.message,
+              zoneMatches: deliveryZoneSelection.zoneMatches,
             },
           })
+          return res
+            .status(invalidCoordinatesError.status)
+            .json(invalidCoordinatesError.body)
+        }
+
+        if (
+          effectiveCheckoutDeliveryArea.strategy === 'POLYGON' &&
+          effectiveCheckoutDeliveryArea.polygonPath.length < 3
+        ) {
+          const polygonNotConfiguredError = createDeliveryCheckoutError({
+            status: 409,
+            code: 'polygon_not_configured',
+            message:
+              'Lieferung ist aktuell nicht verfügbar, weil das Liefergebiet noch nicht vollständig eingerichtet ist.',
+            branchId: resolvedTenantId,
+            orderType: resolvedServiceType,
+            address: normalizedCustomerAddress,
+            zipCode: normalizedCustomerZipCode,
+            city: normalizedCustomerCity,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+            matchedByPolygon: false,
+            matchedByRadius: false,
+            extra: {
+              strategy: effectiveCheckoutDeliveryArea.strategy,
+              polygonPoints: effectiveCheckoutDeliveryArea.polygonPath.length,
+              zoneMatches: deliveryZoneSelection.zoneMatches,
+            },
+          })
+          return res
+            .status(polygonNotConfiguredError.status)
+            .json(polygonNotConfiguredError.body)
         }
 
         const deliveryAvailability = buildDeliveryAvailability({
@@ -3477,38 +3631,53 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           },
         })
 
-        if (!deliveryAvailability.isDeliveryAvailable) {
-          console.info('DELIVERY_AVAILABILITY_CHECKOUT_BLOCKED', {
-            route: 'POST /api/orders',
-            tenantId: resolvedTenantId,
-            deliveryType: resolvedServiceType,
-            blockingReasons: deliveryAvailability.blockingReasons,
-            strategy: effectiveCheckoutDeliveryArea.strategy,
-            rawPolygonPathPoints: deliveryAreaResolution.rawPolygonPathPoints,
-            parsedPolygonPathPoints: deliveryAreaResolution.parsedPolygonPathPoints,
-            effectivePolygonPathPoints: deliveryAreaResolution.effectivePolygonPathPoints,
-            zipCodesCount: effectiveCheckoutDeliveryArea.zipCodes.length,
-            radiusKm: effectiveCheckoutDeliveryArea.radiusKm,
-            deliveryAreaSource: deliveryAreaResolution.source,
-            usingDeliveryZones: deliveryZoneSelection.usingDeliveryZones,
-            matchedZone: deliveryZoneSelection.matchedZone
-              ? {
-                  id: deliveryZoneSelection.matchedZone.id,
-                  name: deliveryZoneSelection.matchedZone.name,
-                  priority: deliveryZoneSelection.matchedZone.priority,
-                  strategy: deliveryZoneSelection.matchedZone.strategy,
-                  minOrderValue: deliveryZoneSelection.matchedZone.minOrderValue,
-                  deliveryFee: deliveryZoneSelection.matchedZone.deliveryFee,
-                  freeDeliveryFrom: deliveryZoneSelection.matchedZone.freeDeliveryFrom,
-                }
-              : null,
-            zoneMatches: deliveryZoneSelection.zoneMatches,
-          })
-          return res.status(409).json({
-            error: 'DELIVERY_NOT_AVAILABLE',
+        const areaBlockingReasons = new Set([
+          'DELIVERY_AREA_OUT_OF_RANGE',
+          'DELIVERY_AREA_LOCATION_REQUIRED',
+          'DELIVERY_AREA_CONFIGURATION_INCOMPLETE',
+        ])
+        const nonAreaBlockingReasons = deliveryAvailability.blockingReasons.filter(
+          (entry) => !areaBlockingReasons.has(entry)
+        )
+
+        if (!deliveryAvailability.isDeliveryAvailable && nonAreaBlockingReasons.length > 0) {
+          const deliveryDisabledError = createDeliveryCheckoutError({
+            status: 409,
+            code: 'branch_delivery_disabled',
             message: deliveryAvailability.customerMessage,
-            blockingReasons: deliveryAvailability.blockingReasons,
+            branchId: resolvedTenantId,
+            orderType: resolvedServiceType,
+            address: normalizedCustomerAddress,
+            zipCode: normalizedCustomerZipCode,
+            city: normalizedCustomerCity,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+            extra: {
+              blockingReasons: deliveryAvailability.blockingReasons,
+              nonAreaBlockingReasons,
+              strategy: effectiveCheckoutDeliveryArea.strategy,
+              rawPolygonPathPoints: deliveryAreaResolution.rawPolygonPathPoints,
+              parsedPolygonPathPoints: deliveryAreaResolution.parsedPolygonPathPoints,
+              effectivePolygonPathPoints: deliveryAreaResolution.effectivePolygonPathPoints,
+              zipCodesCount: effectiveCheckoutDeliveryArea.zipCodes.length,
+              radiusKm: effectiveCheckoutDeliveryArea.radiusKm,
+              deliveryAreaSource: deliveryAreaResolution.source,
+              usingDeliveryZones: deliveryZoneSelection.usingDeliveryZones,
+              matchedZone: deliveryZoneSelection.matchedZone
+                ? {
+                    id: deliveryZoneSelection.matchedZone.id,
+                    name: deliveryZoneSelection.matchedZone.name,
+                    priority: deliveryZoneSelection.matchedZone.priority,
+                    strategy: deliveryZoneSelection.matchedZone.strategy,
+                    minOrderValue: deliveryZoneSelection.matchedZone.minOrderValue,
+                    deliveryFee: deliveryZoneSelection.matchedZone.deliveryFee,
+                    freeDeliveryFrom: deliveryZoneSelection.matchedZone.freeDeliveryFrom,
+                  }
+                : null,
+              zoneMatches: deliveryZoneSelection.zoneMatches,
+            },
           })
+          return res.status(deliveryDisabledError.status).json(deliveryDisabledError.body)
         }
 
         const deliveryAreaCheck = matchServiceArea(effectiveCheckoutDeliveryArea, {
@@ -3550,6 +3719,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
           route: 'POST /api/orders',
           sourceFile: 'backend/src/routes/orders.ts',
+          branchId: resolvedTenantId,
+          orderType: resolvedServiceType,
+          address: normalizedCustomerAddress,
+          city: normalizedCustomerCity,
           strategy: effectiveCheckoutDeliveryArea.strategy,
           zipCodesCount: effectiveCheckoutDeliveryArea.zipCodes.length,
           polygonPointsCount: effectiveCheckoutDeliveryArea.polygonPath.length,
@@ -3596,17 +3769,23 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         })
 
         if (!strictPolygonResult) {
-          return res.status(409).json({
-            error:
+          const outsideAreaError = createDeliveryCheckoutError({
+            status: 409,
+            code: 'outside_service_area',
+            message:
               'Die Lieferadresse liegt außerhalb des Liefergebiets. Bitte andere Adresse wählen oder Abholung nutzen.',
-            code: 'DELIVERY_AREA_MISMATCH',
-            deliveryAreaCheck,
-            debug: {
-              customerLatitude: normalizedCustomerLatitude,
-              customerLongitude: normalizedCustomerLongitude,
+            branchId: resolvedTenantId,
+            orderType: resolvedServiceType,
+            address: normalizedCustomerAddress,
+            zipCode: normalizedCustomerZipCode,
+            city: normalizedCustomerCity,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+            matchedByPolygon: deliveryAreaCheck.matchedByPolygon,
+            matchedByRadius: deliveryAreaCheck.matchedByRadius,
+            extra: {
               matchedByZip: deliveryAreaCheck.matchedByZip,
-              matchedByRadius: deliveryAreaCheck.matchedByRadius,
-              matchedByPolygon: deliveryAreaCheck.matchedByPolygon,
+              deliveryAreaCheck,
               openingStatus: deliveryOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
               canOrderNow: deliveryOrderingAvailability.canOrderNow,
               canPreorder: deliveryOrderingAvailability.canPreorder,
@@ -3616,6 +3795,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
               debugMessage: deliveryOrderingAvailability.message,
             },
           })
+          return res.status(outsideAreaError.status).json(outsideAreaError.body)
         }
 
         const effectiveMinOrderAmount =
@@ -3630,11 +3810,28 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
 
         const minOrderAmount = effectiveMinOrderAmount
         if (minOrderAmount !== null && subtotal < minOrderAmount) {
-          return res.status(400).json({
-            error: `Mindestbestellwert nicht erreicht. Aktuell ${subtotal.toFixed(
+          const belowMinimumError = createDeliveryCheckoutError({
+            status: 400,
+            code: 'below_minimum_order_value',
+            message: `Mindestbestellwert nicht erreicht. Aktuell ${subtotal.toFixed(
               2
             )} EUR, erforderlich ${minOrderAmount.toFixed(2)} EUR.`,
+            branchId: resolvedTenantId,
+            orderType: resolvedServiceType,
+            address: normalizedCustomerAddress,
+            zipCode: normalizedCustomerZipCode,
+            city: normalizedCustomerCity,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+            matchedByPolygon: deliveryAreaCheck.matchedByPolygon,
+            matchedByRadius: deliveryAreaCheck.matchedByRadius,
+            extra: {
+              matchedByZip: deliveryAreaCheck.matchedByZip,
+              subtotal,
+              requiredMinimumOrderValue: minOrderAmount,
+            },
           })
+          return res.status(belowMinimumError.status).json(belowMinimumError.body)
         }
         deliveryFee =
           effectiveFreeDeliveryFrom !== null && subtotal >= effectiveFreeDeliveryFrom
