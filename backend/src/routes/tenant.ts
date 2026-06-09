@@ -37,6 +37,13 @@ const MAX_PUBLIC_INLINE_ASSET_LENGTH = 12_000_000
 const ENABLE_PUBLIC_DISCOVERY_DEBUG_LOGS =
   String(process.env.DELIVERY_AREA_DEBUG || '').trim().toLowerCase() === 'true'
 
+function formatZoneAmountLabel(value: number | null | undefined) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return null
+  }
+  return `${value.toFixed(2)} EUR`
+}
+
 function deliveryZoneToServiceArea(zone: DeliveryZoneSettings): ServiceAreaSettings {
   return {
     enabled: zone.enabled,
@@ -952,6 +959,14 @@ router.get('/public/discovery', async (req, res) => {
         const matchedDeliveryZoneEntry =
           deliveryZoneMatches.find((entry) => entry.matched) ?? null
         const useDeliveryZones = activeDeliveryZones.length > 0
+        const effectiveDiscoveryMinOrderValue =
+          matchedDeliveryZoneEntry && matchedDeliveryZoneEntry.zone.minOrderValue !== null
+            ? formatZoneAmountLabel(matchedDeliveryZoneEntry.zone.minOrderValue)
+            : settings.minOrderValue
+        const effectiveDiscoveryDeliveryFee =
+          matchedDeliveryZoneEntry && matchedDeliveryZoneEntry.zone.deliveryFee !== null
+            ? formatZoneAmountLabel(matchedDeliveryZoneEntry.zone.deliveryFee)
+            : settings.deliveryFeeNote
 
         const deliveryMatch = includeDelivery
           ? matchedDeliveryZoneEntry?.match ??
@@ -1169,8 +1184,8 @@ router.get('/public/discovery', async (req, res) => {
             country: settings.country,
           },
           logoUrl: sanitizePublicAssetUrl(settings.logoUrl),
-          deliveryFeeNote: settings.deliveryFeeNote,
-          minOrderValue: settings.minOrderValue,
+          deliveryFeeNote: effectiveDiscoveryDeliveryFee,
+          minOrderValue: effectiveDiscoveryMinOrderValue,
           serviceFee: settings.serviceFee,
           customerApp: sanitizePublicCustomerApp(settings.customerApp),
           payments: {

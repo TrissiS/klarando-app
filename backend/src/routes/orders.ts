@@ -3497,6 +3497,9 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
                   name: deliveryZoneSelection.matchedZone.name,
                   priority: deliveryZoneSelection.matchedZone.priority,
                   strategy: deliveryZoneSelection.matchedZone.strategy,
+                  minOrderValue: deliveryZoneSelection.matchedZone.minOrderValue,
+                  deliveryFee: deliveryZoneSelection.matchedZone.deliveryFee,
+                  freeDeliveryFrom: deliveryZoneSelection.matchedZone.freeDeliveryFrom,
                 }
               : null,
             zoneMatches: deliveryZoneSelection.zoneMatches,
@@ -3560,6 +3563,9 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
                 name: deliveryZoneSelection.matchedZone.name,
                 priority: deliveryZoneSelection.matchedZone.priority,
                 strategy: deliveryZoneSelection.matchedZone.strategy,
+                minOrderValue: deliveryZoneSelection.matchedZone.minOrderValue,
+                deliveryFee: deliveryZoneSelection.matchedZone.deliveryFee,
+                freeDeliveryFrom: deliveryZoneSelection.matchedZone.freeDeliveryFrom,
               }
             : null,
           zoneMatches: deliveryZoneSelection.zoneMatches,
@@ -3576,6 +3582,15 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           orderIntakeEnabled: intake.orderIntakeEnabled,
           deliveryEnabledNow: intake.services.deliveryEnabledNow,
           rejectionReason: deliveryValidationReason,
+          effectiveMinOrderAmount:
+            deliveryZoneSelection.matchedZone?.minOrderValue ??
+            parseAmountFromText(settings.minOrderValue),
+          effectiveDeliveryFee:
+            deliveryZoneSelection.matchedZone?.deliveryFee ??
+            parseAmountFromText(settings.deliveryFeeNote) ??
+            0,
+          effectiveFreeDeliveryFrom:
+            deliveryZoneSelection.matchedZone?.freeDeliveryFrom ?? null,
           usedCheck,
           result: strictPolygonResult,
         })
@@ -3603,7 +3618,17 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           })
         }
 
-        const minOrderAmount = parseAmountFromText(settings.minOrderValue)
+        const effectiveMinOrderAmount =
+          deliveryZoneSelection.matchedZone?.minOrderValue ??
+          parseAmountFromText(settings.minOrderValue)
+        const effectiveDeliveryFee =
+          deliveryZoneSelection.matchedZone?.deliveryFee ??
+          parseAmountFromText(settings.deliveryFeeNote) ??
+          0
+        const effectiveFreeDeliveryFrom =
+          deliveryZoneSelection.matchedZone?.freeDeliveryFrom ?? null
+
+        const minOrderAmount = effectiveMinOrderAmount
         if (minOrderAmount !== null && subtotal < minOrderAmount) {
           return res.status(400).json({
             error: `Mindestbestellwert nicht erreicht. Aktuell ${subtotal.toFixed(
@@ -3611,7 +3636,10 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             )} EUR, erforderlich ${minOrderAmount.toFixed(2)} EUR.`,
           })
         }
-        deliveryFee = parseAmountFromText(settings.deliveryFeeNote) ?? 0
+        deliveryFee =
+          effectiveFreeDeliveryFrom !== null && subtotal >= effectiveFreeDeliveryFrom
+            ? 0
+            : effectiveDeliveryFee
       }
 
       serviceFee = resolveServiceFeeAmount(settings, subtotal)
