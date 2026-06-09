@@ -95,6 +95,15 @@ function formatDateTime(value: string) {
   return parsed.toLocaleString('de-DE')
 }
 
+function formatShortTime(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+
+  const normalized = value.trim()
+  return /^\d{2}:\d{2}$/.test(normalized) ? normalized : null
+}
+
 function formatAddress(parts: {
   street: string | null
   zipCode: string | null
@@ -256,6 +265,29 @@ export default function App() {
     }
     void initializeApp()
   }, [])
+
+  useEffect(() => {
+    if (!selectedTenant) {
+      return
+    }
+
+    const deliveryAvailable = selectedTenant.services.delivery.available
+    const pickupAvailable = selectedTenant.services.pickup.available
+
+    if (deliveryAvailable && !pickupAvailable) {
+      setActiveOrderMode('delivery')
+      return
+    }
+
+    if (!deliveryAvailable && pickupAvailable) {
+      setActiveOrderMode('pickup')
+      return
+    }
+
+    if (!deliveryAvailable && !pickupAvailable) {
+      setActiveOrderMode(null)
+    }
+  }, [selectedTenant])
 
   const canSearch = useMemo(() => zipCode.replace(/[^\d]/g, '').length === 5, [zipCode])
 
@@ -625,11 +657,33 @@ export default function App() {
   function renderOrderTab() {
     if (selectedTenant) {
       const orderingEnabled = catalog?.customerApp.orderingEnabled ?? false
-      const canAddToCart = orderingEnabled
-      const canSubmitOrder = Boolean(activeOrderMode && orderingEnabled && cartItems.length > 0)
+      const orderIntakePaused = catalog?.orderIntake.paused ?? false
+      const deliveryServiceVisible = selectedTenant.services.delivery.available
+      const pickupServiceVisible = selectedTenant.services.pickup.available
+      const deliveryCurrentlyOrderable = catalog?.availability.delivery.canOrderNow ?? false
+      const pickupCurrentlyOrderable = catalog?.availability.pickup.canOrderNow ?? false
+      const isClosedNow = Boolean(
+        catalog && !orderIntakePaused && !catalog.availability.isOpenNow && !deliveryCurrentlyOrderable && !pickupCurrentlyOrderable
+      )
+      const canAddToCart = orderingEnabled && !orderIntakePaused && (deliveryCurrentlyOrderable || pickupCurrentlyOrderable)
+      const canSubmitOrder =
+        Boolean(activeOrderMode && orderingEnabled && !orderIntakePaused && cartItems.length > 0) &&
+        ((activeOrderMode === 'delivery' && deliveryCurrentlyOrderable) ||
+          (activeOrderMode === 'pickup' && pickupCurrentlyOrderable))
       const deliveryFeeAmount =
         activeOrderMode === 'delivery' ? parseEuroValue(selectedTenant.deliveryFeeNote || '0') : 0
       const checkoutGrandTotal = cartTotal + deliveryFeeAmount
+      const closedNextTime =
+        formatShortTime(catalog?.availability.delivery.nextAvailableTime) ||
+        formatShortTime(catalog?.availability.pickup.nextAvailableTime)
+      const closedStatusText = closedNextTime
+        ? `Wir oeffnen wieder ab ${closedNextTime} Uhr`
+        : catalog?.availability.delivery.message || catalog?.availability.pickup.message || 'Wir sind aktuell geschlossen.'
+      const pauseReason =
+        catalog?.orderIntake.reason?.trim() ||
+        catalog?.orderIntake.customerMessage ||
+        'Bitte versuche es spaeter erneut.'
+      const pauseUntil = catalog?.orderIntake.pausedUntil ? formatDateTime(catalog.orderIntake.pausedUntil) : null
 
       return (
         <View style={styles.block}>
@@ -679,7 +733,47 @@ export default function App() {
                 ) : (
                   <Text style={styles.metaWarning}>Bestellungen sind fuer diese Filiale aktuell deaktiviert.</Text>
                 )}
+                {deliveryServiceVisible || pickupServiceVisible ? (
+                  <View style={styles.rowWrap}>
+                    {deliveryServiceVisible ? (
+                      <View style={[styles.availabilityPill, styles.availabilityPillOn]}>
+                        <Text style={styles.availabilityPillText}>Lieferung</Text>
+                      </View>
+                    ) : null}
+                    {pickupServiceVisible ? (
+                      <View style={[styles.availabilityPill, styles.availabilityPillOn]}>
+                        <Text style={styles.availabilityPillText}>Abholung</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
+
+              {orderIntakePaused ? (
+                <View style={styles.statusShowcaseCard}>
+                  <View style={styles.statusIllustrationShell}>
+                    <Text style={styles.statusIllustrationText}>II</Text>
+                  </View>
+                  <Text style={styles.statusHeadline}>Bestellannahme aktuell pausiert</Text>
+                  <Text style={styles.statusBody}>{pauseReason}</Text>
+                  {pauseUntil ? (
+                    <Text style={styles.statusMeta}>Voraussichtlich bis {pauseUntil}</Text>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {isClosedNow ? (
+                <View style={styles.statusShowcaseCard}>
+                  <View style={styles.statusIllustrationShell}>
+                    <Text style={styles.statusIllustrationText}>ZU</Text>
+                  </View>
+                  <Text style={styles.statusHeadline}>Geschlossen</Text>
+                  <Text style={styles.statusBody}>{closedStatusText}</Text>
+                  <Text style={styles.statusMeta}>
+                    Die Speisekarte bleibt sichtbar, bestellen ist aktuell aber nicht moeglich.
+                  </Text>
+                </View>
+              ) : null}
 
               {catalog.products.map((product) => (
                 <View key={product.id} style={styles.productCard}>
@@ -716,7 +810,9 @@ export default function App() {
                     disabled={!canAddToCart}
                     onPress={() => openProductCustomizer(product)}
                   >
-                    <Text style={styles.buttonPrimaryText}>In den Warenkorb</Text>
+                    <Text style={styles.buttonPrimaryText}>
+                      {canAddToCart ? 'In den Warenkorb' : 'Aktuell nicht bestellbar'}
+                    </Text>
                   </TouchableOpacity>
                 </View>
               ))}
@@ -726,7 +822,7 @@ export default function App() {
                   <Text style={styles.titleSmall}>Warenkorb & Checkout ({cartItems.length})</Text>
                   <Text style={styles.label}>Lieferart</Text>
                   <View style={styles.rowWrap}>
-                    {selectedTenant.services.delivery.available ? (
+                    {deliveryServiceVisible ? (
                       <TouchableOpacity
                         style={[styles.chip, activeOrderMode === 'delivery' ? styles.chipActive : null]}
                         onPress={() => setActiveOrderMode('delivery')}
@@ -736,7 +832,7 @@ export default function App() {
                         </Text>
                       </TouchableOpacity>
                     ) : null}
-                    {selectedTenant.services.pickup.available ? (
+                    {pickupServiceVisible ? (
                       <TouchableOpacity
                         style={[styles.chip, activeOrderMode === 'pickup' ? styles.chipActive : null]}
                         onPress={() => setActiveOrderMode('pickup')}
@@ -927,6 +1023,8 @@ export default function App() {
           ) : null}
           {results.map((item) => {
             const distanceKm = item.services.delivery.distanceKm ?? item.services.pickup.distanceKm
+            const showsDelivery = item.services.delivery.available
+            const showsPickup = item.services.pickup.available
 
             return (
               <View key={item.tenantId} style={styles.resultCard}>
@@ -944,28 +1042,18 @@ export default function App() {
                     ) : null}
                   </View>
                 </View>
-                {item.customerApp.listingDisplay.showAvailabilityBadges ? (
+                {item.customerApp.listingDisplay.showAvailabilityBadges && (showsDelivery || showsPickup) ? (
                   <View style={styles.rowWrap}>
-                    <View
-                      style={[
-                        styles.availabilityPill,
-                        item.services.delivery.available ? styles.availabilityPillOn : styles.availabilityPillOff,
-                      ]}
-                    >
-                      <Text style={styles.availabilityPillText}>
-                        Lieferung {item.services.delivery.available ? 'verfuegbar' : 'aus'}
-                      </Text>
-                    </View>
-                    <View
-                      style={[
-                        styles.availabilityPill,
-                        item.services.pickup.available ? styles.availabilityPillOn : styles.availabilityPillOff,
-                      ]}
-                    >
-                      <Text style={styles.availabilityPillText}>
-                        Abholung {item.services.pickup.available ? 'verfuegbar' : 'aus'}
-                      </Text>
-                    </View>
+                    {showsDelivery ? (
+                      <View style={[styles.availabilityPill, styles.availabilityPillOn]}>
+                        <Text style={styles.availabilityPillText}>Lieferung moeglich</Text>
+                      </View>
+                    ) : null}
+                    {showsPickup ? (
+                      <View style={[styles.availabilityPill, styles.availabilityPillOn]}>
+                        <Text style={styles.availabilityPillText}>Abholung moeglich</Text>
+                      </View>
+                    ) : null}
                   </View>
                 ) : null}
                 {item.customerApp.listingDisplay.showMinOrderValue ? (
@@ -1458,6 +1546,55 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
+  },
+  statusShowcaseCard: {
+    backgroundColor: '#fffdf6',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: '#f2d6a2',
+    padding: 18,
+    gap: 8,
+    alignItems: 'center',
+    shadowColor: '#7c2d12',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  statusIllustrationShell: {
+    width: 88,
+    height: 88,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: '#d97706',
+    backgroundColor: '#ffedd5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  statusIllustrationText: {
+    color: '#9a3412',
+    fontSize: 24,
+    fontWeight: '900',
+    letterSpacing: 1.2,
+  },
+  statusHeadline: {
+    color: '#7c2d12',
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  statusBody: {
+    color: '#9a3412',
+    fontSize: 15,
+    lineHeight: 21,
+    textAlign: 'center',
+  },
+  statusMeta: {
+    color: '#a16207',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   heroPanel: {
     backgroundColor: '#0f2f78',

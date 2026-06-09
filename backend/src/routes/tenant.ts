@@ -1524,6 +1524,16 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       email: tenant.email,
     })
     const intake = settings.orderIntake
+    const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
+      settings,
+      'DELIVERY',
+      new Date()
+    )
+    const pickupOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
+      settings,
+      'PICKUP',
+      new Date()
+    )
     if (!settings.customerApp.listingEnabled) {
       return res.status(403).json({ error: 'Filiale ist in der App noch nicht freigegeben' })
     }
@@ -1929,6 +1939,23 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           ? null
           : intake.orderIntakePausedReason?.trim() ||
             'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Online-Bestellungen an.',
+      },
+      availability: {
+        isOpenNow: deliveryOrderingAvailability.isOpen || pickupOrderingAvailability.isOpen,
+        delivery: {
+          isOpen: deliveryOrderingAvailability.isOpen,
+          canOrderNow: deliveryOrderingAvailability.canOrderNow,
+          canPreorder: deliveryOrderingAvailability.canPreorder,
+          nextAvailableTime: deliveryOrderingAvailability.nextAvailableTime,
+          message: deliveryOrderingAvailability.message,
+        },
+        pickup: {
+          isOpen: pickupOrderingAvailability.isOpen,
+          canOrderNow: pickupOrderingAvailability.canOrderNow,
+          canPreorder: pickupOrderingAvailability.canPreorder,
+          nextAvailableTime: pickupOrderingAvailability.nextAvailableTime,
+          message: pickupOrderingAvailability.message,
+        },
       },
       categories: publicCategories,
       products: mappedProducts,

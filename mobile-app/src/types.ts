@@ -194,6 +194,38 @@ export type TenantCatalogResponse = {
     minOrderValue: string | null
   }
   customerApp: CustomerAppSettings
+  orderIntake: {
+    enabled: boolean
+    paused: boolean
+    reason: string | null
+    pausedUntil: string | null
+    customerMessage: string | null
+    services: {
+      delivery: boolean
+      pickup: boolean
+      tableOrdering: boolean
+      deliveryEnabledNow: boolean
+      pickupEnabledNow: boolean
+      tableOrderingEnabledNow: boolean
+    }
+  }
+  availability: {
+    isOpenNow: boolean
+    delivery: {
+      isOpen: boolean
+      canOrderNow: boolean
+      canPreorder: boolean
+      nextAvailableTime: string | null
+      message: string
+    }
+    pickup: {
+      isOpen: boolean
+      canOrderNow: boolean
+      canPreorder: boolean
+      nextAvailableTime: string | null
+      message: string
+    }
+  }
   categories: CatalogCategory[]
   products: CatalogProduct[]
   generatedAt: string
