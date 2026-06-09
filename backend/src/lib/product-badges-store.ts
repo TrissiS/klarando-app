@@ -26,7 +26,7 @@ export async function readStoredProductBadges(productIds: string[]) {
   }
 
   const rows = await prisma.$queryRawUnsafe<Array<{ id: string; badges: string[] | null }>>(
-    `SELECT "id", "badges" FROM "Product" WHERE "id" = ANY($1::uuid[])`,
+    `SELECT "id", "badges" FROM "Product" WHERE "id"::text = ANY($1::text[])`,
     ids
   )
 
@@ -40,7 +40,7 @@ export async function readStoredProductBadges(productIds: string[]) {
 export async function writeStoredProductBadges(productId: string, badges: ProductBadgeKey[]) {
   const normalized = sanitizeProductBadgeKeys(badges)
   await prisma.$executeRawUnsafe(
-    `UPDATE "Product" SET "badges" = $2::text[] WHERE "id" = $1::uuid`,
+    `UPDATE "Product" SET "badges" = $2::text[] WHERE "id"::text = $1::text`,
     productId,
     normalized
   )

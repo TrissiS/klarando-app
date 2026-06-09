@@ -616,10 +616,24 @@ async function loadProductBadges(productIds: string[]) {
     return await readStoredProductBadges(productIds)
   } catch (error) {
     if (!isMissingProductBadgesColumnError(error)) {
-      throw error
+      console.error('PUBLIC_TENANT_CATALOG_BADGES_FALLBACK', {
+        productIds,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      })
+      return new Map()
     }
     await ensureProductBadgesColumn()
-    return readStoredProductBadges(productIds)
+    try {
+      return await readStoredProductBadges(productIds)
+    } catch (retryError) {
+      console.error('PUBLIC_TENANT_CATALOG_BADGES_FALLBACK', {
+        productIds,
+        message: retryError instanceof Error ? retryError.message : String(retryError),
+        stack: retryError instanceof Error ? retryError.stack : undefined,
+      })
+      return new Map()
+    }
   }
 }
 
