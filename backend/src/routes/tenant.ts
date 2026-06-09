@@ -465,6 +465,20 @@ function isMissingProductColumnsError(error: unknown) {
 
   return (
     isMissingProductBadgesColumnError(error) ||
+    error.message.includes('Category.imageUrl') ||
+    error.message.includes('"Category"."imageUrl"') ||
+    error.message.includes('ProductIngredient.displayNameOverride') ||
+    error.message.includes('"displayNameOverride"') ||
+    error.message.includes('ProductIngredient.showInCustomerApp') ||
+    error.message.includes('"showInCustomerApp"') ||
+    error.message.includes('ProductIngredient.showInOrderDisplay') ||
+    error.message.includes('"showInOrderDisplay"') ||
+    error.message.includes('ProductIngredient.showInMenuBoard') ||
+    error.message.includes('"showInMenuBoard"') ||
+    error.message.includes('ProductIngredient.showInOrderDesk') ||
+    error.message.includes('"showInOrderDesk"') ||
+    error.message.includes('ProductIngredient.showInCashierDisplay') ||
+    error.message.includes('"showInCashierDisplay"') ||
     error.message.includes('Product.beverageContainerType') ||
     error.message.includes('beverageContainerType') ||
     error.message.includes('Product.deposit') ||
@@ -490,6 +504,11 @@ function isMissingProductColumnsError(error: unknown) {
 }
 
 async function ensureProductColumns() {
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "Category"
+    ADD COLUMN IF NOT EXISTS "imageUrl" TEXT;
+  `)
+
   await prisma.$executeRawUnsafe(`
     DO $$
     BEGIN
@@ -552,6 +571,16 @@ async function ensureProductColumns() {
     ADD COLUMN IF NOT EXISTS "isVerySpicy" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isNew" BOOLEAN NOT NULL DEFAULT false,
     ADD COLUMN IF NOT EXISTS "isPopular" BOOLEAN NOT NULL DEFAULT false;
+  `)
+
+  await prisma.$executeRawUnsafe(`
+    ALTER TABLE "ProductIngredient"
+    ADD COLUMN IF NOT EXISTS "displayNameOverride" TEXT,
+    ADD COLUMN IF NOT EXISTS "showInCustomerApp" BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS "showInOrderDisplay" BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS "showInMenuBoard" BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS "showInOrderDesk" BOOLEAN NOT NULL DEFAULT true,
+    ADD COLUMN IF NOT EXISTS "showInCashierDisplay" BOOLEAN NOT NULL DEFAULT true;
   `)
 }
 
@@ -1554,18 +1583,30 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
     }
     const badgeMap = await loadProductBadges(products.map((product) => product.id))
 
-    const categories = await prisma.category.findMany({
-      where: {
-        tenantId: tenant.id,
-      },
-      select: {
-        id: true,
-        name: true,
-        sortOrder: true,
-        imageUrl: true,
-      },
-      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
-    })
+    const loadCatalogCategories = () =>
+      prisma.category.findMany({
+        where: {
+          tenantId: tenant.id,
+        },
+        select: {
+          id: true,
+          name: true,
+          sortOrder: true,
+          imageUrl: true,
+        },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+      })
+
+    let categories
+    try {
+      categories = await loadCatalogCategories()
+    } catch (loadError) {
+      if (!isMissingProductColumnsError(loadError)) {
+        throw loadError
+      }
+      await ensureProductColumns()
+      categories = await loadCatalogCategories()
+    }
     const publicCategories = categories.map((entry) => ({
       ...entry,
       imageUrl: sanitizePublicAssetUrl(entry.imageUrl),
@@ -1768,7 +1809,11 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {
-    console.error('GET PUBLIC TENANT CATALOG ERROR:', error)
+    console.error('GET PUBLIC TENANT CATALOG ERROR:', {
+      tenantId: Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : null,
+    })
     return res.status(500).json({ error: 'Filialkatalog konnte nicht geladen werden' })
   }
 })
