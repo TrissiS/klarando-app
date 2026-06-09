@@ -230,6 +230,7 @@ export default function App() {
   const [authZipCode, setAuthZipCode] = useState('')
   const [authCity, setAuthCity] = useState('')
   const [authMarketingOptIn, setAuthMarketingOptIn] = useState(false)
+  const showCatalogDebug = __DEV__
 
   useEffect(() => {
     async function initializeApp() {
@@ -983,6 +984,37 @@ export default function App() {
     )
   }
 
+  function renderCatalogErrorDiagnostics() {
+    if (!showCatalogDebug) {
+      return null
+    }
+
+    const hasCatalogDiagnostics =
+      Boolean(catalogDiagnostics.catalogUrl) ||
+      catalogDiagnostics.catalogStatus !== null ||
+      Boolean(catalogDiagnostics.catalogError) ||
+      Boolean(catalogDiagnostics.responsePreview)
+
+    if (!hasCatalogDiagnostics) {
+      return null
+    }
+
+    return (
+      <View style={styles.panelMuted}>
+        <Text style={styles.metaStrong}>Catalog Debug</Text>
+        <Text style={styles.meta}>catalogUrl: {catalogDiagnostics.catalogUrl || '-'}</Text>
+        <Text style={styles.meta}>
+          HTTP status:{' '}
+          {catalogDiagnostics.catalogStatus !== null ? String(catalogDiagnostics.catalogStatus) : '-'}
+        </Text>
+        <Text style={styles.meta}>exception message: {catalogDiagnostics.catalogError || error || '-'}</Text>
+        <Text style={styles.meta}>
+          response body first 500: {catalogDiagnostics.responsePreview || '-'}
+        </Text>
+      </View>
+    )
+  }
+
   function renderStartTab() {
     return (
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -1277,6 +1309,7 @@ export default function App() {
           {error ? (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>{error}</Text>
+              {currentTab === 'ORDER' ? renderCatalogErrorDiagnostics() : null}
             </View>
           ) : null}
           {notice ? (
