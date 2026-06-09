@@ -93,21 +93,32 @@ export async function fetchTenantCatalog(
   apiBaseUrl: string,
   tenantId: string
 ): Promise<TenantCatalogResponse> {
-  const normalizedApiBaseUrl = normalizeApiBaseUrl(apiBaseUrl)
-  if (!normalizedApiBaseUrl) {
+  const baseUrlCandidates = buildApiBaseUrlCandidates(apiBaseUrl)
+  if (baseUrlCandidates.length === 0) {
     throw new Error('API Base URL fehlt')
   }
 
-  const response = await fetch(
-    `${normalizedApiBaseUrl}/api/tenants/public/${tenantId}/catalog`
-  )
+  let lastError: string | null = null
 
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => null)
-    throw new Error(errorData?.error || 'Filialkatalog konnte nicht geladen werden')
+  for (const candidateBaseUrl of baseUrlCandidates) {
+    try {
+      const response = await fetch(
+        `${candidateBaseUrl}/api/tenants/public/${tenantId}/catalog`
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null)
+        lastError = errorData?.error || `Filialkatalog konnte nicht geladen werden (${response.status})`
+        continue
+      }
+
+      return response.json()
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : 'Filialkatalog konnte nicht geladen werden'
+    }
   }
 
-  return response.json()
+  throw new Error(lastError || 'Filialkatalog konnte nicht geladen werden')
 }
 
 export async function createCheckoutOrder(
