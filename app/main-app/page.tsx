@@ -11,6 +11,135 @@ import {
   type PublicTenantDiscoveryTenant,
 } from '@/lib/api'
 
+type DiscoveryTenantLike = Partial<PublicTenantDiscoveryTenant> & {
+  rows?: PublicTenantDiscoveryTenant[]
+}
+
+function normalizeDiscoveryTenant(entry: DiscoveryTenantLike): PublicTenantDiscoveryTenant {
+  const deliveryAvailable =
+    entry.deliveryAvailable ??
+    entry.services?.delivery?.available ??
+    false
+  const pickupAvailable =
+    entry.pickupAvailable ??
+    entry.services?.pickup?.available ??
+    false
+
+  return {
+    id: entry.id || entry.tenantId || '',
+    tenantId: entry.tenantId || entry.id || '',
+    name: entry.name || entry.tenantName || 'Filiale',
+    tenantName: entry.tenantName || entry.name || 'Filiale',
+    slug: entry.slug || entry.id || entry.tenantId || '',
+    ratingAverage: entry.ratingAverage ?? null,
+    ratingCount: entry.ratingCount ?? 0,
+    chain: entry.chain ?? null,
+    contact: entry.contact ?? {
+      phone: null,
+      email: null,
+      website: null,
+      supportEmail: null,
+      accountDeletionEmail: null,
+    },
+    legal: entry.legal ?? {
+      imprintUrl: null,
+      privacyPolicyUrl: null,
+      termsUrl: null,
+    },
+    address: entry.address ?? {
+      street: null,
+      zipCode: null,
+      city: null,
+      country: null,
+    },
+    city: entry.city ?? entry.address?.city ?? null,
+    logoUrl: entry.logoUrl ?? null,
+    imageUrl: entry.imageUrl ?? entry.logoUrl ?? null,
+    deliveryFeeNote: entry.deliveryFeeNote ?? null,
+    minOrderValue: entry.minOrderValue ?? null,
+    deliveryAvailable,
+    pickupAvailable,
+    deliveryFee: entry.deliveryFee ?? entry.services?.delivery?.deliveryFee ?? null,
+    freeDeliveryFrom:
+      entry.freeDeliveryFrom ?? entry.services?.delivery?.freeDeliveryFrom ?? null,
+    estimatedDeliveryMinutes:
+      entry.estimatedDeliveryMinutes ??
+      entry.services?.delivery?.estimatedDeliveryMinutes ??
+      null,
+    openingStatus: entry.openingStatus ?? {
+      isOpenNow: false,
+      delivery: 'CLOSED',
+      pickup: 'CLOSED',
+    },
+    serviceFee: entry.serviceFee ?? {
+      enabled: false,
+      mode: 'FIXED',
+      fixedAmount: null,
+      percent: null,
+      label: null,
+    },
+    customerApp: entry.customerApp ?? {
+      listingEnabled: true,
+      orderingEnabled: true,
+      guestRegistrationEnabled: true,
+      guestCheckoutEnabled: true,
+      orderHeaderImageUrl: null,
+      localInfoTitle: null,
+      localInfoText: null,
+      listingDisplay: {
+        showLogo: true,
+        showChainName: true,
+        showAddress: true,
+        showAvailabilityBadges: true,
+        showMinOrderValue: true,
+        showDeliveryFeeNote: true,
+        showDistance: true,
+      },
+      navigation: {
+        bottomTabs: [],
+      },
+    },
+    orderIntake: entry.orderIntake,
+    deliveryScheduling: entry.deliveryScheduling,
+    services: {
+      delivery: {
+        available: deliveryAvailable,
+        strategy: entry.services?.delivery?.strategy ?? 'ZIP_LIST',
+        minOrderValue:
+          entry.services?.delivery?.minOrderValue ??
+          (typeof entry.minOrderValue === 'number' ? entry.minOrderValue : null),
+        deliveryFee:
+          entry.services?.delivery?.deliveryFee ??
+          entry.deliveryFee ??
+          null,
+        freeDeliveryFrom:
+          entry.services?.delivery?.freeDeliveryFrom ??
+          entry.freeDeliveryFrom ??
+          null,
+        estimatedDeliveryMinutes:
+          entry.services?.delivery?.estimatedDeliveryMinutes ??
+          entry.estimatedDeliveryMinutes ??
+          null,
+        matchedByZip: entry.services?.delivery?.matchedByZip ?? false,
+        matchedByRadius: entry.services?.delivery?.matchedByRadius ?? false,
+        matchedByPolygon: entry.services?.delivery?.matchedByPolygon ?? false,
+        distanceKm: entry.services?.delivery?.distanceKm ?? null,
+        nextAvailableAt: entry.services?.delivery?.nextAvailableAt ?? null,
+        debug: entry.services?.delivery?.debug,
+      },
+      pickup: {
+        available: pickupAvailable,
+        strategy: entry.services?.pickup?.strategy ?? 'ZIP_LIST',
+        matchedByZip: entry.services?.pickup?.matchedByZip ?? false,
+        matchedByRadius: entry.services?.pickup?.matchedByRadius ?? false,
+        matchedByPolygon: entry.services?.pickup?.matchedByPolygon ?? false,
+        distanceKm: entry.services?.pickup?.distanceKm ?? null,
+        debug: entry.services?.pickup?.debug,
+      },
+    },
+  }
+}
+
 function MainAppFallbackPage() {
   const [zipCode, setZipCode] = useState('')
   const [street, setStreet] = useState('')
@@ -76,10 +205,24 @@ function MainAppFallbackPage() {
         latitude: location?.latitude ?? null,
         longitude: location?.longitude ?? null,
       })
-      setResults(response.tenants)
+      const responseLike = response as unknown as {
+        tenants?: DiscoveryTenantLike[]
+        rows?: DiscoveryTenantLike[]
+        total?: number
+        query?: { zipCode?: string }
+      }
+      const tenantRows = Array.isArray(responseLike.tenants)
+        ? responseLike.tenants
+        : Array.isArray(responseLike.rows)
+          ? responseLike.rows
+          : []
+      const normalizedResults = tenantRows
+        .map((entry) => normalizeDiscoveryTenant(entry))
+        .filter((entry) => entry.deliveryAvailable || entry.pickupAvailable)
+      setResults(normalizedResults)
       setSearchMeta({
-        total: response.total,
-        zipCode: response.query.zipCode,
+        total: typeof responseLike.total === 'number' ? responseLike.total : normalizedResults.length,
+        zipCode: responseLike.query?.zipCode || normalizedZip,
       })
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : 'Filialsuche fehlgeschlagen')
@@ -236,21 +379,21 @@ function MainAppFallbackPage() {
                 <div className="mt-3 flex flex-wrap gap-2">
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      entry.services.delivery.available
+                      entry.deliveryAvailable
                         ? 'bg-emerald-100 text-emerald-800'
                         : 'bg-rose-100 text-rose-500'
                     }`}
                   >
-                    Lieferung {entry.services.delivery.available ? 'moeglich' : 'nicht aktiv'}
+                    Lieferung {entry.deliveryAvailable ? 'moeglich' : 'nicht verfuegbar'}
                   </span>
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      entry.pickupAvailable || entry.services.pickup.available
+                      entry.pickupAvailable
                         ? 'bg-sky-100 text-sky-800'
                         : 'bg-rose-100 text-rose-500'
                     }`}
                   >
-                    Abholung {(entry.pickupAvailable || entry.services.pickup.available) ? 'moeglich' : 'nicht aktiv'}
+                    Abholung {entry.pickupAvailable ? 'moeglich' : 'nicht verfuegbar'}
                   </span>
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold ${
@@ -264,8 +407,8 @@ function MainAppFallbackPage() {
                 </div>
 
                 <div className="mt-3 grid gap-1 text-xs text-rose-900/75">
-                  <p>Liefergebuehr: {formatMoney(entry.deliveryFee) || entry.deliveryFeeNote || '-'}</p>
-                  <p>Mindestbestellwert: {formatMoney(entry.services.delivery.minOrderValue ?? null) || entry.minOrderValue || '-'}</p>
+                  <p>Liefergebuehr: {entry.deliveryFee !== null ? formatMoney(entry.deliveryFee) : entry.deliveryFeeNote || '-'}</p>
+                  <p>Mindestbestellwert: {entry.services.delivery.minOrderValue !== null ? formatMoney(entry.services.delivery.minOrderValue) : entry.minOrderValue || '-'}</p>
                   <p>Lieferzeit: {typeof entry.estimatedDeliveryMinutes === 'number' ? `${entry.estimatedDeliveryMinutes} Min.` : '-'}</p>
                   <p>Telefon: {entry.contact.phone || '-'}</p>
                 </div>
