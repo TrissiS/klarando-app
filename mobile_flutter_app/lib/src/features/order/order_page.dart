@@ -1281,26 +1281,14 @@ String? _literPriceLabel(TenantCatalogProduct product) {
 }
 
 List<Widget> _productBadges(TenantCatalogProduct product) {
-  final badges = <Widget>[];
-  if (product.isVegan) {
-    badges.add(_productBadge('Vegan', const Color(0xFF16A34A)));
-  }
-  if (product.isVegetarian) {
-    badges.add(_productBadge('Vegetarisch', const Color(0xFF65A30D)));
-  }
-  if (product.isSpicy) {
-    badges.add(_productBadge('Scharf', const Color(0xFFDC2626)));
-  }
-  if (product.ageRestriction == 18) {
-    badges.add(_productBadge('+18', const Color(0xFF7F1D1D)));
-  } else if (product.ageRestriction == 16) {
-    badges.add(_productBadge('+16', const Color(0xFFB45309)));
-  }
-  return badges;
+  return _normalizedProductBadges(product)
+      .map((badge) => _productBadge(badge.label, badge.color))
+      .toList(growable: false);
 }
 
 String _rawBadgeDebug(TenantCatalogProduct product) {
   return [
+    'badges=${product.badges.isEmpty ? '[]' : '[${product.badges.join(', ')}]'}',
     'isVegan=${product.isVegan}',
     'isVegetarian=${product.isVegetarian}',
     'isSpicy=${product.isSpicy}',
@@ -1309,26 +1297,116 @@ String _rawBadgeDebug(TenantCatalogProduct product) {
 }
 
 String _normalizedBadgeDebug(TenantCatalogProduct product) {
-  final labels = <String>[];
-  if (product.isVegan) {
-    labels.add('Vegan');
-  }
-  if (product.isVegetarian) {
-    labels.add('Vegetarisch');
-  }
-  if (product.isSpicy) {
-    labels.add('Scharf');
-  }
-  if (product.ageRestriction == 18) {
-    labels.add('+18');
-  } else if (product.ageRestriction == 16) {
-    labels.add('+16');
-  }
+  final labels = _normalizedProductBadges(product)
+      .map((badge) => badge.label)
+      .toList(growable: false);
   return labels.isEmpty ? '[]' : '[${labels.join(', ')}]';
 }
 
 String _renderedBadgeDebug(TenantCatalogProduct product) {
   return _normalizedBadgeDebug(product);
+}
+
+class _NormalizedProductBadge {
+  const _NormalizedProductBadge({
+    required this.key,
+    required this.label,
+    required this.color,
+  });
+
+  final String key;
+  final String label;
+  final Color color;
+}
+
+List<_NormalizedProductBadge> _normalizedProductBadges(TenantCatalogProduct product) {
+  final badges = <_NormalizedProductBadge>[];
+  final seenKeys = <String>{};
+
+  void addBadge(String key, String label, Color color) {
+    if (!seenKeys.add(key)) {
+      return;
+    }
+    badges.add(_NormalizedProductBadge(key: key, label: label, color: color));
+  }
+
+  for (final rawBadge in product.badges) {
+    final normalized = _badgeDefinitionForKey(rawBadge);
+    if (normalized != null) {
+      addBadge(normalized.key, normalized.label, normalized.color);
+    }
+  }
+
+  if (product.isVegan) {
+    addBadge('VEGAN', 'Vegan', const Color(0xFF16A34A));
+  }
+  if (product.isVegetarian) {
+    addBadge('VEGETARIAN', 'Vegetarisch', const Color(0xFF65A30D));
+  }
+  if (product.isSpicy) {
+    addBadge('SPICY', 'Scharf', const Color(0xFFDC2626));
+  }
+  if (product.ageRestriction == 18) {
+    addBadge('AGE_18', '+18', const Color(0xFF7F1D1D));
+  } else if (product.ageRestriction == 16) {
+    addBadge('AGE_16', '+16', const Color(0xFFB45309));
+  }
+
+  return badges;
+}
+
+_NormalizedProductBadge? _badgeDefinitionForKey(String rawKey) {
+  switch (rawKey.trim().toUpperCase()) {
+    case 'VEGAN':
+      return const _NormalizedProductBadge(
+        key: 'VEGAN',
+        label: 'Vegan',
+        color: Color(0xFF16A34A),
+      );
+    case 'VEGETARIAN':
+      return const _NormalizedProductBadge(
+        key: 'VEGETARIAN',
+        label: 'Vegetarisch',
+        color: Color(0xFF65A30D),
+      );
+    case 'SPICY':
+      return const _NormalizedProductBadge(
+        key: 'SPICY',
+        label: 'Scharf',
+        color: Color(0xFFDC2626),
+      );
+    case 'VERY_SPICY':
+      return const _NormalizedProductBadge(
+        key: 'VERY_SPICY',
+        label: 'Sehr scharf',
+        color: Color(0xFFB91C1C),
+      );
+    case 'NEW':
+      return const _NormalizedProductBadge(
+        key: 'NEW',
+        label: 'Neu',
+        color: Color(0xFF2563EB),
+      );
+    case 'POPULAR':
+      return const _NormalizedProductBadge(
+        key: 'POPULAR',
+        label: 'Beliebt',
+        color: Color(0xFFEA580C),
+      );
+    case 'AGE_18':
+      return const _NormalizedProductBadge(
+        key: 'AGE_18',
+        label: '+18',
+        color: Color(0xFF7F1D1D),
+      );
+    case 'AGE_16':
+      return const _NormalizedProductBadge(
+        key: 'AGE_16',
+        label: '+16',
+        color: Color(0xFFB45309),
+      );
+  }
+  return null;
 }
 
 Widget _productBadge(String label, Color color) {

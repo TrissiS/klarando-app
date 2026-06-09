@@ -783,6 +783,7 @@ class TenantCatalogProduct {
     required this.offerValueType,
     required this.offerValue,
     required this.depositAmount,
+    required this.badges,
     required this.isVegan,
     required this.isVegetarian,
     required this.isSpicy,
@@ -810,6 +811,7 @@ class TenantCatalogProduct {
   final String? offerValueType;
   final double? offerValue;
   final double depositAmount;
+  final List<String> badges;
   final bool isVegan;
   final bool isVegetarian;
   final bool isSpicy;
@@ -828,6 +830,7 @@ class TenantCatalogProduct {
   }) {
     final ingredientsRaw = json['ingredients'];
     final modifiersRaw = json['modifiers'];
+    final badges = _readProductBadgeKeys(json);
 
     return TenantCatalogProduct(
       id: _readString(json['id']),
@@ -850,29 +853,24 @@ class TenantCatalogProduct {
       offerValueType: _readNullableString(json['offerValueType']),
       offerValue: _readNullableDouble(json['offerValue']),
       depositAmount: _readDouble(json['depositAmount']),
-      isVegan:
-          _readBool(
-            json['isVegan'] ??
-                json['vegan'] ??
-                json['tags']?['vegan'] ??
-                false,
-          ),
-      isVegetarian:
-          _readBool(
-            json['isVegetarian'] ??
-                json['vegetarian'] ??
-                json['tags']?['vegetarian'] ??
-                false,
-          ),
-      isSpicy:
-          _readBool(
-            json['isSpicy'] ??
-                json['spicy'] ??
-                json['tags']?['spicy'] ??
-                false,
-          ),
-      ageRestriction: _readNullableInt(
-        json['ageRestriction'] ??
+      badges: badges,
+      isVegan: _readBool(json['isVegan']) ||
+          _readBool(json['vegan']) ||
+          _readBool(json['tags']?['vegan']) ||
+          badges.contains('VEGAN'),
+      isVegetarian: _readBool(json['isVegetarian']) ||
+          _readBool(json['vegetarian']) ||
+          _readBool(json['tags']?['vegetarian']) ||
+          badges.contains('VEGETARIAN'),
+      isSpicy: _readBool(json['isSpicy']) ||
+          _readBool(json['spicy']) ||
+          _readBool(json['tags']?['spicy']) ||
+          badges.contains('SPICY') ||
+          badges.contains('VERY_SPICY'),
+      ageRestriction: _readProductAgeRestriction(
+        json['ageRestriction'],
+        badges: badges,
+        fallback:
             json['alcoholAge'] ??
             json['minimumAge'] ??
             json['age'],
@@ -2938,9 +2936,13 @@ dynamic _tryDecode(String raw) {
 }
 
 String _resolveErrorMessage(Map<String, dynamic> data, int statusCode) {
-  final message = data['error'];
-  if (message is String && message.trim().isNotEmpty) {
-    return message;
+  final apiMessage = data['message'];
+  if (apiMessage is String && apiMessage.trim().isNotEmpty) {
+    return apiMessage;
+  }
+  final errorMessage = data['error'];
+  if (errorMessage is String && errorMessage.trim().isNotEmpty) {
+    return errorMessage;
   }
   return 'Serverfehler ($statusCode)';
 }
@@ -3095,6 +3097,54 @@ int? _readNullableInt(dynamic value) {
   return null;
 }
 
+int? _readProductAgeRestriction(
+  dynamic value, {
+  required List<String> badges,
+  dynamic fallback,
+}) {
+  final parsedValue = _parseAgeRestrictionValue(value);
+  if (parsedValue != null) {
+    return parsedValue;
+  }
+
+  final parsedFallback = _parseAgeRestrictionValue(fallback);
+  if (parsedFallback != null) {
+    return parsedFallback;
+  }
+
+  if (badges.contains('AGE_18')) {
+    return 18;
+  }
+  if (badges.contains('AGE_16')) {
+    return 16;
+  }
+  return null;
+}
+
+int? _parseAgeRestrictionValue(dynamic value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  if (value is! String) {
+    return null;
+  }
+
+  final normalized = value.trim().toUpperCase();
+  if (normalized.isEmpty || normalized == 'NONE') {
+    return null;
+  }
+  if (normalized == 'AGE_18') {
+    return 18;
+  }
+  if (normalized == 'AGE_16') {
+    return 16;
+  }
+  return int.tryParse(normalized);
+}
+
 DateTime? _readNullableDateTime(dynamic value) {
   if (value is! String || value.trim().isEmpty) {
     return null;
@@ -3107,4 +3157,88 @@ List<String> _readStringList(dynamic value) {
     return const [];
   }
   return value.whereType<String>().toList(growable: false);
+}
+
+List<String> _readProductBadgeKeys(Map<String, dynamic> json) {
+  final output = <String>{};
+
+  void addBadge(dynamic value) {
+    final normalized = _normalizeProductBadgeKey(value);
+    if (normalized != null) {
+      output.add(normalized);
+    }
+  }
+
+  void addFromList(dynamic value) {
+    if (value is! List) {
+      return;
+    }
+    for (final entry in value) {
+      if (entry is Map<String, dynamic>) {
+        addBadge(
+          entry['key'] ??
+              entry['code'] ??
+              entry['id'] ??
+              entry['value'] ??
+              entry['name'] ??
+              entry['label'],
+        );
+      } else {
+        addBadge(entry);
+      }
+    }
+  }
+
+  for (final key in const [
+    'badges',
+    'badgeKeys',
+    'labels',
+    'productBadges',
+    'marketingBadges',
+    'badgeDefinitions',
+  ]) {
+    addFromList(json[key]);
+  }
+
+  final tags = _readNullableMap(json['tags']);
+  if (_readBool(json['isVegan']) || _readBool(json['vegan']) || _readBool(tags?['vegan'])) {
+    output.add('VEGAN');
+  }
+  if (_readBool(json['isVegetarian']) ||
+      _readBool(json['vegetarian']) ||
+      _readBool(tags?['vegetarian'])) {
+    output.add('VEGETARIAN');
+  }
+  if (_readBool(json['isSpicy']) || _readBool(json['spicy']) || _readBool(tags?['spicy'])) {
+    output.add('SPICY');
+  }
+  if (_readBool(json['isVerySpicy']) || _readBool(tags?['verySpicy'])) {
+    output.add('VERY_SPICY');
+  }
+  if (_readBool(json['isNew']) || _readBool(tags?['isNew'])) {
+    output.add('NEW');
+  }
+  if (_readBool(json['isPopular']) || _readBool(tags?['popular'])) {
+    output.add('POPULAR');
+  }
+
+  final ageRestriction = _parseAgeRestrictionValue(json['ageRestriction']);
+  if (ageRestriction == 18) {
+    output.add('AGE_18');
+  } else if (ageRestriction == 16) {
+    output.add('AGE_16');
+  }
+
+  return output.toList(growable: false);
+}
+
+String? _normalizeProductBadgeKey(dynamic value) {
+  if (value is! String) {
+    return null;
+  }
+  final normalized = value.trim().toUpperCase();
+  if (normalized.isEmpty) {
+    return null;
+  }
+  return normalized;
 }
