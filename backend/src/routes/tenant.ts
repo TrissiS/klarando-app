@@ -44,6 +44,32 @@ function formatZoneAmountLabel(value: number | null | undefined) {
   return `${value.toFixed(2)} EUR`
 }
 
+function parseAmountLabel(value: string | null | undefined) {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.replace(',', '.')
+  const match = normalized.match(/-?\d+(?:\.\d+)?/)
+  if (!match) {
+    return null
+  }
+
+  const parsed = Number(match[0])
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function toPublicTenantSlug(value: string | null | undefined, fallbackId: string) {
+  const base = normalizeText(value)?.toLowerCase() ?? ''
+  const slug = base
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+
+  return slug || fallbackId
+}
+
 function deliveryZoneToServiceArea(zone: DeliveryZoneSettings): ServiceAreaSettings {
   return {
     enabled: zone.enabled,
@@ -967,6 +993,14 @@ router.get('/public/discovery', async (req, res) => {
           matchedDeliveryZoneEntry && matchedDeliveryZoneEntry.zone.deliveryFee !== null
             ? formatZoneAmountLabel(matchedDeliveryZoneEntry.zone.deliveryFee)
             : settings.deliveryFeeNote
+        const effectiveMinOrderValueAmount =
+          matchedDeliveryZoneEntry?.zone.minOrderValue ?? parseAmountLabel(settings.minOrderValue)
+        const effectiveDeliveryFeeAmount =
+          matchedDeliveryZoneEntry?.zone.deliveryFee ?? parseAmountLabel(settings.deliveryFeeNote)
+        const effectiveFreeDeliveryFromAmount =
+          matchedDeliveryZoneEntry?.zone.freeDeliveryFrom ?? null
+        const effectiveEstimatedDeliveryMinutes =
+          matchedDeliveryZoneEntry?.zone.estimatedDeliveryMinutes ?? null
 
         const deliveryMatch = includeDelivery
           ? matchedDeliveryZoneEntry?.match ??
@@ -1139,6 +1173,11 @@ router.get('/public/discovery', async (req, res) => {
         const resolvedPauseReason =
           intake.orderIntakePausedReason?.trim() ||
           'Aufgrund hoher Auslastung nimmt dieses Restaurant aktuell keine neuen Online-Bestellungen an.'
+        const publicTenantName = settings.businessName || tenant.name
+        const publicImageUrl =
+          sanitizePublicAssetUrl(settings.coverImageUrl) ??
+          sanitizePublicAssetUrl(settings.thumbnailUrl) ??
+          sanitizePublicAssetUrl(settings.logoUrl)
         console.info('ORDER_INTAKE_STATUS_SYNC', {
           route: 'GET /api/tenants/public/discovery',
           tenantId: tenant.id,
@@ -1151,8 +1190,11 @@ router.get('/public/discovery', async (req, res) => {
         })
 
         return {
+          id: tenant.id,
           tenantId: tenant.id,
-          tenantName: settings.businessName || tenant.name,
+          name: publicTenantName,
+          tenantName: publicTenantName,
+          slug: toPublicTenantSlug(publicTenantName, tenant.id),
           ratingAverage:
             tenantRating && tenantRating.count > 0
               ? Number((tenantRating.sum / tenantRating.count).toFixed(2))
@@ -1183,9 +1225,22 @@ router.get('/public/discovery', async (req, res) => {
             city: settings.city,
             country: settings.country,
           },
+          city: settings.city,
           logoUrl: sanitizePublicAssetUrl(settings.logoUrl),
+          imageUrl: publicImageUrl,
           deliveryFeeNote: effectiveDiscoveryDeliveryFee,
           minOrderValue: effectiveDiscoveryMinOrderValue,
+          deliveryAvailable: matchesDelivery,
+          pickupAvailable: matchesPickup,
+          deliveryFee: effectiveDeliveryFeeAmount,
+          freeDeliveryFrom: effectiveFreeDeliveryFromAmount,
+          estimatedDeliveryMinutes: effectiveEstimatedDeliveryMinutes,
+          openingStatus: {
+            isOpenNow:
+              deliveryOrderingAvailability.isOpen || pickupOrderingAvailability.isOpen,
+            delivery: deliveryOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
+            pickup: pickupOrderingAvailability.isOpen ? 'OPEN' : 'CLOSED',
+          },
           serviceFee: settings.serviceFee,
           customerApp: sanitizePublicCustomerApp(settings.customerApp),
           payments: {
@@ -1217,39 +1272,15 @@ router.get('/public/discovery', async (req, res) => {
             hasSlots: deliveryScheduleState.hasSlots,
             today: deliveryScheduleState.todayKey,
           },
-          matchedZone: matchedDeliveryZoneEntry
-            ? {
-                id: matchedDeliveryZoneEntry.zone.id,
-                name: matchedDeliveryZoneEntry.zone.name,
-                color: matchedDeliveryZoneEntry.zone.color,
-                priority: matchedDeliveryZoneEntry.zone.priority,
-                strategy: matchedDeliveryZoneEntry.zone.strategy,
-                minOrderValue: matchedDeliveryZoneEntry.zone.minOrderValue,
-                deliveryFee: matchedDeliveryZoneEntry.zone.deliveryFee,
-                freeDeliveryFrom: matchedDeliveryZoneEntry.zone.freeDeliveryFrom,
-                estimatedDeliveryMinutes:
-                  matchedDeliveryZoneEntry.zone.estimatedDeliveryMinutes,
-              }
-            : null,
           outOfArea,
           services: {
             delivery: {
               available: matchesDelivery,
               strategy: effectiveDiscoveryDeliveryArea.strategy,
-              matchedZone: matchedDeliveryZoneEntry
-                ? {
-                    id: matchedDeliveryZoneEntry.zone.id,
-                    name: matchedDeliveryZoneEntry.zone.name,
-                    color: matchedDeliveryZoneEntry.zone.color,
-                    priority: matchedDeliveryZoneEntry.zone.priority,
-                    strategy: matchedDeliveryZoneEntry.zone.strategy,
-                    minOrderValue: matchedDeliveryZoneEntry.zone.minOrderValue,
-                    deliveryFee: matchedDeliveryZoneEntry.zone.deliveryFee,
-                    freeDeliveryFrom: matchedDeliveryZoneEntry.zone.freeDeliveryFrom,
-                    estimatedDeliveryMinutes:
-                      matchedDeliveryZoneEntry.zone.estimatedDeliveryMinutes,
-                  }
-                : null,
+              minOrderValue: effectiveMinOrderValueAmount,
+              deliveryFee: effectiveDeliveryFeeAmount,
+              freeDeliveryFrom: effectiveFreeDeliveryFromAmount,
+              estimatedDeliveryMinutes: effectiveEstimatedDeliveryMinutes,
               polygonPoints: effectiveDiscoveryDeliveryArea.polygonPath.length,
               matchedByZip: deliveryMatch?.matchedByZip ?? false,
               matchedByRadius: deliveryMatch?.matchedByRadius ?? false,

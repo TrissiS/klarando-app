@@ -675,8 +675,11 @@ export const DEFAULT_PLATFORM_BRANDING_SETTINGS: PlatformBrandingSettings = {
 export type PublicTenantDiscoveryMode = 'all' | 'delivery' | 'pickup'
 
 export type PublicTenantDiscoveryTenant = {
+  id: string
   tenantId: string
+  name: string
   tenantName: string
+  slug: string
   ratingAverage: number | null
   ratingCount: number
   chain: {
@@ -702,9 +705,21 @@ export type PublicTenantDiscoveryTenant = {
     city: string | null
     country: string | null
   }
+  city: string | null
   logoUrl: string | null
+  imageUrl: string | null
   deliveryFeeNote: string | null
   minOrderValue: string | null
+  deliveryAvailable: boolean
+  pickupAvailable: boolean
+  deliveryFee: number | null
+  freeDeliveryFrom: number | null
+  estimatedDeliveryMinutes: number | null
+  openingStatus: {
+    isOpenNow: boolean
+    delivery: 'OPEN' | 'CLOSED'
+    pickup: 'OPEN' | 'CLOSED'
+  }
   serviceFee: BusinessServiceFeeSettings
   customerApp: BusinessCustomerAppSettings
   orderIntake?: {
@@ -736,32 +751,14 @@ export type PublicTenantDiscoveryTenant = {
     hasSlots?: boolean
     today?: BusinessDayCode
   }
-  matchedZone?: {
-    id: string
-    name: string
-    color: string
-    priority: number
-    strategy: BusinessServiceAreaStrategy
-    minOrderValue: number | null
-    deliveryFee: number | null
-    freeDeliveryFrom: number | null
-    estimatedDeliveryMinutes: number | null
-  } | null
   services: {
     delivery: {
       available: boolean
       strategy: BusinessServiceAreaStrategy
-      matchedZone?: {
-        id: string
-        name: string
-        color: string
-        priority: number
-        strategy: BusinessServiceAreaStrategy
-        minOrderValue: number | null
-        deliveryFee: number | null
-        freeDeliveryFrom: number | null
-        estimatedDeliveryMinutes: number | null
-      } | null
+      minOrderValue: number | null
+      deliveryFee: number | null
+      freeDeliveryFrom: number | null
+      estimatedDeliveryMinutes: number | null
       matchedByZip: boolean
       matchedByRadius: boolean
       matchedByPolygon: boolean

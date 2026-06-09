@@ -21,6 +21,13 @@ function MainAppFallbackPage() {
   const [results, setResults] = useState<PublicTenantDiscoveryTenant[]>([])
   const [searchMeta, setSearchMeta] = useState<{ total: number; zipCode: string } | null>(null)
 
+  function formatMoney(value: number | null) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return '-'
+    }
+    return `${value.toFixed(2)} EUR`
+  }
+
   async function requestLocation() {
     if (!hasMapsConsent()) {
       setError('Standort/Maps ist derzeit nicht freigegeben. Bitte Cookie-Einstellungen anpassen.')
@@ -203,25 +210,25 @@ function MainAppFallbackPage() {
 
           <div className="grid gap-4 md:grid-cols-2">
             {results.map((entry) => (
-              <article key={entry.tenantId} className="brand-panel rounded-3xl p-5">
+              <article key={entry.id || entry.tenantId} className="brand-panel rounded-3xl p-5">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h3 className="text-lg font-semibold">{entry.tenantName}</h3>
+                    <h3 className="text-lg font-semibold">{entry.name || entry.tenantName}</h3>
                     <p className="text-sm text-rose-900/70">
                       {entry.chain?.name || 'Unabhaengige Filiale'}
                     </p>
                   </div>
-                  {entry.logoUrl ? (
+                  {entry.imageUrl || entry.logoUrl ? (
                     <img
-                      src={entry.logoUrl}
-                      alt={`${entry.tenantName} Logo`}
+                      src={entry.imageUrl || entry.logoUrl || ''}
+                      alt={`${entry.name || entry.tenantName} Logo`}
                       className="h-12 w-12 rounded-xl border border-[var(--brand-border)] bg-white object-contain"
                     />
                   ) : null}
                 </div>
 
                 <p className="mt-3 text-sm text-rose-900/85">
-                  {[entry.address.street, entry.address.zipCode, entry.address.city]
+                  {[entry.address.street, entry.address.zipCode, entry.city || entry.address.city]
                     .filter(Boolean)
                     .join(', ') || 'Adresse wird noch gepflegt'}
                 </p>
@@ -238,18 +245,28 @@ function MainAppFallbackPage() {
                   </span>
                   <span
                     className={`rounded-full px-3 py-1 text-xs font-semibold ${
-                      entry.services.pickup.available
+                      entry.pickupAvailable || entry.services.pickup.available
                         ? 'bg-sky-100 text-sky-800'
                         : 'bg-rose-100 text-rose-500'
                     }`}
                   >
-                    Abholung {entry.services.pickup.available ? 'moeglich' : 'nicht aktiv'}
+                    Abholung {(entry.pickupAvailable || entry.services.pickup.available) ? 'moeglich' : 'nicht aktiv'}
+                  </span>
+                  <span
+                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                      entry.openingStatus.isOpenNow
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {entry.openingStatus.isOpenNow ? 'Jetzt geoeffnet' : 'Derzeit geschlossen'}
                   </span>
                 </div>
 
                 <div className="mt-3 grid gap-1 text-xs text-rose-900/75">
-                  <p>Liefergebuehr: {entry.deliveryFeeNote || '-'}</p>
-                  <p>Mindestbestellwert: {entry.minOrderValue || '-'}</p>
+                  <p>Liefergebuehr: {formatMoney(entry.deliveryFee) || entry.deliveryFeeNote || '-'}</p>
+                  <p>Mindestbestellwert: {formatMoney(entry.services.delivery.minOrderValue ?? null) || entry.minOrderValue || '-'}</p>
+                  <p>Lieferzeit: {typeof entry.estimatedDeliveryMinutes === 'number' ? `${entry.estimatedDeliveryMinutes} Min.` : '-'}</p>
                   <p>Telefon: {entry.contact.phone || '-'}</p>
                 </div>
               </article>
