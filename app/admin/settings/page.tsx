@@ -104,14 +104,20 @@ function createDefaultDeliveryZone(priority: number): BusinessDeliveryZone {
     strategy: 'POLYGON',
     polygonPath: [],
     zipCodes: [],
+    excludedZipCodes: [],
+    excludedStreets: [],
     centerLatitude: null,
     centerLongitude: null,
+    centerZipCode: null,
+    centerCity: null,
+    centerStreet: null,
     radiusKm: null,
     minOrderValue: null,
     deliveryFee: null,
     freeDeliveryFrom: null,
     estimatedDeliveryMinutes: null,
     priority: Math.max(1, priority),
+    notes: null,
   }
 }
 
@@ -120,16 +126,16 @@ function zoneToServiceArea(zone: BusinessDeliveryZone): BusinessServiceArea {
     enabled: zone.enabled,
     strategy: zone.strategy,
     zipCodes: zone.zipCodes,
-    excludedZipCodes: [],
-    excludedStreets: [],
+    excludedZipCodes: zone.excludedZipCodes,
+    excludedStreets: zone.excludedStreets,
     radiusKm: zone.radiusKm,
     polygonPath: zone.polygonPath,
     centerLatitude: zone.centerLatitude,
     centerLongitude: zone.centerLongitude,
-    centerZipCode: null,
-    centerCity: null,
-    centerStreet: null,
-    notes: null,
+    centerZipCode: zone.centerZipCode,
+    centerCity: zone.centerCity,
+    centerStreet: zone.centerStreet,
+    notes: zone.notes,
   }
 }
 
@@ -143,9 +149,15 @@ function mergeServiceAreaIntoZone(
     strategy: nextArea.strategy,
     polygonPath: nextArea.polygonPath,
     zipCodes: nextArea.zipCodes,
+    excludedZipCodes: nextArea.excludedZipCodes,
+    excludedStreets: nextArea.excludedStreets,
     centerLatitude: nextArea.centerLatitude,
     centerLongitude: nextArea.centerLongitude,
+    centerZipCode: nextArea.centerZipCode,
+    centerCity: nextArea.centerCity,
+    centerStreet: nextArea.centerStreet,
     radiusKm: nextArea.radiusKm,
+    notes: nextArea.notes,
   }
 }
 
@@ -539,6 +551,13 @@ export default function AdminSettingsPage() {
   })
   const selectedDeliveryZone =
     deliveryZones.find((zone) => zone.id === selectedDeliveryZoneId) ?? null
+  const deliveryZonePolygonOverlays = sortedDeliveryZones.map((zone) => ({
+    id: zone.id,
+    name: zone.name,
+    enabled: zone.enabled,
+    color: zone.color,
+    polygonPath: zone.polygonPath,
+  }))
   const selectedDeliveryZoneErrors = selectedDeliveryZone
     ? validateDeliveryZone(selectedDeliveryZone)
     : []
@@ -1218,6 +1237,14 @@ export default function AdminSettingsPage() {
                             title={`Zonen-Editor: ${selectedDeliveryZone.name || 'Neue Lieferzone'}`}
                             subtitle="Bearbeitet Strategie, Polygon, PLZ und Radius der ausgewählten Lieferzone."
                             value={zoneToServiceArea(selectedDeliveryZone)}
+                            strategyOptions={[
+                              { value: 'POLYGON', label: 'OpenStreetMap Polygon' },
+                              { value: 'ZIP_LIST', label: 'Nur PLZ-Liste' },
+                              { value: 'RADIUS', label: 'Nur Radius' },
+                            ]}
+                            polygonOverlayZones={deliveryZonePolygonOverlays}
+                            selectedOverlayZoneId={selectedDeliveryZone.id}
+                            activePolygonColor={selectedDeliveryZone.color}
                             onChange={(nextArea) =>
                               updateDeliveryZone(selectedDeliveryZone.id, (zone) =>
                                 mergeServiceAreaIntoZone(zone, nextArea)

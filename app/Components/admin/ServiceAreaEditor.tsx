@@ -16,6 +16,16 @@ type Props = {
   value: BusinessServiceArea
   disabled?: boolean
   onChange: (next: BusinessServiceArea) => void
+  strategyOptions?: Array<{ value: BusinessServiceAreaStrategy; label: string }>
+  polygonOverlayZones?: Array<{
+    id: string
+    name: string
+    enabled: boolean
+    color: string
+    polygonPath: BusinessServiceAreaPolygonPoint[]
+  }>
+  selectedOverlayZoneId?: string | null
+  activePolygonColor?: string
 }
 
 const STRATEGY_OPTIONS: Array<{ value: BusinessServiceAreaStrategy; label: string }> = [
@@ -114,6 +124,10 @@ export default function ServiceAreaEditor({
   value,
   disabled = false,
   onChange,
+  strategyOptions = STRATEGY_OPTIONS,
+  polygonOverlayZones = [],
+  selectedOverlayZoneId = null,
+  activePolygonColor = '#ea580c',
 }: Props) {
   const [zipCodesInput, setZipCodesInput] = useState(() => serializeList(value.zipCodes))
   const [excludedZipCodesInput, setExcludedZipCodesInput] = useState(() =>
@@ -142,6 +156,15 @@ export default function ServiceAreaEditor({
   )
   const canEditMap = !disabled && value.enabled
   const center = getMapCenter(value, polygonPath)
+  const showZipFields =
+    value.strategy === 'ZIP_LIST' ||
+    value.strategy === 'ZIP_OR_RADIUS' ||
+    value.strategy === 'ZIP_AND_RADIUS'
+  const showRadiusFields =
+    value.strategy === 'RADIUS' ||
+    value.strategy === 'ZIP_OR_RADIUS' ||
+    value.strategy === 'ZIP_AND_RADIUS'
+  const showPolygonFields = value.strategy === 'POLYGON'
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -268,7 +291,7 @@ export default function ServiceAreaEditor({
             onChange={(event) => patchStrategy(event.target.value as BusinessServiceAreaStrategy)}
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           >
-            {STRATEGY_OPTIONS.map((entry) => (
+            {strategyOptions.map((entry) => (
               <option key={entry.value} value={entry.value}>
                 {entry.label}
               </option>
@@ -276,6 +299,7 @@ export default function ServiceAreaEditor({
           </select>
         </label>
 
+        {showZipFields ? (
         <label className="block sm:col-span-2">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">
             Erlaubte PLZ (eine pro Zeile oder komma-getrennt)
@@ -296,7 +320,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {(showZipFields || showRadiusFields) ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Ausgeschlossene PLZ</span>
           <textarea
@@ -315,7 +341,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {(showZipFields || showRadiusFields) ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Ausgeschlossene Straßen (Teiltext)</span>
           <textarea
@@ -334,7 +362,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {showRadiusFields ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Radius (km)</span>
           <input
@@ -348,7 +378,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {showRadiusFields ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Mittelpunkt-PLZ</span>
           <input
@@ -360,7 +392,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {showRadiusFields ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Mittelpunkt Breite (lat)</span>
           <input
@@ -372,7 +406,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {showRadiusFields ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Mittelpunkt Länge (lng)</span>
           <input
@@ -384,7 +420,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {showRadiusFields ? (
         <label className="block">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Mittelpunkt Ort</span>
           <input
@@ -394,7 +432,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {showRadiusFields ? (
         <label className="block sm:col-span-2">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Mittelpunkt Straße</span>
           <input
@@ -404,7 +444,9 @@ export default function ServiceAreaEditor({
             className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none disabled:bg-rose-50"
           />
         </label>
+        ) : null}
 
+        {showPolygonFields ? (
         <div className="sm:col-span-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-3 text-sm text-rose-900/85">
           <p className="font-medium text-[var(--brand-ink)]">OpenStreetMap Liefergebiet</p>
           <p className="mt-1 text-xs text-rose-900/75">
@@ -426,6 +468,9 @@ export default function ServiceAreaEditor({
                   key={`service-area-map-${polygonRenderKey}`}
                   center={center}
                   polygonPath={polygonPath}
+                  polygonColor={activePolygonColor}
+                  overlayZones={polygonOverlayZones}
+                  selectedOverlayZoneId={selectedOverlayZoneId}
                   canEditMap={canEditMap}
                   disabled={disabled}
                   enabled={value.enabled}
@@ -536,6 +581,7 @@ export default function ServiceAreaEditor({
             </div>
           )}
         </div>
+        ) : null}
 
         <label className="block sm:col-span-2">
           <span className="mb-1 block text-sm font-medium text-rose-900/85">Interne Notiz</span>

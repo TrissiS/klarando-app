@@ -63,14 +63,20 @@ export type DeliveryZoneSettings = {
   strategy: ServiceAreaStrategy
   polygonPath: ServiceAreaPolygonPoint[]
   zipCodes: string[]
+  excludedZipCodes: string[]
+  excludedStreets: string[]
   centerLatitude: number | null
   centerLongitude: number | null
+  centerZipCode: string | null
+  centerCity: string | null
+  centerStreet: string | null
   radiusKm: number | null
   minOrderValue: number | null
   deliveryFee: number | null
   freeDeliveryFrom: number | null
   estimatedDeliveryMinutes: number | null
   priority: number
+  notes: string | null
 }
 
 export type CustomerAppSettings = {
@@ -735,14 +741,20 @@ export function defaultDeliveryZone(index = 0): DeliveryZoneSettings {
     strategy: 'ZIP_LIST',
     polygonPath: [],
     zipCodes: [],
+    excludedZipCodes: [],
+    excludedStreets: [],
     centerLatitude: null,
     centerLongitude: null,
+    centerZipCode: null,
+    centerCity: null,
+    centerStreet: null,
     radiusKm: null,
     minOrderValue: null,
     deliveryFee: null,
     freeDeliveryFrom: null,
     estimatedDeliveryMinutes: null,
     priority: index,
+    notes: null,
   }
 }
 
@@ -1093,8 +1105,13 @@ function sanitizeDeliveryZone(
     strategy: parseStrategy(source.strategy, fallback.strategy),
     polygonPath: normalizePolygonPath(polygonInput),
     zipCodes: normalizeZipCodeList(source.zipCodes),
+    excludedZipCodes: normalizeZipCodeList(source.excludedZipCodes),
+    excludedStreets: normalizeStreetList(source.excludedStreets),
     centerLatitude: normalizeCoordinate(source.centerLatitude, -90, 90),
     centerLongitude: normalizeCoordinate(source.centerLongitude, -180, 180),
+    centerZipCode: normalizeZipCode(source.centerZipCode),
+    centerCity: normalizeText(source.centerCity),
+    centerStreet: normalizeText(source.centerStreet),
     radiusKm: normalizeRadius(source.radiusKm),
     minOrderValue: normalizeNumeric(source.minOrderValue),
     deliveryFee: normalizeNumeric(source.deliveryFee),
@@ -1107,6 +1124,7 @@ function sanitizeDeliveryZone(
       priorityRaw !== null && Number.isFinite(priorityRaw)
         ? Math.max(0, Math.round(priorityRaw))
         : fallback.priority,
+    notes: normalizeText(source.notes),
   }
 }
 

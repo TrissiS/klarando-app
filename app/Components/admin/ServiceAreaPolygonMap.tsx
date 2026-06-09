@@ -8,6 +8,15 @@ import type { BusinessServiceAreaPolygonPoint } from '@/lib/api'
 type Props = {
   center: { lat: number; lng: number }
   polygonPath: BusinessServiceAreaPolygonPoint[]
+  polygonColor?: string
+  overlayZones?: Array<{
+    id: string
+    name: string
+    enabled: boolean
+    color: string
+    polygonPath: BusinessServiceAreaPolygonPoint[]
+  }>
+  selectedOverlayZoneId?: string | null
   canEditMap: boolean
   disabled: boolean
   enabled: boolean
@@ -80,6 +89,9 @@ function pinIcon(label: string) {
 export default function ServiceAreaPolygonMap({
   center,
   polygonPath,
+  polygonColor = '#ea580c',
+  overlayZones = [],
+  selectedOverlayZoneId = null,
   canEditMap,
   disabled,
   enabled,
@@ -104,6 +116,26 @@ export default function ServiceAreaPolygonMap({
         : 'empty',
     [polygonPositions]
   )
+  const overlayPolygons = useMemo(
+    () =>
+      overlayZones
+        .filter((zone) => zone.enabled && zone.polygonPath.length >= 3)
+        .map((zone) => ({
+          ...zone,
+          positions: zone.polygonPath
+            .map((point) => [Number(point.lat), Number(point.lng)] as [number, number])
+            .filter(([lat, lng]) => Number.isFinite(lat) && Number.isFinite(lng)),
+        }))
+        .filter((zone) => zone.positions.length >= 3),
+    [overlayZones]
+  )
+  const fitPoints = useMemo(
+    () => [
+      ...polygonPath,
+      ...overlayPolygons.flatMap((zone) => zone.polygonPath),
+    ],
+    [overlayPolygons, polygonPath]
+  )
 
   useEffect(() => {
     console.log('MAP_POLYGON_POINTS_RENDER', polygonPositions.length, polygonPositions)
@@ -116,7 +148,7 @@ export default function ServiceAreaPolygonMap({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
-        <MapAutoFit points={polygonPath} />
+        <MapAutoFit points={fitPoints} />
         <MapClickCapture
           disabled={disabled}
           enabled={enabled}
@@ -124,11 +156,33 @@ export default function ServiceAreaPolygonMap({
           onAddPoint={onAddPoint}
           onSetTestPoint={onSetTestPoint}
         />
+        {overlayPolygons.map((zone) => {
+          const isSelected = zone.id === selectedOverlayZoneId
+          return (
+            <Polygon
+              key={`overlay-${zone.id}`}
+              positions={zone.positions}
+              pathOptions={{
+                color: zone.color || '#22c55e',
+                fillColor: zone.color || '#22c55e',
+                fillOpacity: isSelected ? 0.22 : 0.12,
+                weight: isSelected ? 4 : 2,
+                opacity: isSelected ? 0.95 : 0.6,
+              }}
+            />
+          )
+        })}
         {polygonPositions.length >= 3 ? (
           <Polygon
             key={`polygon-${polygonRenderKey}`}
             positions={polygonPositions}
-            pathOptions={{ color: '#ea580c', fillColor: '#fb923c', fillOpacity: 0.28, weight: 3 }}
+            pathOptions={{
+              color: polygonColor,
+              fillColor: polygonColor,
+              fillOpacity: 0.26,
+              weight: 4,
+              opacity: 1,
+            }}
           />
         ) : null}
         {testPoint ? (

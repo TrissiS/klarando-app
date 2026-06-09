@@ -736,6 +736,17 @@ export type PublicTenantDiscoveryTenant = {
     hasSlots?: boolean
     today?: BusinessDayCode
   }
+  matchedZone?: {
+    id: string
+    name: string
+    color: string
+    priority: number
+    strategy: BusinessServiceAreaStrategy
+    minOrderValue: number | null
+    deliveryFee: number | null
+    freeDeliveryFrom: number | null
+    estimatedDeliveryMinutes: number | null
+  } | null
   services: {
     delivery: {
       available: boolean
