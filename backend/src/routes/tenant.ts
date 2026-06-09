@@ -1202,6 +1202,20 @@ router.get('/public/discovery', async (req, res) => {
             hasSlots: deliveryScheduleState.hasSlots,
             today: deliveryScheduleState.todayKey,
           },
+          matchedZone: matchedDeliveryZoneEntry
+            ? {
+                id: matchedDeliveryZoneEntry.zone.id,
+                name: matchedDeliveryZoneEntry.zone.name,
+                color: matchedDeliveryZoneEntry.zone.color,
+                priority: matchedDeliveryZoneEntry.zone.priority,
+                strategy: matchedDeliveryZoneEntry.zone.strategy,
+                minOrderValue: matchedDeliveryZoneEntry.zone.minOrderValue,
+                deliveryFee: matchedDeliveryZoneEntry.zone.deliveryFee,
+                freeDeliveryFrom: matchedDeliveryZoneEntry.zone.freeDeliveryFrom,
+                estimatedDeliveryMinutes:
+                  matchedDeliveryZoneEntry.zone.estimatedDeliveryMinutes,
+              }
+            : null,
           outOfArea,
           services: {
             delivery: {
