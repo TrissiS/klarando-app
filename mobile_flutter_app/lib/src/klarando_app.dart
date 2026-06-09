@@ -1699,7 +1699,7 @@ class _HomeShellState extends State<HomeShell> {
       return null;
     }
     final tenant = _selectedTenant;
-    if (tenant == null || !tenant.deliveryAvailable) {
+    if (tenant == null || (!tenant.deliveryAvailable && !tenant.orderIntake.deliveryEnabled)) {
       return null;
     }
     final minOrderValue = _parseMoneyValue(tenant.minOrderValue);
@@ -2915,8 +2915,8 @@ class _HomeShellState extends State<HomeShell> {
     }
 
     final tenant = _selectedTenant!;
-    final allowDelivery = tenant.deliveryAvailable;
-    final allowPickup = tenant.pickupAvailable;
+    final allowDelivery = tenant.deliveryAvailable || tenant.orderIntake.deliveryEnabled;
+    final allowPickup = tenant.pickupAvailable || tenant.orderIntake.pickupEnabled;
     final fallbackStreet = _streetFromStoredAddress(_activeAddress);
     final fallbackCity = _cityFromStoredAddress(_activeAddress);
     final usesProfileAddress = (_appCustomer?.street?.trim().isNotEmpty ?? false);
@@ -3015,14 +3015,31 @@ class _HomeShellState extends State<HomeShell> {
   }) async {
     final tenant = _selectedTenant;
     if (tenant == null) {
+      debugPrint('MOBILE_CHECKOUT_ERROR {reason: tenant_missing}');
       throw const ApiException('Keine Filiale ausgewählt.');
     }
 
-    if (serviceType == _CheckoutServiceType.delivery && !tenant.deliveryAvailable) {
-      throw const ApiException('Lieferung ist für diese Filiale aktuell nicht verfügbar.');
+    final trimmedDeliveryAddress = deliveryAddress?.trim();
+    final trimmedDeliveryZipCode = deliveryZipCode?.trim();
+    final trimmedDeliveryCity = deliveryCity?.trim();
+
+    debugPrint(
+      'MOBILE_CHECKOUT_DEBUG {branchId: ${tenant.tenantId}, tenantId: ${tenant.tenantId}, orderType: ${serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'PICKUP'}, deliveryType: ${serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'PICKUP'}, customerAddress: ${trimmedDeliveryAddress ?? 'null'}, latitude: ${deliveryLatitude ?? _activeLatitude}, longitude: ${deliveryLongitude ?? _activeLongitude}, deliveryAvailable: ${tenant.deliveryAvailable}, rejectionReason: ${tenant.deliveryRejectionReason ?? 'null'}}',
+    );
+
+    if (serviceType == _CheckoutServiceType.delivery &&
+        !tenant.orderIntake.deliveryEnabled) {
+      debugPrint(
+        'MOBILE_CHECKOUT_ERROR {reason: local_delivery_disabled_guard}',
+      );
+      throw const ApiException('Lieferung ist für diese Filiale aktuell deaktiviert.');
     }
 
-    if (serviceType == _CheckoutServiceType.pickup && !tenant.pickupAvailable) {
+    if (serviceType == _CheckoutServiceType.pickup &&
+        !tenant.orderIntake.pickupEnabled) {
+      debugPrint(
+        'MOBILE_CHECKOUT_ERROR {reason: local_pickup_disabled_guard}',
+      );
       throw const ApiException('Abholung ist für diese Filiale aktuell nicht verfügbar.');
     }
 
@@ -3045,16 +3062,9 @@ class _HomeShellState extends State<HomeShell> {
     final minOrderValue = _parseMoneyValue(tenant.minOrderValue);
 
     if (_appAuthToken == null || _appCustomer == null) {
+      debugPrint('MOBILE_CHECKOUT_ERROR {reason: app_auth_missing}');
       throw const ApiException(
         'Bitte zuerst im Profil mit einem Kundenkonto einloggen.',
-      );
-    }
-
-    if (serviceType == _CheckoutServiceType.delivery &&
-        minOrderValue != null &&
-        subtotal < minOrderValue) {
-      throw ApiException(
-        'Mindestbestellwert nicht erreicht. Aktuell ${_formatCurrency(subtotal)}, benötigt ${_formatCurrency(minOrderValue)}.',
       );
     }
 
@@ -3065,19 +3075,9 @@ class _HomeShellState extends State<HomeShell> {
     double? resolvedCustomerLongitude = deliveryLongitude ?? _activeLongitude;
 
     if (serviceType == _CheckoutServiceType.delivery) {
-      resolvedAddress = deliveryAddress?.trim();
-      resolvedZipCode = deliveryZipCode?.trim();
-      resolvedCity = deliveryCity?.trim();
-
-      if (!_isCompleteDeliveryAddress(
-        address: resolvedAddress,
-        zipCode: resolvedZipCode,
-        city: resolvedCity,
-      )) {
-        throw const ApiException(
-          'Für Lieferung bitte eine vollständige Adresse mit Straße, Hausnummer, PLZ und Ort eingeben.',
-        );
-      }
+      resolvedAddress = trimmedDeliveryAddress;
+      resolvedZipCode = trimmedDeliveryZipCode;
+      resolvedCity = trimmedDeliveryCity;
 
       if (resolvedCustomerLatitude == null || resolvedCustomerLongitude == null) {
         try {
@@ -3127,27 +3127,84 @@ class _HomeShellState extends State<HomeShell> {
     };
     final autoPaid = false;
 
-    return _api.createOrder(
-      baseUrl: _baseUrl,
-      tenantId: tenant.tenantId,
-      items: orderItems,
-      sourceChannel: serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'APP',
-      paymentMethod: paymentMethod,
-      markPaid: autoPaid,
-      serviceType: serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'PICKUP',
-      customerName: customerName ?? _appCustomer?.fullName ?? 'Gastkunde',
-      customerPhone: customerPhone ?? _appCustomer?.phone,
-      customerAddress: resolvedAddress,
-      customerZipCode: resolvedZipCode,
-      customerCity: resolvedCity,
-      customerLat: resolvedCustomerLatitude,
-      customerLng: resolvedCustomerLongitude,
-      customerLatitude: resolvedCustomerLatitude,
-      customerLongitude: resolvedCustomerLongitude,
-      tipAmount: tipAmount,
-      couponCode: couponCode,
-      appAuthToken: _appAuthToken,
-    );
+    try {
+      return await _api.createOrder(
+        baseUrl: _baseUrl,
+        tenantId: tenant.tenantId,
+        items: orderItems,
+        sourceChannel: serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'APP',
+        paymentMethod: paymentMethod,
+        markPaid: autoPaid,
+        serviceType: serviceType == _CheckoutServiceType.delivery ? 'DELIVERY' : 'PICKUP',
+        customerName: customerName ?? _appCustomer?.fullName ?? 'Gastkunde',
+        customerPhone: customerPhone ?? _appCustomer?.phone,
+        customerAddress: resolvedAddress,
+        customerZipCode: resolvedZipCode,
+        customerCity: resolvedCity,
+        customerLat: resolvedCustomerLatitude,
+        customerLng: resolvedCustomerLongitude,
+        customerLatitude: resolvedCustomerLatitude,
+        customerLongitude: resolvedCustomerLongitude,
+        tipAmount: tipAmount,
+        couponCode: couponCode,
+        appAuthToken: _appAuthToken,
+      );
+    } on ApiException catch (error) {
+      debugPrint(
+        'MOBILE_CHECKOUT_ERROR {reason: api_exception_${error.responseBody?['code'] ?? error.statusCode ?? 'unknown'}}',
+      );
+      throw ApiException(
+        _resolveCheckoutOrderErrorMessage(
+          error: error,
+          serviceType: serviceType,
+          subtotal: subtotal,
+          minOrderValue: minOrderValue,
+        ),
+        statusCode: error.statusCode,
+        responseBody: error.responseBody,
+      );
+    }
+  }
+
+  String _resolveCheckoutOrderErrorMessage({
+    required ApiException error,
+    required _CheckoutServiceType serviceType,
+    required double subtotal,
+    required double? minOrderValue,
+  }) {
+    if (serviceType != _CheckoutServiceType.delivery) {
+      return error.message;
+    }
+
+    final code = error.responseBody?['code'];
+    if (code is! String || code.trim().isEmpty) {
+      return error.message;
+    }
+
+    switch (code.trim().toLowerCase()) {
+      case 'branch_delivery_disabled':
+        return error.message.trim().isNotEmpty
+            ? error.message
+            : 'Lieferung ist für diese Filiale aktuell deaktiviert.';
+      case 'missing_delivery_address':
+        return 'Für Lieferung bitte eine vollständige Adresse mit Straße, Hausnummer, PLZ und Ort eingeben.';
+      case 'outside_service_area':
+        return 'Die Lieferadresse liegt außerhalb des Liefergebiets. Bitte andere Adresse wählen oder Abholung nutzen.';
+      case 'below_minimum_order_value':
+        if (error.message.trim().isNotEmpty) {
+          return error.message;
+        }
+        if (minOrderValue != null && minOrderValue > 0) {
+          return 'Mindestbestellwert nicht erreicht. Aktuell ${_formatCurrency(subtotal)}, benötigt ${_formatCurrency(minOrderValue)}.';
+        }
+        return 'Mindestbestellwert für Lieferung nicht erreicht.';
+      case 'invalid_coordinates':
+        return 'Die Adresse konnte nicht genau genug geprüft werden. Bitte Adresse prüfen oder Standortfreigabe aktivieren.';
+      case 'polygon_not_configured':
+        return 'Lieferung ist aktuell nicht verfügbar, weil das Liefergebiet noch nicht vollständig eingerichtet ist.';
+      default:
+        return error.message;
+    }
   }
 
   Future<CouponValidationResult> _validateCouponForCheckout({
@@ -4271,6 +4328,47 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     }
 
     return rawMessage;
+  }
+
+  String _resolveCheckoutOrderErrorMessage({
+    required ApiException error,
+    required _CheckoutServiceType serviceType,
+    required double subtotal,
+    required double? minOrderValue,
+  }) {
+    if (serviceType != _CheckoutServiceType.delivery) {
+      return error.message;
+    }
+
+    final code = error.responseBody?['code'];
+    if (code is! String || code.trim().isEmpty) {
+      return error.message;
+    }
+
+    switch (code.trim().toLowerCase()) {
+      case 'branch_delivery_disabled':
+        return error.message.trim().isNotEmpty
+            ? error.message
+            : 'Lieferung ist für diese Filiale aktuell deaktiviert.';
+      case 'missing_delivery_address':
+        return 'Für Lieferung bitte eine vollständige Adresse mit Straße, Hausnummer, PLZ und Ort eingeben.';
+      case 'outside_service_area':
+        return 'Die Lieferadresse liegt außerhalb des Liefergebiets. Bitte andere Adresse wählen oder Abholung nutzen.';
+      case 'below_minimum_order_value':
+        if (error.message.trim().isNotEmpty) {
+          return error.message;
+        }
+        if (minOrderValue != null && minOrderValue > 0) {
+          return 'Mindestbestellwert nicht erreicht. Aktuell ${_formatCurrency(subtotal)}, benötigt ${_formatCurrency(minOrderValue)}.';
+        }
+        return 'Mindestbestellwert für Lieferung nicht erreicht.';
+      case 'invalid_coordinates':
+        return 'Die Adresse konnte nicht genau genug geprüft werden. Bitte Adresse prüfen oder Standortfreigabe aktivieren.';
+      case 'polygon_not_configured':
+        return 'Lieferung ist aktuell nicht verfügbar, weil das Liefergebiet noch nicht vollständig eingerichtet ist.';
+      default:
+        return error.message;
+    }
   }
 
   @override
