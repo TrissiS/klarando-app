@@ -25,6 +25,18 @@ type MobileProductBadgeConfig = {
   sortOrder: number
 }
 
+type ResolvedProductBadge =
+  | {
+      kind: 'known'
+      key: ProductBadgeKey
+      config: MobileProductBadgeConfig
+    }
+  | {
+      kind: 'unknown'
+      rawKey: string
+      label: string
+    }
+
 type MobileBadgeTone = {
   borderColor: string
   backgroundColor: string
@@ -239,8 +251,94 @@ export const MOBILE_PRODUCT_BADGES: Record<ProductBadgeKey, MobileProductBadgeCo
   },
 }
 
+const BADGE_KEY_ALIASES: Record<string, ProductBadgeKey> = {
+  vegan: 'VEGAN',
+  vegetarian: 'VEGETARIAN',
+  veggie: 'VEGETARIAN',
+  veggIE: 'VEGETARIAN',
+  halal: 'HALAL',
+  gluten_free: 'GLUTEN_FREE',
+  glutenfrei: 'GLUTEN_FREE',
+  'gluten-free': 'GLUTEN_FREE',
+  lactose_free: 'LACTOSE_FREE',
+  laktosefrei: 'LACTOSE_FREE',
+  'lactose-free': 'LACTOSE_FREE',
+  spicy: 'SPICY',
+  scharf: 'SPICY',
+  very_spicy: 'VERY_SPICY',
+  sehr_scharf: 'VERY_SPICY',
+  'sehr-scharf': 'VERY_SPICY',
+  new: 'NEW',
+  neu: 'NEW',
+  popular: 'POPULAR',
+  beliebt: 'POPULAR',
+  bestseller: 'BESTSELLER',
+  best_seller: 'BESTSELLER',
+  'best-seller': 'BESTSELLER',
+  recommended: 'RECOMMENDED',
+  empfohlen: 'RECOMMENDED',
+  limited: 'LIMITED',
+  limitiert: 'LIMITED',
+  caffeine: 'CAFFEINE',
+  koffein: 'CAFFEINE',
+  alcohol: 'ALCOHOL',
+  alkohol: 'ALCOHOL',
+  age_16: 'AGE_16',
+  '16_plus': 'AGE_16',
+  '16-plus': 'AGE_16',
+  '16+': 'AGE_16',
+  age_18: 'AGE_18',
+  '18_plus': 'AGE_18',
+  '18-plus': 'AGE_18',
+  '18+': 'AGE_18',
+  organic: 'ORGANIC',
+  bio: 'ORGANIC',
+  regional: 'REGIONAL',
+}
+
+const UNKNOWN_BADGE_TONE: MobileBadgeTone = {
+  borderColor: '#cbd5e1',
+  backgroundColor: '#f8fafc',
+  textColor: '#475569',
+  iconBorderColor: '#94a3b8',
+  iconBackgroundColor: '#f1f5f9',
+}
+
 export function isProductBadgeKey(value: unknown): value is ProductBadgeKey {
   return typeof value === 'string' && value.trim().toUpperCase() in MOBILE_PRODUCT_BADGES
+}
+
+function normalizeBadgeAliasKey(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, '_')
+}
+
+function resolveMobileProductBadgeKey(value: unknown): ProductBadgeKey | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const upper = trimmed.toUpperCase()
+  if (upper in MOBILE_PRODUCT_BADGES) {
+    return upper as ProductBadgeKey
+  }
+
+  return BADGE_KEY_ALIASES[normalizeBadgeAliasKey(trimmed)] ?? null
+}
+
+function formatUnknownBadgeLabel(rawKey: string) {
+  const cleaned = rawKey
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+  if (!cleaned) {
+    return 'Hinweis'
+  }
+  return cleaned.length <= 16 ? cleaned : `${cleaned.slice(0, 13)}...`
 }
 
 export function sanitizeMobileProductBadgeKeys(value: unknown): ProductBadgeKey[] {
@@ -250,15 +348,80 @@ export function sanitizeMobileProductBadgeKeys(value: unknown): ProductBadgeKey[
 
   const deduped = new Set<ProductBadgeKey>()
   for (const entry of value) {
-    if (!isProductBadgeKey(entry)) {
+    const resolvedKey = resolveMobileProductBadgeKey(entry)
+    if (!resolvedKey) {
       continue
     }
-    deduped.add(entry.trim().toUpperCase() as ProductBadgeKey)
+    deduped.add(resolvedKey)
   }
 
   return Array.from(deduped).sort(
     (left, right) => MOBILE_PRODUCT_BADGES[left].sortOrder - MOBILE_PRODUCT_BADGES[right].sortOrder
   )
+}
+
+function resolveMobileProductBadges(value: unknown): ResolvedProductBadge[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  const seenKnown = new Set<ProductBadgeKey>()
+  const seenUnknown = new Set<string>()
+  const resolved: ResolvedProductBadge[] = []
+
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue
+    }
+
+    const trimmed = entry.trim()
+    if (!trimmed) {
+      continue
+    }
+
+    const resolvedKey = resolveMobileProductBadgeKey(trimmed)
+    if (resolvedKey) {
+      if (seenKnown.has(resolvedKey)) {
+        continue
+      }
+      seenKnown.add(resolvedKey)
+      resolved.push({
+        kind: 'known',
+        key: resolvedKey,
+        config: MOBILE_PRODUCT_BADGES[resolvedKey],
+      })
+      continue
+    }
+
+    const normalizedUnknown = normalizeBadgeAliasKey(trimmed)
+    if (seenUnknown.has(normalizedUnknown)) {
+      continue
+    }
+    seenUnknown.add(normalizedUnknown)
+    if (__DEV__) {
+      console.warn('[mobile-badges] Unknown badge key received', {
+        rawKey: trimmed,
+      })
+    }
+    resolved.push({
+      kind: 'unknown',
+      rawKey: trimmed,
+      label: formatUnknownBadgeLabel(trimmed),
+    })
+  }
+
+  return resolved.sort((left, right) => {
+    if (left.kind === 'known' && right.kind === 'known') {
+      return left.config.sortOrder - right.config.sortOrder
+    }
+    if (left.kind === 'known') {
+      return -1
+    }
+    if (right.kind === 'known') {
+      return 1
+    }
+    return left.label.localeCompare(right.label, 'de-DE')
+  })
 }
 
 function MobileProductBadgeIcon({
@@ -321,23 +484,61 @@ export function ProductBadgePill({
   )
 }
 
+function UnknownProductBadgePill({
+  label,
+  compact = false,
+}: {
+  label: string
+  compact?: boolean
+}) {
+  return (
+    <View
+      style={[
+        styles.pill,
+        compact ? styles.pillCompact : null,
+        {
+          borderColor: UNKNOWN_BADGE_TONE.borderColor,
+          backgroundColor: UNKNOWN_BADGE_TONE.backgroundColor,
+        },
+      ]}
+    >
+      <MobileProductBadgeIcon iconToken="?" tone={UNKNOWN_BADGE_TONE} />
+      <Text
+        style={[
+          styles.pillText,
+          compact ? styles.pillTextCompact : null,
+          {
+            color: UNKNOWN_BADGE_TONE.textColor,
+          },
+        ]}
+      >
+        {label}
+      </Text>
+    </View>
+  )
+}
+
 export function ProductBadgeList({
   badges,
   compact = false,
 }: {
-  badges: ProductBadgeKey[]
+  badges: unknown
   compact?: boolean
 }) {
-  const normalized = sanitizeMobileProductBadgeKeys(badges)
+  const normalized = resolveMobileProductBadges(badges)
   if (normalized.length === 0) {
     return null
   }
 
   return (
     <View style={[styles.list, compact ? styles.listCompact : null]}>
-      {normalized.map((badgeKey) => (
-        <ProductBadgePill key={badgeKey} badgeKey={badgeKey} compact={compact} />
-      ))}
+      {normalized.map((badge) =>
+        badge.kind === 'known' ? (
+          <ProductBadgePill key={badge.key} badgeKey={badge.key} compact={compact} />
+        ) : (
+          <UnknownProductBadgePill key={`unknown-${badge.rawKey}`} label={badge.label} compact={compact} />
+        )
+      )}
     </View>
   )
 }

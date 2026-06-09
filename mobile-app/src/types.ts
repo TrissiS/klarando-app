@@ -143,7 +143,7 @@ export type CatalogProduct = {
   depositAmount?: string | null
   vatRate: string
   available: boolean
-  badges: ProductBadgeKey[]
+  badges: string[]
   allergens: string[]
   ingredients: Array<{
     id: string
