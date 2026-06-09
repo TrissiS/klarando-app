@@ -538,7 +538,6 @@ export default function AdminSettingsPage() {
     { id: 'liefergebiete-kosten', label: 'Liefergebiete & Kosten' },
     { id: 'feiertage-ausnahmen', label: 'Feiertage & Ausnahmen' },
     { id: 'zahlungen', label: 'Zahlungen' },
-    { id: 'rechtliches-compliance', label: 'Rechtliches & Compliance' },
     { id: 'app-darstellung', label: 'App & Darstellung' },
   ] as const
 
@@ -1346,11 +1345,7 @@ export default function AdminSettingsPage() {
                 Stripe Connect ist die einzige aktive Zahlungsoption in Klarando. Konfiguration, Status und Gebühren werden zentral im Finanzbereich gepflegt.
               </p>
               <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                Rechtliche Kundentexte, DSGVO-Hinweise und Checkout-relevante Einwilligungen werden nicht hier gepflegt, sondern zentral im Bereich{' '}
-                <a href="#rechtliches-compliance" className="font-semibold underline underline-offset-2">
-                  Rechtliches & Compliance
-                </a>
-                .
+                Plattformweite Checkout-, Compliance- und Rechtstexte werden zentral durch Klarando im Superadmin gepflegt und sind im normalen Adminbereich ausgeblendet.
               </div>
               <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
                 PayPal bleibt nur als Legacy-Kompatibilität im Code bestehen und wird hier nicht mehr als aktive Oberfläche angezeigt.
@@ -1370,146 +1365,12 @@ export default function AdminSettingsPage() {
                   </Link>
                 </div>
               </article>
-
-              <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-                <h3 className="text-xl font-semibold">Steuer, IDs & Abrechnung</h3>
-                <p className="mt-1 text-sm text-rose-900/70">
-                  Diese Daten sind sichtbar, aber nur durch Superadmin bearbeitbar.
-                </p>
-                <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">USt-ID</span>
-                    <input value={settings.vatId || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Steuernummer</span>
-                    <input value={settings.taxNumber || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Umsatz-ID / GLN</span>
-                    <input value={settings.revenueId || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Finanzamt</span>
-                    <input value={settings.taxOffice || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block sm:col-span-2">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Kontoinhaber</span>
-                    <input value={settings.payoutAccountHolder || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">IBAN</span>
-                    <input value={settings.payoutIban || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">BIC</span>
-                    <input value={settings.payoutBic || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Bank</span>
-                    <input value={settings.payoutBankName || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Abrechnungs E-Mail</span>
-                    <input value={settings.payoutEmail || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                  <label className="block sm:col-span-2">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Zahlungsreferenz</span>
-                    <input value={settings.payoutReference || ''} disabled className="w-full rounded-xl border border-[var(--brand-border)] bg-slate-100 px-3 py-2 text-sm text-slate-700 outline-none" />
-                  </label>
-                </div>
-              </article>
-            </div>
-            <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-              <h3 className="text-xl font-semibold">Checkout-Gebühren</h3>
-              <p className="mt-1 text-sm text-rose-900/70">
-                Bestehende Gebührenfelder bleiben erhalten, werden aber nicht mehr zusammen mit PayPal angezeigt.
-              </p>
-              <div className="mt-4">
-                <AppSettingsFields
-                  settings={settings}
-                  onChange={setSettings}
-                  showAppReleaseControls={false}
-                  showComplianceControls={false}
-                  showDeliveryCostControls={false}
-                  showServiceFeeControls
-                  showServiceModeControls={false}
-                  showOrderingControls={false}
-                  showListingDisplayControls={false}
-                  showServiceAreaEditor={false}
-                  showOpeningHours={false}
-                  showDeliveryHours={false}
-                  showHolidayHours={false}
-                  showDeliveryScheduling={false}
-                />
-              </div>
-            </article>
-          </section>
-
-          <section id="rechtliches-compliance" className="space-y-4">
-            <div>
-              <h2 className="text-2xl font-semibold text-slate-950">6. Rechtliches & Compliance</h2>
-              <p className="mt-1 text-sm text-rose-900/70">
-                Rechtliche Pflichttexte, DSGVO-Hinweise, Einwilligungen und sonstige rechtliche Kundentexte bleiben fachlich getrennt von App-Darstellung, Lieferbetrieb und Zahlungen.
-              </p>
-            </div>
-            <div className="grid gap-6 xl:grid-cols-2">
-              <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-                <h3 className="text-xl font-semibold">Rechtstexte, Kontakte & Einwilligungen</h3>
-                <p className="mt-1 text-sm text-rose-900/70">
-                  Hier liegen Impressum, Datenschutz, AGB, Cookie-Einwilligung, DSGVO-Kontakte sowie weitere rechtliche Checkout- und Kontotexte.
-                </p>
-                <div className="mt-4">
-                  <AppSettingsFields
-                    settings={settings}
-                    onChange={setSettings}
-                    showAppReleaseControls={false}
-                    showComplianceControls
-                    showDeliveryCostControls={false}
-                    showServiceFeeControls={false}
-                    showServiceModeControls={false}
-                    showOrderingControls={false}
-                    showListingDisplayControls={false}
-                    showServiceAreaEditor={false}
-                    showOpeningHours={false}
-                    showDeliveryHours={false}
-                    showHolidayHours={false}
-                    showDeliveryScheduling={false}
-                  />
-                </div>
-              </article>
-
-              <article className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
-                <h3 className="text-xl font-semibold">Rechtliche Kundentexte & Hinweise</h3>
-                <p className="mt-1 text-sm text-rose-900/70">
-                  Dieser Bereich bündelt auch angrenzende Rechtsthemen, damit sie nicht mehr in App-Darstellung, Lieferdienst oder Zahlungen vermischt sind.
-                </p>
-                <div className="mt-4 space-y-3 text-sm text-rose-900/80">
-                  <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
-                    <p className="font-semibold text-slate-900">Enthaltene Themen</p>
-                    <ul className="mt-2 space-y-1">
-                      <li>Impressum</li>
-                      <li>Datenschutz</li>
-                      <li>AGB</li>
-                      <li>Cookies / Einwilligungen</li>
-                      <li>DSGVO-Hinweise</li>
-                      <li>sonstige rechtliche Kundentexte</li>
-                    </ul>
-                  </div>
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-900">
-                    <p className="font-semibold">Widerruf & Jugendschutz</p>
-                    <p className="mt-1">
-                      Diese Themen sind fachlich diesem Bereich zugeordnet. Wo heute noch keine eigenen Spezialfelder existieren, bleiben die bestehenden Texte und Compliance-Felder unverändert nutzbar und können später gezielt erweitert werden.
-                    </p>
-                  </div>
-                </div>
-              </article>
             </div>
           </section>
 
           <section id="app-darstellung" className="space-y-4">
             <div>
-              <h2 className="text-2xl font-semibold text-slate-950">7. App & Darstellung</h2>
+              <h2 className="text-2xl font-semibold text-slate-950">6. App & Darstellung</h2>
               <p className="mt-1 text-sm text-rose-900/70">
                 Branding, Titelbild, Betreibertexte und sichtbare Elemente der Kundendarstellung.
               </p>
@@ -1521,11 +1382,7 @@ export default function AdminSettingsPage() {
                   Hier pflegst du Betreiberlogo und Titelbild zentral an einer Stelle.
                 </p>
                 <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  Rechtliche Kundentexte, Impressum, Datenschutz und AGB werden nicht hier gepflegt, sondern zentral im Bereich{' '}
-                  <a href="#rechtliches-compliance" className="font-semibold underline underline-offset-2">
-                    Rechtliches & Compliance
-                  </a>
-                  .
+                  Rechtstexte, Compliance-Felder und Checkout-Gebühren werden zentral im Superadmin gepflegt und sind im normalen Adminbereich nicht sichtbar.
                 </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
