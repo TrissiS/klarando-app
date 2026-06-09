@@ -1,7 +1,7 @@
-﻿'use client'
+'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import PromotionSlider from '@/components/PromotionSlider'
 import PublicCmsPage from '@/components/cms/PublicCmsPage'
 import { hasMapsConsent } from '@/lib/cookie-consent'
@@ -15,15 +15,21 @@ type DiscoveryTenantLike = Partial<PublicTenantDiscoveryTenant> & {
   rows?: PublicTenantDiscoveryTenant[]
 }
 
+type DiscoveryDiagnostics = {
+  currentRoute: string
+  discoveryUrl: string
+  discoveryLoading: boolean
+  discoveryError: string | null
+  rawTenantCount: number
+  visibleTenantCount: number
+  firstTenantName: string | null
+  deliveryAvailable: boolean | null
+  pickupAvailable: boolean | null
+}
+
 function normalizeDiscoveryTenant(entry: DiscoveryTenantLike): PublicTenantDiscoveryTenant {
-  const deliveryAvailable =
-    entry.deliveryAvailable ??
-    entry.services?.delivery?.available ??
-    false
-  const pickupAvailable =
-    entry.pickupAvailable ??
-    entry.services?.pickup?.available ??
-    false
+  const deliveryAvailable = entry.deliveryAvailable ?? entry.services?.delivery?.available ?? false
+  const pickupAvailable = entry.pickupAvailable ?? entry.services?.pickup?.available ?? false
 
   return {
     id: entry.id || entry.tenantId || '',
@@ -60,12 +66,9 @@ function normalizeDiscoveryTenant(entry: DiscoveryTenantLike): PublicTenantDisco
     deliveryAvailable,
     pickupAvailable,
     deliveryFee: entry.deliveryFee ?? entry.services?.delivery?.deliveryFee ?? null,
-    freeDeliveryFrom:
-      entry.freeDeliveryFrom ?? entry.services?.delivery?.freeDeliveryFrom ?? null,
+    freeDeliveryFrom: entry.freeDeliveryFrom ?? entry.services?.delivery?.freeDeliveryFrom ?? null,
     estimatedDeliveryMinutes:
-      entry.estimatedDeliveryMinutes ??
-      entry.services?.delivery?.estimatedDeliveryMinutes ??
-      null,
+      entry.estimatedDeliveryMinutes ?? entry.services?.delivery?.estimatedDeliveryMinutes ?? null,
     openingStatus: entry.openingStatus ?? {
       isOpenNow: false,
       delivery: 'CLOSED',
@@ -108,14 +111,8 @@ function normalizeDiscoveryTenant(entry: DiscoveryTenantLike): PublicTenantDisco
         minOrderValue:
           entry.services?.delivery?.minOrderValue ??
           (typeof entry.minOrderValue === 'number' ? entry.minOrderValue : null),
-        deliveryFee:
-          entry.services?.delivery?.deliveryFee ??
-          entry.deliveryFee ??
-          null,
-        freeDeliveryFrom:
-          entry.services?.delivery?.freeDeliveryFrom ??
-          entry.freeDeliveryFrom ??
-          null,
+        deliveryFee: entry.services?.delivery?.deliveryFee ?? entry.deliveryFee ?? null,
+        freeDeliveryFrom: entry.services?.delivery?.freeDeliveryFrom ?? entry.freeDeliveryFrom ?? null,
         estimatedDeliveryMinutes:
           entry.services?.delivery?.estimatedDeliveryMinutes ??
           entry.estimatedDeliveryMinutes ??
@@ -140,7 +137,15 @@ function normalizeDiscoveryTenant(entry: DiscoveryTenantLike): PublicTenantDisco
   }
 }
 
-function MainAppFallbackPage() {
+function MainAppFallbackPage({
+  onDiagnosticsChange,
+  currentRoute,
+  debugSearch,
+}: {
+  onDiagnosticsChange: (diagnostics: DiscoveryDiagnostics) => void
+  currentRoute: string
+  debugSearch: string
+}) {
   const [zipCode, setZipCode] = useState('')
   const [street, setStreet] = useState('')
   const [mode, setMode] = useState<PublicTenantDiscoveryMode>('all')
@@ -156,6 +161,36 @@ function MainAppFallbackPage() {
     }
     return `${value.toFixed(2)} EUR`
   }
+
+  const discoveryUrl = useMemo(() => {
+    const query = new URLSearchParams()
+    const normalizedZip = zipCode.replace(/[^\d]/g, '').slice(0, 5)
+    if (street.trim()) query.set('street', street.trim())
+    if (normalizedZip) query.set('zipCode', normalizedZip)
+    const currentParams = new URLSearchParams(debugSearch)
+    const city = currentParams.get('city')
+    if (city) query.set('city', city)
+    if (mode && mode !== 'all') query.set('mode', mode)
+    if (typeof location?.latitude === 'number') query.set('latitude', String(location.latitude))
+    if (typeof location?.longitude === 'number') query.set('longitude', String(location.longitude))
+    const suffix = query.toString()
+    return `/api/tenants/public/discovery${suffix ? `?${suffix}` : ''}`
+  }, [debugSearch, location?.latitude, location?.longitude, mode, street, zipCode])
+
+  useEffect(() => {
+    const firstTenant = results[0] ?? null
+    onDiagnosticsChange({
+      currentRoute,
+      discoveryUrl,
+      discoveryLoading: loading,
+      discoveryError: error || null,
+      rawTenantCount: searchMeta?.total ?? results.length,
+      visibleTenantCount: results.length,
+      firstTenantName: firstTenant?.name || firstTenant?.tenantName || null,
+      deliveryAvailable: firstTenant?.deliveryAvailable ?? null,
+      pickupAvailable: firstTenant?.pickupAvailable ?? null,
+    })
+  }, [currentRoute, discoveryUrl, error, loading, onDiagnosticsChange, results, searchMeta])
 
   async function requestLocation() {
     if (!hasMapsConsent()) {
@@ -448,6 +483,68 @@ function MainAppFallbackPage() {
 }
 
 export default function MainAppPage() {
-  return <PublicCmsPage slug="home" fallback={<MainAppFallbackPage />} />
-}
+  const [routeInfo, setRouteInfo] = useState({
+    currentRoute: '/main-app',
+    search: '',
+    debugEnabled: false,
+  })
+  const [diagnostics, setDiagnostics] = useState<DiscoveryDiagnostics>({
+    currentRoute: '/main-app',
+    discoveryUrl: '/api/tenants/public/discovery',
+    discoveryLoading: false,
+    discoveryError: null,
+    rawTenantCount: 0,
+    visibleTenantCount: 0,
+    firstTenantName: null,
+    deliveryAvailable: null,
+    pickupAvailable: null,
+  })
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    setRouteInfo({
+      currentRoute: window.location.pathname || '/main-app',
+      search: window.location.search || '',
+      debugEnabled: process.env.NODE_ENV === 'development' || params.get('debugDiscovery') === '1',
+    })
+  }, [])
+
+  useEffect(() => {
+    setDiagnostics((current) => ({
+      ...current,
+      currentRoute: routeInfo.currentRoute,
+    }))
+  }, [routeInfo.currentRoute])
+
+  return (
+    <>
+      {routeInfo.debugEnabled ? (
+        <section className="mx-auto mt-4 w-full max-w-6xl rounded-2xl border border-amber-300 bg-amber-50 px-4 py-4 text-sm text-amber-950">
+          <p className="font-semibold">Discovery Debug</p>
+          <div className="mt-2 grid gap-1 font-mono text-xs sm:grid-cols-2">
+            <p>currentRoute: {diagnostics.currentRoute}</p>
+            <p>discoveryUrl: {diagnostics.discoveryUrl}</p>
+            <p>discoveryLoading: {String(diagnostics.discoveryLoading)}</p>
+            <p>discoveryError: {diagnostics.discoveryError || '-'}</p>
+            <p>rawTenantCount: {diagnostics.rawTenantCount}</p>
+            <p>visibleTenantCount: {diagnostics.visibleTenantCount}</p>
+            <p>firstTenantName: {diagnostics.firstTenantName || '-'}</p>
+            <p>deliveryAvailable: {diagnostics.deliveryAvailable === null ? '-' : String(diagnostics.deliveryAvailable)}</p>
+            <p>pickupAvailable: {diagnostics.pickupAvailable === null ? '-' : String(diagnostics.pickupAvailable)}</p>
+          </div>
+        </section>
+      ) : null}
+      <PublicCmsPage
+        slug="home"
+        fallback={
+          <MainAppFallbackPage
+            onDiagnosticsChange={setDiagnostics}
+            currentRoute={routeInfo.currentRoute}
+            debugSearch={routeInfo.search}
+          />
+        }
+      />
+    </>
+  )
+}
