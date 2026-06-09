@@ -153,6 +153,7 @@ function applyChainadminRestrictions(
 
   if (chainAccess.canManageDelivery) {
     next.deliveryArea = requested.deliveryArea
+    next.deliveryZones = requested.deliveryZones
     next.timeManagement = requested.timeManagement
     next.openingHours = requested.timeManagement.openingHours
     next.holidayHours = requested.timeManagement.holidayHours

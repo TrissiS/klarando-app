@@ -381,6 +381,24 @@ export type BusinessServiceArea = {
   notes: string | null
 }
 
+export type BusinessDeliveryZone = {
+  id: string
+  name: string
+  enabled: boolean
+  color: string
+  strategy: BusinessServiceAreaStrategy
+  polygonPath: BusinessServiceAreaPolygonPoint[]
+  zipCodes: string[]
+  centerLatitude: number | null
+  centerLongitude: number | null
+  radiusKm: number | null
+  minOrderValue: number | null
+  deliveryFee: number | null
+  freeDeliveryFrom: number | null
+  estimatedDeliveryMinutes: number | null
+  priority: number
+}
+
 export type BusinessCustomerAppListingDisplaySettings = {
   showLogo: boolean
   showChainName: boolean
@@ -580,6 +598,7 @@ export type BusinessSettings = {
   deliveryHours: BusinessDailyWindow[]
   timeManagement: BusinessTimeManagementSettings
   deliveryArea: BusinessServiceArea
+  deliveryZones?: BusinessDeliveryZone[]
   pickupArea: BusinessServiceArea
   driver: BusinessDriverSettings
   ordering: BusinessOrderingSettings

@@ -55,6 +55,24 @@ export type ServiceAreaPolygonPoint = {
   lng: number
 }
 
+export type DeliveryZoneSettings = {
+  id: string
+  name: string
+  enabled: boolean
+  color: string
+  strategy: ServiceAreaStrategy
+  polygonPath: ServiceAreaPolygonPoint[]
+  zipCodes: string[]
+  centerLatitude: number | null
+  centerLongitude: number | null
+  radiusKm: number | null
+  minOrderValue: number | null
+  deliveryFee: number | null
+  freeDeliveryFrom: number | null
+  estimatedDeliveryMinutes: number | null
+  priority: number
+}
+
 export type CustomerAppSettings = {
   listingEnabled: boolean
   orderingEnabled: boolean
@@ -229,6 +247,7 @@ export type BusinessSettings = {
   deliveryHours: DailyWindow[]
   timeManagement: TimeManagementSettings
   deliveryArea: ServiceAreaSettings
+  deliveryZones?: DeliveryZoneSettings[]
   pickupArea: ServiceAreaSettings
   driver: DriverSettings
   ordering: OrderingAvailabilitySettings
@@ -707,6 +726,26 @@ export function defaultServiceArea(): ServiceAreaSettings {
   }
 }
 
+export function defaultDeliveryZone(index = 0): DeliveryZoneSettings {
+  return {
+    id: `zone-${index + 1}`,
+    name: `Lieferzone ${index + 1}`,
+    enabled: true,
+    color: '#ea580c',
+    strategy: 'ZIP_LIST',
+    polygonPath: [],
+    zipCodes: [],
+    centerLatitude: null,
+    centerLongitude: null,
+    radiusKm: null,
+    minOrderValue: null,
+    deliveryFee: null,
+    freeDeliveryFrom: null,
+    estimatedDeliveryMinutes: null,
+    priority: index,
+  }
+}
+
 export function defaultCustomerAppSettings(): CustomerAppSettings {
   return {
     listingEnabled: false,
@@ -1021,6 +1060,64 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
   }
 
   return sanitizedArea
+}
+
+function sanitizeDeliveryZone(
+  value: unknown,
+  fallback: DeliveryZoneSettings,
+  index: number
+): DeliveryZoneSettings {
+  const source = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  const polygonInput =
+    source.polygonPath ??
+    source.polygonPoints ??
+    source.polygon ??
+    source.deliveryZone ??
+    source.geoJson ??
+    source.geojson ??
+    source.geoJSON ??
+    source.coordinates ??
+    null
+
+  const priorityRaw = normalizeNumeric(source.priority)
+  const estimatedMinutesRaw = normalizeNumeric(source.estimatedDeliveryMinutes)
+
+  return {
+    id: normalizeText(source.id) ?? fallback.id ?? `zone-${index + 1}`,
+    name: normalizeText(source.name) ?? fallback.name ?? `Lieferzone ${index + 1}`,
+    enabled: typeof source.enabled === 'boolean' ? source.enabled : fallback.enabled,
+    color:
+      typeof source.color === 'string' && source.color.trim().length > 0
+        ? source.color.trim().slice(0, 32)
+        : fallback.color,
+    strategy: parseStrategy(source.strategy, fallback.strategy),
+    polygonPath: normalizePolygonPath(polygonInput),
+    zipCodes: normalizeZipCodeList(source.zipCodes),
+    centerLatitude: normalizeCoordinate(source.centerLatitude, -90, 90),
+    centerLongitude: normalizeCoordinate(source.centerLongitude, -180, 180),
+    radiusKm: normalizeRadius(source.radiusKm),
+    minOrderValue: normalizeNumeric(source.minOrderValue),
+    deliveryFee: normalizeNumeric(source.deliveryFee),
+    freeDeliveryFrom: normalizeNumeric(source.freeDeliveryFrom),
+    estimatedDeliveryMinutes:
+      estimatedMinutesRaw !== null && Number.isFinite(estimatedMinutesRaw)
+        ? Math.max(0, Math.round(estimatedMinutesRaw))
+        : fallback.estimatedDeliveryMinutes,
+    priority:
+      priorityRaw !== null && Number.isFinite(priorityRaw)
+        ? Math.max(0, Math.round(priorityRaw))
+        : fallback.priority,
+  }
+}
+
+function sanitizeDeliveryZones(value: unknown): DeliveryZoneSettings[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+
+  return value
+    .map((entry, index) => sanitizeDeliveryZone(entry, defaultDeliveryZone(index), index))
+    .slice(0, 100)
 }
 
 export function normalizeServiceAreaStrategy(area: Pick<
@@ -1816,6 +1913,7 @@ export function parseSettings(
   const defaultCompliance = defaultComplianceSettings()
   const defaultOrderIntake = defaultOrderIntakeSettings()
   const defaultServiceFee = defaultServiceFeeSettings()
+  const deliveryZones = sanitizeDeliveryZones(source.deliveryZones)
 
   const timeManagement = sanitizeTimeManagementSettings(
     source.timeManagement,
@@ -1861,6 +1959,7 @@ export function parseSettings(
     deliveryHours: timeManagement.deliveryHours,
     timeManagement,
     deliveryArea: sanitizeServiceArea(source.deliveryArea, defaultArea),
+    deliveryZones,
     pickupArea: sanitizeServiceArea(source.pickupArea, defaultArea),
     driver: sanitizeDriverSettings(source.driver, defaultDriver),
     ordering: timeManagement.ordering,
