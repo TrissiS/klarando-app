@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/klarando_api.dart';
@@ -431,6 +432,7 @@ class _ProductCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final badgeWidgets = _productBadges(product);
     final sizeCount = product.modifiers.where((entry) => entry.isSize).length;
     final optionCount = product.modifiers.length - sizeCount;
     final disclosure = _buildDisclosureData(product);
@@ -453,12 +455,22 @@ class _ProductCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildProductName(product.name),
-                  if (_productBadges(product).isNotEmpty) ...[
+                  if (badgeWidgets.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Wrap(
                       spacing: 6,
                       runSpacing: 4,
-                      children: _productBadges(product),
+                      children: badgeWidgets,
+                    ),
+                  ],
+                  if (kDebugMode &&
+                      product.name.trim().toLowerCase() ==
+                          'spaghetti carbonara') ...[
+                    const SizedBox(height: 4),
+                    _BadgeDebugBlock(
+                      rawBadges: _rawBadgeDebug(product),
+                      normalizedBadges: _normalizedBadgeDebug(product),
+                      renderedBadges: _renderedBadgeDebug(product),
                     ),
                   ],
                   if (ingredientPreview != null) ...[
@@ -615,6 +627,36 @@ class _ProductImage extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _BadgeDebugBlock extends StatelessWidget {
+  const _BadgeDebugBlock({
+    required this.rawBadges,
+    required this.normalizedBadges,
+    required this.renderedBadges,
+  });
+
+  final String rawBadges;
+  final String normalizedBadges;
+  final String renderedBadges;
+
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(
+      fontSize: 11,
+      color: Color(0xFF6B7280),
+      fontFamily: 'monospace',
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('RAW_BADGES: $rawBadges', style: style),
+        Text('NORMALIZED_BADGES: $normalizedBadges', style: style),
+        Text('RENDERED_BADGES: $renderedBadges', style: style),
+      ],
     );
   }
 }
@@ -1255,6 +1297,38 @@ List<Widget> _productBadges(TenantCatalogProduct product) {
     badges.add(_productBadge('+16', const Color(0xFFB45309)));
   }
   return badges;
+}
+
+String _rawBadgeDebug(TenantCatalogProduct product) {
+  return [
+    'isVegan=${product.isVegan}',
+    'isVegetarian=${product.isVegetarian}',
+    'isSpicy=${product.isSpicy}',
+    'ageRestriction=${product.ageRestriction ?? 'null'}',
+  ].join(', ');
+}
+
+String _normalizedBadgeDebug(TenantCatalogProduct product) {
+  final labels = <String>[];
+  if (product.isVegan) {
+    labels.add('Vegan');
+  }
+  if (product.isVegetarian) {
+    labels.add('Vegetarisch');
+  }
+  if (product.isSpicy) {
+    labels.add('Scharf');
+  }
+  if (product.ageRestriction == 18) {
+    labels.add('+18');
+  } else if (product.ageRestriction == 16) {
+    labels.add('+16');
+  }
+  return labels.isEmpty ? '[]' : '[${labels.join(', ')}]';
+}
+
+String _renderedBadgeDebug(TenantCatalogProduct product) {
+  return _normalizedBadgeDebug(product);
 }
 
 Widget _productBadge(String label, Color color) {
