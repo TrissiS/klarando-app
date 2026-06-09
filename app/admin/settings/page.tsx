@@ -4,11 +4,14 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import AppSettingsFields from '@/app/Components/admin/AppSettingsFields'
+import ServiceAreaEditor from '@/app/Components/admin/ServiceAreaEditor'
 import {
   getDeliveryAvailabilityPreview,
   getBusinessSettings,
   uploadBusinessSettingsImage,
   updateBusinessSettings,
+  type BusinessDeliveryZone,
+  type BusinessServiceArea,
   type BusinessSettings,
   type DeliveryAvailabilityPreview,
 } from '@/lib/api'
@@ -66,9 +69,90 @@ function deriveDebugCheckState(
   return keywords.some((keyword) => reasonText.includes(keyword.toLowerCase())) ? 'blocked' : 'ok'
 }
 
+function createDeliveryZoneId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `zone-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
+function parseNullableNumber(value: string) {
+  const normalized = value.replace(',', '.').trim()
+  if (!normalized) {
+    return null
+  }
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function parseNullableInteger(value: string) {
+  const parsed = parseNullableNumber(value)
+  if (parsed === null) {
+    return null
+  }
+
+  return Math.max(0, Math.round(parsed))
+}
+
+function createDefaultDeliveryZone(priority: number): BusinessDeliveryZone {
+  return {
+    id: createDeliveryZoneId(),
+    name: 'Neue Lieferzone',
+    enabled: true,
+    color: '#22c55e',
+    strategy: 'POLYGON',
+    polygonPath: [],
+    zipCodes: [],
+    centerLatitude: null,
+    centerLongitude: null,
+    radiusKm: null,
+    minOrderValue: null,
+    deliveryFee: null,
+    freeDeliveryFrom: null,
+    estimatedDeliveryMinutes: null,
+    priority,
+  }
+}
+
+function zoneToServiceArea(zone: BusinessDeliveryZone): BusinessServiceArea {
+  return {
+    enabled: zone.enabled,
+    strategy: zone.strategy,
+    zipCodes: zone.zipCodes,
+    excludedZipCodes: [],
+    excludedStreets: [],
+    radiusKm: zone.radiusKm,
+    polygonPath: zone.polygonPath,
+    centerLatitude: zone.centerLatitude,
+    centerLongitude: zone.centerLongitude,
+    centerZipCode: null,
+    centerCity: null,
+    centerStreet: null,
+    notes: null,
+  }
+}
+
+function mergeServiceAreaIntoZone(
+  zone: BusinessDeliveryZone,
+  nextArea: BusinessServiceArea
+): BusinessDeliveryZone {
+  return {
+    ...zone,
+    enabled: nextArea.enabled,
+    strategy: nextArea.strategy,
+    polygonPath: nextArea.polygonPath,
+    zipCodes: nextArea.zipCodes,
+    centerLatitude: nextArea.centerLatitude,
+    centerLongitude: nextArea.centerLongitude,
+    radiusKm: nextArea.radiusKm,
+  }
+}
+
 export default function AdminSettingsPage() {
   const [section, setSection] = useState('')
   const [settings, setSettings] = useState<BusinessSettings | null>(null)
+  const [selectedDeliveryZoneId, setSelectedDeliveryZoneId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [uploadingLogo, setUploadingLogo] = useState(false)
@@ -142,6 +226,27 @@ export default function AdminSettingsPage() {
     void loadData()
   }, [])
 
+  useEffect(() => {
+    if (!settings) {
+      setSelectedDeliveryZoneId(null)
+      return
+    }
+
+    const zones = settings.deliveryZones ?? []
+    if (zones.length === 0) {
+      setSelectedDeliveryZoneId(null)
+      return
+    }
+
+    const stillExists = selectedDeliveryZoneId
+      ? zones.some((zone) => zone.id === selectedDeliveryZoneId)
+      : false
+
+    if (!stillExists) {
+      setSelectedDeliveryZoneId(zones[0].id)
+    }
+  }, [settings, selectedDeliveryZoneId])
+
   function updateField<Key extends keyof BusinessSettings>(
     key: Key,
     value: BusinessSettings[Key]
@@ -169,6 +274,42 @@ export default function AdminSettingsPage() {
         },
       }
     })
+  }
+
+  function updateDeliveryZones(
+    updater: (zones: BusinessDeliveryZone[]) => BusinessDeliveryZone[]
+  ) {
+    setSettings((current) => {
+      if (!current) {
+        return current
+      }
+
+      const currentZones = current.deliveryZones ?? []
+      return {
+        ...current,
+        deliveryZones: updater(currentZones),
+      }
+    })
+  }
+
+  function updateDeliveryZone(
+    zoneId: string,
+    updater: (zone: BusinessDeliveryZone) => BusinessDeliveryZone
+  ) {
+    updateDeliveryZones((zones) =>
+      zones.map((zone) => (zone.id === zoneId ? updater(zone) : zone))
+    )
+  }
+
+  function handleAddDeliveryZone() {
+    const nextPriority =
+      (settings?.deliveryZones ?? []).reduce(
+        (maxPriority, zone) => Math.max(maxPriority, zone.priority),
+        -1
+      ) + 1
+    const nextZone = createDefaultDeliveryZone(nextPriority)
+    updateDeliveryZones((zones) => [...zones, nextZone])
+    setSelectedDeliveryZoneId(nextZone.id)
   }
 
   async function handleLogoFile(file: File | null) {
@@ -331,6 +472,16 @@ export default function AdminSettingsPage() {
     { id: 'rechtliches-compliance', label: 'Rechtliches & Compliance' },
     { id: 'app-darstellung', label: 'App & Darstellung' },
   ] as const
+
+  const deliveryZones = settings?.deliveryZones ?? []
+  const sortedDeliveryZones = [...deliveryZones].sort((left, right) => {
+    if (left.priority !== right.priority) {
+      return left.priority - right.priority
+    }
+    return left.name.localeCompare(right.name, 'de-DE')
+  })
+  const selectedDeliveryZone =
+    deliveryZones.find((zone) => zone.id === selectedDeliveryZoneId) ?? null
 
   return (
     <AdminLayout
@@ -741,7 +892,237 @@ export default function AdminSettingsPage() {
               <div className="mt-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
                 Polygon benötigt mindestens 3 Punkte. Für schnelle Tests bitte PLZ-Liste verwenden.
               </div>
-              <div className="mt-4">
+              <div className="mt-4 space-y-4">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-slate-50/80 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h4 className="text-lg font-semibold text-slate-900">Lieferzonen V2</h4>
+                      <p className="mt-1 text-sm text-rose-900/70">
+                        Mehrere farbige Lieferzonen werden hier vorbereitet. Die bestehende deliveryArea bleibt parallel als Legacy-Fallback erhalten.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleAddDeliveryZone}
+                      className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      + Lieferzone hinzufügen
+                    </button>
+                  </div>
+
+                  {sortedDeliveryZones.length > 0 ? (
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+                      <div className="space-y-2">
+                        {sortedDeliveryZones.map((zone) => {
+                          const isSelected = zone.id === selectedDeliveryZoneId
+                          return (
+                            <button
+                              key={zone.id}
+                              type="button"
+                              onClick={() => setSelectedDeliveryZoneId(zone.id)}
+                              className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                                isSelected
+                                  ? 'border-slate-900 bg-white shadow-sm'
+                                  : 'border-[var(--brand-border)] bg-white hover:bg-rose-50'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    <span
+                                      className="h-3 w-3 shrink-0 rounded-full border border-white shadow-sm"
+                                      style={{ backgroundColor: zone.color }}
+                                    />
+                                    <span className="truncate font-semibold text-slate-900">
+                                      {zone.name || 'Unbenannte Lieferzone'}
+                                    </span>
+                                  </div>
+                                  <p className="mt-1 text-xs text-rose-900/70">
+                                    Priorität {zone.priority} · {zone.strategy}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                    zone.enabled
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : 'bg-slate-200 text-slate-700'
+                                  }`}
+                                >
+                                  {zone.enabled ? 'Aktiv' : 'Inaktiv'}
+                                </span>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+
+                      {selectedDeliveryZone ? (
+                        <div className="space-y-4">
+                          <div className="grid gap-3 rounded-2xl border border-[var(--brand-border)] bg-white p-4 md:grid-cols-2 xl:grid-cols-3">
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">Name</span>
+                              <input
+                                value={selectedDeliveryZone.name}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    name: event.target.value,
+                                  }))
+                                }
+                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">Farbe</span>
+                              <div className="flex gap-2">
+                                <input
+                                  type="color"
+                                  value={selectedDeliveryZone.color}
+                                  onChange={(event) =>
+                                    updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                      ...zone,
+                                      color: event.target.value,
+                                    }))
+                                  }
+                                  className="h-11 w-14 rounded-xl border border-[var(--brand-border)] bg-white p-1"
+                                />
+                                <input
+                                  value={selectedDeliveryZone.color}
+                                  onChange={(event) =>
+                                    updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                      ...zone,
+                                      color: event.target.value || '#22c55e',
+                                    }))
+                                  }
+                                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                />
+                              </div>
+                            </label>
+                            <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85">
+                              <input
+                                type="checkbox"
+                                checked={selectedDeliveryZone.enabled}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    enabled: event.target.checked,
+                                  }))
+                                }
+                              />
+                              Zone aktiv
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">Priorität</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={selectedDeliveryZone.priority}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    priority: parseNullableInteger(event.target.value) ?? 0,
+                                  }))
+                                }
+                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">Mindestbestellwert</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={selectedDeliveryZone.minOrderValue ?? ''}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    minOrderValue: parseNullableNumber(event.target.value),
+                                  }))
+                                }
+                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">Lieferkosten</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={selectedDeliveryZone.deliveryFee ?? ''}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    deliveryFee: parseNullableNumber(event.target.value),
+                                  }))
+                                }
+                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">Kostenlos ab</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={selectedDeliveryZone.freeDeliveryFrom ?? ''}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    freeDeliveryFrom: parseNullableNumber(event.target.value),
+                                  }))
+                                }
+                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">Lieferzeit (Minuten)</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={1}
+                                value={selectedDeliveryZone.estimatedDeliveryMinutes ?? ''}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    estimatedDeliveryMinutes: parseNullableInteger(event.target.value),
+                                  }))
+                                }
+                                className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                              />
+                            </label>
+                          </div>
+
+                          <ServiceAreaEditor
+                            title={`Zonen-Editor: ${selectedDeliveryZone.name || 'Neue Lieferzone'}`}
+                            subtitle="Bearbeitet Strategie, Polygon, PLZ und Radius der ausgewählten Lieferzone."
+                            value={zoneToServiceArea(selectedDeliveryZone)}
+                            onChange={(nextArea) =>
+                              updateDeliveryZone(selectedDeliveryZone.id, (zone) =>
+                                mergeServiceAreaIntoZone(zone, nextArea)
+                              )
+                            }
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-2xl border border-dashed border-[var(--brand-border)] bg-white px-4 py-4 text-sm text-rose-900/75">
+                      Noch keine Lieferzonen angelegt. Über „+ Lieferzone hinzufügen“ kannst du die erste Zone anlegen.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  <p className="font-semibold">Legacy / Fallback</p>
+                  <p className="mt-1">
+                    Die bestehende <code>deliveryArea</code> bleibt unverändert gespeichert und dient weiterhin als Fallback, bis Discovery und Checkout später auf <code>deliveryZones[]</code> umgestellt werden.
+                  </p>
+                  <p className="mt-2 text-xs">
+                    Aktuell: Strategie {settings.deliveryArea.strategy}, PLZ {settings.deliveryArea.zipCodes.length}, Polygonpunkte {settings.deliveryArea.polygonPath.length}, Radius {settings.deliveryArea.radiusKm ?? '—'} km
+                  </p>
+                </div>
+
                 <AppSettingsFields
                   settings={settings}
                   onChange={setSettings}
@@ -752,7 +1133,7 @@ export default function AdminSettingsPage() {
                   showServiceModeControls={false}
                   showOrderingControls={false}
                   showListingDisplayControls={false}
-                  showServiceAreaEditor
+                  showServiceAreaEditor={false}
                   serviceAreaTitle="Liefergebiete & Kosten"
                   serviceAreaSubtitle="PLZ, Radius, Polygon, ausgeschlossene Bereiche sowie Lieferkonditionen zentral verwalten."
                   showOpeningHours={false}
