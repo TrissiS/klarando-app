@@ -503,6 +503,33 @@ function isMissingProductColumnsError(error: unknown) {
   )
 }
 
+function isMissingProductModifierSchemaError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.message.includes('ProductModifier') ||
+    error.message.includes('"ProductModifier"') ||
+    error.message.includes('modifiers')
+  )
+}
+
+function isMissingActionPricingSchemaError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false
+  }
+
+  return (
+    error.message.includes('Action.displayAsMenu') ||
+    error.message.includes('"displayAsMenu"') ||
+    error.message.includes('Action.hidePriceOnScreen') ||
+    error.message.includes('"hidePriceOnScreen"') ||
+    error.message.includes('ActionProduct') ||
+    error.message.includes('"ActionProduct"')
+  )
+}
+
 async function ensureProductColumns() {
   await prisma.$executeRawUnsafe(`
     ALTER TABLE "Category"
@@ -1571,15 +1598,89 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         orderBy: [{ createdAt: 'asc' }],
       })
 
+    const loadCatalogProductsWithoutModifiers = () =>
+      prisma.product.findMany({
+        where: {
+          tenantId: tenant.id,
+          available: true,
+        },
+        select: {
+          id: true,
+          tenantId: true,
+          categoryId: true,
+          productNumber: true,
+          name: true,
+          imageUrl: true,
+          beverageContainerType: true,
+          isBeverage: true,
+          contentVolumeLiters: true,
+          deposit: true,
+          ageRestriction: true,
+          isVegetarian: true,
+          isVegan: true,
+          isSpicy: true,
+          isVerySpicy: true,
+          isNew: true,
+          isPopular: true,
+          articleInfo: true,
+          foodBusinessOperator: true,
+          nutritionInfo: true,
+          nutrition: true,
+          price: true,
+          vatRate: true,
+          available: true,
+          createdAt: true,
+          category: {
+            select: {
+              id: true,
+              name: true,
+              sortOrder: true,
+              imageUrl: true,
+            },
+          },
+          ingredients: {
+            select: {
+              quantity: true,
+              displayNameOverride: true,
+              showInCustomerApp: true,
+              showInOrderDisplay: true,
+              showInMenuBoard: true,
+              showInOrderDesk: true,
+              showInCashierDisplay: true,
+              ingredient: {
+                select: {
+                  id: true,
+                  name: true,
+                  allergens: true,
+                  deposit: true,
+                  category: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: [{ createdAt: 'asc' }],
+      })
+
     let products
     try {
       products = await loadCatalogProducts()
     } catch (loadError) {
-      if (!isMissingProductColumnsError(loadError)) {
+      if (isMissingProductModifierSchemaError(loadError)) {
+        products = await loadCatalogProductsWithoutModifiers()
+      } else if (!isMissingProductColumnsError(loadError)) {
         throw loadError
+      } else {
+        await ensureProductColumns()
+        try {
+          products = await loadCatalogProducts()
+        } catch (retryError) {
+          if (!isMissingProductModifierSchemaError(retryError)) {
+            throw retryError
+          }
+          products = await loadCatalogProductsWithoutModifiers()
+        }
       }
-      await ensureProductColumns()
-      products = await loadCatalogProducts()
     }
     const badgeMap = await loadProductBadges(products.map((product) => product.id))
 
@@ -1612,13 +1713,24 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       imageUrl: sanitizePublicAssetUrl(entry.imageUrl),
     }))
     const categoryById = new Map(categories.map((entry) => [entry.id, entry]))
-    const productOffers = await resolveProductOffers(
-      tenant.id,
-      products.map((entry) => ({
-        id: entry.id,
-        price: Number(entry.price),
-      }))
-    )
+    let productOffers = new Map<string, Awaited<ReturnType<typeof resolveProductOffers>> extends Map<string, infer TValue> ? TValue : never>()
+    try {
+      productOffers = await resolveProductOffers(
+        tenant.id,
+        products.map((entry) => ({
+          id: entry.id,
+          price: Number(entry.price),
+        }))
+      )
+    } catch (offerError) {
+      if (!isMissingActionPricingSchemaError(offerError)) {
+        throw offerError
+      }
+      console.warn('PUBLIC_TENANT_CATALOG_OFFERS_FALLBACK', {
+        tenantId: tenant.id,
+        message: offerError instanceof Error ? offerError.message : String(offerError),
+      })
+    }
 
     const mappedProducts = products
       .map((product) => {
@@ -1711,7 +1823,7 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
           depositAmount: depositAmount > 0 ? depositAmount.toFixed(2) : null,
           allergens: Array.from(allergenSet).sort(),
           ingredients,
-          modifiers: product.modifiers.map((modifier) => {
+          modifiers: ('modifiers' in product && Array.isArray(product.modifiers) ? product.modifiers : []).map((modifier) => {
             const parsedModifierName = decodeStoredProductModifierName(modifier.name)
             return {
               id: modifier.id,
@@ -1809,10 +1921,11 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       generatedAt: new Date().toISOString(),
     })
   } catch (error) {
-    console.error('GET PUBLIC TENANT CATALOG ERROR:', {
-      tenantId: Array.isArray(req.params.tenantId) ? req.params.tenantId[0] : req.params.tenantId,
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : null,
+    console.error('PUBLIC_TENANT_CATALOG_ERROR', {
+      tenantId: req.params.tenantId,
+      message: error instanceof Error ? error.message : undefined,
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined,
     })
     return res.status(500).json({ error: 'Filialkatalog konnte nicht geladen werden' })
   }
