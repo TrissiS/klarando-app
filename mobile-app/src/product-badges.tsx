@@ -536,12 +536,19 @@ export function ProductBadgeList({
   }
 
   return (
-    <View style={[styles.list, compact ? styles.listCompact : null]}>
+    <View style={styles.list}>
       {normalized.map((badge) =>
         badge.kind === 'known' ? (
-          <ProductBadgePill key={badge.key} badgeKey={badge.key} compact={compact} />
+          <View key={badge.key} style={[styles.listItem, compact ? styles.listItemCompact : null]}>
+            <ProductBadgePill badgeKey={badge.key} compact={compact} />
+          </View>
         ) : (
-          <UnknownProductBadgePill key={`unknown-${badge.rawKey}`} label={badge.label} compact={compact} />
+          <View
+            key={`unknown-${badge.rawKey}`}
+            style={[styles.listItem, compact ? styles.listItemCompact : null]}
+          >
+            <UnknownProductBadgePill label={badge.label} compact={compact} />
+          </View>
         )
       )}
     </View>
@@ -552,15 +559,24 @@ const styles = StyleSheet.create({
   list: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 6,
+    width: '100%',
+    alignSelf: 'stretch',
   },
-  listCompact: {
-    gap: 5,
+  listItem: {
+    marginRight: 6,
+    marginBottom: 6,
+    maxWidth: '100%',
+  },
+  listItemCompact: {
+    marginRight: 5,
+    marginBottom: 5,
   },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
+    maxWidth: '100%',
+    flexShrink: 1,
     borderWidth: 1,
     borderRadius: 999,
     paddingLeft: 4,
@@ -589,6 +605,7 @@ const styles = StyleSheet.create({
   pillText: {
     fontSize: 11,
     fontWeight: '700',
+    flexShrink: 1,
   },
   pillTextCompact: {
     fontSize: 10,

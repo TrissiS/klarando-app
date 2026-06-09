@@ -25,7 +25,6 @@ import {
 } from './src/api'
 import { DEFAULT_API_BASE_URL } from './src/config'
 import {
-  getRenderedMobileProductBadgeKeys,
   ProductBadgeList,
   sanitizeMobileProductBadgeKeys,
 } from './src/product-badges'
@@ -824,8 +823,7 @@ export default function App() {
                   ) : null}
                   {(() => {
                     const badgeCandidates = getProductBadgeCandidates(product)
-                    const normalizedBadgeKeys = sanitizeMobileProductBadgeKeys(badgeCandidates)
-                    const renderedBadgeKeys = getRenderedMobileProductBadgeKeys(badgeCandidates)
+                    const normalizedBadges = sanitizeMobileProductBadgeKeys(badgeCandidates)
 
                     return (
                       <>
@@ -836,22 +834,7 @@ export default function App() {
                     </View>
                   </View>
                   {badgeCandidates.length > 0 ? (
-                    <ProductBadgeList badges={badgeCandidates} compact />
-                  ) : null}
-                  {__DEV__ ? (
-                    <View style={styles.panelMuted}>
-                      <Text style={styles.metaStrong}>Badge-Debug</Text>
-                      <Text style={styles.meta}>product.name: {product.name}</Text>
-                      <Text style={styles.meta}>
-                        raw badges: {badgeCandidates.join(', ') || '-'}
-                      </Text>
-                      <Text style={styles.meta}>
-                        normalized badges: {normalizedBadgeKeys.join(', ') || '-'}
-                      </Text>
-                      <Text style={styles.meta}>
-                        rendered badges: {renderedBadgeKeys.join(', ') || '-'}
-                      </Text>
-                    </View>
+                    <ProductBadgeList badges={normalizedBadges} compact />
                   ) : null}
                   {parseEuroValue(product.depositAmount || '0') > 0 ? (
                     <Text style={styles.meta}>
@@ -1500,7 +1483,7 @@ export default function App() {
             <View style={styles.modalCard}>
               <Text style={styles.titleSmall}>{customizingProduct?.name || 'Produkt'}</Text>
               {customizingProduct && getProductBadgeCandidates(customizingProduct).length > 0 ? (
-                <ProductBadgeList badges={getProductBadgeCandidates(customizingProduct)} />
+                <ProductBadgeList badges={sanitizeMobileProductBadgeKeys(getProductBadgeCandidates(customizingProduct))} />
               ) : null}
               <Text style={styles.meta}>Optionen auswaehlen</Text>
               {customizerError ? <Text style={styles.metaWarning}>{customizerError}</Text> : null}
