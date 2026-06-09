@@ -18,6 +18,7 @@ import {
   discoverTenants,
   fetchAppCustomerMe,
   fetchTenantCatalog,
+  getLastCatalogRequestDiagnostics,
   loginAppCustomer,
   registerAppCustomer,
   requestAppCustomerDeletion,
@@ -32,6 +33,7 @@ import {
 } from './src/storage'
 import type {
   AppCustomerUser,
+  CatalogRequestDiagnostics,
   CatalogProduct,
   CheckoutCreateOrderResponse,
   CheckoutPaymentMethod,
@@ -197,6 +199,14 @@ export default function App() {
   const [results, setResults] = useState<DiscoveryTenant[]>([])
   const [selectedTenant, setSelectedTenant] = useState<DiscoveryTenant | null>(null)
   const [catalog, setCatalog] = useState<TenantCatalogResponse | null>(null)
+  const [catalogDiagnostics, setCatalogDiagnostics] = useState<CatalogRequestDiagnostics>({
+    tenantId: null,
+    tenantSlug: null,
+    catalogUrl: null,
+    catalogStatus: null,
+    catalogError: null,
+    responsePreview: null,
+  })
   const [activeOrderMode, setActiveOrderMode] = useState<'delivery' | 'pickup' | null>(null)
   const [cartItems, setCartItems] = useState<CartItem[]>([])
   const [checkoutPaymentMethod, setCheckoutPaymentMethod] = useState<CheckoutPaymentMethod>('CARD')
@@ -327,7 +337,16 @@ export default function App() {
     try {
       setLoadingCatalog(true)
       setError('')
-      const loadedCatalog = await fetchTenantCatalog(apiBaseUrl, tenant.tenantId)
+      setCatalogDiagnostics({
+        tenantId: tenant.tenantId,
+        tenantSlug: tenant.slug ?? null,
+        catalogUrl: null,
+        catalogStatus: null,
+        catalogError: null,
+        responsePreview: null,
+      })
+      const loadedCatalog = await fetchTenantCatalog(apiBaseUrl, tenant.tenantId, tenant.slug ?? null)
+      setCatalogDiagnostics(getLastCatalogRequestDiagnostics())
       setSelectedTenant(tenant)
       setCatalog(loadedCatalog)
       setActiveOrderMode(null)
@@ -338,6 +357,7 @@ export default function App() {
       setCustomizerError('')
       setCurrentTab('ORDER')
     } catch (catalogError) {
+      setCatalogDiagnostics(getLastCatalogRequestDiagnostics())
       setError(
         catalogError instanceof Error
           ? catalogError.message
@@ -630,6 +650,14 @@ export default function App() {
             </View>
           ) : catalog ? (
             <ScrollView contentContainerStyle={styles.scroll}>
+              <View style={styles.panelMuted}>
+                <Text style={styles.metaStrong}>Katalog-Debug</Text>
+                <Text style={styles.meta}>tenantId: {catalogDiagnostics.tenantId || selectedTenant.tenantId}</Text>
+                <Text style={styles.meta}>tenantSlug: {catalogDiagnostics.tenantSlug || selectedTenant.slug || '-'}</Text>
+                <Text style={styles.meta}>catalogUrl: {catalogDiagnostics.catalogUrl || '-'}</Text>
+                <Text style={styles.meta}>catalogStatus: {catalogDiagnostics.catalogStatus !== null ? String(catalogDiagnostics.catalogStatus) : '-'}</Text>
+                <Text style={styles.meta}>catalogError: {catalogDiagnostics.catalogError || '-'}</Text>
+              </View>
               <View style={styles.panel}>
                 <Text style={styles.titleSmall}>{catalog.tenant.name}</Text>
                 <Text style={styles.meta}>
@@ -800,6 +828,14 @@ export default function App() {
           ) : (
             <View style={styles.panel}>
               <Text style={styles.meta}>Katalog nicht verfuegbar.</Text>
+              <View style={styles.panelMuted}>
+                <Text style={styles.metaStrong}>Katalog-Debug</Text>
+                <Text style={styles.meta}>tenantId: {catalogDiagnostics.tenantId || selectedTenant.tenantId}</Text>
+                <Text style={styles.meta}>tenantSlug: {catalogDiagnostics.tenantSlug || selectedTenant.slug || '-'}</Text>
+                <Text style={styles.meta}>catalogUrl: {catalogDiagnostics.catalogUrl || '-'}</Text>
+                <Text style={styles.meta}>catalogStatus: {catalogDiagnostics.catalogStatus !== null ? String(catalogDiagnostics.catalogStatus) : '-'}</Text>
+                <Text style={styles.meta}>catalogError: {catalogDiagnostics.catalogError || '-'}</Text>
+              </View>
             </View>
           )}
         </View>
@@ -810,6 +846,16 @@ export default function App() {
       <View style={styles.block}>
         <Text style={styles.brand}>Bestellen</Text>
         <Text style={styles.title}>Filialsuche fuer Lieferung und Abholung</Text>
+        {catalogDiagnostics.tenantId ? (
+          <View style={styles.panelMuted}>
+            <Text style={styles.metaStrong}>Katalog-Debug</Text>
+            <Text style={styles.meta}>tenantId: {catalogDiagnostics.tenantId}</Text>
+            <Text style={styles.meta}>tenantSlug: {catalogDiagnostics.tenantSlug || '-'}</Text>
+            <Text style={styles.meta}>catalogUrl: {catalogDiagnostics.catalogUrl || '-'}</Text>
+            <Text style={styles.meta}>catalogStatus: {catalogDiagnostics.catalogStatus !== null ? String(catalogDiagnostics.catalogStatus) : '-'}</Text>
+            <Text style={styles.meta}>catalogError: {catalogDiagnostics.catalogError || '-'}</Text>
+          </View>
+        ) : null}
         <View style={styles.panel}>
           {isSearchPanelCollapsed ? (
             <View style={styles.rowBetween}>

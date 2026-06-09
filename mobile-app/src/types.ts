@@ -43,6 +43,7 @@ export type CustomerAppSettings = {
 export type DiscoveryTenant = {
   tenantId: string
   tenantName: string
+  slug?: string | null
   chain: {
     id: string
     name: string
@@ -230,4 +231,13 @@ export type AppAuthMeResponse = {
 export type AppDeletionRequestResponse = {
   ok: boolean
   deletionRequestedAt: string | null
+}
+
+export type CatalogRequestDiagnostics = {
+  tenantId: string | null
+  tenantSlug: string | null
+  catalogUrl: string | null
+  catalogStatus: number | null
+  catalogError: string | null
+  responsePreview: string | null
 }

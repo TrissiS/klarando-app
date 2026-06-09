@@ -2,12 +2,26 @@ import type {
   AppAuthMeResponse,
   AppAuthResponse,
   AppDeletionRequestResponse,
+  CatalogRequestDiagnostics,
   CheckoutCreateOrderRequest,
   CheckoutCreateOrderResponse,
   DiscoveryMode,
   DiscoveryResponse,
   TenantCatalogResponse,
 } from './types'
+
+let lastCatalogRequestDiagnostics: CatalogRequestDiagnostics = {
+  tenantId: null,
+  tenantSlug: null,
+  catalogUrl: null,
+  catalogStatus: null,
+  catalogError: null,
+  responsePreview: null,
+}
+
+export function getLastCatalogRequestDiagnostics() {
+  return lastCatalogRequestDiagnostics
+}
 
 function normalizeApiBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, '')
@@ -91,30 +105,109 @@ export async function discoverTenants(
 
 export async function fetchTenantCatalog(
   apiBaseUrl: string,
-  tenantId: string
+  tenantId: string,
+  tenantSlug?: string | null
 ): Promise<TenantCatalogResponse> {
   const baseUrlCandidates = buildApiBaseUrlCandidates(apiBaseUrl)
   if (baseUrlCandidates.length === 0) {
     throw new Error('API Base URL fehlt')
   }
 
+  lastCatalogRequestDiagnostics = {
+    tenantId,
+    tenantSlug: tenantSlug ?? null,
+    catalogUrl: null,
+    catalogStatus: null,
+    catalogError: null,
+    responsePreview: null,
+  }
+
   let lastError: string | null = null
 
   for (const candidateBaseUrl of baseUrlCandidates) {
+    const catalogUrl = `${candidateBaseUrl}/api/tenants/public/${tenantId}/catalog`
+    lastCatalogRequestDiagnostics = {
+      ...lastCatalogRequestDiagnostics,
+      catalogUrl,
+      catalogStatus: null,
+      catalogError: null,
+      responsePreview: null,
+    }
+    console.log('[catalog] fetchTenantCatalog request', {
+      tenantId,
+      tenantSlug: tenantSlug ?? null,
+      catalogUrl,
+    })
+
     try {
-      const response = await fetch(
-        `${candidateBaseUrl}/api/tenants/public/${tenantId}/catalog`
-      )
+      const response = await fetch(catalogUrl)
+      const responseText = await response.text()
+      const responsePreview = responseText.slice(0, 500)
+      let parsedJson: TenantCatalogResponse | null = null
+
+      lastCatalogRequestDiagnostics = {
+        ...lastCatalogRequestDiagnostics,
+        catalogStatus: response.status,
+        responsePreview,
+      }
+
+      console.log('[catalog] fetchTenantCatalog response', {
+        tenantId,
+        tenantSlug: tenantSlug ?? null,
+        catalogUrl,
+        status: response.status,
+        responsePreview,
+      })
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null)
+        const errorData = responseText
+          ? (JSON.parse(responseText) as { error?: string })
+          : null
         lastError = errorData?.error || `Filialkatalog konnte nicht geladen werden (${response.status})`
+        lastCatalogRequestDiagnostics = {
+          ...lastCatalogRequestDiagnostics,
+          catalogError: lastError,
+        }
+        console.error('[catalog] fetchTenantCatalog error response', {
+          tenantId,
+          tenantSlug: tenantSlug ?? null,
+          catalogUrl,
+          status: response.status,
+          responsePreview,
+          error: lastError,
+        })
         continue
       }
 
-      return response.json()
+      parsedJson = responseText ? (JSON.parse(responseText) as TenantCatalogResponse) : null
+      if (!parsedJson) {
+        lastError = 'Leere Katalogantwort'
+        lastCatalogRequestDiagnostics = {
+          ...lastCatalogRequestDiagnostics,
+          catalogError: lastError,
+        }
+        console.error('[catalog] fetchTenantCatalog empty response', {
+          tenantId,
+          tenantSlug: tenantSlug ?? null,
+          catalogUrl,
+          status: response.status,
+        })
+        continue
+      }
+
+      return parsedJson
     } catch (error) {
       lastError = error instanceof Error ? error.message : 'Filialkatalog konnte nicht geladen werden'
+      lastCatalogRequestDiagnostics = {
+        ...lastCatalogRequestDiagnostics,
+        catalogError: lastError,
+      }
+      console.error('[catalog] fetchTenantCatalog exception', {
+        tenantId,
+        tenantSlug: tenantSlug ?? null,
+        catalogUrl,
+        error: lastError,
+      })
     }
   }
 
