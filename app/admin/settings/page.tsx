@@ -543,6 +543,7 @@ export default function AdminSettingsPage() {
   ] as const
 
   const deliveryZones = settings?.deliveryZones ?? []
+  const hasDeliveryZones = deliveryZones.length > 0
   const sortedDeliveryZones = [...deliveryZones].sort((left, right) => {
     if (left.priority !== right.priority) {
       return left.priority - right.priority
@@ -1269,6 +1270,11 @@ export default function AdminSettingsPage() {
                   <p className="mt-2 text-xs">
                     Aktuell: Strategie {settings.deliveryArea.strategy}, PLZ {settings.deliveryArea.zipCodes.length}, Polygonpunkte {settings.deliveryArea.polygonPath.length}, Radius {settings.deliveryArea.radiusKm ?? '—'} km
                   </p>
+                  {hasDeliveryZones ? (
+                    <p className="mt-2 text-xs font-medium">
+                      Liefergebühr, Mindestbestellwert, Kostenlos-ab und Lieferzeit werden bei aktiven Lieferzonen ausschließlich pro Zone gepflegt und deshalb im Legacy-Bereich ausgeblendet.
+                    </p>
+                  ) : null}
                 </div>
 
                 <AppSettingsFields
@@ -1276,7 +1282,7 @@ export default function AdminSettingsPage() {
                   onChange={setSettings}
                   showAppReleaseControls={false}
                   showComplianceControls={false}
-                  showDeliveryCostControls
+                  showDeliveryCostControls={!hasDeliveryZones}
                   showServiceFeeControls={false}
                   showServiceModeControls={false}
                   showOrderingControls={false}
