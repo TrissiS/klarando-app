@@ -110,6 +110,26 @@ export type CatalogCategory = {
   imageUrl: string | null
 }
 
+export type ProductBadgeKey =
+  | 'VEGAN'
+  | 'VEGETARIAN'
+  | 'HALAL'
+  | 'GLUTEN_FREE'
+  | 'LACTOSE_FREE'
+  | 'SPICY'
+  | 'VERY_SPICY'
+  | 'NEW'
+  | 'POPULAR'
+  | 'BESTSELLER'
+  | 'RECOMMENDED'
+  | 'LIMITED'
+  | 'CAFFEINE'
+  | 'ALCOHOL'
+  | 'AGE_16'
+  | 'AGE_18'
+  | 'ORGANIC'
+  | 'REGIONAL'
+
 export type CatalogProduct = {
   id: string
   tenantId: string
@@ -123,6 +143,7 @@ export type CatalogProduct = {
   depositAmount?: string | null
   vatRate: string
   available: boolean
+  badges: ProductBadgeKey[]
   allergens: string[]
   ingredients: Array<{
     id: string

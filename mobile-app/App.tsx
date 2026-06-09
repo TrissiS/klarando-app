@@ -24,6 +24,7 @@ import {
   requestAppCustomerDeletion,
 } from './src/api'
 import { DEFAULT_API_BASE_URL } from './src/config'
+import { ProductBadgeList } from './src/product-badges'
 import {
   clearStoredAppAuthToken,
   readStoredApiBaseUrl,
@@ -691,6 +692,9 @@ export default function App() {
                       <Text style={styles.priceTagText}>{formatEuro(parseEuroValue(product.price))}</Text>
                     </View>
                   </View>
+                  {(product.badges ?? []).length > 0 ? (
+                    <ProductBadgeList badges={product.badges ?? []} compact />
+                  ) : null}
                   {parseEuroValue(product.depositAmount || '0') > 0 ? (
                     <Text style={styles.meta}>
                       inkl. {formatEuro(parseEuroValue(product.depositAmount || '0'))} Pfand
@@ -1340,6 +1344,9 @@ export default function App() {
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
               <Text style={styles.titleSmall}>{customizingProduct?.name || 'Produkt'}</Text>
+              {(customizingProduct?.badges ?? []).length > 0 ? (
+                <ProductBadgeList badges={customizingProduct?.badges ?? []} />
+              ) : null}
               <Text style={styles.meta}>Optionen auswaehlen</Text>
               {customizerError ? <Text style={styles.metaWarning}>{customizerError}</Text> : null}
               <ScrollView style={styles.modalOptionsScroll} contentContainerStyle={styles.modalOptionsContent}>
