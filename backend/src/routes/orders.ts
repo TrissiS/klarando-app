@@ -15,7 +15,10 @@ import { decodeStoredProductModifierName } from '../lib/product-modifiers'
 import { generateNextPickupNumberForTenant } from '../lib/pickup-number'
 import { createUniqueOrderPublicCode } from '../lib/order-public-code'
 import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-availability'
-import { buildDeliveryAvailability } from '../lib/delivery-availability'
+import {
+  buildDeliveryAvailability,
+  resolveDeliveryAreaSelection,
+} from '../lib/delivery-availability'
 import { resolveDisplayRouting } from '../lib/order-routing'
 import { signDriverDeviceToken, verifyDriverDeviceToken } from '../auth/driver-device-token'
 import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
@@ -3403,7 +3406,23 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           }
         }
 
-        const requiresPolygonCoordinates = effectiveDeliveryArea.strategy === 'POLYGON'
+        const deliveryZoneSelection = resolveDeliveryAreaSelection(
+          settings,
+          {
+            zipCode: normalizedCustomerZipCode,
+            street: normalizedCustomerAddress,
+            latitude: normalizedCustomerLatitude,
+            longitude: normalizedCustomerLongitude,
+          },
+          effectiveDeliveryArea
+        )
+        const effectiveCheckoutDeliveryArea =
+          deliveryZoneSelection.matchedArea ?? effectiveDeliveryArea
+
+        const requiresPolygonCoordinates =
+          deliveryZoneSelection.usingDeliveryZones
+            ? !deliveryZoneSelection.matchedZone && deliveryZoneSelection.requiresLocation
+            : effectiveCheckoutDeliveryArea.strategy === 'POLYGON'
         if (
           requiresPolygonCoordinates &&
           (normalizedCustomerLatitude === null || normalizedCustomerLongitude === null)
@@ -3411,12 +3430,13 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
             route: 'POST /api/orders',
             sourceFile: 'backend/src/routes/orders.ts',
-            strategy: effectiveDeliveryArea.strategy,
-            zipCodesCount: effectiveDeliveryArea.zipCodes.length,
-            polygonPointsCount: effectiveDeliveryArea.polygonPath.length,
+            strategy: effectiveCheckoutDeliveryArea.strategy,
+            zipCodesCount: effectiveCheckoutDeliveryArea.zipCodes.length,
+            polygonPointsCount: effectiveCheckoutDeliveryArea.polygonPath.length,
             customerPostalCode: normalizedCustomerZipCode,
             customerLat: normalizedCustomerLatitude,
             customerLng: normalizedCustomerLongitude,
+            zoneMatches: deliveryZoneSelection.zoneMatches,
             usedCheck: 'POLYGON',
             result: false,
             reason: 'MISSING_COORDINATES',
@@ -3430,7 +3450,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
               customerLongitude: normalizedCustomerLongitude,
               customerZipCode: normalizedCustomerZipCode,
               customerAddress: normalizedCustomerAddress,
-              polygonPoints: effectiveDeliveryArea.polygonPath.length,
+              polygonPoints: effectiveCheckoutDeliveryArea.polygonPath.length,
               matchedByZip: false,
               matchedByRadius: false,
               matchedByPolygon: false,
@@ -3448,7 +3468,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         const deliveryAvailability = buildDeliveryAvailability({
           settings,
           now: availabilityNow,
-          deliveryAreaOverride: effectiveDeliveryArea,
+          deliveryAreaOverride: effectiveCheckoutDeliveryArea,
           deliveryAreaInput: {
             zipCode: normalizedCustomerZipCode,
             street: normalizedCustomerAddress,
@@ -3463,13 +3483,23 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             tenantId: resolvedTenantId,
             deliveryType: resolvedServiceType,
             blockingReasons: deliveryAvailability.blockingReasons,
-            strategy: effectiveDeliveryArea.strategy,
+            strategy: effectiveCheckoutDeliveryArea.strategy,
             rawPolygonPathPoints: deliveryAreaResolution.rawPolygonPathPoints,
             parsedPolygonPathPoints: deliveryAreaResolution.parsedPolygonPathPoints,
             effectivePolygonPathPoints: deliveryAreaResolution.effectivePolygonPathPoints,
-            zipCodesCount: effectiveDeliveryArea.zipCodes.length,
-            radiusKm: effectiveDeliveryArea.radiusKm,
+            zipCodesCount: effectiveCheckoutDeliveryArea.zipCodes.length,
+            radiusKm: effectiveCheckoutDeliveryArea.radiusKm,
             deliveryAreaSource: deliveryAreaResolution.source,
+            usingDeliveryZones: deliveryZoneSelection.usingDeliveryZones,
+            matchedZone: deliveryZoneSelection.matchedZone
+              ? {
+                  id: deliveryZoneSelection.matchedZone.id,
+                  name: deliveryZoneSelection.matchedZone.name,
+                  priority: deliveryZoneSelection.matchedZone.priority,
+                  strategy: deliveryZoneSelection.matchedZone.strategy,
+                }
+              : null,
+            zoneMatches: deliveryZoneSelection.zoneMatches,
           })
           return res.status(409).json({
             error: 'DELIVERY_NOT_AVAILABLE',
@@ -3478,7 +3508,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           })
         }
 
-        const deliveryAreaCheck = matchServiceArea(effectiveDeliveryArea, {
+        const deliveryAreaCheck = matchServiceArea(effectiveCheckoutDeliveryArea, {
           zipCode: normalizedCustomerZipCode,
           street: normalizedCustomerAddress,
           latitude: normalizedCustomerLatitude,
@@ -3486,7 +3516,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         })
         const deliveryValidationReason = resolveDeliveryValidationReason({
           areaMatched:
-            effectiveDeliveryArea.strategy === 'POLYGON'
+            effectiveCheckoutDeliveryArea.strategy === 'POLYGON'
               ? deliveryAreaCheck.matchedByPolygon
               : deliveryAreaCheck.matched,
           configurationIncomplete: deliveryAreaCheck.configurationIncomplete,
@@ -3498,31 +3528,41 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           isOpen: deliveryOrderingAvailability.isOpen,
         })
         const usedCheck =
-          effectiveDeliveryArea.strategy === 'POLYGON'
+          effectiveCheckoutDeliveryArea.strategy === 'POLYGON'
             ? 'POLYGON'
-            : effectiveDeliveryArea.strategy === 'RADIUS'
+            : effectiveCheckoutDeliveryArea.strategy === 'RADIUS'
               ? 'RADIUS'
-              : effectiveDeliveryArea.strategy === 'ZIP_LIST'
+              : effectiveCheckoutDeliveryArea.strategy === 'ZIP_LIST'
                 ? 'POSTAL_CODES'
-                : effectiveDeliveryArea.strategy === 'ZIP_OR_RADIUS' ||
-                    effectiveDeliveryArea.strategy === 'ZIP_AND_RADIUS'
+                : effectiveCheckoutDeliveryArea.strategy === 'ZIP_OR_RADIUS' ||
+                    effectiveCheckoutDeliveryArea.strategy === 'ZIP_AND_RADIUS'
                   ? deliveryAreaCheck.matchedByRadius
                     ? 'RADIUS'
                     : 'POSTAL_CODES'
                   : 'UNKNOWN'
         const strictPolygonResult =
-          effectiveDeliveryArea.strategy === 'POLYGON'
+          effectiveCheckoutDeliveryArea.strategy === 'POLYGON'
             ? deliveryAreaCheck.matchedByPolygon
             : deliveryAreaCheck.matched
         console.info('DELIVERY_VALIDATION_ACTIVE_PATH', {
           route: 'POST /api/orders',
           sourceFile: 'backend/src/routes/orders.ts',
-          strategy: effectiveDeliveryArea.strategy,
-          zipCodesCount: effectiveDeliveryArea.zipCodes.length,
-          polygonPointsCount: effectiveDeliveryArea.polygonPath.length,
+          strategy: effectiveCheckoutDeliveryArea.strategy,
+          zipCodesCount: effectiveCheckoutDeliveryArea.zipCodes.length,
+          polygonPointsCount: effectiveCheckoutDeliveryArea.polygonPath.length,
           customerPostalCode: normalizedCustomerZipCode,
           customerLat: normalizedCustomerLatitude,
           customerLng: normalizedCustomerLongitude,
+          usingDeliveryZones: deliveryZoneSelection.usingDeliveryZones,
+          matchedZone: deliveryZoneSelection.matchedZone
+            ? {
+                id: deliveryZoneSelection.matchedZone.id,
+                name: deliveryZoneSelection.matchedZone.name,
+                priority: deliveryZoneSelection.matchedZone.priority,
+                strategy: deliveryZoneSelection.matchedZone.strategy,
+              }
+            : null,
+          zoneMatches: deliveryZoneSelection.zoneMatches,
           matchedByZip: deliveryAreaCheck.matchedByZip,
           matchedByRadius: deliveryAreaCheck.matchedByRadius,
           matchedByPolygon: deliveryAreaCheck.matchedByPolygon,

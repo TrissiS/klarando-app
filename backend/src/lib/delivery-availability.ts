@@ -4,6 +4,7 @@ import {
   parseSettings,
   type BusinessSettings,
   type DailyWindow,
+  type DeliveryZoneSettings,
   type ServiceAreaMatchInput,
   type ServiceAreaSettings,
   type WeekDay,
@@ -31,6 +32,21 @@ export type BuildDeliveryAvailabilityInput = {
   deliveryAreaInput?: ServiceAreaMatchInput | null
   deliveryAreaOverride?: ServiceAreaSettings | null
   timeZone?: string | null
+}
+
+export type DeliveryAreaSelectionResult = {
+  usingDeliveryZones: boolean
+  matchedZone: DeliveryZoneSettings | null
+  matchedArea: ServiceAreaSettings | null
+  requiresLocation: boolean
+  configurationIncomplete: boolean
+  zoneMatches: Array<{
+    id: string
+    name: string
+    priority: number
+    strategy: DeliveryZoneSettings['strategy']
+    matched: boolean
+  }>
 }
 
 export const DEFAULT_DELIVERY_TIME_ZONE = 'Europe/Berlin'
@@ -450,6 +466,39 @@ function resolveAreaBlockingReason(
   deliveryAreaInput: ServiceAreaMatchInput | null | undefined,
   deliveryAreaOverride?: ServiceAreaSettings | null
 ) {
+  const zoneSelection = resolveDeliveryAreaSelection(
+    settings,
+    deliveryAreaInput,
+    deliveryAreaOverride
+  )
+  if (zoneSelection.usingDeliveryZones) {
+    if (zoneSelection.matchedZone) {
+      return {
+        blockingReason: null,
+        debugReason: `Lieferzone "${zoneSelection.matchedZone.name}" erfolgreich geprueft.`,
+      }
+    }
+
+    if (zoneSelection.requiresLocation) {
+      return {
+        blockingReason: 'DELIVERY_AREA_LOCATION_REQUIRED',
+        debugReason: 'Aktive Lieferzonen erfordern Koordinaten fuer die Pruefung.',
+      }
+    }
+
+    if (zoneSelection.configurationIncomplete) {
+      return {
+        blockingReason: 'DELIVERY_AREA_CONFIGURATION_INCOMPLETE',
+        debugReason: 'Mindestens eine aktive Lieferzone ist unvollstaendig konfiguriert.',
+      }
+    }
+
+    return {
+      blockingReason: 'DELIVERY_AREA_OUT_OF_RANGE',
+      debugReason: 'Lieferadresse liegt ausserhalb aller aktiven Lieferzonen.',
+    }
+  }
+
   const area = deliveryAreaOverride ?? settings.deliveryArea
   if (!area.enabled) {
     return {
@@ -508,6 +557,86 @@ function resolveAreaBlockingReason(
   return {
     blockingReason: 'DELIVERY_AREA_OUT_OF_RANGE',
     debugReason: 'Lieferadresse liegt ausserhalb des Liefergebiets.',
+  }
+}
+
+function deliveryZoneToServiceArea(zone: DeliveryZoneSettings): ServiceAreaSettings {
+  return {
+    enabled: zone.enabled,
+    strategy: zone.strategy,
+    zipCodes: zone.zipCodes,
+    excludedZipCodes: zone.excludedZipCodes,
+    excludedStreets: zone.excludedStreets,
+    radiusKm: zone.radiusKm,
+    polygonPath: zone.polygonPath,
+    centerLatitude: zone.centerLatitude,
+    centerLongitude: zone.centerLongitude,
+    centerZipCode: zone.centerZipCode,
+    centerCity: zone.centerCity,
+    centerStreet: zone.centerStreet,
+    notes: zone.notes,
+  }
+}
+
+export function resolveDeliveryAreaSelection(
+  settings: BusinessSettings,
+  deliveryAreaInput: ServiceAreaMatchInput | null | undefined,
+  deliveryAreaOverride?: ServiceAreaSettings | null
+): DeliveryAreaSelectionResult {
+  const activeZones = (settings.deliveryZones ?? [])
+    .filter((zone) => zone.enabled)
+    .sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority
+      }
+      return left.name.localeCompare(right.name, 'de-DE')
+    })
+
+  if (activeZones.length === 0) {
+    return {
+      usingDeliveryZones: false,
+      matchedZone: null,
+      matchedArea: deliveryAreaOverride ?? settings.deliveryArea,
+      requiresLocation: false,
+      configurationIncomplete: false,
+      zoneMatches: [],
+    }
+  }
+
+  const evaluations = activeZones.map((zone) => {
+    const area = deliveryZoneToServiceArea(zone)
+    const match = matchServiceArea(area, {
+      zipCode: deliveryAreaInput?.zipCode ?? null,
+      street: deliveryAreaInput?.street ?? null,
+      latitude: deliveryAreaInput?.latitude ?? null,
+      longitude: deliveryAreaInput?.longitude ?? null,
+    })
+    const matched =
+      area.strategy === 'POLYGON'
+        ? area.polygonPath.length >= 3 &&
+          typeof deliveryAreaInput?.latitude === 'number' &&
+          typeof deliveryAreaInput?.longitude === 'number' &&
+          match.matchedByPolygon
+        : match.matched
+
+    return { zone, area, match, matched }
+  })
+
+  const matchedEntry = evaluations.find((entry) => entry.matched) ?? null
+
+  return {
+    usingDeliveryZones: true,
+    matchedZone: matchedEntry?.zone ?? null,
+    matchedArea: matchedEntry?.area ?? null,
+    requiresLocation: evaluations.some((entry) => entry.match.requiresLocation),
+    configurationIncomplete: evaluations.some((entry) => entry.match.configurationIncomplete),
+    zoneMatches: evaluations.map((entry) => ({
+      id: entry.zone.id,
+      name: entry.zone.name,
+      priority: entry.zone.priority,
+      strategy: entry.zone.strategy,
+      matched: entry.matched,
+    })),
   }
 }
 
