@@ -3114,7 +3114,6 @@ class _HomeShellState extends State<HomeShell> {
     }
 
     final paymentMethod = switch (paymentType) {
-      _CheckoutPaymentType.cash => 'CASH',
       _CheckoutPaymentType.online => 'STRIPE',
     };
     final autoPaid = false;
@@ -4161,7 +4160,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   String? _paymentInfoMessage;
   PublicOrderSummary? _createdOrder;
   late _CheckoutServiceType _serviceType;
-  _CheckoutPaymentType _paymentType = _CheckoutPaymentType.cash;
+  _CheckoutPaymentType _paymentType = _CheckoutPaymentType.online;
   late final TextEditingController _customerNameController;
   late final TextEditingController _customerPhoneController;
   late final TextEditingController _deliveryAddressController;
@@ -4182,7 +4181,8 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
   String? _couponFeedback;
   bool _couponIsError = false;
 
-  bool get _supportsStripePayment => widget.stripeAvailable;
+  bool get _supportsStripePayment =>
+      widget.stripeAvailable && widget.publishableKeyConfigured;
   bool get _requiresLoginForOnlinePayment => true;
 
   int get _itemsCount => _lines.fold<int>(0, (sum, line) => sum + line.quantity);
@@ -4249,13 +4249,10 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     return double.parse(parsed.toStringAsFixed(2));
   }
 
-  List<_CheckoutPaymentType> get _availablePaymentTypes {
-    final values = <_CheckoutPaymentType>[_CheckoutPaymentType.cash];
-    if (_supportsStripePayment) {
-      values.add(_CheckoutPaymentType.online);
-    }
-    return values;
-  }
+  List<_CheckoutPaymentType> get _availablePaymentTypes =>
+      _supportsStripePayment
+          ? const <_CheckoutPaymentType>[_CheckoutPaymentType.online]
+          : const <_CheckoutPaymentType>[];
 
   Future<_StripeCheckoutLaunchResult> _openStripeCheckout({
     required PublicOrderSummary order,
@@ -4378,9 +4375,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     if (_checkoutLatitude != null && _checkoutLongitude != null) {
       _resolvedDeliveryAddressSignature = _deliveryAddressSignature;
     }
-    if (!_supportsStripePayment) {
-      _paymentType = _CheckoutPaymentType.cash;
-    }
+    _paymentType = _CheckoutPaymentType.online;
     if (widget.requiresDeliveryCoordinates &&
         widget.allowDelivery &&
         (_checkoutLatitude == null || _checkoutLongitude == null)) {
@@ -4588,6 +4583,11 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
     });
 
     try {
+      if (!_supportsStripePayment) {
+        throw const ApiException(
+          'Online-Zahlung per Stripe ist für diese Filiale derzeit nicht vollständig eingerichtet.',
+        );
+      }
       if (_serviceType == _CheckoutServiceType.delivery &&
           widget.requiresDeliveryCoordinates &&
           !_hasDeliveryCoordinates &&
@@ -4959,36 +4959,58 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const Text('Bestellübersicht', style: TextStyle(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  Text('Serviceart: ${_serviceTypeLabel(_serviceType)}'),
+                  if (_serviceType == _CheckoutServiceType.pickup)
+                    const Text('Abholung in der Filiale'),
+                  if (_serviceType == _CheckoutServiceType.delivery &&
+                      _deliveryAddressReady)
+                    Text(
+                      'Lieferadresse: ${_deliveryAddressController.text.trim()}, ${_deliveryZipController.text.trim()} ${_deliveryCityController.text.trim()}',
+                    ),
+                  const SizedBox(height: 12),
                   const Text('Zahlungsart', style: TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: _availablePaymentTypes
-                        .map(
-                          (value) => ChoiceChip(
-                            selected: value == _paymentType,
-                            label: Text(_paymentTypeLabel(value)),
-                            onSelected: (selected) {
-                              if (!selected) {
-                                return;
-                              }
-                              setState(() {
-                                _paymentType = value;
-                              });
-                            },
-                          ),
-                        )
-                        .toList(growable: false),
-                  ),
+                  if (_supportsStripePayment)
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _availablePaymentTypes
+                          .map(
+                            (value) => ChoiceChip(
+                              selected: value == _paymentType,
+                              label: Text(_paymentTypeLabel(value)),
+                              onSelected: (selected) {
+                                if (!selected) {
+                                  return;
+                                }
+                                setState(() {
+                                  _paymentType = value;
+                                });
+                              },
+                            ),
+                          )
+                          .toList(growable: false),
+                    ),
                   if (!_supportsStripePayment) ...[
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 4),
                     Text(
                       widget.stripeAvailable && !widget.publishableKeyConfigured
                           ? 'Online-Zahlung ist derzeit noch nicht vollständig eingerichtet.'
                           : 'Online-Zahlung ist für diese Filiale derzeit nicht eingerichtet.',
                       style: const TextStyle(
                         color: Color(0xFF92400E),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Barzahlung wird in der Customer-App nicht angeboten. Die Bestellung wird ausschließlich per Stripe online bezahlt.',
+                      style: TextStyle(
+                        color: Color(0xFF475569),
+                        fontSize: 12,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -5139,6 +5161,9 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
                   const Text('Preisübersicht', style: TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 8),
                   Text('Zwischensumme: ${_formatCurrency(_subtotal)}'),
+                  Text('Serviceart: ${_serviceTypeLabel(_serviceType)}'),
+                  if (_serviceType == _CheckoutServiceType.pickup)
+                    const Text('Abholung in der Filiale'),
                   if (_serviceType == _CheckoutServiceType.delivery)
                     Text('Liefergebühr: ${_formatCurrency(widget.deliveryFeeAmount)}'),
                   if (_serviceFee > 0)
@@ -5267,6 +5292,23 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
               children: [
                 Text('Gesamt: ${_formatCurrency(order.total)}'),
                 const SizedBox(height: 4),
+                Text(
+                  'Serviceart: ${_publicOrderServiceTypeLabel(order.serviceType, fallback: _serviceType)}',
+                ),
+                const SizedBox(height: 4),
+                if ((order.serviceType ?? '').trim().toUpperCase() == 'DELIVERY') ...[
+                  Text(
+                    'Lieferadresse: ${[
+                      (order.customerAddress ?? '').trim(),
+                      (order.customerZipCode ?? '').trim(),
+                      (order.customerCity ?? '').trim(),
+                    ].where((entry) => entry.isNotEmpty).join(', ')}',
+                  ),
+                  const SizedBox(height: 4),
+                ] else ...[
+                  const Text('Abholung in der Filiale'),
+                  const SizedBox(height: 4),
+                ],
                 Text('Status: ${_statusLabel(order.status)}'),
                 const SizedBox(height: 4),
                 Text(
@@ -5319,11 +5361,13 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
           _paymentType == _CheckoutPaymentType.online &&
           _requiresLoginForOnlinePayment &&
           !widget.customerLoggedIn;
+      final blockedByMissingStripe = !_supportsStripePayment;
       final disabled = _isSubmitting ||
           _lines.isEmpty ||
           !hasName ||
           belowMinOrder ||
           missingDeliveryCoordinates ||
+          blockedByMissingStripe ||
           blockedByLogin ||
           blockedByOnlinePaymentLogin ||
           !_deliveryAddressReady;
@@ -5337,6 +5381,8 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
               ? 'Mindestbestellwert nicht erreicht'
               : missingDeliveryCoordinates
               ? 'Bitte Lieferadresse auswählen'
+              : blockedByMissingStripe
+              ? 'Stripe-Zahlung nicht verfügbar'
               : blockedByOnlinePaymentLogin
               ? 'Bitte zuerst einloggen'
               : 'Zahlungspflichtig bestellen',
@@ -6109,7 +6155,7 @@ class _CartLine {
 
 enum _CheckoutServiceType { delivery, pickup }
 
-enum _CheckoutPaymentType { cash, online }
+enum _CheckoutPaymentType { online }
 
 bool _isValidZipCode(String value) {
   return RegExp(r'^\d{5}$').hasMatch(value.trim());
@@ -6270,11 +6316,26 @@ String _serviceTypeLabel(_CheckoutServiceType value) {
 
 String _paymentTypeLabel(_CheckoutPaymentType value) {
   switch (value) {
-    case _CheckoutPaymentType.cash:
-      return 'Barzahlung';
     case _CheckoutPaymentType.online:
-      return 'Online bezahlen';
+      return 'Stripe / Online bezahlen';
   }
+}
+
+String _publicOrderServiceTypeLabel(
+  String? rawValue, {
+  _CheckoutServiceType? fallback,
+}) {
+  final normalized = (rawValue ?? '').trim().toUpperCase();
+  if (normalized == 'PICKUP') {
+    return 'Abholung';
+  }
+  if (normalized == 'DELIVERY') {
+    return 'Lieferung';
+  }
+  if (fallback != null) {
+    return _serviceTypeLabel(fallback);
+  }
+  return 'Bestellung';
 }
 
 String _statusLabel(String status) {

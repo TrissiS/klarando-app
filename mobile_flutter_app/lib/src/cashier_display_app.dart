@@ -94,6 +94,68 @@ class _GeoPoint {
   final double longitude;
 }
 
+class _CancelOrderDialog extends StatefulWidget {
+  const _CancelOrderDialog();
+
+  @override
+  State<_CancelOrderDialog> createState() => _CancelOrderDialogState();
+}
+
+class _CancelOrderDialogState extends State<_CancelOrderDialog> {
+  late final TextEditingController _reasonController;
+
+  @override
+  void initState() {
+    super.initState();
+    _reasonController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  void _closeWithResult(String? reason) {
+    if (!context.mounted) {
+      return;
+    }
+    Navigator.of(context).pop(reason);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Bestellung stornieren?'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Bestellung wirklich stornieren?'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _reasonController,
+            decoration: const InputDecoration(
+              labelText: 'Grund (optional)',
+              hintText: 'z. B. Kunde nicht erreichbar',
+            ),
+            maxLines: 2,
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => _closeWithResult(null),
+          child: const Text('Abbrechen'),
+        ),
+        FilledButton(
+          onPressed: () => _closeWithResult(_reasonController.text.trim()),
+          child: const Text('Stornieren'),
+        ),
+      ],
+    );
+  }
+}
+
 class KlarandoOrderDeskApp extends StatelessWidget {
   const KlarandoOrderDeskApp({super.key});
 
@@ -778,6 +840,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         displayCode: _displayCodeController.text.trim(),
         orderId: order.id,
         status: 'archived',
+        authToken: _deviceAuthToken,
       );
       if (!mounted) {
         return;
@@ -859,60 +922,148 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _acceptOrder(PublicOrderSummary order) async {
+    _logOrderActionPressed(
+      action: 'accept_order',
+      orderId: order.id,
+      targetStatus: 'accepted',
+    );
     final eta = await _askEtaMinutes(initial: order.estimatedMinutes ?? 20);
     if (eta == null) {
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'cancelled action=accept_order orderId=${order.id} reason=eta_dialog_cancelled',
+      );
       return;
     }
-    await _runOrderMutation(() async {
-      await _api.acceptPublicOrderDisplayOrder(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        estimatedMinutes: eta,
-      );
-      _markOrderAsHandledForTone(order.id, reason: 'ORDER accepted');
-      await _pollFeed();
-      _info = 'Bestellung angenommen (${eta} Min).';
-    });
+    await _runOrderMutation(
+      actionLabel: 'accept_order',
+      orderId: order.id,
+      targetStatus: 'accepted',
+      action: () async {
+        if (!_ensureOrderActionReady(action: 'accept_order', orderId: order.id)) {
+          return;
+        }
+        await _api.acceptPublicOrderDisplayOrder(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          estimatedMinutes: eta,
+          authToken: _deviceAuthToken,
+          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
+            action: 'accept_order',
+            orderId: order.id,
+            statusCode: statusCode,
+            responseBody: responseBody,
+          ),
+        );
+        _markOrderAsHandledForTone(order.id, reason: 'ORDER accepted');
+        await _pollFeed();
+        if (!mounted) {
+          return;
+        }
+        _info = 'Bestellung angenommen (${eta} Min).';
+      },
+    );
   }
 
   Future<void> _markPaid(PublicOrderSummary order) async {
-    await _runOrderMutation(() async {
-      await _api.updatePublicOrderDisplayPaymentStatus(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        paid: true,
-      );
-      await _api.updatePublicOrderDisplayOrderStatus(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        status: 'done',
-      );
-      await _pollFeed();
-      final isPickup = (order.serviceType ?? '').toUpperCase() == 'PICKUP';
-      _info = isPickup
-          ? 'Bestellung als abgeholt markiert.'
-          : 'Lieferung als abgeschlossen markiert.';
-    });
+    _logOrderActionPressed(
+      action: 'mark_paid_and_complete',
+      orderId: order.id,
+      targetStatus: 'done',
+    );
+    await _runOrderMutation(
+      actionLabel: 'mark_paid_and_complete',
+      orderId: order.id,
+      targetStatus: 'done',
+      action: () async {
+        if (!_ensureOrderActionReady(
+          action: 'mark_paid_and_complete',
+          orderId: order.id,
+        )) {
+          return;
+        }
+        await _api.updatePublicOrderDisplayPaymentStatus(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          paid: true,
+          authToken: _deviceAuthToken,
+          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
+            action: 'mark_paid',
+            orderId: order.id,
+            statusCode: statusCode,
+            responseBody: responseBody,
+          ),
+        );
+        await _api.updatePublicOrderDisplayOrderStatus(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          status: 'done',
+          authToken: _deviceAuthToken,
+          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
+            action: 'complete_after_paid',
+            orderId: order.id,
+            statusCode: statusCode,
+            responseBody: responseBody,
+          ),
+        );
+        await _pollFeed();
+        if (!mounted) {
+          return;
+        }
+        final isPickup = (order.serviceType ?? '').toUpperCase() == 'PICKUP';
+        _info = isPickup
+            ? 'Bestellung als abgeholt markiert.'
+            : 'Lieferung als abgeschlossen markiert.';
+      },
+    );
   }
 
   Future<void> _rejectOrder(PublicOrderSummary order) async {
-    await _runOrderMutation(() async {
-      await _api.updatePublicOrderDisplayOrderStatus(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        status: 'rejected',
-      );
-      await _pollFeed();
-      _info = 'Bestellung wurde abgelehnt.';
-    });
+    _logOrderActionPressed(
+      action: 'reject_order',
+      orderId: order.id,
+      targetStatus: 'rejected',
+    );
+    await _runOrderMutation(
+      actionLabel: 'reject_order',
+      orderId: order.id,
+      targetStatus: 'rejected',
+      action: () async {
+        if (!_ensureOrderActionReady(action: 'reject_order', orderId: order.id)) {
+          return;
+        }
+        await _api.updatePublicOrderDisplayOrderStatus(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          status: 'rejected',
+          authToken: _deviceAuthToken,
+          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
+            action: 'reject_order',
+            orderId: order.id,
+            statusCode: statusCode,
+            responseBody: responseBody,
+          ),
+        );
+        await _pollFeed();
+        if (!mounted) {
+          return;
+        }
+        _info = 'Bestellung wurde abgelehnt.';
+      },
+    );
   }
 
   Future<void> _completeOrder(PublicOrderSummary order) async {
     final isDelivery = (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
+    _logOrderActionPressed(
+      action: 'complete_order',
+      orderId: order.id,
+      targetStatus: 'done',
+    );
     if (order.paymentStatus.toUpperCase() != 'PAID') {
       await _markPaid(order);
       return;
@@ -927,58 +1078,58 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _cancelOrder(PublicOrderSummary order) async {
-    final reasonController = TextEditingController();
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Bestellung stornieren?'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Bestellung wirklich stornieren?'),
-              const SizedBox(height: 12),
-              TextField(
-                controller: reasonController,
-                decoration: const InputDecoration(
-                  labelText: 'Grund (optional)',
-                  hintText: 'z. B. Kunde nicht erreichbar',
-                ),
-                maxLines: 2,
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('Abbrechen'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Stornieren'),
-            ),
-          ],
-        );
-      },
-    );
-    if (confirm != true) {
-      reasonController.dispose();
+    if (!mounted) {
       return;
     }
-    final reason = reasonController.text.trim();
-    reasonController.dispose();
-    await _runOrderMutation(() async {
-      await _api.updatePublicOrderDisplayOrderStatus(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        status: 'cancelled',
+    _logOrderActionPressed(
+      action: 'cancel_order_dialog',
+      orderId: order.id,
+      targetStatus: 'cancelled',
+    );
+    final reason = await showDialog<String?>(
+      context: context,
+      builder: (_) => const _CancelOrderDialog(),
+    );
+    if (!mounted) {
+      return;
+    }
+    if (reason == null) {
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'cancelled action=cancel_order orderId=${order.id} reason=dialog_cancelled',
       );
-      await _pollFeed();
-      _info = reason.isEmpty
-          ? 'Bestellung wurde storniert.'
-          : 'Bestellung wurde storniert ($reason).';
-    });
+      return;
+    }
+    await _runOrderMutation(
+      actionLabel: 'cancel_order',
+      orderId: order.id,
+      targetStatus: 'cancelled',
+      action: () async {
+        if (!_ensureOrderActionReady(action: 'cancel_order', orderId: order.id)) {
+          return;
+        }
+        await _api.updatePublicOrderDisplayOrderStatus(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          status: 'cancelled',
+          authToken: _deviceAuthToken,
+          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
+            action: 'cancel_order',
+            orderId: order.id,
+            statusCode: statusCode,
+            responseBody: responseBody,
+          ),
+        );
+        await _pollFeed();
+        if (!mounted) {
+          return;
+        }
+        _info = reason.isEmpty
+            ? 'Bestellung wurde storniert.'
+            : 'Bestellung wurde storniert ($reason).';
+      },
+    );
   }
 
   Future<void> _setOrderStatus(
@@ -986,91 +1137,181 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     String status,
     String successMessage,
   ) async {
-    await _runOrderMutation(() async {
-      await _api.updatePublicOrderDisplayOrderStatus(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        status: status,
-      );
-      await _pollFeed();
-      _info = successMessage;
-    });
+    _logOrderActionPressed(
+      action: 'set_status',
+      orderId: order.id,
+      targetStatus: status,
+    );
+    await _runOrderMutation(
+      actionLabel: 'set_status',
+      orderId: order.id,
+      targetStatus: status,
+      action: () async {
+        if (!_ensureOrderActionReady(action: 'set_status', orderId: order.id)) {
+          return;
+        }
+        await _api.updatePublicOrderDisplayOrderStatus(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          status: status,
+          authToken: _deviceAuthToken,
+          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
+            action: 'set_status:$status',
+            orderId: order.id,
+            statusCode: statusCode,
+            responseBody: responseBody,
+          ),
+        );
+        await _pollFeed();
+        if (!mounted) {
+          return;
+        }
+        _info = successMessage;
+      },
+    );
   }
 
   Future<void> _dispatchOrder(PublicOrderSummary order) async {
+    _logOrderActionPressed(
+      action: 'dispatch_order',
+      orderId: order.id,
+      targetStatus: 'out_for_delivery',
+    );
     final dispatchTarget = await _askDispatchTarget();
     if (dispatchTarget == null) {
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'cancelled action=dispatch_order orderId=${order.id} reason=dispatch_dialog_cancelled',
+      );
       return;
     }
-    await _runOrderMutation(() async {
-      await _api.dispatchPublicOrderDisplayOrder(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        driverUserId: dispatchTarget.driverUserId,
-        driverName: dispatchTarget.driverName,
-        estimatedMinutes: order.estimatedMinutes ?? 30,
-      );
-      await _pollFeed();
-      _info = 'Fahrer ${dispatchTarget.label} zugewiesen.';
-    });
+    await _runOrderMutation(
+      actionLabel: 'dispatch_order',
+      orderId: order.id,
+      targetStatus: 'out_for_delivery',
+      action: () async {
+        if (!_ensureOrderActionReady(action: 'dispatch_order', orderId: order.id)) {
+          return;
+        }
+        await _api.dispatchPublicOrderDisplayOrder(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          driverUserId: dispatchTarget.driverUserId,
+          driverName: dispatchTarget.driverName,
+          estimatedMinutes: order.estimatedMinutes ?? 30,
+          authToken: _deviceAuthToken,
+          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
+            action: 'dispatch_order',
+            orderId: order.id,
+            statusCode: statusCode,
+            responseBody: responseBody,
+          ),
+        );
+        await _pollFeed();
+        if (!mounted) {
+          return;
+        }
+        _info = 'Fahrer ${dispatchTarget.label} zugewiesen.';
+      },
+    );
   }
 
   Future<void> _printOrder(
     PublicOrderSummary order, {
     String kind = 'both',
   }) async {
-    await _runOrderMutation(() async {
-      final jobsResponse = await _api.fetchPublicOrderDisplayReceiptJobs(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        kind: kind,
-      );
-      if (jobsResponse.jobs.isEmpty) {
-        throw const ApiException(
-          'Keine Druckjobs für diese Bestellung erhalten.',
+    await _runOrderMutation(
+      actionLabel: 'print_order',
+      orderId: order.id,
+      targetStatus: kind,
+      action: () async {
+        final jobsResponse = await _api.fetchPublicOrderDisplayReceiptJobs(
+          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+          displayCode: _displayCodeController.text.trim(),
+          orderId: order.id,
+          kind: kind,
         );
-      }
-      for (final job in jobsResponse.jobs) {
-        _printQueue.enqueue(orderId: order.id, job: job);
-      }
-      await _printQueue.process();
-      if (_printerMode == EscPosPrinterMode.disabled) {
-        _info = 'Druckjob erstellt (Drucker deaktiviert).';
-      } else if (_printerMode == EscPosPrinterMode.debugLog) {
-        final logPath = DebugLogEscPosPrinterTransport.lastLogFilePath;
-        _info = logPath == null
-            ? 'Debug-Druckjob protokolliert.'
-            : 'Debug-Druckjob protokolliert: $logPath';
-      } else {
-        _info = 'Druckjob gesendet.';
-      }
-    });
+        if (jobsResponse.jobs.isEmpty) {
+          throw const ApiException(
+            'Keine Druckjobs für diese Bestellung erhalten.',
+          );
+        }
+        for (final job in jobsResponse.jobs) {
+          _printQueue.enqueue(orderId: order.id, job: job);
+        }
+        await _printQueue.process();
+        if (_printerMode == EscPosPrinterMode.disabled) {
+          _info = 'Druckjob erstellt (Drucker deaktiviert).';
+        } else if (_printerMode == EscPosPrinterMode.debugLog) {
+          final logPath = DebugLogEscPosPrinterTransport.lastLogFilePath;
+          _info = logPath == null
+              ? 'Debug-Druckjob protokolliert.'
+              : 'Debug-Druckjob protokolliert: $logPath';
+        } else {
+          _info = 'Druckjob gesendet.';
+        }
+      },
+    );
   }
 
-  Future<void> _runOrderMutation(Future<void> Function() action) async {
+  Future<void> _runOrderMutation({
+    required String actionLabel,
+    String? orderId,
+    String? targetStatus,
+    required Future<void> Function() action,
+  }) async {
     if (_loading) {
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'ignored action=$actionLabel orderId=${orderId ?? '-'} target=${targetStatus ?? '-'} reason=loading_true',
+      );
+      return;
+    }
+    if (!mounted) {
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'ignored action=$actionLabel orderId=${orderId ?? '-'} target=${targetStatus ?? '-'} reason=widget_unmounted',
+      );
       return;
     }
     setState(() {
       _loading = true;
       _error = null;
-      _info = null;
+      _info = 'Aktion wird ausgefuehrt: $actionLabel';
     });
     try {
       await action();
-      if (mounted) {
-        setState(() {});
+      if (!mounted) {
+        return;
       }
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'completed action=$actionLabel orderId=${orderId ?? '-'} target=${targetStatus ?? '-'}',
+      );
+      setState(() {});
     } on ApiException catch (error) {
+      _logOrderActionError(
+        action: actionLabel,
+        orderId: orderId ?? '-',
+        targetStatus: targetStatus,
+        error: error,
+      );
       if (mounted) {
         setState(() {
-          _error = error.message;
+          _error = error.statusCode == null
+              ? error.message
+              : '${error.message} (HTTP ${error.statusCode})';
         });
       }
     } catch (error) {
+      _logOrderActionError(
+        action: actionLabel,
+        orderId: orderId ?? '-',
+        targetStatus: targetStatus,
+        error: error,
+      );
       if (mounted) {
         setState(() {
           _error = error.toString();
@@ -1211,7 +1452,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _checkForAppUpdate({bool silentWhenCurrent = false}) async {
-    await _runOrderMutation(() async {
+    await _runOrderMutation(
+      actionLabel: 'check_for_update',
+      action: () async {
       final result = await _appUpdateService.checkForUpdate(
         baseUrl: _normalizeBaseUrl(_baseUrlController.text),
         expectedFlavor: MobileAppFlavor.orderdesk,
@@ -1231,7 +1474,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         return;
       }
       await _showUpdateDialog(result);
-    });
+      },
+    );
   }
 
   Future<void> _showUpdateDialog(UpdateCheckResult result) async {
@@ -1346,7 +1590,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
 
     var bindingSuccessful = false;
-    await _runOrderMutation(() async {
+    await _runOrderMutation(
+      actionLabel: 'bind_orderdesk_device',
+      action: () async {
       OrderDeskBindResponse response;
       try {
         response = await _api.bindOrderDeskDevice(
@@ -1417,7 +1663,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             'OrderDesk wurde mit ${response.displayCode} verbunden (${response.binding.deviceSerial}).';
       });
       bindingSuccessful = true;
-    });
+      },
+    );
     if (bindingSuccessful) {
       await _connect();
     }
@@ -1603,40 +1850,43 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _runDemoPrintFlow() async {
-    await _runOrderMutation(() async {
-      final orderId = 'demo_${DateTime.now().microsecondsSinceEpoch}';
-      final customerJob = PublicOrderDisplayReceiptJob(
-        kind: 'CUSTOMER',
-        templateId: 'klarando.demo.customer.80mm.v1',
-        codepage: 'UTF8',
-        charsPerLine: 48,
-        escposBase64: base64Encode(_buildDemoEscPosBytes('DEMO KUNDENBON')),
-        escposHex: '',
-        bytesLength: 0,
-      );
-      final kitchenJob = PublicOrderDisplayReceiptJob(
-        kind: 'KITCHEN',
-        templateId: 'klarando.demo.kitchen.80mm.v1',
-        codepage: 'UTF8',
-        charsPerLine: 48,
-        escposBase64: base64Encode(_buildDemoEscPosBytes('DEMO KÜCHENBON')),
-        escposHex: '',
-        bytesLength: 0,
-      );
+    await _runOrderMutation(
+      actionLabel: 'demo_print',
+      action: () async {
+        final orderId = 'demo_${DateTime.now().microsecondsSinceEpoch}';
+        final customerJob = PublicOrderDisplayReceiptJob(
+          kind: 'CUSTOMER',
+          templateId: 'klarando.demo.customer.80mm.v1',
+          codepage: 'UTF8',
+          charsPerLine: 48,
+          escposBase64: base64Encode(_buildDemoEscPosBytes('DEMO KUNDENBON')),
+          escposHex: '',
+          bytesLength: 0,
+        );
+        final kitchenJob = PublicOrderDisplayReceiptJob(
+          kind: 'KITCHEN',
+          templateId: 'klarando.demo.kitchen.80mm.v1',
+          codepage: 'UTF8',
+          charsPerLine: 48,
+          escposBase64: base64Encode(_buildDemoEscPosBytes('DEMO KÜCHENBON')),
+          escposHex: '',
+          bytesLength: 0,
+        );
 
-      _printQueue.enqueue(orderId: orderId, job: customerJob);
-      _printQueue.enqueue(orderId: orderId, job: kitchenJob);
-      await _printQueue.process();
+        _printQueue.enqueue(orderId: orderId, job: customerJob);
+        _printQueue.enqueue(orderId: orderId, job: kitchenJob);
+        await _printQueue.process();
 
-      if (_printerMode == EscPosPrinterMode.debugLog) {
-        final logPath = DebugLogEscPosPrinterTransport.lastLogFilePath;
-        _info = logPath == null
-            ? 'Demo-Druckjob protokolliert.'
-            : 'Demo-Druckjob protokolliert: $logPath';
-      } else {
-        _info = 'Demo-Druckjob verarbeitet.';
-      }
-    });
+        if (_printerMode == EscPosPrinterMode.debugLog) {
+          final logPath = DebugLogEscPosPrinterTransport.lastLogFilePath;
+          _info = logPath == null
+              ? 'Demo-Druckjob protokolliert.'
+              : 'Demo-Druckjob protokolliert: $logPath';
+        } else {
+          _info = 'Demo-Druckjob verarbeitet.';
+        }
+      },
+    );
   }
 
   List<int> _buildDemoEscPosBytes(String headline) {
@@ -1732,6 +1982,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       category: category,
       message: message,
     );
+    debugPrint('[OrderDesk][$category] $message');
     _localErrorLog.insert(0, entry);
     if (_localErrorLog.length > 30) {
       _localErrorLog.removeRange(30, _localErrorLog.length);
@@ -1741,6 +1992,112 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   void _appendStatusSnapshot() {
     final status = _connectionStatusLabel(_connectionHealth(DateTime.now()));
     _appendLocalLog('STATUS', status);
+  }
+
+  String _formatResponseBodyForLog(Map<String, dynamic>? body) {
+    if (body == null || body.isEmpty) {
+      return '{}';
+    }
+    try {
+      return jsonEncode(body);
+    } catch (_) {
+      return body.toString();
+    }
+  }
+
+  bool _ensureOrderActionReady({
+    required String action,
+    required String orderId,
+  }) {
+    final trimmedOrderId = orderId.trim();
+    final trimmedDisplayCode = _displayCodeController.text.trim();
+    final token = (_deviceAuthToken ?? '').trim();
+    final tokenType = _detectStoredTokenType(_deviceAuthToken);
+
+    if (trimmedOrderId.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _error = 'Aktion fehlgeschlagen: orderId fehlt.';
+        });
+      }
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'blocked action=$action orderId=<empty> reason=missing_order_id',
+      );
+      return false;
+    }
+
+    if (trimmedDisplayCode.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _error = 'Bitte zuerst einen Display-Code hinterlegen.';
+        });
+      }
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'blocked action=$action orderId=$trimmedOrderId reason=missing_display_code',
+      );
+      return false;
+    }
+
+    if (token.isEmpty || !_isSessionToken(_deviceAuthToken)) {
+      if (mounted) {
+        setState(() {
+          _error =
+              'Keine gueltige OrderDesk-Sitzung vorhanden. Bitte Geraet erneut verbinden.';
+        });
+      }
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'blocked action=$action orderId=$trimmedOrderId reason=invalid_session tokenType=$tokenType',
+      );
+      return false;
+    }
+
+    return true;
+  }
+
+  void _logOrderActionPressed({
+    required String action,
+    required String orderId,
+    String? targetStatus,
+  }) {
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'pressed action=$action orderId=$orderId target=${targetStatus ?? '-'} loading=$_loading',
+    );
+  }
+
+  void _logOrderActionResponse({
+    required String action,
+    required String orderId,
+    required int statusCode,
+    required Map<String, dynamic> responseBody,
+  }) {
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'response action=$action orderId=$orderId status=$statusCode body=${_formatResponseBodyForLog(responseBody)}',
+    );
+  }
+
+  void _logOrderActionError({
+    required String action,
+    required String orderId,
+    required Object error,
+    String? targetStatus,
+  }) {
+    if (error is ApiException) {
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'error action=$action orderId=$orderId target=${targetStatus ?? '-'} status=${error.statusCode ?? '-'} body=${_formatResponseBodyForLog(error.responseBody)} message=${error.message}',
+      );
+      return;
+    }
+
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'error action=$action orderId=$orderId target=${targetStatus ?? '-'} message=$error',
+    );
   }
 
   String _formatLogTime(DateTime value) {
@@ -2938,7 +3295,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               tooltip: 'Aktualisieren',
               onPressed: _loading
                   ? null
-                  : () => _runOrderMutation(() => _pollFeed()),
+                  : () => _runOrderMutation(
+                        actionLabel: 'refresh_feed',
+                        action: () => _pollFeed(),
+                      ),
               icon: const Icon(Icons.refresh),
             ),
           IconButton(
@@ -2965,6 +3325,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               else
                 _buildDisconnectedInfoCard(),
               const SizedBox(height: 8),
+              if (_loading) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 6),
+                Text(
+                  _info ?? 'Aktion wird ausgefuehrt ...',
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ],
               if (_error != null)
                 Text(
                   _error!,
@@ -3308,10 +3676,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   OutlinedButton.icon(
                     onPressed: _loading
                         ? null
-                        : () => _runOrderMutation(() async {
-                            await _sendOrderDeskHeartbeatIfNeeded();
-                            await _pollFeed(silent: true);
-                          }),
+                        : () => _runOrderMutation(
+                              actionLabel: 'reconnect_orderdesk',
+                              action: () async {
+                                await _sendOrderDeskHeartbeatIfNeeded();
+                                await _pollFeed(silent: true);
+                              },
+                            ),
                     icon: const Icon(Icons.refresh_rounded, size: 16),
                     label: const Text('Neu verbinden'),
                   ),

@@ -2359,12 +2359,16 @@ class KlarandoApi {
     required String displayCode,
     required String orderId,
     required int estimatedMinutes,
+    String? authToken,
+    void Function(int statusCode, Map<String, dynamic> responseBody)? onResponseDebug,
   }) async {
     final response = await _request(
       baseUrl: baseUrl,
       method: 'POST',
       path: '/api/order-displays/public/$displayCode/orders/$orderId/accept',
+      headers: authToken == null ? null : {'Authorization': 'Bearer $authToken'},
       body: {'estimatedMinutes': estimatedMinutes},
+      onResponseDebug: onResponseDebug,
     );
     return PublicOrderSummary.fromJson(response);
   }
@@ -2374,12 +2378,16 @@ class KlarandoApi {
     required String displayCode,
     required String orderId,
     required bool paid,
+    String? authToken,
+    void Function(int statusCode, Map<String, dynamic> responseBody)? onResponseDebug,
   }) async {
     final response = await _request(
       baseUrl: baseUrl,
       method: 'POST',
       path: '/api/order-displays/public/$displayCode/orders/$orderId/payment',
+      headers: authToken == null ? null : {'Authorization': 'Bearer $authToken'},
       body: {'paid': paid},
+      onResponseDebug: onResponseDebug,
     );
     return PublicOrderSummary.fromJson(response);
   }
@@ -2391,16 +2399,20 @@ class KlarandoApi {
     String? driverUserId,
     String? driverName,
     int? estimatedMinutes,
+    String? authToken,
+    void Function(int statusCode, Map<String, dynamic> responseBody)? onResponseDebug,
   }) async {
     final response = await _request(
       baseUrl: baseUrl,
       method: 'POST',
       path: '/api/order-displays/public/$displayCode/orders/$orderId/dispatch',
+      headers: authToken == null ? null : {'Authorization': 'Bearer $authToken'},
       body: {
         'driverUserId': driverUserId,
         'driverName': driverName,
         'estimatedMinutes': estimatedMinutes,
       },
+      onResponseDebug: onResponseDebug,
     );
     return PublicOrderSummary.fromJson(response);
   }
@@ -2410,12 +2422,16 @@ class KlarandoApi {
     required String displayCode,
     required String orderId,
     required String status,
+    String? authToken,
+    void Function(int statusCode, Map<String, dynamic> responseBody)? onResponseDebug,
   }) async {
     final response = await _request(
       baseUrl: baseUrl,
       method: 'POST',
       path: '/api/order-displays/public/$displayCode/orders/$orderId/status',
+      headers: authToken == null ? null : {'Authorization': 'Bearer $authToken'},
       body: {'status': status},
+      onResponseDebug: onResponseDebug,
     );
     return PublicOrderSummary.fromJson(response);
   }
@@ -2426,13 +2442,17 @@ class KlarandoApi {
     required String orderId,
     required String itemId,
     required String status,
+    String? authToken,
+    void Function(int statusCode, Map<String, dynamic> responseBody)? onResponseDebug,
   }) async {
     final response = await _request(
       baseUrl: baseUrl,
       method: 'POST',
       path:
           '/api/order-displays/public/$displayCode/orders/$orderId/items/$itemId/status',
+      headers: authToken == null ? null : {'Authorization': 'Bearer $authToken'},
       body: {'status': status},
+      onResponseDebug: onResponseDebug,
     );
     return PublicOrderSummary.fromJson(response);
   }
@@ -2720,6 +2740,7 @@ class KlarandoApi {
     Map<String, String>? query,
     Map<String, String>? headers,
     Map<String, dynamic>? body,
+    void Function(int statusCode, Map<String, dynamic> responseBody)? onResponseDebug,
   }) async {
     final normalizedBase = _normalizeBaseUrl(baseUrl);
     final uri = Uri.parse(
@@ -2732,6 +2753,7 @@ class KlarandoApi {
       body: body,
     );
     final responseJson = _tryDecodeMap(response.body);
+    onResponseDebug?.call(response.statusCode, responseJson);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
         throw ApiException(
