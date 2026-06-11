@@ -11,6 +11,11 @@ import { rateLimitOrderDeskPairing } from '../middleware/rate-limit'
 
 const router = Router()
 
+function summarizeOrderDeskAuthDebugToken(token: string | null | undefined) {
+  const normalized = typeof token === 'string' ? token.trim() : ''
+  return normalized ? normalized.slice(0, 8) : '-'
+}
+
 const ORDERDESK_DEVICE_MODULE = 'orderdesk_device'
 const ORDERDESK_DEVICE_TARGET_TYPE = 'orderdesk_device_binding'
 const ORDERDESK_PAIRING_TARGET_TYPE = 'orderdesk_pairing_session'
@@ -617,7 +622,18 @@ router.post('/public/bind', rateLimitOrderDeskPairing, async (req, res) => {
       })
     }
 
-    const tokenPayload = verifyOrderDeskDeviceToken(parsedPair.token as string)
+    const rawPairingToken = parsedPair.token as string
+    const tokenPayload = verifyOrderDeskDeviceToken(rawPairingToken)
+    console.info('ORDERDESK_AUTH_DEBUG', {
+      action: 'bind',
+      headerPresent: 'NEIN',
+      tokenPrefix: summarizeOrderDeskAuthDebugToken(rawPairingToken),
+      sessionFound: tokenPayload ? 'JA' : 'NEIN',
+      sessionStatus: !tokenPayload ? 'invalid_or_expired' : tokenPayload.kind,
+      tenantId: tokenPayload?.tenantId ?? null,
+      branchId: tokenPayload?.displayCode ?? null,
+      deviceId: normalizeDeviceSerial(payload.deviceSerial) ?? null,
+    })
     if (!tokenPayload || tokenPayload.kind !== 'PAIRING') {
       return res.status(401).json({ error: 'OrderDesk-QR ist ungültig oder abgelaufen' })
     }
@@ -645,6 +661,24 @@ router.post('/public/bind', rateLimitOrderDeskPairing, async (req, res) => {
         consumedAt: true,
         revokedAt: true,
       },
+    })
+    console.info('ORDERDESK_AUTH_DEBUG', {
+      action: 'bind_session_lookup',
+      headerPresent: 'NEIN',
+      tokenPrefix: summarizeOrderDeskAuthDebugToken(rawPairingToken),
+      sessionFound: pairingSession ? 'JA' : 'NEIN',
+      sessionStatus: !pairingSession
+        ? 'missing'
+        : pairingSession.revokedAt
+        ? 'revoked'
+        : pairingSession.consumedAt
+        ? 'consumed'
+        : pairingSession.expiresAt.getTime() <= Date.now()
+        ? 'expired'
+        : 'active',
+      tenantId: pairingSession?.tenantId ?? tokenPayload.tenantId,
+      branchId: pairingSession?.displayCode ?? tokenPayload.displayCode,
+      deviceId: normalizeDeviceSerial(payload.deviceSerial) ?? null,
     })
     if (!pairingSession) {
       return res.status(404).json({ error: 'Pairing-Session wurde nicht gefunden' })
@@ -789,6 +823,16 @@ router.post('/public/bind', rateLimitOrderDeskPairing, async (req, res) => {
       kind: 'SESSION',
       expiresAtMs: sessionExpiresAtMs,
     })
+    console.info('ORDERDESK_AUTH_DEBUG', {
+      action: 'bind_issued_session',
+      headerPresent: 'NEIN',
+      tokenPrefix: summarizeOrderDeskAuthDebugToken(sessionToken),
+      sessionFound: 'JA',
+      sessionStatus: 'issued',
+      tenantId: display.tenantId,
+      branchId: display.displayCode,
+      deviceId: binding.deviceSerial,
+    })
 
     await writeAuditLog({
       req,
@@ -845,6 +889,16 @@ router.post('/public/heartbeat', async (req, res) => {
   try {
     const authHeader = req.header('authorization')
     if (!authHeader || !authHeader.toLowerCase().startsWith('bearer ')) {
+      console.info('ORDERDESK_AUTH_DEBUG', {
+        action: 'heartbeat',
+        headerPresent: 'NEIN',
+        tokenPrefix: '-',
+        sessionFound: 'NEIN',
+        sessionStatus: 'missing_header',
+        tenantId: null,
+        branchId: null,
+        deviceId: null,
+      })
       return res.status(401).json({
         error: 'OrderDesk-Sitzung fehlt',
         code: 'ORDERDESK_SESSION_MISSING',
@@ -852,6 +906,16 @@ router.post('/public/heartbeat', async (req, res) => {
     }
     const token = authHeader.slice(7).trim()
     const tokenPayload = verifyOrderDeskDeviceToken(token)
+    console.info('ORDERDESK_AUTH_DEBUG', {
+      action: 'heartbeat',
+      headerPresent: 'JA',
+      tokenPrefix: summarizeOrderDeskAuthDebugToken(token),
+      sessionFound: tokenPayload ? 'JA' : 'NEIN',
+      sessionStatus: !tokenPayload ? 'invalid_or_expired' : tokenPayload.kind,
+      tenantId: tokenPayload?.tenantId ?? null,
+      branchId: tokenPayload?.displayCode ?? null,
+      deviceId: tokenPayload?.deviceSerial ?? null,
+    })
     if (!tokenPayload || tokenPayload.kind !== 'SESSION') {
       return res.status(401).json({
         error: 'OrderDesk-Sitzung ist ungültig oder abgelaufen',
@@ -875,6 +939,16 @@ router.post('/public/heartbeat', async (req, res) => {
         isActive: true,
         lastSeenAt: true,
       },
+    })
+    console.info('ORDERDESK_AUTH_DEBUG', {
+      action: 'heartbeat_binding_lookup',
+      headerPresent: 'JA',
+      tokenPrefix: summarizeOrderDeskAuthDebugToken(token),
+      sessionFound: binding ? 'JA' : 'NEIN',
+      sessionStatus: !binding ? 'binding_missing' : binding.isActive ? 'binding_active' : 'binding_inactive',
+      tenantId: binding?.tenantId ?? tokenPayload.tenantId,
+      branchId: binding?.displayCode ?? tokenPayload.displayCode,
+      deviceId: binding?.deviceSerial ?? tokenPayload.deviceSerial,
     })
     if (!binding || !binding.isActive) {
       return res.status(403).json({

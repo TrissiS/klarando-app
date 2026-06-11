@@ -2529,72 +2529,121 @@ router.post(
       tenantId: display.tenantId,
       reason: 'accept_order_requested',
     })
-    const updated = await prisma.order.update({
-      where: { id: orderId },
-      data: buildOrderAcceptanceUpdate({
-        currentStatus: currentWorkflowStatus,
-        currentAcceptedAt: existingOrder.acceptedAt,
+    let updated: Awaited<ReturnType<typeof prisma.order.update>>
+    try {
+      console.info('ORDER_ACCEPT_UPDATE_ATTEMPT', {
+        orderId: existingOrder.id,
+        currentStatus: existingOrder.status,
+        paymentStatus: existingOrder.paymentStatus,
+        requestedStatus: 'accepted',
         estimatedMinutes: Math.round(parsedEstimatedMinutes),
         pickupNumber,
-        now,
-      }),
-      include: {
-        terminal: {
-          select: {
-            id: true,
-            name: true,
-            terminalCode: true,
-            location: true,
+        userRole: req.authUser?.role ?? 'ORDERDESK_DEVICE',
+        tenantId: display.tenantId,
+      })
+      updated = await prisma.order.update({
+        where: { id: orderId },
+        data: buildOrderAcceptanceUpdate({
+          currentStatus: currentWorkflowStatus,
+          currentAcceptedAt: existingOrder.acceptedAt,
+          estimatedMinutes: Math.round(parsedEstimatedMinutes),
+          pickupNumber,
+          now,
+        }),
+        include: {
+          terminal: {
+            select: {
+              id: true,
+              name: true,
+              terminalCode: true,
+              location: true,
+            },
           },
-        },
-        tenant: {
-          select: {
-            id: true,
-            name: true,
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+            },
           },
-        },
-        appCustomerAccount: {
-          select: {
-            id: true,
-            email: true,
-            fullName: true,
+          appCustomerAccount: {
+            select: {
+              id: true,
+              email: true,
+              fullName: true,
+            },
           },
-        },
-        items: {
-          include: {
-            product: {
-              include: {
-                category: {
-                  select: {
-                    id: true,
-                    name: true,
-                    imageUrl: true,
+          items: {
+            include: {
+              product: {
+                include: {
+                  category: {
+                    select: {
+                      id: true,
+                      name: true,
+                      imageUrl: true,
+                    },
                   },
                 },
               },
             },
           },
         },
-      },
-    })
-
-    await writeAuditLog({
-      req,
-      module: 'order_display',
-      action: 'order_accepted_with_eta',
-      targetType: 'order',
-      targetId: updated.id,
-      tenantId: updated.tenantId,
-      metadata: {
-        displayId: display.id,
-        displayRole: display.displayRole,
+      })
+      console.info('ORDER_ACCEPT_UPDATE_SUCCESS', {
+        orderId: updated.id,
+        previousStatus: existingOrder.status,
+        nextStatus: updated.status,
+        paymentStatus: updated.paymentStatus,
+        estimatedMinutes: updated.estimatedMinutes,
+        tenantId: updated.tenantId,
+        userRole: req.authUser?.role ?? 'ORDERDESK_DEVICE',
+      })
+    } catch (error) {
+      const transitionError = asOrderTransitionError(error)
+      console.error('ORDER_ACCEPT_UPDATE_FAILED', {
+        orderId: existingOrder.id,
+        currentStatus: existingOrder.status,
+        paymentStatus: existingOrder.paymentStatus,
+        requestedStatus: 'accepted',
         estimatedMinutes: Math.round(parsedEstimatedMinutes),
-        pickupNumber,
-      },
-    })
+        tenantId: display.tenantId,
+        userRole: req.authUser?.role ?? 'ORDERDESK_DEVICE',
+        message:
+          transitionError?.message ??
+          (error instanceof Error ? error.message : String(error)),
+      })
+      throw error
+    }
+
+    try {
+      await writeAuditLog({
+        req,
+        module: 'order_display',
+        action: 'order_accepted_with_eta',
+        targetType: 'order',
+        targetId: updated.id,
+        tenantId: updated.tenantId,
+        metadata: {
+          displayId: display.id,
+          displayRole: display.displayRole,
+          estimatedMinutes: Math.round(parsedEstimatedMinutes),
+          pickupNumber,
+        },
+      })
+    } catch (error) {
+      console.error('ORDER_ACCEPT_AUDIT_FAILED', {
+        orderId: updated.id,
+        tenantId: updated.tenantId,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
 
     return res.json(updated)
   } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
       return res.status(scopeError.status).json({ error: scopeError.message })
