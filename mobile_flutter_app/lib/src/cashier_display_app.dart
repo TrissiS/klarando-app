@@ -205,6 +205,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _newOrderAudioPlaying = false;
   bool _loading = false;
   bool _connected = false;
+  bool _deviceSessionAuthenticated = false;
   bool _bindingLocked = false;
   bool _showManualConnection = false;
   _OrderDeskViewMode _viewMode = _OrderDeskViewMode.open;
@@ -234,6 +235,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   String? _lastHeartbeatResponseBody;
   int? _lastBindHttpStatus;
   String? _lastBindResponseBody;
+  int? _lastAuthCheckHttpStatus;
   String? _lastStoredTokenType;
   bool _hasLoadedInitialFeed = false;
   final List<_OrderDeskLogEntry> _localErrorLog = <_OrderDeskLogEntry>[];
@@ -259,6 +261,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   int _orderToneRepeatSeconds = 60;
   DateTime? _lastOrderTonePlayedAt;
   String? _lastOrderToneError;
+
+  bool get _hasStoredSessionToken =>
+      (_deviceAuthToken ?? '').trim().isNotEmpty &&
+      _isSessionToken(_deviceAuthToken);
+
+  bool get _hasAuthenticatedOrderDeskSession =>
+      _hasStoredSessionToken &&
+      (_bindingId ?? '').trim().isNotEmpty &&
+      _deviceSessionAuthenticated;
+
+  int get _deviceTokenLength => (_deviceAuthToken ?? '').trim().length;
+
+  String get _deviceTokenPrefix {
+    final token = (_deviceAuthToken ?? '').trim();
+    if (token.isEmpty) {
+      return '-';
+    }
+    return token.length <= 8 ? token : token.substring(0, 8);
+  }
+
+  bool get _hasTenantDebugValue =>
+      _manualTenantIdController.text.trim().isNotEmpty ||
+      (_connectedTenantName ?? '').trim().isNotEmpty;
+
+  bool get _hasBranchDebugValue => _displayCodeController.text.trim().isNotEmpty;
+
+  bool get _hasDeviceIdDebugValue => _deviceSerialController.text.trim().isNotEmpty;
 
   @override
   void initState() {
@@ -391,6 +420,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     _deviceAuthToken = deviceToken;
     _bindingId = bindingId;
+    _deviceSessionAuthenticated = false;
     _lastStoredTokenType = _detectStoredTokenType(deviceToken);
     _bindingLocked =
         (bindingId ?? '').trim().isNotEmpty &&
@@ -506,12 +536,18 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   Future<void> _connect() async {
     if ((_deviceAuthToken ?? '').trim().isEmpty) {
       setState(() {
+        _connected = false;
+        _deviceSessionAuthenticated = false;
+        _bindingLocked = false;
         _error = 'Bitte zuerst per QR-Code mit dem System verbinden.';
       });
       return;
     }
     if (!_isSessionToken(_deviceAuthToken)) {
       setState(() {
+        _connected = false;
+        _deviceSessionAuthenticated = false;
+        _bindingLocked = false;
         _error =
             'Kein gültiger Session-Token gespeichert. Bitte Gerät im Servicebereich neu koppeln.';
       });
@@ -519,6 +555,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     if ((_bindingId ?? '').trim().isEmpty) {
       setState(() {
+        _connected = false;
+        _deviceSessionAuthenticated = false;
+        _bindingLocked = false;
         _error = 'Keine Binding-ID gespeichert. Bitte Gerät im Servicebereich neu koppeln.';
       });
       return;
@@ -557,6 +596,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
       setState(() {
         _connected = true;
+        _deviceSessionAuthenticated = true;
         _lastSuccessfulSyncAt = DateTime.now();
         _lastOrdersLoadAt = DateTime.now();
         _showManualConnection = false;
@@ -593,6 +633,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   Future<void> _pollFeed({bool silent = false}) async {
     try {
+      _appendLocalLog(
+        'ORDERS',
+        'feed_request tokenPresent=nein headerNames=- endpoint=/api/order-displays/public/${_displayCodeController.text.trim()}/feed',
+      );
       final response = await _api.fetchPublicOrderDisplayFeed(
         baseUrl: _normalizeBaseUrl(_baseUrlController.text),
         displayCode: _displayCodeController.text.trim(),
@@ -607,7 +651,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _now = DateTime.now();
         _lastSuccessfulSyncAt = DateTime.now();
         _lastOrdersLoadAt = DateTime.now();
-        _connected = true;
+        _connected = _deviceSessionAuthenticated;
         _isReconnecting = false;
         _consecutiveApiFailures = 0;
         _lastApiError = null;
@@ -668,6 +712,28 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return null;
     }
     return value.trim();
+  }
+
+  void _invalidateOrderDeskSession({
+    required String reason,
+    int? statusCode,
+    String? message,
+  }) {
+    _appendLocalLog(
+      'AUTH',
+      'session_invalidated reason=$reason status=${statusCode ?? '-'} tokenPresent=${_hasStoredSessionToken ? 'ja' : 'nein'} tokenPrefix=$_deviceTokenPrefix',
+    );
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _connected = false;
+      _deviceSessionAuthenticated = false;
+      _bindingLocked = false;
+      _lastAuthCheckHttpStatus = statusCode;
+      _error = message ?? _error;
+      _info = 'OrderDesk-Sitzung ungültig oder abgelaufen. Bitte Gerät neu verbinden.';
+    });
   }
 
   void _handleOrderFeedSignals(List<PublicOrderSummary> orders) {
@@ -933,28 +999,41 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         'ORDER_ACTION',
         'cancelled action=accept_order orderId=${order.id} reason=eta_dialog_cancelled',
       );
+      if (mounted) {
+        setState(() {
+          _error = 'Keine Zeit uebernommen. Bestellung wurde nicht angenommen.';
+        });
+      }
+      _showOrderDeskSnackBar(
+        'Keine Zeit uebernommen. Bestellung ${order.id} wurde nicht angenommen.',
+        isError: true,
+      );
       return;
     }
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'eta_selected action=accept_order orderId=${order.id} minutes=$eta target=accepted',
+    );
+    _showOrderDeskSnackBar(
+      'Zeit uebernommen: $eta Min. fuer Bestellung ${order.id}',
+    );
     await _runOrderMutation(
       actionLabel: 'accept_order',
       orderId: order.id,
       targetStatus: 'accepted',
+      enteredMinutes: eta,
       action: () async {
         if (!_ensureOrderActionReady(action: 'accept_order', orderId: order.id)) {
           return;
         }
-        await _api.acceptPublicOrderDisplayOrder(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
+        await _postOrderDeskAction(
+          action: 'accept_order',
           orderId: order.id,
-          estimatedMinutes: eta,
-          authToken: _deviceAuthToken,
-          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
-            action: 'accept_order',
-            orderId: order.id,
-            statusCode: statusCode,
-            responseBody: responseBody,
-          ),
+          path:
+              '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/accept',
+          body: <String, dynamic>{'estimatedMinutes': eta},
+          targetStatus: 'accepted',
+          minutes: eta,
         );
         _markOrderAsHandledForTone(order.id, reason: 'ORDER accepted');
         await _pollFeed();
@@ -962,6 +1041,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           return;
         }
         _info = 'Bestellung angenommen (${eta} Min).';
+        _showOrderDeskSnackBar(
+          'Bestellung ${order.id} angenommen (${eta} Min.)',
+        );
       },
     );
   }
@@ -983,31 +1065,20 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         )) {
           return;
         }
-        await _api.updatePublicOrderDisplayPaymentStatus(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
+        await _postOrderDeskAction(
+          action: 'mark_paid',
           orderId: order.id,
-          paid: true,
-          authToken: _deviceAuthToken,
-          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
-            action: 'mark_paid',
-            orderId: order.id,
-            statusCode: statusCode,
-            responseBody: responseBody,
-          ),
+          path:
+              '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/payment',
+          body: const <String, dynamic>{'paid': true},
         );
-        await _api.updatePublicOrderDisplayOrderStatus(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
+        await _postOrderDeskAction(
+          action: 'complete_after_paid',
           orderId: order.id,
-          status: 'done',
-          authToken: _deviceAuthToken,
-          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
-            action: 'complete_after_paid',
-            orderId: order.id,
-            statusCode: statusCode,
-            responseBody: responseBody,
-          ),
+          path:
+              '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/status',
+          body: const <String, dynamic>{'status': 'done'},
+          targetStatus: 'done',
         );
         await _pollFeed();
         if (!mounted) {
@@ -1035,18 +1106,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         if (!_ensureOrderActionReady(action: 'reject_order', orderId: order.id)) {
           return;
         }
-        await _api.updatePublicOrderDisplayOrderStatus(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
+        await _postOrderDeskAction(
+          action: 'reject_order',
           orderId: order.id,
-          status: 'rejected',
-          authToken: _deviceAuthToken,
-          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
-            action: 'reject_order',
-            orderId: order.id,
-            statusCode: statusCode,
-            responseBody: responseBody,
-          ),
+          path:
+              '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/status',
+          body: const <String, dynamic>{'status': 'rejected'},
+          targetStatus: 'rejected',
         );
         await _pollFeed();
         if (!mounted) {
@@ -1108,18 +1174,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         if (!_ensureOrderActionReady(action: 'cancel_order', orderId: order.id)) {
           return;
         }
-        await _api.updatePublicOrderDisplayOrderStatus(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
+        await _postOrderDeskAction(
+          action: 'cancel_order',
           orderId: order.id,
-          status: 'cancelled',
-          authToken: _deviceAuthToken,
-          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
-            action: 'cancel_order',
-            orderId: order.id,
-            statusCode: statusCode,
-            responseBody: responseBody,
-          ),
+          path:
+              '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/status',
+          body: const <String, dynamic>{'status': 'cancelled'},
+          targetStatus: 'cancelled',
         );
         await _pollFeed();
         if (!mounted) {
@@ -1150,18 +1211,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         if (!_ensureOrderActionReady(action: 'set_status', orderId: order.id)) {
           return;
         }
-        await _api.updatePublicOrderDisplayOrderStatus(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
+        await _postOrderDeskAction(
+          action: 'set_status:$status',
           orderId: order.id,
-          status: status,
-          authToken: _deviceAuthToken,
-          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
-            action: 'set_status:$status',
-            orderId: order.id,
-            statusCode: statusCode,
-            responseBody: responseBody,
-          ),
+          path:
+              '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/status',
+          body: <String, dynamic>{'status': status},
+          targetStatus: status,
         );
         await _pollFeed();
         if (!mounted) {
@@ -1184,36 +1240,52 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         'ORDER_ACTION',
         'cancelled action=dispatch_order orderId=${order.id} reason=dispatch_dialog_cancelled',
       );
+      if (mounted) {
+        setState(() {
+          _error = 'Keine Fahrerzuweisung uebernommen.';
+        });
+      }
+      _showOrderDeskSnackBar(
+        'Keine Fahrerzuweisung uebernommen fuer Bestellung ${order.id}.',
+        isError: true,
+      );
       return;
     }
+    final dispatchEta = order.estimatedMinutes ?? 30;
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'dispatch_selected orderId=${order.id} minutes=$dispatchEta driver=${dispatchTarget.driverName}',
+    );
     await _runOrderMutation(
       actionLabel: 'dispatch_order',
       orderId: order.id,
       targetStatus: 'out_for_delivery',
+      enteredMinutes: dispatchEta,
       action: () async {
         if (!_ensureOrderActionReady(action: 'dispatch_order', orderId: order.id)) {
           return;
         }
-        await _api.dispatchPublicOrderDisplayOrder(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
+        await _postOrderDeskAction(
+          action: 'dispatch_order',
           orderId: order.id,
-          driverUserId: dispatchTarget.driverUserId,
-          driverName: dispatchTarget.driverName,
-          estimatedMinutes: order.estimatedMinutes ?? 30,
-          authToken: _deviceAuthToken,
-          onResponseDebug: (statusCode, responseBody) => _logOrderActionResponse(
-            action: 'dispatch_order',
-            orderId: order.id,
-            statusCode: statusCode,
-            responseBody: responseBody,
-          ),
+          path:
+              '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/dispatch',
+          body: <String, dynamic>{
+            'driverUserId': dispatchTarget.driverUserId,
+            'driverName': dispatchTarget.driverName,
+            'estimatedMinutes': dispatchEta,
+          },
+          targetStatus: 'out_for_delivery',
+          minutes: dispatchEta,
         );
         await _pollFeed();
         if (!mounted) {
           return;
         }
         _info = 'Fahrer ${dispatchTarget.label} zugewiesen.';
+        _showOrderDeskSnackBar(
+          'Bestellung ${order.id} weitergestellt (${dispatchEta} Min.)',
+        );
       },
     );
   }
@@ -1260,6 +1332,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     required String actionLabel,
     String? orderId,
     String? targetStatus,
+    int? enteredMinutes,
     required Future<void> Function() action,
   }) async {
     if (_loading) {
@@ -1296,6 +1369,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         action: actionLabel,
         orderId: orderId ?? '-',
         targetStatus: targetStatus,
+        minutes: enteredMinutes,
         error: error,
       );
       if (mounted) {
@@ -1310,6 +1384,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         action: actionLabel,
         orderId: orderId ?? '-',
         targetStatus: targetStatus,
+        minutes: enteredMinutes,
         error: error,
       );
       if (mounted) {
@@ -1329,6 +1404,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   Future<void> _sendOrderDeskHeartbeatIfNeeded({bool silent = false}) async {
     final token = _deviceAuthToken;
     if (token == null || token.trim().isEmpty) {
+      if (mounted) {
+        setState(() {
+          _connected = false;
+          _deviceSessionAuthenticated = false;
+        });
+      }
       return;
     }
     if (_heartbeatInFlight) {
@@ -1363,8 +1444,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _lastSuccessfulSyncAt = DateTime.now();
         _lastHeartbeatAt = DateTime.now();
         _lastHeartbeatHttpStatus = 200;
+        _lastAuthCheckHttpStatus = 200;
         _lastHeartbeatResponseBody = null;
         _connected = true;
+        _deviceSessionAuthenticated = true;
         _isReconnecting = false;
         _consecutiveHeartbeatFailures = 0;
         _lastHeartbeatError = null;
@@ -1395,22 +1478,23 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _isReconnecting = true;
         _lastHeartbeatError = error.message;
         _lastHeartbeatHttpStatus = error.statusCode;
+        _lastAuthCheckHttpStatus = error.statusCode;
         _lastHeartbeatResponseBody = error.responseBody == null
             ? null
             : jsonEncode(error.responseBody);
-        _connected = _lastOrdersLoadAt != null;
+        _connected = false;
+        if (error.statusCode == 401 || error.statusCode == 403) {
+          _deviceSessionAuthenticated = false;
+        }
       });
       _appendLocalLog('HEARTBEAT', 'failed: ${error.message}');
       _appendStatusSnapshot();
       if (error.statusCode == 403 || error.statusCode == 401) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _info =
-              'Heartbeat abgelehnt (Session ungültig/abgelaufen). Bindung bleibt gespeichert.';
-          _error = error.message;
-        });
+        _invalidateOrderDeskSession(
+          reason: 'heartbeat_rejected',
+          statusCode: error.statusCode,
+          message: error.message,
+        );
       }
     } on TimeoutException {
       if (!mounted) {
@@ -1421,8 +1505,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _isReconnecting = true;
         _lastHeartbeatError = 'Heartbeat-Timeout';
         _lastHeartbeatHttpStatus = null;
+        _lastAuthCheckHttpStatus = null;
         _lastHeartbeatResponseBody = null;
-        _connected = _lastOrdersLoadAt != null;
+        _connected = false;
         if (!silent) {
           _error = 'Verbindung zum Klarando-Server hat zu lange gedauert.';
         }
@@ -1438,8 +1523,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _isReconnecting = true;
         _lastHeartbeatError = error.toString();
         _lastHeartbeatHttpStatus = null;
+        _lastAuthCheckHttpStatus = null;
         _lastHeartbeatResponseBody = null;
-        _connected = _lastOrdersLoadAt != null;
+        _connected = false;
         if (!silent) {
           _error = error.toString();
         }
@@ -1619,7 +1705,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
         _prefsCashierBaseUrl,
-        _normalizeBaseUrl(_baseUrlController.text),
+        _normalizeBaseUrl(parsedPairing.apiBaseUrl),
       );
       await prefs.setString(_prefsCashierDisplayCode, response.displayCode);
       await prefs.setString(_prefsCashierDeviceToken, response.authToken);
@@ -1646,9 +1732,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         _deviceAuthToken = response.authToken;
         _bindingId = response.binding.id;
         _lastStoredTokenType = _detectStoredTokenType(response.authToken);
+        _deviceSessionAuthenticated = false;
         _bindingLocked = true;
         _connected = false;
         _lastBindHttpStatus = 200;
+        _lastAuthCheckHttpStatus = 200;
         _lastBindResponseBody = null;
         _lastSuccessfulSyncAt = null;
         _connectedTenantName = null;
@@ -1914,6 +2002,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (!_bindingLocked) {
       return _DeskConnectionHealth.offline;
     }
+    if (!_deviceSessionAuthenticated) {
+      return _DeskConnectionHealth.checking;
+    }
     final heartbeatFailed = _consecutiveHeartbeatFailures >= _heartbeatFailureOfflineThreshold;
     final apiFailed = _consecutiveApiFailures >= _heartbeatFailureOfflineThreshold;
     final hasOrdersSignal = _lastOrdersLoadAt != null;
@@ -1994,6 +2085,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     _appendLocalLog('STATUS', status);
   }
 
+  void _showOrderDeskSnackBar(String message, {bool isError = false}) {
+    if (!mounted) {
+      return;
+    }
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger == null) {
+      return;
+    }
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: isError ? const Color(0xFFB91C1C) : null,
+        ),
+      );
+  }
+
   String _formatResponseBodyForLog(Map<String, dynamic>? body) {
     if (body == null || body.isEmpty) {
       return '{}';
@@ -2003,6 +2112,122 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     } catch (_) {
       return body.toString();
     }
+  }
+
+  Map<String, dynamic> _decodeOrderDeskResponseBody(String raw) {
+    if (raw.trim().isEmpty) {
+      return <String, dynamic>{};
+    }
+    final decoded = jsonDecode(raw);
+    if (decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    return <String, dynamic>{'raw': decoded.toString()};
+  }
+
+  String _resolveOrderDeskResponseError(
+    Map<String, dynamic> responseBody,
+    int statusCode,
+  ) {
+    final directError = responseBody['error'];
+    if (directError is String && directError.trim().isNotEmpty) {
+      return directError.trim();
+    }
+    final directMessage = responseBody['message'];
+    if (directMessage is String && directMessage.trim().isNotEmpty) {
+      return directMessage.trim();
+    }
+    if (statusCode == 401) {
+      return 'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen. Bitte Gerät neu verbinden.';
+    }
+    return 'Serverfehler ($statusCode)';
+  }
+
+  Map<String, String> _buildOrderDeskActionHeaders({
+    required String token,
+  }) {
+    return <String, String>{
+      'accept': 'application/json',
+      'content-type': 'application/json',
+      'Authorization': 'Bearer $token',
+      'x-orderdesk-device-token': token,
+      'x-klarando-device-token': token,
+    };
+  }
+
+  Future<Map<String, dynamic>> _postOrderDeskAction({
+    required String action,
+    required String orderId,
+    required String path,
+    required Map<String, dynamic> body,
+    String? targetStatus,
+    int? minutes,
+  }) async {
+    final displayCode = _displayCodeController.text.trim();
+    final token = (_deviceAuthToken ?? '').trim();
+    final tokenPresent = token.isNotEmpty;
+    const headerNames =
+        'Authorization,x-orderdesk-device-token,x-klarando-device-token';
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'request action=$action orderId=$orderId minutes=${minutes ?? '-'} target=${targetStatus ?? '-'} tokenPresent=${tokenPresent ? 'ja' : 'nein'} headerNames=$headerNames',
+    );
+
+    if (!tokenPresent) {
+      throw const ApiException(
+        'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen. Bitte Gerät neu verbinden.',
+        statusCode: 401,
+        responseBody: <String, dynamic>{'error': 'missing_device_token'},
+      );
+    }
+
+    final uri = Uri.parse('${_normalizeBaseUrl(_baseUrlController.text)}$path');
+    final response = await http
+        .post(
+          uri,
+          headers: _buildOrderDeskActionHeaders(token: token),
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 12));
+    final responseBody = _decodeOrderDeskResponseBody(response.body);
+    if (mounted) {
+      setState(() {
+        _lastAuthCheckHttpStatus = response.statusCode;
+      });
+    } else {
+      _lastAuthCheckHttpStatus = response.statusCode;
+    }
+    _logOrderActionResponse(
+      action: action,
+      orderId: orderId,
+      statusCode: response.statusCode,
+      responseBody: responseBody,
+      minutes: minutes,
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        _invalidateOrderDeskSession(
+          reason: 'order_action_rejected:$action',
+          statusCode: response.statusCode,
+          message: _resolveOrderDeskResponseError(responseBody, response.statusCode),
+        );
+      }
+      throw ApiException(
+        _resolveOrderDeskResponseError(responseBody, response.statusCode),
+        statusCode: response.statusCode,
+        responseBody: responseBody,
+      );
+    }
+
+    if (displayCode.isEmpty) {
+      _appendLocalLog(
+        'ORDER_ACTION',
+        'warning action=$action orderId=$orderId displayCode_empty_after_success',
+      );
+    }
+
+    return responseBody;
   }
 
   bool _ensureOrderActionReady({
@@ -2044,7 +2269,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       if (mounted) {
         setState(() {
           _error =
-              'Keine gueltige OrderDesk-Sitzung vorhanden. Bitte Geraet erneut verbinden.';
+              'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen. Bitte Gerät neu verbinden.';
         });
       }
       _appendLocalLog(
@@ -2061,10 +2286,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     required String action,
     required String orderId,
     String? targetStatus,
+    int? minutes,
   }) {
     _appendLocalLog(
       'ORDER_ACTION',
-      'pressed action=$action orderId=$orderId target=${targetStatus ?? '-'} loading=$_loading',
+      'pressed action=$action orderId=$orderId minutes=${minutes ?? '-'} target=${targetStatus ?? '-'} loading=$_loading',
+    );
+    _showOrderDeskSnackBar(
+      'Aktion: $action · Bestellung: $orderId${minutes == null ? '' : ' · $minutes Min.'}',
     );
   }
 
@@ -2073,10 +2302,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     required String orderId,
     required int statusCode,
     required Map<String, dynamic> responseBody,
+    int? minutes,
   }) {
     _appendLocalLog(
       'ORDER_ACTION',
-      'response action=$action orderId=$orderId status=$statusCode body=${_formatResponseBodyForLog(responseBody)}',
+      'response action=$action orderId=$orderId minutes=${minutes ?? '-'} status=$statusCode body=${_formatResponseBodyForLog(responseBody)}',
     );
   }
 
@@ -2085,18 +2315,27 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     required String orderId,
     required Object error,
     String? targetStatus,
+    int? minutes,
   }) {
     if (error is ApiException) {
       _appendLocalLog(
         'ORDER_ACTION',
-        'error action=$action orderId=$orderId target=${targetStatus ?? '-'} status=${error.statusCode ?? '-'} body=${_formatResponseBodyForLog(error.responseBody)} message=${error.message}',
+        'error action=$action orderId=$orderId minutes=${minutes ?? '-'} target=${targetStatus ?? '-'} status=${error.statusCode ?? '-'} body=${_formatResponseBodyForLog(error.responseBody)} message=${error.message}',
+      );
+      _showOrderDeskSnackBar(
+        'Fehler bei $action · $orderId · ${error.message}',
+        isError: true,
       );
       return;
     }
 
     _appendLocalLog(
       'ORDER_ACTION',
-      'error action=$action orderId=$orderId target=${targetStatus ?? '-'} message=$error',
+      'error action=$action orderId=$orderId minutes=${minutes ?? '-'} target=${targetStatus ?? '-'} message=$error',
+    );
+    _showOrderDeskSnackBar(
+      'Fehler bei $action · $orderId · $error',
+      isError: true,
     );
   }
 
@@ -2160,6 +2399,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final tokenStatus = (_deviceAuthToken ?? '').trim().isEmpty
         ? 'nein'
         : _truncateMiddle(_deviceAuthToken!, edge: 5);
+    final tokenPrefix = _deviceTokenPrefix;
     final tokenType = _lastStoredTokenType ?? _detectStoredTokenType(_deviceAuthToken);
     final tenantId = _manualTenantIdController.text.trim();
     final apiBase = _normalizeBaseUrl(_baseUrlController.text);
@@ -2186,12 +2426,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Text('API-URL: $apiBase'),
                   Text('Heartbeat Endpoint: ${_lastHeartbeatEndpointUrl ?? '-'}'),
                   Text('Heartbeat HTTP Status: ${_lastHeartbeatHttpStatus?.toString() ?? '-'}'),
+                  Text('Last Auth Check HTTP Status: ${_lastAuthCheckHttpStatus?.toString() ?? '-'}'),
                   Text(
                     'Heartbeat Response Body: ${_lastHeartbeatResponseBody == null || _lastHeartbeatResponseBody!.trim().isEmpty ? '-' : _lastHeartbeatResponseBody!}',
                   ),
                   Text('Tenant-ID: ${tenantId.isEmpty ? '-' : _truncateMiddle(tenantId)}'),
                   Text('Device-Code: ${displayCode.isEmpty ? '-' : displayCode}'),
                   Text('Token: $tokenStatus'),
+                  Text('Token Prefix: $tokenPrefix'),
+                  Text('Session authentifiziert: ${_deviceSessionAuthenticated ? 'ja' : 'nein'}'),
                   Text('Gespeicherter Token-Typ: $tokenType'),
                   Text('Audio-Asset: $_orderDeskNewOrderAudioAsset'),
                   Text(
@@ -2479,6 +2722,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _deviceAuthToken = null;
       _bindingId = null;
       _lastStoredTokenType = 'none';
+      _deviceSessionAuthenticated = false;
       _bindingLocked = false;
       _connected = false;
       _connectedTenantName = null;
@@ -2855,6 +3099,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _isSessionToken(String? token) => _detectStoredTokenType(token) == 'session';
 
   Future<int?> _askEtaMinutes({required int initial}) async {
+    if (!mounted) {
+      return null;
+    }
     const etaOptions = <int>[15, 20, 30, 45, 60];
     var selected = etaOptions.first;
     for (final option in etaOptions) {
@@ -2863,13 +3110,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
     }
 
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'eta_dialog_open initial=$initial preselected=$selected',
+    );
     final result = await showDialog<int>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Wann ist die Bestellung fertig?'),
           content: StatefulBuilder(
-            builder: (context, setDialogState) {
+            builder: (innerContext, setDialogState) {
               return Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -2891,12 +3142,24 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.of(context).pop(),
+              onPressed: () {
+                if (!dialogContext.mounted) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop();
+              },
               child: const Text('Abbrechen'),
             ),
             FilledButton(
               onPressed: () {
-                Navigator.of(context).pop(selected);
+                _appendLocalLog(
+                  'ORDER_ACTION',
+                  'eta_dialog_confirm selected=$selected',
+                );
+                if (!dialogContext.mounted) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop(selected);
               },
               child: const Text('Übernehmen'),
             ),
@@ -2904,6 +3167,25 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         );
       },
     );
+    _appendLocalLog(
+      'ORDER_ACTION',
+      'eta_dialog_result value=${result?.toString() ?? 'null'}',
+    );
+    if (result == null) {
+      return null;
+    }
+    if (!etaOptions.contains(result)) {
+      if (mounted) {
+        setState(() {
+          _error = 'Ungueltige Zeitwahl erhalten: $result';
+        });
+      }
+      _showOrderDeskSnackBar(
+        'Ungueltige Zeitwahl erhalten: $result',
+        isError: true,
+      );
+      return null;
+    }
     return result;
   }
 
@@ -3173,10 +3455,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final health = _connectionHealth(now);
     final statusText = _connectionStatusLabel(health);
     final statusColor = _connectionStatusColor(health);
-    final hasStoredBinding =
-        (_bindingId ?? '').trim().isNotEmpty && _isSessionToken(_deviceAuthToken);
-    final isOperationalView = hasStoredBinding;
-    final showOperationalActions = isOperationalView;
+    final isOperationalView = _hasAuthenticatedOrderDeskSession;
+    final showOperationalActions = _hasAuthenticatedOrderDeskSession;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -3606,6 +3886,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Widget _buildDisconnectedInfoCard() {
+    if (!_bindingLocked || !_hasStoredSessionToken) {
+      return _buildConnectionCard();
+    }
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -3626,8 +3909,48 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               icon: const Icon(Icons.link_rounded),
               label: const Text('Geräteverbindung öffnen'),
             ),
+            const SizedBox(height: 10),
+            _buildOrderDeskAuthDebugCard(),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildOrderDeskAuthDebugCard() {
+    final tokenPresent = _hasStoredSessionToken ? 'JA' : 'NEIN';
+    final sessionAuthenticated = _deviceSessionAuthenticated ? 'JA' : 'NEIN';
+    final tenantPresent = _hasTenantDebugValue ? 'JA' : 'NEIN';
+    final branchPresent = _hasBranchDebugValue ? 'JA' : 'NEIN';
+    final deviceIdPresent = _hasDeviceIdDebugValue ? 'JA' : 'NEIN';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'OrderDesk Debug',
+            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+          ),
+          const SizedBox(height: 6),
+          Text('Token vorhanden: $tokenPresent'),
+          Text('Token-Länge: $_deviceTokenLength'),
+          Text('Token Prefix: $_deviceTokenPrefix'),
+          Text('Session authentifiziert: $sessionAuthenticated'),
+          Text(
+            'Last Auth Check HTTP Status: ${_lastAuthCheckHttpStatus?.toString() ?? '-'}',
+          ),
+          Text('Tenant vorhanden: $tenantPresent'),
+          Text('Branch/Display vorhanden: $branchPresent'),
+          Text('Device-ID vorhanden: $deviceIdPresent'),
+        ],
       ),
     );
   }
@@ -3715,6 +4038,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: Color(0xFFDC2626)),
               ),
+            const SizedBox(height: 10),
+            _buildOrderDeskAuthDebugCard(),
           ],
         ),
       ),
@@ -3769,6 +4094,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final paymentMethod = (order.paymentMethod ?? '').trim();
     final statusLabel = _orderStatusLabel(order.status);
     final isTerminalStatus = _isArchivedOrderStatus(statusLower);
+    final canRunOrderActions = _hasAuthenticatedOrderDeskSession;
     final isCancelledStatus =
         statusLower == 'cancelled' || statusLower == 'rejected';
     final isOutForDelivery = statusLower == 'out_for_delivery';
@@ -4149,205 +4475,224 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 ),
             ],
             const SizedBox(height: 8),
-            if (!isTerminalStatus && nextStepKey == 'accept')
-              SizedBox(
+            if (!canRunOrderActions)
+              Container(
                 width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _loading ? null : () => _acceptOrder(order),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF15803D),
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.check_circle, size: 18),
-                  label: const Text('Bestellung annehmen'),
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7ED),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFED7AA)),
                 ),
-              ),
-            if (!isTerminalStatus &&
-                (nextStepKey == 'ready_delivery' || nextStepKey == 'ready_pickup'))
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _loading
-                      ? null
-                      : () => _setOrderStatus(
-                            order,
-                            isDelivery ? 'ready_for_delivery' : 'ready_for_pickup',
-                            isDelivery
-                                ? 'Bestellung ist bereit für die Lieferung.'
-                                : 'Bestellung ist bereit zur Abholung.',
-                          ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: isDelivery
-                        ? const Color(0xFF2563EB)
-                        : const Color(0xFF2563EB),
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: Icon(
-                    isDelivery ? Icons.delivery_dining : Icons.storefront,
-                    size: 18,
-                  ),
-                  label: Text(
-                    isDelivery ? 'Bereit für Lieferung' : 'Bereit zur Abholung',
+                child: const Text(
+                  'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen. Bitte Gerät neu verbinden.',
+                  style: TextStyle(
+                    color: Color(0xFF9A3412),
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
-              ),
-            if (!isTerminalStatus && nextStepKey == 'out_for_delivery')
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _loading
-                      ? null
-                      : () => _setOrderStatus(
-                            order,
-                            'out_for_delivery',
-                            'Fahrer ist unterwegs.',
-                          ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF5B21B6),
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.local_shipping, size: 18),
-                  label: const Text('Fahrer unterwegs'),
-                ),
-              ),
-            if (!isTerminalStatus &&
-                (nextStepKey == 'complete_delivery' ||
-                    nextStepKey == 'complete_pickup'))
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: _loading ? null : () => _completeOrder(order),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF166534),
-                    foregroundColor: Colors.white,
-                  ),
-                  icon: const Icon(Icons.done_all, size: 18),
-                  label: Text(
-                    isDelivery ? 'Lieferung abgeschlossen' : 'Bestellung abgeholt',
-                  ),
-                ),
-              ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (statusLower == 'open' || statusLower == 'pending_payment')
-                  OutlinedButton.icon(
-                    onPressed: _loading ? null : () => _rejectOrder(order),
-                    icon: const Icon(Icons.close, size: 16),
-                    label: const Text('Ablehnen'),
-                  ),
-                if (!isTerminalStatus &&
-                    statusLower != 'open' &&
-                    statusLower != 'pending_payment' &&
-                    statusLower != 'preparing')
-                  FilledButton.tonalIcon(
-                    onPressed: _loading
-                        ? null
-                        : () => _setOrderStatus(
-                            order,
-                            'preparing',
-                            'Bestellung ist jetzt in Vorbereitung.',
-                          ),
-                    icon: const Icon(Icons.restaurant, size: 16),
-                    label: const Text('In Vorbereitung'),
-                  ),
-                if (!isTerminalStatus)
-                  OutlinedButton.icon(
-                  onPressed: _loading || !isDelivery
-                      ? null
-                      : () => _dispatchOrder(order),
-                  icon: const Icon(Icons.local_shipping, size: 16),
-                  label: Text(
-                    order.assignedDriverName == null
-                        ? 'Fahrer zuweisen'
-                        : 'Fahrer wechseln',
-                  ),
-                ),
-                if (!isTerminalStatus &&
-                    statusLower != 'open' &&
-                    statusLower != 'pending_payment')
-                  OutlinedButton.icon(
+              )
+            else ...[
+              if (!isTerminalStatus && nextStepKey == 'accept')
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
                     onPressed: _loading ? null : () => _acceptOrder(order),
-                    icon: const Icon(Icons.schedule, size: 16),
-                    label: const Text('Zeit aktualisieren'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF15803D),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.check_circle, size: 18),
+                    label: const Text('Bestellung annehmen'),
                   ),
-                if (!isTerminalStatus && isPickup && nextStepKey != 'ready_pickup')
-                  OutlinedButton.icon(
+                ),
+              if (!isTerminalStatus &&
+                  (nextStepKey == 'ready_delivery' || nextStepKey == 'ready_pickup'))
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
                     onPressed: _loading
                         ? null
                         : () => _setOrderStatus(
-                            order,
-                            'ready_for_pickup',
-                            'Bestellung ist bereit zur Abholung.',
-                          ),
-                    icon: const Icon(Icons.storefront, size: 16),
-                    label: const Text('Bereit zur Abholung'),
+                              order,
+                              isDelivery ? 'ready_for_delivery' : 'ready_for_pickup',
+                              isDelivery
+                                  ? 'Bestellung ist bereit für die Lieferung.'
+                                  : 'Bestellung ist bereit zur Abholung.',
+                            ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: isDelivery
+                          ? const Color(0xFF2563EB)
+                          : const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: Icon(
+                      isDelivery ? Icons.delivery_dining : Icons.storefront,
+                      size: 18,
+                    ),
+                    label: Text(
+                      isDelivery ? 'Bereit für Lieferung' : 'Bereit zur Abholung',
+                    ),
                   ),
-                if (!isTerminalStatus && isPickup && nextStepKey != 'complete_pickup')
-                  OutlinedButton.icon(
-                    onPressed: _loading ? null : () => _completeOrder(order),
-                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: const Text('Bestellung abgeholt'),
-                  ),
-                if (!isTerminalStatus && isDelivery && nextStepKey != 'ready_delivery')
-                  OutlinedButton.icon(
+                ),
+              if (!isTerminalStatus && nextStepKey == 'out_for_delivery')
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
                     onPressed: _loading
                         ? null
                         : () => _setOrderStatus(
-                            order,
-                            'ready_for_delivery',
-                            'Bestellung ist bereit für die Lieferung.',
-                          ),
-                    icon: const Icon(Icons.delivery_dining, size: 16),
-                    label: const Text('Bereit für Lieferung'),
-                  ),
-                if (!isTerminalStatus && isDelivery && nextStepKey != 'out_for_delivery')
-                  OutlinedButton.icon(
-                    onPressed: _loading
-                        ? null
-                        : () => _setOrderStatus(
-                            order,
-                            'out_for_delivery',
-                            'Fahrer ist unterwegs.',
-                          ),
-                    icon: const Icon(Icons.local_shipping, size: 16),
+                              order,
+                              'out_for_delivery',
+                              'Fahrer ist unterwegs.',
+                            ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF5B21B6),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.local_shipping, size: 18),
                     label: const Text('Fahrer unterwegs'),
                   ),
-                if (!isTerminalStatus && isDelivery && nextStepKey != 'complete_delivery')
-                  OutlinedButton.icon(
+                ),
+              if (!isTerminalStatus &&
+                  (nextStepKey == 'complete_delivery' ||
+                      nextStepKey == 'complete_pickup'))
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
                     onPressed: _loading ? null : () => _completeOrder(order),
-                    icon: const Icon(Icons.check_circle_outline, size: 16),
-                    label: const Text('Lieferung abgeschlossen'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF166534),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.done_all, size: 18),
+                    label: Text(
+                      isDelivery ? 'Lieferung abgeschlossen' : 'Bestellung abgeholt',
+                    ),
                   ),
-                if (!isTerminalStatus)
+                ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (statusLower == 'open' || statusLower == 'pending_payment')
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : () => _rejectOrder(order),
+                      icon: const Icon(Icons.close, size: 16),
+                      label: const Text('Ablehnen'),
+                    ),
+                  if (!isTerminalStatus &&
+                      statusLower != 'open' &&
+                      statusLower != 'pending_payment' &&
+                      statusLower != 'preparing')
+                    FilledButton.tonalIcon(
+                      onPressed: _loading
+                          ? null
+                          : () => _setOrderStatus(
+                              order,
+                              'preparing',
+                              'Bestellung ist jetzt in Vorbereitung.',
+                            ),
+                      icon: const Icon(Icons.restaurant, size: 16),
+                      label: const Text('In Vorbereitung'),
+                    ),
+                  if (!isTerminalStatus)
+                    OutlinedButton.icon(
+                      onPressed: _loading || !isDelivery
+                          ? null
+                          : () => _dispatchOrder(order),
+                      icon: const Icon(Icons.local_shipping, size: 16),
+                      label: Text(
+                        order.assignedDriverName == null
+                            ? 'Fahrer zuweisen'
+                            : 'Fahrer wechseln',
+                      ),
+                    ),
+                  if (!isTerminalStatus &&
+                      statusLower != 'open' &&
+                      statusLower != 'pending_payment')
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : () => _acceptOrder(order),
+                      icon: const Icon(Icons.schedule, size: 16),
+                      label: const Text('Zeit aktualisieren'),
+                    ),
+                  if (!isTerminalStatus && isPickup && nextStepKey != 'ready_pickup')
+                    OutlinedButton.icon(
+                      onPressed: _loading
+                          ? null
+                          : () => _setOrderStatus(
+                              order,
+                              'ready_for_pickup',
+                              'Bestellung ist bereit zur Abholung.',
+                            ),
+                      icon: const Icon(Icons.storefront, size: 16),
+                      label: const Text('Bereit zur Abholung'),
+                    ),
+                  if (!isTerminalStatus && isPickup && nextStepKey != 'complete_pickup')
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : () => _completeOrder(order),
+                      icon: const Icon(Icons.check_circle_outline, size: 16),
+                      label: const Text('Bestellung abgeholt'),
+                    ),
+                  if (!isTerminalStatus && isDelivery && nextStepKey != 'ready_delivery')
+                    OutlinedButton.icon(
+                      onPressed: _loading
+                          ? null
+                          : () => _setOrderStatus(
+                              order,
+                              'ready_for_delivery',
+                              'Bestellung ist bereit für die Lieferung.',
+                            ),
+                      icon: const Icon(Icons.delivery_dining, size: 16),
+                      label: const Text('Bereit für Lieferung'),
+                    ),
+                  if (!isTerminalStatus && isDelivery && nextStepKey != 'out_for_delivery')
+                    OutlinedButton.icon(
+                      onPressed: _loading
+                          ? null
+                          : () => _setOrderStatus(
+                              order,
+                              'out_for_delivery',
+                              'Fahrer ist unterwegs.',
+                            ),
+                      icon: const Icon(Icons.local_shipping, size: 16),
+                      label: const Text('Fahrer unterwegs'),
+                    ),
+                  if (!isTerminalStatus && isDelivery && nextStepKey != 'complete_delivery')
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : () => _completeOrder(order),
+                      icon: const Icon(Icons.check_circle_outline, size: 16),
+                      label: const Text('Lieferung abgeschlossen'),
+                    ),
+                  if (!isTerminalStatus)
+                    OutlinedButton.icon(
+                      onPressed: _loading ? null : () => _cancelOrder(order),
+                      icon: const Icon(Icons.cancel, size: 16),
+                      label: const Text('Bestellung stornieren'),
+                    ),
                   OutlinedButton.icon(
-                    onPressed: _loading ? null : () => _cancelOrder(order),
-                    icon: const Icon(Icons.cancel, size: 16),
-                    label: const Text('Bestellung stornieren'),
+                    onPressed: _loading
+                        ? null
+                        : () => _printOrder(order, kind: 'both'),
+                    icon: const Icon(Icons.print, size: 16),
+                    label: const Text('Drucken'),
                   ),
-                OutlinedButton.icon(
-                  onPressed: _loading
-                      ? null
-                      : () => _printOrder(order, kind: 'both'),
-                  icon: const Icon(Icons.print, size: 16),
-                  label: const Text('Drucken'),
-                ),
-                TextButton(
-                  onPressed: _loading
-                      ? null
-                      : () => _printOrder(order, kind: 'kitchen'),
-                  child: const Text('Küchenbon'),
-                ),
-                TextButton(
-                  onPressed: _loading
-                      ? null
-                      : () => _printOrder(order, kind: 'customer'),
-                  child: const Text('Kundenbon'),
-                ),
-              ],
-            ),
+                  TextButton(
+                    onPressed: _loading
+                        ? null
+                        : () => _printOrder(order, kind: 'kitchen'),
+                    child: const Text('Küchenbon'),
+                  ),
+                  TextButton(
+                    onPressed: _loading
+                        ? null
+                        : () => _printOrder(order, kind: 'customer'),
+                    child: const Text('Kundenbon'),
+                  ),
+                ],
+              ),
+            ],
             if (isDelivery) _buildOrderDeliveryMap(order),
             ],
           ],

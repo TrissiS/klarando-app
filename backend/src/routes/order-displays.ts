@@ -1,6 +1,6 @@
 import crypto from 'crypto'
-import { OrderDisplayRole, PermissionKey, Prisma } from '@prisma/client'
-import { Router } from 'express'
+import { OrderDisplayRole, PermissionKey, Prisma, UserRole } from '@prisma/client'
+import { NextFunction, Request, Response, Router } from 'express'
 import {
   DISPLAY_AGE_ALERT_ANIMATION_MODES,
   DISPLAY_BACKGROUND_MEDIA_MODES,
@@ -28,6 +28,10 @@ import { writeAuditLog } from '../lib/audit'
 import { generateNextPickupNumberForTenant } from '../lib/pickup-number'
 import { parseSettings } from '../lib/business-settings'
 import { signDriverDeviceToken } from '../auth/driver-device-token'
+import {
+  type OrderDeskDeviceTokenPayload,
+  verifyOrderDeskDeviceToken,
+} from '../auth/orderdesk-device-token'
 import {
   DRIVER_DEVICE_SESSION_MODULE,
   DRIVER_DEVICE_SESSION_TARGET_TYPE,
@@ -131,6 +135,14 @@ type DisplayDriverLocationPoint = {
   heading: number | null
   speedKmh: number | null
   updatedAt: string
+}
+
+declare global {
+  namespace Express {
+    interface Request {
+      orderDeskDeviceSession?: OrderDeskDeviceTokenPayload
+    }
+  }
 }
 
 function normalizeComplaintText(value: unknown) {
@@ -421,8 +433,174 @@ function normalizeModifierSnapshot(
   return items.length > 0 ? items : null
 }
 
-async function ensureDisplayTenantAccess(req: Parameters<typeof resolveTenantScope>[0], tenantId: string) {
-  await resolveTenantScope(req, tenantId)
+function readOrderDeskDeviceTokenFromRequest(req: Request) {
+  const orderDeskHeader = normalizeText(req.header('x-orderdesk-device-token'))
+  if (orderDeskHeader) {
+    return {
+      token: orderDeskHeader,
+      headerName: 'x-orderdesk-device-token',
+    }
+  }
+
+  const klarandoHeader = normalizeText(req.header('x-klarando-device-token'))
+  if (klarandoHeader) {
+    return {
+      token: klarandoHeader,
+      headerName: 'x-klarando-device-token',
+    }
+  }
+
+  const authorizationHeader = req.header('authorization')
+  if (authorizationHeader?.toLowerCase().startsWith('bearer ')) {
+    const token = normalizeText(authorizationHeader.slice(7))
+    if (token) {
+      return {
+        token,
+        headerName: 'authorization',
+      }
+    }
+  }
+
+  return null
+}
+
+function summarizeOrderDeskAuthDebugToken(token: string | null | undefined) {
+  const normalized = typeof token === 'string' ? token.trim() : ''
+  return normalized ? normalized.slice(0, 8) : '-'
+}
+
+async function resolveOrderDeskDeviceSession(req: Request) {
+  if (req.orderDeskDeviceSession) {
+    return req.orderDeskDeviceSession
+  }
+
+  const tokenSource = readOrderDeskDeviceTokenFromRequest(req)
+  if (!tokenSource) {
+    console.info('ORDERDESK_AUTH_DEBUG', {
+      action: 'mutation_auth',
+      headerPresent: 'NEIN',
+      tokenPrefix: '-',
+      sessionFound: 'NEIN',
+      sessionStatus: 'missing_header',
+      tenantId: null,
+      branchId: null,
+      deviceId: null,
+    })
+    throw new TenantScopeError(401, 'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen')
+  }
+
+  const tokenPayload = verifyOrderDeskDeviceToken(tokenSource.token)
+  console.info('ORDERDESK_AUTH_DEBUG', {
+    action: 'mutation_auth',
+    headerPresent: 'JA',
+    tokenPrefix: summarizeOrderDeskAuthDebugToken(tokenSource.token),
+    sessionFound: tokenPayload ? 'JA' : 'NEIN',
+    sessionStatus: !tokenPayload ? 'invalid_or_expired' : tokenPayload.kind,
+    tenantId: tokenPayload?.tenantId ?? null,
+    branchId: tokenPayload?.displayCode ?? null,
+    deviceId: tokenPayload?.deviceSerial ?? null,
+  })
+  if (!tokenPayload || tokenPayload.kind !== 'SESSION') {
+    throw new TenantScopeError(401, 'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen')
+  }
+
+  if (!tokenPayload.bindingId || !tokenPayload.deviceSerial) {
+    throw new TenantScopeError(401, 'OrderDesk-Sitzung ist unvollständig')
+  }
+
+  const binding = await prisma.orderDeskDeviceBinding.findUnique({
+    where: { id: tokenPayload.bindingId },
+    select: {
+      id: true,
+      tenantId: true,
+      displayCode: true,
+      deviceSerial: true,
+      isActive: true,
+    },
+  })
+  console.info('ORDERDESK_AUTH_DEBUG', {
+    action: 'mutation_auth_binding_lookup',
+    headerPresent: 'JA',
+    tokenPrefix: summarizeOrderDeskAuthDebugToken(tokenSource.token),
+    sessionFound: binding ? 'JA' : 'NEIN',
+    sessionStatus: !binding ? 'binding_missing' : binding.isActive ? 'binding_active' : 'binding_inactive',
+    tenantId: binding?.tenantId ?? tokenPayload.tenantId,
+    branchId: binding?.displayCode ?? tokenPayload.displayCode,
+    deviceId: binding?.deviceSerial ?? tokenPayload.deviceSerial,
+  })
+
+  if (!binding || !binding.isActive) {
+    throw new TenantScopeError(
+      403,
+      'OrderDesk-Bindung ist nicht aktiv. Bitte Gerät neu verbinden.'
+    )
+  }
+
+  if (
+    binding.tenantId !== tokenPayload.tenantId ||
+    binding.displayCode !== tokenPayload.displayCode ||
+    binding.deviceSerial !== tokenPayload.deviceSerial
+  ) {
+    throw new TenantScopeError(403, 'OrderDesk-Sitzung passt nicht zur aktiven Bindung')
+  }
+
+  req.orderDeskDeviceSession = tokenPayload
+  return tokenPayload
+}
+
+async function requireOrderDisplayMutationAccess(
+  req: Request,
+  res: Response,
+  next: NextFunction
+) {
+  if (req.authUser) {
+    if (
+      req.authUser.role === UserRole.SUPERADMIN ||
+      req.authUser.permissions.has(PermissionKey.ORDERS_WRITE)
+    ) {
+      return next()
+    }
+
+    return res
+      .status(403)
+      .json({ error: `Keine Berechtigung: ${PermissionKey.ORDERS_WRITE}` })
+  }
+
+  try {
+    await resolveOrderDeskDeviceSession(req)
+    return next()
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('ORDER DISPLAY MUTATION ACCESS ERROR:', error)
+    return res.status(401).json({
+      error: 'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen',
+    })
+  }
+}
+
+async function ensureDisplayTenantAccess(
+  req: Parameters<typeof resolveTenantScope>[0],
+  tenantId: string,
+  expectedDisplayCode?: string
+) {
+  if (req.authUser) {
+    await resolveTenantScope(req, tenantId)
+    return
+  }
+
+  const session = await resolveOrderDeskDeviceSession(req)
+  if (session.tenantId !== tenantId) {
+    throw new TenantScopeError(403, 'Keine Berechtigung fuer diese Filiale')
+  }
+  if (
+    expectedDisplayCode &&
+    session.displayCode.trim().toUpperCase() !== expectedDisplayCode.trim().toUpperCase()
+  ) {
+    throw new TenantScopeError(403, 'OrderDesk-Sitzung gehoert zu einem anderen Display')
+  }
 }
 
 
@@ -1684,7 +1862,7 @@ router.post(
 
 router.post(
   ORDER_DISPLAY_ORDER_STATUS_ROUTES,
-  requirePermission(PermissionKey.ORDERS_WRITE),
+  requireOrderDisplayMutationAccess,
   async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
@@ -1720,7 +1898,7 @@ router.post(
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
-    await ensureDisplayTenantAccess(req, display.tenantId)
+    await ensureDisplayTenantAccess(req, display.tenantId, displayCode)
 
     if (display.displayRole === 'PICKUP') {
       return res.status(403).json({
@@ -1924,7 +2102,7 @@ router.post(
 
 router.post(
   ORDER_DISPLAY_ORDER_ITEM_STATUS_ROUTES,
-  requirePermission(PermissionKey.ORDERS_WRITE),
+  requireOrderDisplayMutationAccess,
   async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
@@ -1961,7 +2139,7 @@ router.post(
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
-    await ensureDisplayTenantAccess(req, display.tenantId)
+    await ensureDisplayTenantAccess(req, display.tenantId, displayCode)
 
     if (display.displayRole === 'PICKUP') {
       return res.status(403).json({
@@ -2120,7 +2298,7 @@ router.post(
 
 router.post(
   ORDER_DISPLAY_ORDER_PAYMENT_ROUTES,
-  requirePermission(PermissionKey.ORDERS_WRITE),
+  requireOrderDisplayMutationAccess,
   async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
@@ -2153,7 +2331,7 @@ router.post(
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
-    await ensureDisplayTenantAccess(req, display.tenantId)
+    await ensureDisplayTenantAccess(req, display.tenantId, displayCode)
 
     if (display.displayRole !== 'CASH') {
       return res.status(403).json({ error: 'Zahlungsstatus darf nur am Kassendisplay geaendert werden' })
@@ -2251,7 +2429,7 @@ router.post(
 
 router.post(
   ORDER_DISPLAY_ORDER_ACCEPT_ROUTES,
-  requirePermission(PermissionKey.ORDERS_WRITE),
+  requireOrderDisplayMutationAccess,
   async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
@@ -2293,7 +2471,7 @@ router.post(
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
-    await ensureDisplayTenantAccess(req, display.tenantId)
+    await ensureDisplayTenantAccess(req, display.tenantId, displayCode)
 
     if (display.displayRole !== 'CASH') {
       return res
@@ -2311,6 +2489,7 @@ router.post(
         cashDisplayId: true,
         pickupNumber: true,
         status: true,
+        paymentStatus: true,
         acceptedAt: true,
       },
     })
@@ -2341,6 +2520,15 @@ router.post(
     if (!currentWorkflowStatus) {
       return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(existingOrder.status)}` })
     }
+    console.info('ORDER_ACCEPT_DEBUG', {
+      orderId: existingOrder.id,
+      currentStatus: existingOrder.status,
+      paymentStatus: existingOrder.paymentStatus,
+      requestedStatus: 'accepted',
+      userRole: req.authUser?.role ?? 'ORDERDESK_DEVICE',
+      tenantId: display.tenantId,
+      reason: 'accept_order_requested',
+    })
     const updated = await prisma.order.update({
       where: { id: orderId },
       data: buildOrderAcceptanceUpdate({
@@ -2418,7 +2606,7 @@ router.post(
 
 router.post(
   ORDER_DISPLAY_ORDER_DISPATCH_ROUTES,
-  requirePermission(PermissionKey.ORDERS_WRITE),
+  requireOrderDisplayMutationAccess,
   async (req, res) => {
   try {
     const displayCode = Array.isArray(req.params.displayCode)
@@ -2471,7 +2659,7 @@ router.post(
     if (!display.isActive) {
       return res.status(403).json({ error: 'Bestell-Display ist deaktiviert' })
     }
-    await ensureDisplayTenantAccess(req, display.tenantId)
+    await ensureDisplayTenantAccess(req, display.tenantId, displayCode)
 
     if (display.displayRole !== 'CASH') {
       return res.status(403).json({
