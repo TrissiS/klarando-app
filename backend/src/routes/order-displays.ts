@@ -41,7 +41,7 @@ import {
 import { buildCustomerReceiptJob80mm, buildKitchenReceiptJob80mm } from '../lib/receipt-jobs-80mm'
 import { encodeReceiptToEscPosBytes } from '../lib/escpos-encoder-80mm'
 import { excludeOperationallyHiddenStripeOrders } from '../lib/order-operational-visibility'
-import { asTenantScopeError, resolveTenantScope } from '../lib/tenant-scope'
+import { asTenantScopeError, resolveTenantScope, TenantScopeError } from '../lib/tenant-scope'
 import { rateLimitDisplayPairing } from '../middleware/rate-limit'
 import {
   asOrderTransitionError,
