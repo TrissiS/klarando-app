@@ -85,12 +85,38 @@ export default function AppSettingsFields({
   showHolidayHours = true,
   showDeliveryScheduling = true,
 }: Props) {
+  function deriveAllowedDeliveryDaysFromHours(
+    hours: BusinessSettings['timeManagement']['deliveryHours']
+  ): DeliveryDay[] {
+    return hours
+      .filter((entry) => !entry.isClosed && Boolean(entry.open) && Boolean(entry.close))
+      .map((entry) => entry.day)
+  }
+
+  const syncedAllowedDeliveryDays = deriveAllowedDeliveryDaysFromHours(
+    settings.timeManagement.deliveryHours
+  )
+  const hasActiveAdvancedDeliveryPlanning =
+    settings.timeManagement.deliveryScheduling.timeSlots.length > 0
+
   function patchTimeManagement(next: Partial<BusinessSettings['timeManagement']>) {
+    const nextTimeManagement: BusinessSettings['timeManagement'] = {
+      ...settings.timeManagement,
+      ...next,
+    }
+
+    const nextDeliveryHours =
+      next.deliveryHours ?? nextTimeManagement.deliveryHours
+    const nextAllowedDeliveryDays = deriveAllowedDeliveryDaysFromHours(nextDeliveryHours)
+
     onChange({
       ...settings,
       timeManagement: {
-        ...settings.timeManagement,
-        ...next,
+        ...nextTimeManagement,
+        deliveryScheduling: {
+          ...nextTimeManagement.deliveryScheduling,
+          allowedDeliveryDays: nextAllowedDeliveryDays,
+        },
       },
     })
   }
@@ -168,6 +194,7 @@ export default function AppSettingsFields({
     patchTimeManagement({
       deliveryScheduling: {
         ...settings.timeManagement.deliveryScheduling,
+        allowedDeliveryDays: syncedAllowedDeliveryDays,
         ...next,
       },
     })
@@ -318,10 +345,6 @@ export default function AppSettingsFields({
       .sort((left, right) => left.start.localeCompare(right.start))
 
     const errors: string[] = []
-
-    if (settings.timeManagement.deliveryScheduling.allowedDeliveryDays.includes(day) && daySlots.length === 0) {
-      errors.push('Tag ist aktiv, aber es gibt kein Zeitfenster.')
-    }
 
     for (const slot of daySlots) {
       if (!slot.start || !slot.end) {
@@ -788,11 +811,21 @@ export default function AppSettingsFields({
       {showDeliveryHours ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
-          Lieferdienstzeiten
+          Lieferzeiten
         </h3>
         <p className="mt-2 text-xs text-rose-900/70">
-          Diese Zeiten bestimmen, wann Lieferungen aktiv angenommen werden dürfen.
+          Dies ist die zentrale Hauptmaske für Lieferzeiten. Pro Wochentag wird genau ein Lieferfenster gepflegt.
         </p>
+        {hasActiveAdvancedDeliveryPlanning ? (
+          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs text-amber-900">
+            <p className="font-semibold">
+              Erweiterte Lieferplanung aktiv.
+            </p>
+            <p className="mt-1">
+              Zusätzliche Zeitregeln können die Lieferbarkeit einschränken.
+            </p>
+          </div>
+        ) : null}
         <div className="mt-4 space-y-2">
           {settings.timeManagement.deliveryHours.map((entry) => (
             <div
@@ -924,120 +957,114 @@ export default function AppSettingsFields({
 
       {showDeliveryScheduling ? (
       <section className="mt-4 rounded-3xl border border-[var(--brand-border)] bg-rose-50/60 p-4">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
-          Lieferzeiten je Tag
-        </h3>
-        <p className="mt-2 text-xs text-rose-900/70">
-          Steuere Lieferfenster, erlaubte Tage und Vorbestellungen pro Wochentag.
-        </p>
+        <details
+          className="rounded-2xl border border-[var(--brand-border)] bg-white/70"
+          open={hasActiveAdvancedDeliveryPlanning}
+        >
+          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-rose-900/80">
+            ▼ Erweiterte Lieferplanung
+          </summary>
+          <div className="border-t border-rose-100 px-4 py-4">
+            <p className="text-xs text-rose-900/70">
+              Erweiterte Lieferregeln bleiben erhalten, sind aber nicht mehr Teil der Hauptmaske.
+              Aktive Liefertage werden automatisch aus den sichtbaren Lieferzeiten synchronisiert.
+            </p>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
-              Liefermodus
-            </span>
-            <select
-              value={settings.timeManagement.deliveryScheduling.deliveryMode}
-              onChange={(event) =>
-                patchDeliveryScheduling({
-                  deliveryMode: event.target.value as BusinessSettings['deliveryScheduling']['deliveryMode'],
-                })
-              }
-              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-            >
-              <option value="IMMEDIATE">Sofort</option>
-              <option value="NEXT_DAY">Ab morgen</option>
-              <option value="AFTER_DAYS">Nach Mindestvorlauf</option>
-              <option value="SLOT_ONLY">Nur Zeitfenster</option>
-            </select>
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
-              Bestellannahmeschluss
-            </span>
-            <input
-              type="time"
-              value={settings.timeManagement.deliveryScheduling.orderCutoffTime || ''}
-              onChange={(event) =>
-                patchDeliveryScheduling({
-                  orderCutoffTime: event.target.value || null,
-                })
-              }
-              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
-              Mindestvorlauf (Tage)
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={30}
-              value={settings.timeManagement.deliveryScheduling.minDaysAhead}
-              onChange={(event) =>
-                patchDeliveryScheduling({
-                  minDaysAhead: Number(event.target.value || 0),
-                })
-              }
-              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
-              Max. Vorbestelltage
-            </span>
-            <input
-              type="number"
-              min={1}
-              max={90}
-              value={settings.timeManagement.deliveryScheduling.maxPreorderDays}
-              onChange={(event) =>
-                patchDeliveryScheduling({
-                  maxPreorderDays: Number(event.target.value || 1),
-                })
-              }
-              className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-            />
-          </label>
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/70 p-3">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">
-            Aktive Liefertage
-          </h4>
-          <div className="mt-2 flex flex-wrap gap-2">
-            {WEEK_DAYS.map((entry) => {
-              const checked = settings.timeManagement.deliveryScheduling.allowedDeliveryDays.includes(entry.key)
-              return (
-                <label
-                  key={entry.key}
-                  className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
-                    checked
-                      ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
-                      : 'border-rose-200 bg-white text-rose-900/80'
-                  }`}
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
+                  Liefermodus
+                </span>
+                <select
+                  value={settings.timeManagement.deliveryScheduling.deliveryMode}
+                  onChange={(event) =>
+                    patchDeliveryScheduling({
+                      deliveryMode: event.target.value as BusinessSettings['deliveryScheduling']['deliveryMode'],
+                    })
+                  }
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
                 >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={(event) => {
-                      const nextDays = event.target.checked
-                        ? Array.from(
-                            new Set([...settings.timeManagement.deliveryScheduling.allowedDeliveryDays, entry.key])
-                          )
-                        : settings.timeManagement.deliveryScheduling.allowedDeliveryDays.filter((day) => day !== entry.key)
-                      patchDeliveryScheduling({ allowedDeliveryDays: nextDays })
-                    }}
-                  />
-                  {entry.label}
-                </label>
-              )
-            })}
-          </div>
-        </div>
+                  <option value="IMMEDIATE">Sofort</option>
+                  <option value="NEXT_DAY">Ab morgen</option>
+                  <option value="AFTER_DAYS">Nach Mindestvorlauf</option>
+                  <option value="SLOT_ONLY">Nur Zeitfenster</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
+                  Bestellannahmeschluss
+                </span>
+                <input
+                  type="time"
+                  value={settings.timeManagement.deliveryScheduling.orderCutoffTime || ''}
+                  onChange={(event) =>
+                    patchDeliveryScheduling({
+                      orderCutoffTime: event.target.value || null,
+                    })
+                  }
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
+                  Mindestvorlauf (Tage)
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={settings.timeManagement.deliveryScheduling.minDaysAhead}
+                  onChange={(event) =>
+                    patchDeliveryScheduling({
+                      minDaysAhead: Number(event.target.value || 0),
+                    })
+                  }
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-rose-900/75">
+                  Max. Vorbestelltage
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={settings.timeManagement.deliveryScheduling.maxPreorderDays}
+                  onChange={(event) =>
+                    patchDeliveryScheduling({
+                      maxPreorderDays: Number(event.target.value || 1),
+                    })
+                  }
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                />
+              </label>
+            </div>
 
-        <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/70 p-3">
+            <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/70 p-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">
+                Automatisch aktive Liefertage
+              </h4>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {WEEK_DAYS.map((entry) => {
+                  const checked = syncedAllowedDeliveryDays.includes(entry.key)
+                  return (
+                    <span
+                      key={entry.key}
+                      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs ${
+                        checked
+                          ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                          : 'border-rose-200 bg-white text-rose-900/80'
+                      }`}
+                    >
+                      {entry.label}
+                    </span>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/70 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-rose-900/75">
               Wochenplanung Zeitfenster
@@ -1063,7 +1090,7 @@ export default function AppSettingsFields({
             <div className="divide-y divide-rose-100">
               {slotsByDay.map((dayRow) => {
                 const dayErrors = validateDaySlots(dayRow.key)
-                const isActiveDay = settings.timeManagement.deliveryScheduling.allowedDeliveryDays.includes(dayRow.key)
+                const isActiveDay = syncedAllowedDeliveryDays.includes(dayRow.key)
 
                 return (
                   <div key={dayRow.key} className="p-3">
@@ -1219,7 +1246,9 @@ export default function AppSettingsFields({
               Alle Zeitfenster leeren
             </button>
           </div>
-        </div>
+            </div>
+          </div>
+        </details>
       </section>
       ) : null}
 
