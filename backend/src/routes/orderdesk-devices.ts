@@ -599,24 +599,40 @@ router.delete('/bindings/:bindingId', requirePermission(PermissionKey.ORDERS_WRI
 
     const binding = await prisma.orderDeskDeviceBinding.findUnique({
       where: { id: bindingId },
-      select: { id: true, tenantId: true },
+      select: {
+        id: true,
+        tenantId: true,
+        displayId: true,
+        displayCode: true,
+        deviceSerial: true,
+        deviceAlias: true,
+      },
     })
     if (!binding) {
       return res.status(404).json({ error: 'OrderDesk-Gerät nicht gefunden' })
     }
     await resolveTenantScope(req, binding.tenantId)
 
-    await prisma.orderDeskDeviceBinding.update({
-      where: { id: binding.id },
-      data: {
-        isActive: false,
-        resetAt: new Date(),
-        resetByUserId: req.authUser?.id ?? null,
-        resetReason: 'Gerät gelöscht/entkoppelt',
+    await writeAuditLog({
+      req,
+      module: ORDERDESK_DEVICE_MODULE,
+      action: 'binding_deleted',
+      targetType: ORDERDESK_DEVICE_TARGET_TYPE,
+      targetId: binding.id,
+      tenantId: binding.tenantId,
+      metadata: {
+        displayId: binding.displayId,
+        displayCode: binding.displayCode,
+        deviceSerial: binding.deviceSerial,
+        deviceAlias: binding.deviceAlias,
       },
     })
 
-    return res.json({ ok: true, softDeleted: true })
+    await prisma.orderDeskDeviceBinding.delete({
+      where: { id: binding.id },
+    })
+
+    return res.json({ ok: true, softDeleted: false })
   } catch (error) {
     const scopeError = asTenantScopeError(error)
     if (scopeError) {
