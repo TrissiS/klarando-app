@@ -75,8 +75,41 @@ export type DeliveryZoneSettings = {
   deliveryFee: number | null
   freeDeliveryFrom: number | null
   estimatedDeliveryMinutes: number | null
+  pricingRules?: DeliveryZonePricingRule[]
   priority: number
   notes: string | null
+}
+
+export type DeliveryZonePricingRuleHolidayMode =
+  | 'NONE'
+  | 'HOLIDAY_ONLY'
+  | 'EXCLUDE_HOLIDAYS'
+
+export type DeliveryZonePricingRulePriceMode =
+  | 'SURCHARGE'
+  | 'FIXED_FEE'
+
+export type DeliveryZonePricingRuleManualOverride = {
+  enabled: boolean
+  reason: string | null
+  surchargeAmount: number | null
+  deliveryFee: number | null
+  expiresAt: string | null
+}
+
+export type DeliveryZonePricingRule = {
+  id: string
+  label: string
+  active: boolean
+  daysOfWeek: number[]
+  startTime: string | null
+  endTime: string | null
+  priceMode: DeliveryZonePricingRulePriceMode
+  surchargeAmount: number | null
+  deliveryFee: number | null
+  holidayMode: DeliveryZonePricingRuleHolidayMode
+  manualOverrideToday: DeliveryZonePricingRuleManualOverride | null
+  priority: number
 }
 
 export type CustomerAppSettings = {
@@ -753,6 +786,7 @@ export function defaultDeliveryZone(index = 0): DeliveryZoneSettings {
     deliveryFee: null,
     freeDeliveryFrom: null,
     estimatedDeliveryMinutes: null,
+    pricingRules: [],
     priority: index,
     notes: null,
   }
@@ -1074,6 +1108,104 @@ function sanitizeServiceArea(value: unknown, fallback: ServiceAreaSettings) {
   return sanitizedArea
 }
 
+function sanitizeDeliveryZonePricingRuleHolidayMode(
+  value: unknown
+): DeliveryZonePricingRuleHolidayMode {
+  const normalized = normalizeText(value)?.toUpperCase()
+  if (normalized === 'HOLIDAY_ONLY') {
+    return 'HOLIDAY_ONLY'
+  }
+  if (normalized === 'EXCLUDE_HOLIDAYS') {
+    return 'EXCLUDE_HOLIDAYS'
+  }
+  return 'NONE'
+}
+
+function sanitizeDeliveryZonePricingRulePriceMode(
+  value: unknown
+): DeliveryZonePricingRulePriceMode {
+  const normalized = normalizeText(value)?.toUpperCase()
+  return normalized === 'FIXED_FEE' ? 'FIXED_FEE' : 'SURCHARGE'
+}
+
+function sanitizeDeliveryZonePricingRuleDays(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as number[]
+  }
+
+  return Array.from(
+    new Set(
+      value
+        .map((entry) => normalizeNumeric(entry))
+        .filter((entry): entry is number => entry !== null && Number.isInteger(entry) && entry >= 0 && entry <= 6)
+        .map((entry) => Math.trunc(entry))
+    )
+  ).sort((left, right) => left - right)
+}
+
+function sanitizeDeliveryZonePricingRuleManualOverride(
+  value: unknown
+): DeliveryZonePricingRuleManualOverride | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const source = value as Record<string, unknown>
+  const expiresAt = normalizeText(source.expiresAt)
+
+  return {
+    enabled: typeof source.enabled === 'boolean' ? source.enabled : false,
+    reason: normalizeText(source.reason),
+    surchargeAmount: normalizeNumeric(source.surchargeAmount),
+    deliveryFee: normalizeNumeric(source.deliveryFee),
+    expiresAt:
+      expiresAt && !Number.isNaN(Date.parse(expiresAt))
+        ? new Date(expiresAt).toISOString()
+        : null,
+  }
+}
+
+function sanitizeDeliveryZonePricingRule(
+  value: unknown,
+  index: number
+): DeliveryZonePricingRule | null {
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+
+  const source = value as Record<string, unknown>
+  const priorityRaw = normalizeNumeric(source.priority)
+
+  return {
+    id: normalizeText(source.id) ?? `pricing-rule-${index + 1}`,
+    label: normalizeText(source.label) ?? `Preisregel ${index + 1}`,
+    active: typeof source.active === 'boolean' ? source.active : true,
+    daysOfWeek: sanitizeDeliveryZonePricingRuleDays(source.daysOfWeek),
+    startTime: normalizeTime(source.startTime),
+    endTime: normalizeTime(source.endTime),
+    priceMode: sanitizeDeliveryZonePricingRulePriceMode(source.priceMode),
+    surchargeAmount: normalizeNumeric(source.surchargeAmount),
+    deliveryFee: normalizeNumeric(source.deliveryFee),
+    holidayMode: sanitizeDeliveryZonePricingRuleHolidayMode(source.holidayMode),
+    manualOverrideToday: sanitizeDeliveryZonePricingRuleManualOverride(source.manualOverrideToday),
+    priority:
+      priorityRaw !== null && Number.isFinite(priorityRaw)
+        ? Math.max(0, Math.round(priorityRaw))
+        : index,
+  }
+}
+
+function sanitizeDeliveryZonePricingRules(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as DeliveryZonePricingRule[]
+  }
+
+  return value
+    .map((entry, index) => sanitizeDeliveryZonePricingRule(entry, index))
+    .filter((entry): entry is DeliveryZonePricingRule => entry !== null)
+    .slice(0, 100)
+}
+
 function sanitizeDeliveryZone(
   value: unknown,
   fallback: DeliveryZoneSettings,
@@ -1120,6 +1252,7 @@ function sanitizeDeliveryZone(
       estimatedMinutesRaw !== null && Number.isFinite(estimatedMinutesRaw)
         ? Math.max(0, Math.round(estimatedMinutesRaw))
         : fallback.estimatedDeliveryMinutes,
+    pricingRules: sanitizeDeliveryZonePricingRules(source.pricingRules),
     priority:
       priorityRaw !== null && Number.isFinite(priorityRaw)
         ? Math.max(0, Math.round(priorityRaw))

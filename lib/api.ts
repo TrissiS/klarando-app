@@ -403,8 +403,41 @@ export type BusinessDeliveryZone = {
   deliveryFee: number | null
   freeDeliveryFrom: number | null
   estimatedDeliveryMinutes: number | null
+  pricingRules?: BusinessDeliveryZonePricingRule[]
   priority: number
   notes: string | null
+}
+
+export type BusinessDeliveryZonePricingRuleHolidayMode =
+  | 'NONE'
+  | 'HOLIDAY_ONLY'
+  | 'EXCLUDE_HOLIDAYS'
+
+export type BusinessDeliveryZonePricingRulePriceMode =
+  | 'SURCHARGE'
+  | 'FIXED_FEE'
+
+export type BusinessDeliveryZonePricingRuleManualOverride = {
+  enabled: boolean
+  reason: string | null
+  surchargeAmount: number | null
+  deliveryFee: number | null
+  expiresAt: string | null
+}
+
+export type BusinessDeliveryZonePricingRule = {
+  id: string
+  label: string
+  active: boolean
+  daysOfWeek: number[]
+  startTime: string | null
+  endTime: string | null
+  priceMode: BusinessDeliveryZonePricingRulePriceMode
+  surchargeAmount: number | null
+  deliveryFee: number | null
+  holidayMode: BusinessDeliveryZonePricingRuleHolidayMode
+  manualOverrideToday: BusinessDeliveryZonePricingRuleManualOverride | null
+  priority: number
 }
 
 export type BusinessCustomerAppListingDisplaySettings = {
