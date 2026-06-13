@@ -415,6 +415,39 @@ function applyDeliveryZonePricingOverride(
   }
 }
 
+function createImplicitHolidaySurchargeRule(
+  matchedZone: DeliveryZoneSettings
+): DeliveryZonePricingRule | null {
+  if (!matchedZone.holidaySurchargeEnabled) {
+    return null
+  }
+
+  const amount =
+    typeof matchedZone.holidaySurchargeAmount === 'number' &&
+    Number.isFinite(matchedZone.holidaySurchargeAmount)
+      ? Math.max(0, matchedZone.holidaySurchargeAmount)
+      : null
+
+  if (amount === null || amount <= 0) {
+    return null
+  }
+
+  return {
+    id: `holiday-surcharge:${matchedZone.id}`,
+    label: 'Feiertagszuschlag',
+    active: true,
+    daysOfWeek: [],
+    startTime: null,
+    endTime: null,
+    priceMode: 'SURCHARGE',
+    surchargeAmount: amount,
+    deliveryFee: null,
+    holidayMode: 'HOLIDAY_ONLY',
+    manualOverrideToday: null,
+    priority: Number.MAX_SAFE_INTEGER,
+  }
+}
+
 export function resolveDeliveryZonePricing(
   settings: BusinessSettings,
   matchedZone: DeliveryZoneSettings | null,
@@ -443,7 +476,11 @@ export function resolveDeliveryZonePricing(
   const currentWeekDay = toPricingRuleDay(tenantNow.weekDay)
   const currentMinutes = tenantNow.hour * 60 + tenantNow.minute
   const isHoliday = Boolean(getHolidayWindow(settings, now, timeZone))
-  const sortedRules = [...(matchedZone.pricingRules ?? [])]
+  const implicitHolidaySurchargeRule = createImplicitHolidaySurchargeRule(matchedZone)
+  const sortedRules = [
+    ...(matchedZone.pricingRules ?? []),
+    ...(implicitHolidaySurchargeRule ? [implicitHolidaySurchargeRule] : []),
+  ]
     .filter((rule) => rule.active)
     .sort((left, right) => {
       if (left.priority !== right.priority) {

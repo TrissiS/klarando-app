@@ -75,6 +75,8 @@ export type DeliveryZoneSettings = {
   deliveryFee: number | null
   freeDeliveryFrom: number | null
   estimatedDeliveryMinutes: number | null
+  holidaySurchargeEnabled?: boolean
+  holidaySurchargeAmount?: number | null
   pricingRules?: DeliveryZonePricingRule[]
   priority: number
   notes: string | null
@@ -786,6 +788,8 @@ export function defaultDeliveryZone(index = 0): DeliveryZoneSettings {
     deliveryFee: null,
     freeDeliveryFrom: null,
     estimatedDeliveryMinutes: null,
+    holidaySurchargeEnabled: false,
+    holidaySurchargeAmount: null,
     pricingRules: [],
     priority: index,
     notes: null,
@@ -1252,6 +1256,11 @@ function sanitizeDeliveryZone(
       estimatedMinutesRaw !== null && Number.isFinite(estimatedMinutesRaw)
         ? Math.max(0, Math.round(estimatedMinutesRaw))
         : fallback.estimatedDeliveryMinutes,
+    holidaySurchargeEnabled:
+      typeof source.holidaySurchargeEnabled === 'boolean'
+        ? source.holidaySurchargeEnabled
+        : (fallback.holidaySurchargeEnabled ?? false),
+    holidaySurchargeAmount: normalizeNumeric(source.holidaySurchargeAmount),
     pricingRules: sanitizeDeliveryZonePricingRules(source.pricingRules),
     priority:
       priorityRaw !== null && Number.isFinite(priorityRaw)

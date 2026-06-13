@@ -153,6 +153,8 @@ function createDefaultDeliveryZone(priority: number): BusinessDeliveryZone {
     deliveryFee: null,
     freeDeliveryFrom: null,
     estimatedDeliveryMinutes: null,
+    holidaySurchargeEnabled: false,
+    holidaySurchargeAmount: null,
     priority: Math.max(1, priority),
     notes: null,
   }
@@ -218,6 +220,12 @@ function validateDeliveryZone(zone: BusinessDeliveryZone) {
   }
   if (zone.estimatedDeliveryMinutes !== null && zone.estimatedDeliveryMinutes < 0) {
     errors.push('Lieferzeit darf nicht negativ sein.')
+  }
+  if (
+    typeof zone.holidaySurchargeAmount === 'number' &&
+    zone.holidaySurchargeAmount < 0
+  ) {
+    errors.push('Feiertagszuschlag darf nicht negativ sein.')
   }
 
   return errors
@@ -1301,6 +1309,46 @@ export default function AdminSettingsPage() {
                                     : 'border border-[var(--brand-border)]'
                                 }`}
                               />
+                            </label>
+                            <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85">
+                              <input
+                                type="checkbox"
+                                checked={selectedDeliveryZone.holidaySurchargeEnabled ?? false}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    holidaySurchargeEnabled: event.target.checked,
+                                  }))
+                                }
+                              />
+                              Feiertagszuschlag aktiv
+                            </label>
+                            <label className="block">
+                              <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                Feiertagszuschlag in EUR
+                              </span>
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={selectedDeliveryZone.holidaySurchargeAmount ?? ''}
+                                onChange={(event) =>
+                                  updateDeliveryZone(selectedDeliveryZone.id, (zone) => ({
+                                    ...zone,
+                                    holidaySurchargeAmount: parseNullableNumber(event.target.value),
+                                  }))
+                                }
+                                disabled={!(selectedDeliveryZone.holidaySurchargeEnabled ?? false)}
+                                className={`w-full rounded-xl px-3 py-2 text-sm outline-none disabled:cursor-not-allowed disabled:bg-slate-100 ${
+                                  typeof selectedDeliveryZone.holidaySurchargeAmount === 'number' &&
+                                  selectedDeliveryZone.holidaySurchargeAmount < 0
+                                    ? 'border border-red-300 bg-red-50'
+                                    : 'border border-[var(--brand-border)]'
+                                }`}
+                              />
+                              <p className="mt-1 text-xs text-rose-900/65">
+                                Wird intern automatisch als Feiertags-Preisregel behandelt, ohne die bestehenden Preisregeln zu verändern.
+                              </p>
                             </label>
                             <div className="flex items-end">
                               <button

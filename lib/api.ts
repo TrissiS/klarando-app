@@ -403,6 +403,8 @@ export type BusinessDeliveryZone = {
   deliveryFee: number | null
   freeDeliveryFrom: number | null
   estimatedDeliveryMinutes: number | null
+  holidaySurchargeEnabled?: boolean
+  holidaySurchargeAmount?: number | null
   pricingRules?: BusinessDeliveryZonePricingRule[]
   priority: number
   notes: string | null
