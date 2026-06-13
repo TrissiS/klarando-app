@@ -5,12 +5,15 @@ import { useEffect, useMemo, useState } from 'react'
 import AdminLayout from '@/app/Components/admin/AdminLayout'
 import {
   createOrderDeskPairingSession,
+  deleteOwnOrderDeskDeviceBinding,
   getOrderDisplays,
   getOrderDeskDeviceBindings,
+  recreateOrderDeskDevicePairing,
   createOrderTerminal,
   deleteOrderTerminal,
   getOrderTerminals,
   resetOrderDeskDeviceBinding,
+  updateOrderDeskDeviceBinding,
   updateOrderTerminal,
   type OrderDisplay,
   type OrderDeskDeviceBinding,
@@ -26,6 +29,60 @@ function normalizeText(input: string) {
 function normalizeHexColorInput(input: string) {
   const value = input.trim().toLowerCase()
   return /^#[0-9a-f]{6}$/.test(value) ? value : null
+}
+
+const ORDERDESK_ONLINE_THRESHOLD_MINUTES = 5
+const ORDERDESK_STALE_THRESHOLD_DAYS = 14
+
+function getBindingReferenceDate(binding: OrderDeskDeviceBinding) {
+  return binding.lastSeenAt || binding.boundAt || binding.firstBoundAt || binding.createdAt
+}
+
+function getOrderDeskBindingStatus(binding: OrderDeskDeviceBinding) {
+  const now = Date.now()
+  const lastSeenMs = binding.lastSeenAt ? new Date(binding.lastSeenAt).getTime() : null
+  const referenceMs = getBindingReferenceDate(binding) ? new Date(getBindingReferenceDate(binding)).getTime() : null
+  const onlineThresholdMs = ORDERDESK_ONLINE_THRESHOLD_MINUTES * 60 * 1000
+  const staleThresholdMs = ORDERDESK_STALE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000
+
+  if (lastSeenMs && now - lastSeenMs <= onlineThresholdMs && binding.isActive) {
+    return {
+      key: 'online',
+      label: 'Online',
+      detail: 'Aktiv verbunden',
+      badgeClass: 'bg-emerald-100 text-emerald-700',
+      canCleanup: false,
+    } as const
+  }
+
+  if (!binding.lastSeenAt) {
+    return {
+      key: 'never',
+      label: 'Noch nie verbunden',
+      detail: 'Kein Heartbeat empfangen',
+      badgeClass: 'bg-amber-100 text-amber-700',
+      canCleanup:
+        !!referenceMs && now - referenceMs >= staleThresholdMs,
+    } as const
+  }
+
+  if (lastSeenMs && now - lastSeenMs >= staleThresholdMs) {
+    return {
+      key: 'stale',
+      label: 'Veraltet',
+      detail: 'Laenger als 14 Tage offline',
+      badgeClass: 'bg-rose-100 text-rose-700',
+      canCleanup: true,
+    } as const
+  }
+
+  return {
+    key: 'offline',
+    label: 'Offline',
+    detail: binding.isActive ? 'Zuletzt verbunden, aktuell nicht aktiv' : 'Getrennt oder inaktiv',
+    badgeClass: 'bg-slate-200 text-slate-700',
+    canCleanup: false,
+  } as const
 }
 
 type OrderDeskManualPairingData = {
@@ -151,6 +208,11 @@ export default function AdminTerminalsPage() {
   const [creatingOrderDeskQr, setCreatingOrderDeskQr] = useState(false)
   const [resettingOrderDeskBindingId, setResettingOrderDeskBindingId] = useState<string | null>(null)
   const [recreatingOrderDeskBindingId, setRecreatingOrderDeskBindingId] = useState<string | null>(null)
+  const [savingOrderDeskAliasId, setSavingOrderDeskAliasId] = useState<string | null>(null)
+  const [deletingOrderDeskBindingId, setDeletingOrderDeskBindingId] = useState<string | null>(null)
+  const [editingOrderDeskBindingId, setEditingOrderDeskBindingId] = useState<string | null>(null)
+  const [editingOrderDeskAlias, setEditingOrderDeskAlias] = useState('')
+  const [cleaningOrderDeskBindings, setCleaningOrderDeskBindings] = useState(false)
   const [orderDeskQrExpired, setOrderDeskQrExpired] = useState(false)
   const [copyState, setCopyState] = useState('')
 
@@ -186,7 +248,27 @@ export default function AdminTerminalsPage() {
     () => displays.filter((display) => display.displayRole === 'PICKUP'),
     [displays]
   )
-  const isSuperadmin = sessionRole.trim().toUpperCase() === 'SUPERADMIN'
+  const canManageOrderDeskDevices = ['ADMIN', 'CHAINADMIN', 'SUPERADMIN'].includes(
+    sessionRole.trim().toUpperCase()
+  )
+  const sortedOrderDeskBindings = useMemo(
+    () =>
+      [...orderDeskBindings].sort((left, right) => {
+        const leftStatus = getOrderDeskBindingStatus(left)
+        const rightStatus = getOrderDeskBindingStatus(right)
+        const statusRank = { online: 0, offline: 1, never: 2, stale: 3 } as const
+        const statusDelta = statusRank[leftStatus.key] - statusRank[rightStatus.key]
+        if (statusDelta !== 0) return statusDelta
+        const leftDate = new Date(getBindingReferenceDate(left) || 0).getTime()
+        const rightDate = new Date(getBindingReferenceDate(right) || 0).getTime()
+        return rightDate - leftDate
+      }),
+    [orderDeskBindings]
+  )
+  const cleanupEligibleOrderDeskBindings = useMemo(
+    () => sortedOrderDeskBindings.filter((binding) => getOrderDeskBindingStatus(binding).canCleanup),
+    [sortedOrderDeskBindings]
+  )
   const orderDeskManualData = useMemo(() => {
     if (!orderDeskQr) return null
     const fromPayload = decodeOrderDeskPairingPayload(orderDeskQr.pairingPayload) || {}
@@ -493,11 +575,19 @@ export default function AdminTerminalsPage() {
       setRecreatingOrderDeskBindingId(binding.id)
       setError('')
       setSuccess('')
-      const response = await createOrderDeskPairingSession({
+      const response = await recreateOrderDeskDevicePairing(binding.id)
+      setOrderDeskQr({
+        ok: true,
+        sessionId: response.sessionId,
+        tenantId: binding.tenantId,
         displayId: binding.displayId,
-        deviceAlias: normalizeText(binding.deviceAlias ?? ''),
+        displayCode: binding.displayCode,
+        deviceAlias: binding.deviceAlias || '',
+        expiresAt: response.expiresAt,
+        pairingToken: response.pairingToken,
+        pairingPayload: response.pairingPayload,
+        qrImageUrl: response.qrImageUrl,
       })
-      setOrderDeskQr(response)
       setOrderDeskQrExpired(false)
       setOrderDeskDisplayId(binding.displayId)
       setOrderDeskDeviceAlias(binding.deviceAlias || '')
@@ -513,10 +603,44 @@ export default function AdminTerminalsPage() {
     }
   }
 
+  function startEditingOrderDeskBinding(binding: OrderDeskDeviceBinding) {
+    setEditingOrderDeskBindingId(binding.id)
+    setEditingOrderDeskAlias(binding.deviceAlias || '')
+    setError('')
+    setSuccess('')
+  }
+
+  function cancelEditingOrderDeskBinding() {
+    setEditingOrderDeskBindingId(null)
+    setEditingOrderDeskAlias('')
+  }
+
+  async function handleSaveOrderDeskBindingAlias(binding: OrderDeskDeviceBinding) {
+    try {
+      setSavingOrderDeskAliasId(binding.id)
+      setError('')
+      setSuccess('')
+      await updateOrderDeskDeviceBinding(binding.id, {
+        deviceAlias: normalizeText(editingOrderDeskAlias),
+      })
+      await loadOrderDeskBindings()
+      cancelEditingOrderDeskBinding()
+      setSuccess('Geraetename gespeichert.')
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Der Geraetename konnte nicht gespeichert werden.'
+      )
+    } finally {
+      setSavingOrderDeskAliasId(null)
+    }
+  }
+
   async function handleResetOrderDeskBinding(binding: OrderDeskDeviceBinding) {
     if (
       !window.confirm(
-        `Binding fuer ${binding.deviceAlias || binding.deviceSerial} wirklich trennen?\nNur Superadmin kann das rueckgaengig machen.`
+        `Geraet ${binding.deviceAlias || binding.deviceSerial} wirklich trennen?`
       )
     ) {
       return
@@ -537,6 +661,70 @@ export default function AdminTerminalsPage() {
       )
     } finally {
       setResettingOrderDeskBindingId(null)
+    }
+  }
+
+  async function handleDeleteOrderDeskBinding(binding: OrderDeskDeviceBinding) {
+    if (
+      !window.confirm(
+        `Geraet ${binding.deviceAlias || binding.deviceSerial} wirklich loeschen? Das Geraet muss danach neu gekoppelt werden.`
+      )
+    ) {
+      return
+    }
+
+    try {
+      setDeletingOrderDeskBindingId(binding.id)
+      setError('')
+      setSuccess('')
+      await deleteOwnOrderDeskDeviceBinding(binding.id)
+      await loadOrderDeskBindings()
+      if (editingOrderDeskBindingId === binding.id) {
+        cancelEditingOrderDeskBinding()
+      }
+      setSuccess('OrderDesk-Geraet wurde entfernt.')
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : 'OrderDesk-Geraet konnte nicht geloescht werden'
+      )
+    } finally {
+      setDeletingOrderDeskBindingId(null)
+    }
+  }
+
+  async function handleCleanupOfflineOrderDeskBindings() {
+    if (cleanupEligibleOrderDeskBindings.length === 0) {
+      setSuccess('Keine veralteten Offline-Geraete zum Aufraeumen gefunden.')
+      return
+    }
+
+    if (
+      !window.confirm(
+        `${cleanupEligibleOrderDeskBindings.length} veraltete Offline-Geraete wirklich loeschen?`
+      )
+    ) {
+      return
+    }
+
+    try {
+      setCleaningOrderDeskBindings(true)
+      setError('')
+      setSuccess('')
+      for (const binding of cleanupEligibleOrderDeskBindings) {
+        await deleteOwnOrderDeskDeviceBinding(binding.id)
+      }
+      await loadOrderDeskBindings()
+      setSuccess(`${cleanupEligibleOrderDeskBindings.length} Offline-Geraete wurden entfernt.`)
+    } catch (cleanupError) {
+      setError(
+        cleanupError instanceof Error
+          ? cleanupError.message
+          : 'Offline-Geraete konnten nicht geloescht werden'
+      )
+    } finally {
+      setCleaningOrderDeskBindings(false)
     }
   }
 
@@ -577,7 +765,7 @@ export default function AdminTerminalsPage() {
           <div>
             <h2 className="text-xl font-semibold">OrderDesk Geraete verbinden</h2>
             <p className="mt-1 text-sm text-rose-900/70">
-              QR erzeugen, Geraete-Serien verwalten und Bindungen nur per Superadmin resetten.
+              QR erzeugen, Geraete-Serien verwalten und eigene OrderDesk-Geraete pro Filiale sauber pflegen.
             </p>
           </div>
           <button
@@ -696,9 +884,34 @@ export default function AdminTerminalsPage() {
           </article>
 
           <article className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
-              Verbundene OrderDesk Geraete
-            </h3>
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-rose-900/75">
+                  Verbundene OrderDesk Geraete
+                </h3>
+                <p className="mt-1 text-xs text-rose-900/70">
+                  Alias, verknuepftes Display, Status und Aufraeumaktionen pro Geraet.
+                </p>
+              </div>
+              {canManageOrderDeskDevices ? (
+                <button
+                  type="button"
+                  onClick={() => void handleCleanupOfflineOrderDeskBindings()}
+                  disabled={
+                    cleaningOrderDeskBindings || cleanupEligibleOrderDeskBindings.length === 0
+                  }
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {cleaningOrderDeskBindings
+                    ? 'Raeumt auf...'
+                    : `Offline-Geraete loeschen${
+                        cleanupEligibleOrderDeskBindings.length > 0
+                          ? ` (${cleanupEligibleOrderDeskBindings.length})`
+                          : ''
+                      }`}
+                </button>
+              ) : null}
+            </div>
             <div className="mt-3 max-h-[360px] overflow-auto rounded-2xl border border-[var(--brand-border)]">
               {loadingOrderDeskBindings ? (
                 <p className="px-4 py-4 text-sm text-rose-900/70">Lade Bindings...</p>
@@ -710,43 +923,78 @@ export default function AdminTerminalsPage() {
                 <table className="w-full min-w-[760px] border-collapse">
                   <thead>
                     <tr>
-                      <th className="th-ui">Geraet</th>
+                      <th className="th-ui">Geraetename / Alias</th>
                       <th className="th-ui">Seriennummer</th>
-                      <th className="th-ui">Display</th>
+                      <th className="th-ui">Verknuepftes Display</th>
                       <th className="th-ui">Status</th>
                       <th className="th-ui">Zuletzt online</th>
                       <th className="th-ui">Verbunden seit</th>
-                      <th className="th-ui">Aktion</th>
+                      <th className="th-ui">Aktionen</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {orderDeskBindings.map((binding) => (
+                    {sortedOrderDeskBindings.map((binding) => {
+                      const status = getOrderDeskBindingStatus(binding)
+                      const isEditing = editingOrderDeskBindingId === binding.id
+                      return (
                       <tr key={binding.id}>
                         <td className="td-ui">
-                          <div className="text-xs">
-                            <p className="font-semibold text-slate-900">
-                              {binding.deviceAlias || 'Ohne Alias'}
-                            </p>
+                          <div className="space-y-2 text-xs">
+                            {isEditing ? (
+                              <div className="space-y-2">
+                                <input
+                                  value={editingOrderDeskAlias}
+                                  onChange={(event) => setEditingOrderDeskAlias(event.target.value)}
+                                  placeholder="Geraetename / Alias"
+                                  className="input-ui h-9"
+                                />
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleSaveOrderDeskBindingAlias(binding)}
+                                    disabled={savingOrderDeskAliasId === binding.id}
+                                    className="rounded-lg border border-emerald-300 px-2 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {savingOrderDeskAliasId === binding.id ? 'Speichert...' : 'Speichern'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelEditingOrderDeskBinding}
+                                    className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                                  >
+                                    Abbrechen
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="font-semibold text-slate-900">
+                                {binding.deviceAlias || binding.deviceSerial || 'Ohne Alias'}
+                              </p>
+                            )}
                             <p className="text-rose-900/70">
-                              {binding.devicePlatform || '-'} | {binding.deviceModel || '-'} | v
-                              {binding.appVersion || '-'}
+                              {(binding.deviceModel || 'Unbekanntes Geraet')}
+                              {' | '}
+                              {(binding.devicePlatform || 'Plattform unbekannt')}
+                              {' | '}
+                              v{binding.appVersion || '-'}
                             </p>
+                            <p className="text-[11px] text-rose-900/60">Binding-ID: {binding.id}</p>
                           </div>
                         </td>
                         <td className="td-ui font-mono text-xs">{binding.deviceSerial}</td>
-                        <td className="td-ui">
-                          {binding.display?.name || binding.displayCode} ({binding.displayCode})
+                        <td className="td-ui text-xs">
+                          <p className="font-medium text-slate-900">
+                            {binding.display?.name || 'Kein Display verknuepft'}
+                          </p>
+                          <p className="text-rose-900/70">{binding.displayCode || '-'}</p>
                         </td>
                         <td className="td-ui">
                           <span
-                            className={`rounded-lg px-2 py-1 text-xs font-semibold ${
-                              binding.isActive
-                                ? 'bg-emerald-100 text-emerald-700'
-                                : 'bg-slate-200 text-slate-700'
-                            }`}
+                            className={`rounded-lg px-2 py-1 text-xs font-semibold ${status.badgeClass}`}
                           >
-                            {binding.isActive ? 'Aktiv gebunden' : 'Getrennt'}
+                            {status.label}
                           </span>
+                          <p className="mt-1 text-[11px] text-rose-900/70">{status.detail}</p>
                         </td>
                         <td className="td-ui text-xs">
                           {binding.lastSeenAt
@@ -760,9 +1008,21 @@ export default function AdminTerminalsPage() {
                         </td>
                         <td className="td-ui">
                           <div className="flex flex-wrap gap-2">
+                            {canManageOrderDeskDevices && !isEditing ? (
+                              <button
+                                type="button"
+                                onClick={() => startEditingOrderDeskBinding(binding)}
+                                className="rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+                              >
+                                Alias bearbeiten
+                              </button>
+                            ) : null}
                             <button
                               type="button"
-                              disabled={recreatingOrderDeskBindingId === binding.id}
+                              disabled={
+                                !canManageOrderDeskDevices ||
+                                recreatingOrderDeskBindingId === binding.id
+                              }
                               onClick={() => void handleRecreateBindingPairing(binding)}
                               className="rounded-lg border border-blue-300 px-2 py-1 text-xs font-medium text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
                             >
@@ -774,7 +1034,7 @@ export default function AdminTerminalsPage() {
                               type="button"
                               disabled={
                                 !binding.isActive ||
-                                !isSuperadmin ||
+                                !canManageOrderDeskDevices ||
                                 resettingOrderDeskBindingId === binding.id
                               }
                               onClick={() => void handleResetOrderDeskBinding(binding)}
@@ -784,19 +1044,29 @@ export default function AdminTerminalsPage() {
                                 ? 'Trennt...'
                                 : 'Geraet trennen'}
                             </button>
+                            <button
+                              type="button"
+                              disabled={
+                                !canManageOrderDeskDevices || deletingOrderDeskBindingId === binding.id
+                              }
+                              onClick={() => void handleDeleteOrderDeskBinding(binding)}
+                              className="rounded-lg border border-rose-300 px-2 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {deletingOrderDeskBindingId === binding.id
+                                ? 'Loescht...'
+                                : 'Geraet loeschen'}
+                            </button>
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    )})}
                   </tbody>
                 </table>
               )}
             </div>
-            {!isSuperadmin ? (
-              <p className="mt-2 text-xs text-rose-900/70">
-                Hinweis: Nur Superadmin darf eine bestehende OrderDesk-Bindung zuruecksetzen.
-              </p>
-            ) : null}
+            <p className="mt-2 text-xs text-rose-900/70">
+              Statuslogik: Online innerhalb von {ORDERDESK_ONLINE_THRESHOLD_MINUTES} Minuten, veraltet nach {ORDERDESK_STALE_THRESHOLD_DAYS} Tagen ohne Verbindung.
+            </p>
           </article>
         </div>
       </section>

@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 import { PermissionKey, UserRole } from '@prisma/client'
-import { Router } from 'express'
+import { Router, type Request, type Response } from 'express'
 import { signOrderDeskDeviceToken, verifyOrderDeskDeviceToken } from '../auth/orderdesk-device-token'
 import { writeAuditLog } from '../lib/audit'
 import { listDriverDeviceSessionsForTenant } from '../lib/driver-device-sessions'
@@ -57,6 +57,18 @@ function parseBoolean(value: unknown) {
     }
   }
   return null
+}
+
+function canManageOrderDeskDevices(role: UserRole | null | undefined) {
+  return role === UserRole.SUPERADMIN || role === UserRole.CHAINADMIN || role === UserRole.ADMIN
+}
+
+function ensureOrderDeskDeviceManagerRole(req: Request, res: Response) {
+  if (canManageOrderDeskDevices(req.authUser?.role)) {
+    return true
+  }
+  res.status(403).json({ error: 'Nur ADMIN, CHAINADMIN oder SUPERADMIN duerfen OrderDesk-Geraete verwalten' })
+  return false
 }
 
 function normalizeDeviceSerial(value: unknown) {
@@ -235,6 +247,10 @@ router.post(
   rateLimitOrderDeskPairing,
   async (req, res) => {
   try {
+    if (!ensureOrderDeskDeviceManagerRole(req, res)) {
+      return
+    }
+
     const payload = req.body as {
       tenantId?: string | null
       displayId?: string | null
@@ -361,6 +377,10 @@ router.post(
 
 router.post('/bindings/:bindingId/reset', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
   try {
+    if (!ensureOrderDeskDeviceManagerRole(req, res)) {
+      return
+    }
+
     const bindingId = normalizeText(req.params.bindingId)
     if (!bindingId) {
       return res.status(400).json({ error: 'bindingId fehlt' })
@@ -439,8 +459,90 @@ router.post('/bindings/:bindingId/reset', requirePermission(PermissionKey.ORDERS
   }
 })
 
+router.patch('/bindings/:bindingId', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
+  try {
+    if (!ensureOrderDeskDeviceManagerRole(req, res)) {
+      return
+    }
+
+    const bindingId = normalizeText(req.params.bindingId)
+    if (!bindingId) {
+      return res.status(400).json({ error: 'bindingId fehlt' })
+    }
+
+    const payload = req.body as {
+      deviceAlias?: string | null
+    }
+    const deviceAlias = normalizeText(payload.deviceAlias)
+
+    const binding = await prisma.orderDeskDeviceBinding.findUnique({
+      where: { id: bindingId },
+      select: {
+        id: true,
+        tenantId: true,
+        deviceSerial: true,
+        deviceAlias: true,
+        displayId: true,
+        displayCode: true,
+      },
+    })
+    if (!binding) {
+      return res.status(404).json({ error: 'OrderDesk-Gerät nicht gefunden' })
+    }
+
+    await resolveTenantScope(req, binding.tenantId)
+
+    const updated = await prisma.orderDeskDeviceBinding.update({
+      where: { id: binding.id },
+      data: {
+        deviceAlias,
+      },
+      include: {
+        display: {
+          select: {
+            id: true,
+            name: true,
+            displayCode: true,
+            displayRole: true,
+            isActive: true,
+          },
+        },
+      },
+    })
+
+    await writeAuditLog({
+      req,
+      module: ORDERDESK_DEVICE_MODULE,
+      action: 'binding_alias_updated',
+      targetType: ORDERDESK_DEVICE_TARGET_TYPE,
+      targetId: binding.id,
+      tenantId: binding.tenantId,
+      metadata: {
+        displayId: binding.displayId,
+        displayCode: binding.displayCode,
+        deviceSerial: binding.deviceSerial,
+        previousAlias: binding.deviceAlias,
+        nextAlias: deviceAlias,
+      },
+    })
+
+    return res.json({ ok: true, binding: updated })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('PATCH ORDERDESK BINDING ERROR:', error)
+    return res.status(500).json({ error: 'OrderDesk-Gerät konnte nicht aktualisiert werden' })
+  }
+})
+
 router.patch('/bindings/:bindingId/deactivate', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
   try {
+    if (!ensureOrderDeskDeviceManagerRole(req, res)) {
+      return
+    }
+
     const bindingId = normalizeText(req.params.bindingId)
     if (!bindingId) {
       return res.status(400).json({ error: 'bindingId fehlt' })
@@ -486,6 +588,10 @@ router.patch('/bindings/:bindingId/deactivate', requirePermission(PermissionKey.
 
 router.delete('/bindings/:bindingId', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
   try {
+    if (!ensureOrderDeskDeviceManagerRole(req, res)) {
+      return
+    }
+
     const bindingId = normalizeText(req.params.bindingId)
     if (!bindingId) {
       return res.status(400).json({ error: 'bindingId fehlt' })
@@ -523,6 +629,10 @@ router.delete('/bindings/:bindingId', requirePermission(PermissionKey.ORDERS_WRI
 
 router.post('/bindings/:bindingId/reset-pairing', requirePermission(PermissionKey.ORDERS_WRITE), async (req, res) => {
   try {
+    if (!ensureOrderDeskDeviceManagerRole(req, res)) {
+      return
+    }
+
     const bindingId = normalizeText(req.params.bindingId)
     if (!bindingId) {
       return res.status(400).json({ error: 'bindingId fehlt' })

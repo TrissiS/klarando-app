@@ -4945,6 +4945,76 @@ export async function resetOrderDeskDeviceBinding(
   return res.json()
 }
 
+export async function updateOrderDeskDeviceBinding(
+  bindingId: string,
+  data: {
+    deviceAlias?: string | null
+  }
+): Promise<{
+  ok: true
+  binding: OrderDeskDeviceBinding
+}> {
+  const token = readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/orderdesk-devices/bindings/${bindingId}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      deviceAlias: data.deviceAlias ?? null,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'OrderDesk-Gerät konnte nicht aktualisiert werden')
+  }
+
+  return res.json()
+}
+
+export async function recreateOrderDeskDevicePairing(
+  bindingId: string
+): Promise<{
+  ok: boolean
+  sessionId: string
+  pairingToken: string
+  pairingPayload: string
+  expiresAt: string
+  qrImageUrl: string
+}> {
+  const token = readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/orderdesk-devices/bindings/${bindingId}/reset-pairing`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Pairing-Code konnte nicht neu erstellt werden')
+  }
+
+  return res.json()
+}
+
+export async function deleteOwnOrderDeskDeviceBinding(
+  bindingId: string
+): Promise<{ ok: boolean; softDeleted: boolean }> {
+  const token = readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/orderdesk-devices/bindings/${bindingId}`, {
+    method: 'DELETE',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'OrderDesk-Gerät konnte nicht gelöscht werden')
+  }
+
+  return res.json()
+}
+
 export async function createOrderDisplay(data: {
   name: string
   displayCode?: string
