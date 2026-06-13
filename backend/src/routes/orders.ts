@@ -18,6 +18,7 @@ import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-avail
 import {
   buildDeliveryAvailability,
   resolveDeliveryAreaSelection,
+  resolveDeliveryAvailabilityTimeZone,
 } from '../lib/delivery-availability'
 import { resolveDisplayRouting } from '../lib/order-routing'
 import { signDriverDeviceToken, verifyDriverDeviceToken } from '../auth/driver-device-token'
@@ -3403,6 +3404,11 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           name: true,
           email: true,
           businessSettings: true,
+          tenantBillingSettings: {
+            select: {
+              timezone: true,
+            },
+          },
         },
       })
 
@@ -3424,15 +3430,18 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
 
       const intake = settings.orderIntake
       const availabilityNow = new Date()
+      const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
       const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
         settings,
         'DELIVERY',
-        availabilityNow
+        availabilityNow,
+        timeZone
       )
       const pickupOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
         settings,
         'PICKUP',
-        availabilityNow
+        availabilityNow,
+        timeZone
       )
       const serviceAvailability =
         resolvedServiceType === 'PICKUP'

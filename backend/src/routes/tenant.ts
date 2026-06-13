@@ -14,6 +14,7 @@ import {
   type WeekDay,
 } from '../lib/business-settings'
 import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-availability'
+import { resolveDeliveryAvailabilityTimeZone } from '../lib/delivery-availability'
 import { resolveProductOffers } from '../lib/action-pricing'
 import {
   provisionTenantDatabase,
@@ -926,6 +927,11 @@ router.get('/public/discovery', async (req, res) => {
         email: true,
         chainId: true,
         businessSettings: true,
+        tenantBillingSettings: {
+          select: {
+            timezone: true,
+          },
+        },
         paymentConfig: {
           select: {
             stripeAccountId: true,
@@ -1125,15 +1131,18 @@ router.get('/public/discovery', async (req, res) => {
             : Boolean(pickupMatch?.matched)
 
         const deliveryScheduleState = resolveDeliveryScheduleState(settings)
+        const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
         const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
           settings,
           'DELIVERY',
-          new Date()
+          new Date(),
+          timeZone
         )
         const pickupOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
           settings,
           'PICKUP',
-          new Date()
+          new Date(),
+          timeZone
         )
         const deliveryIntakeEnabled =
           intake.orderIntakeEnabled && intake.services.deliveryEnabledNow
@@ -1501,6 +1510,11 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
         name: true,
         email: true,
         businessSettings: true,
+        tenantBillingSettings: {
+          select: {
+            timezone: true,
+          },
+        },
         paymentConfig: {
           select: {
             stripeAccountId: true,
@@ -1527,15 +1541,18 @@ router.get('/public/:tenantId/catalog', async (req, res) => {
       email: tenant.email,
     })
     const intake = settings.orderIntake
+    const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
     const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
       settings,
       'DELIVERY',
-      new Date()
+      new Date(),
+      timeZone
     )
     const pickupOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
       settings,
       'PICKUP',
-      new Date()
+      new Date(),
+      timeZone
     )
     if (!settings.customerApp.listingEnabled) {
       return res.status(403).json({ error: 'Filiale ist in der App noch nicht freigegeben' })

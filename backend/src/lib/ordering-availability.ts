@@ -1,5 +1,10 @@
 import { prisma } from './prisma'
 import { parseSettings, type BusinessSettings, type DailyWindow, type WeekDay } from './business-settings'
+import {
+  DEFAULT_DELIVERY_TIME_ZONE,
+  getTenantLocalDate,
+  resolveDeliveryAvailabilityTimeZone,
+} from './delivery-availability'
 
 export type OrderingType = 'DELIVERY' | 'PICKUP'
 
@@ -14,16 +19,6 @@ export type TenantOrderingAvailability = {
   allowedOrderTypes: OrderingType[]
 }
 
-const DAY_BY_INDEX: WeekDay[] = [
-  'SUNDAY',
-  'MONDAY',
-  'TUESDAY',
-  'WEDNESDAY',
-  'THURSDAY',
-  'FRIDAY',
-  'SATURDAY',
-]
-
 function toMinutes(value: string | null) {
   if (!value) return null
   const [hoursRaw, minutesRaw] = value.split(':')
@@ -33,23 +28,17 @@ function toMinutes(value: string | null) {
   return hours * 60 + minutes
 }
 
-function minutesFromDate(value: Date) {
-  return value.getHours() * 60 + value.getMinutes()
+function minutesFromDate(value: Date, timeZone: string) {
+  const local = getTenantLocalDate(value, timeZone)
+  return local.hour * 60 + local.minute
 }
 
 function getWindowForDay(windows: DailyWindow[], day: WeekDay) {
   return windows.find((entry) => entry.day === day) || null
 }
 
-function toLocalIsoDate(value: Date) {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function getHolidayWindow(settings: BusinessSettings, now: Date) {
-  const currentDate = toLocalIsoDate(now)
+function getHolidayWindow(settings: BusinessSettings, now: Date, timeZone: string) {
+  const currentDate = getTenantLocalDate(now, timeZone).isoDate
   return settings.timeManagement.holidayHours.find((entry) => entry.date === currentDate) || null
 }
 
@@ -102,12 +91,14 @@ function formatNextTime(window: DailyWindow | null) {
 export function getTenantOrderingAvailabilityFromSettings(
   settings: BusinessSettings,
   orderType: OrderingType,
-  now: Date
+  now: Date,
+  timeZone: string = DEFAULT_DELIVERY_TIME_ZONE
 ): TenantOrderingAvailability {
-  const weekday = DAY_BY_INDEX[now.getDay()]
-  const nowMinutes = minutesFromDate(now)
+  const resolvedTimeZone = resolveDeliveryAvailabilityTimeZone(timeZone)
+  const weekday = getTenantLocalDate(now, resolvedTimeZone).weekDay
+  const nowMinutes = minutesFromDate(now, resolvedTimeZone)
   const timeManagement = settings.timeManagement
-  const holidayWindow = getHolidayWindow(settings, now)
+  const holidayWindow = getHolidayWindow(settings, now, resolvedTimeZone)
   const openingWindow = applyHolidayOverride(
     getWindowForDay(timeManagement.openingHours, weekday),
     weekday,
@@ -192,7 +183,17 @@ export async function getTenantOrderingAvailability(
 ): Promise<TenantOrderingAvailability> {
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
-    select: { id: true, name: true, email: true, businessSettings: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      businessSettings: true,
+      tenantBillingSettings: {
+        select: {
+          timezone: true,
+        },
+      },
+    },
   })
 
   if (!tenant) {
@@ -204,5 +205,10 @@ export async function getTenantOrderingAvailability(
     email: tenant.email,
   })
 
-  return getTenantOrderingAvailabilityFromSettings(settings, orderType, now)
+  return getTenantOrderingAvailabilityFromSettings(
+    settings,
+    orderType,
+    now,
+    resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
+  )
 }
