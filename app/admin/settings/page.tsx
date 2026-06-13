@@ -11,6 +11,7 @@ import {
   uploadBusinessSettingsImage,
   updateBusinessSettings,
   type BusinessDeliveryZone,
+  type BusinessDeliveryZonePricingRule,
   type BusinessServiceArea,
   type BusinessSettings,
   type DeliveryAvailabilityPreview,
@@ -76,6 +77,13 @@ function createDeliveryZoneId() {
   return `zone-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
 }
 
+function createDeliveryZonePricingRuleId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `pricing-rule-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`
+}
+
 function parseNullableNumber(value: string) {
   const normalized = value.replace(',', '.').trim()
   if (!normalized) {
@@ -94,6 +102,35 @@ function parseNullableInteger(value: string) {
 
   return Math.max(0, Math.round(parsed))
 }
+
+function createDefaultDeliveryZonePricingRule(
+  priority: number
+): BusinessDeliveryZonePricingRule {
+  return {
+    id: createDeliveryZonePricingRuleId(),
+    label: 'Neue Preisregel',
+    active: true,
+    daysOfWeek: [],
+    startTime: null,
+    endTime: null,
+    priceMode: 'SURCHARGE',
+    surchargeAmount: null,
+    deliveryFee: null,
+    holidayMode: 'NONE',
+    manualOverrideToday: null,
+    priority: Math.max(1, priority),
+  }
+}
+
+const weekdayOptions = [
+  { value: 1, label: 'Mo' },
+  { value: 2, label: 'Di' },
+  { value: 3, label: 'Mi' },
+  { value: 4, label: 'Do' },
+  { value: 5, label: 'Fr' },
+  { value: 6, label: 'Sa' },
+  { value: 0, label: 'So' },
+] as const
 
 function createDefaultDeliveryZone(priority: number): BusinessDeliveryZone {
   return {
@@ -371,6 +408,48 @@ export default function AdminSettingsPage() {
     setSelectedDeliveryZoneId(fallbackZone?.id ?? null)
   }
 
+  function updateDeliveryZonePricingRule(
+    zoneId: string,
+    ruleId: string,
+    updater: (rule: BusinessDeliveryZonePricingRule) => BusinessDeliveryZonePricingRule
+  ) {
+    updateDeliveryZone(zoneId, (zone) => ({
+      ...zone,
+      pricingRules: (zone.pricingRules ?? []).map((rule) =>
+        rule.id === ruleId ? updater(rule) : rule
+      ),
+    }))
+  }
+
+  function handleAddDeliveryZonePricingRule(zoneId: string) {
+    updateDeliveryZone(zoneId, (zone) => {
+      const nextPriority =
+        (zone.pricingRules ?? []).reduce(
+          (maxPriority, rule) => Math.max(maxPriority, rule.priority),
+          0
+        ) + 1
+
+      return {
+        ...zone,
+        pricingRules: [
+          ...(zone.pricingRules ?? []),
+          createDefaultDeliveryZonePricingRule(nextPriority),
+        ],
+      }
+    })
+  }
+
+  function handleDeleteDeliveryZonePricingRule(zoneId: string, ruleId: string) {
+    if (!window.confirm('Preisregel wirklich löschen?')) {
+      return
+    }
+
+    updateDeliveryZone(zoneId, (zone) => ({
+      ...zone,
+      pricingRules: (zone.pricingRules ?? []).filter((rule) => rule.id !== ruleId),
+    }))
+  }
+
   async function handleLogoFile(file: File | null) {
     if (!file) {
       return
@@ -561,6 +640,7 @@ export default function AdminSettingsPage() {
   const selectedDeliveryZoneErrors = selectedDeliveryZone
     ? validateDeliveryZone(selectedDeliveryZone)
     : []
+  const selectedDeliveryZonePricingRules = selectedDeliveryZone?.pricingRules ?? []
 
   return (
     <AdminLayout
@@ -1231,6 +1311,337 @@ export default function AdminSettingsPage() {
                                 Zone löschen
                               </button>
                             </div>
+                          </div>
+
+                          <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <h3 className="text-base font-semibold text-slate-900">
+                                  Zeitabhängige Lieferkosten
+                                </h3>
+                                <p className="mt-1 text-sm text-rose-900/70">
+                                  Optionale Preisregeln ergänzen die Basis-Liefergebühr dieser Zone, ohne Checkout oder Discovery bereits umzubauen.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleAddDeliveryZonePricingRule(selectedDeliveryZone.id)
+                                }
+                                className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                              >
+                                + Preisregel hinzufügen
+                              </button>
+                            </div>
+
+                            {selectedDeliveryZonePricingRules.length === 0 ? (
+                              <div className="mt-4 rounded-2xl border border-dashed border-[var(--brand-border)] bg-slate-50 px-4 py-4 text-sm text-rose-900/70">
+                                Für diese Lieferzone sind noch keine zeitabhängigen Preisregeln hinterlegt. Die Basis-Liefergebühr bleibt der Fallback.
+                              </div>
+                            ) : (
+                              <div className="mt-4 space-y-4">
+                                {selectedDeliveryZonePricingRules
+                                  .slice()
+                                  .sort((left, right) => {
+                                    if (left.priority !== right.priority) {
+                                      return left.priority - right.priority
+                                    }
+                                    return left.label.localeCompare(right.label, 'de-DE')
+                                  })
+                                  .map((rule) => (
+                                    <div
+                                      key={rule.id}
+                                      className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+                                    >
+                                      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold text-white">
+                                              Priorität {rule.priority}
+                                            </span>
+                                            <span
+                                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                                                rule.active
+                                                  ? 'bg-emerald-100 text-emerald-700'
+                                                  : 'bg-slate-200 text-slate-700'
+                                              }`}
+                                            >
+                                              {rule.active ? 'Aktiv' : 'Inaktiv'}
+                                            </span>
+                                            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                                              {rule.priceMode === 'SURCHARGE'
+                                                ? 'Zuschlag'
+                                                : 'Fester Lieferpreis'}
+                                            </span>
+                                          </div>
+                                          <p className="mt-2 text-sm font-semibold text-slate-900">
+                                            {rule.label || 'Unbenannte Preisregel'}
+                                          </p>
+                                        </div>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleDeleteDeliveryZonePricingRule(
+                                              selectedDeliveryZone.id,
+                                              rule.id
+                                            )
+                                          }
+                                          className="inline-flex items-center justify-center rounded-xl border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-700 transition hover:bg-red-50"
+                                        >
+                                          Regel löschen
+                                        </button>
+                                      </div>
+
+                                      <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Name
+                                          </span>
+                                          <input
+                                            value={rule.label}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  label: event.target.value,
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                          />
+                                        </label>
+                                        <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm text-rose-900/85">
+                                          <input
+                                            type="checkbox"
+                                            checked={rule.active}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  active: event.target.checked,
+                                                })
+                                              )
+                                            }
+                                          />
+                                          Regel aktiv
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Priorität
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min={1}
+                                            step={1}
+                                            value={rule.priority}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  priority:
+                                                    parseNullableInteger(event.target.value) ??
+                                                    1,
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Von
+                                          </span>
+                                          <input
+                                            type="time"
+                                            value={rule.startTime ?? ''}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  startTime: event.target.value || null,
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Bis
+                                          </span>
+                                          <input
+                                            type="time"
+                                            value={rule.endTime ?? ''}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  endTime: event.target.value || null,
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Modus
+                                          </span>
+                                          <select
+                                            value={rule.priceMode}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  priceMode:
+                                                    event.target
+                                                      .value as BusinessDeliveryZonePricingRule['priceMode'],
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
+                                          >
+                                            <option value="SURCHARGE">Zuschlag</option>
+                                            <option value="FIXED_FEE">
+                                              Fester Lieferpreis
+                                            </option>
+                                          </select>
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Zuschlag in EUR
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step={0.01}
+                                            value={rule.surchargeAmount ?? ''}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  surchargeAmount: parseNullableNumber(
+                                                    event.target.value
+                                                  ),
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Lieferpreis in EUR
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step={0.01}
+                                            value={rule.deliveryFee ?? ''}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  deliveryFee: parseNullableNumber(
+                                                    event.target.value
+                                                  ),
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                          />
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Feiertagsmodus
+                                          </span>
+                                          <select
+                                            value={rule.holidayMode}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  holidayMode:
+                                                    event.target
+                                                      .value as BusinessDeliveryZonePricingRule['holidayMode'],
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
+                                          >
+                                            <option value="NONE">Keine Feiertagsregel</option>
+                                            <option value="HOLIDAY_ONLY">
+                                              Nur an Feiertagen
+                                            </option>
+                                            <option value="EXCLUDE_HOLIDAYS">
+                                              An Feiertagen ausschließen
+                                            </option>
+                                          </select>
+                                        </label>
+                                      </div>
+
+                                      <div className="mt-4">
+                                        <span className="mb-2 block text-sm font-medium text-rose-900/85">
+                                          Wochentage
+                                        </span>
+                                        <div className="flex flex-wrap gap-2">
+                                          {weekdayOptions.map((day) => {
+                                            const isActive = rule.daysOfWeek.includes(day.value)
+                                            return (
+                                              <button
+                                                key={day.value}
+                                                type="button"
+                                                onClick={() =>
+                                                  updateDeliveryZonePricingRule(
+                                                    selectedDeliveryZone.id,
+                                                    rule.id,
+                                                    (currentRule) => ({
+                                                      ...currentRule,
+                                                      daysOfWeek: isActive
+                                                        ? currentRule.daysOfWeek.filter(
+                                                            (entry) => entry !== day.value
+                                                          )
+                                                        : [
+                                                            ...currentRule.daysOfWeek,
+                                                            day.value,
+                                                          ].sort((left, right) => left - right),
+                                                    })
+                                                  )
+                                                }
+                                                className={`rounded-full border px-3 py-1.5 text-sm font-medium transition ${
+                                                  isActive
+                                                    ? 'border-slate-900 bg-slate-900 text-white'
+                                                    : 'border-[var(--brand-border)] bg-white text-slate-700 hover:bg-slate-100'
+                                                }`}
+                                              >
+                                                {day.label}
+                                              </button>
+                                            )
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
                           </div>
 
                           <ServiceAreaEditor
