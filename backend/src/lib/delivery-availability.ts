@@ -4,6 +4,7 @@ import {
   parseSettings,
   type BusinessSettings,
   type DailyWindow,
+  type DeliveryZonePricingRule,
   type DeliveryZoneSettings,
   type ServiceAreaMatchInput,
   type ServiceAreaSettings,
@@ -47,6 +48,26 @@ export type DeliveryAreaSelectionResult = {
     strategy: DeliveryZoneSettings['strategy']
     matched: boolean
   }>
+}
+
+export type DeliveryZonePricingRuleApplication = {
+  source: 'RULE' | 'MANUAL_OVERRIDE'
+  ruleId: string
+  label: string
+  priority: number
+  priceMode: DeliveryZonePricingRule['priceMode']
+  holidayMode: DeliveryZonePricingRule['holidayMode']
+  surchargeAmount: number | null
+  deliveryFee: number | null
+  manualOverrideReason: string | null
+  manualOverrideExpiresAt: string | null
+}
+
+export type DeliveryZonePricingResolution = {
+  baseDeliveryFee: number | null
+  effectiveDeliveryFee: number | null
+  freeDeliveryFrom: number | null
+  pricingRuleApplied: DeliveryZonePricingRuleApplication | null
 }
 
 export const DEFAULT_DELIVERY_TIME_ZONE = 'Europe/Berlin'
@@ -210,6 +231,27 @@ function formatTenantLocalDateTime(value: Date, timeZone: string) {
   return `${parts.isoDate} ${String(parts.hour).padStart(2, '0')}:${String(parts.minute).padStart(2, '0')}:${String(parts.second).padStart(2, '0')}`
 }
 
+function toPricingRuleDay(weekDay: WeekDay) {
+  switch (weekDay) {
+    case 'SUNDAY':
+      return 0
+    case 'MONDAY':
+      return 1
+    case 'TUESDAY':
+      return 2
+    case 'WEDNESDAY':
+      return 3
+    case 'THURSDAY':
+      return 4
+    case 'FRIDAY':
+      return 5
+    case 'SATURDAY':
+      return 6
+    default:
+      return 0
+  }
+}
+
 function toMinutes(value: string | null) {
   if (!value) return null
   const [hoursRaw, minutesRaw] = value.split(':')
@@ -218,6 +260,230 @@ function toMinutes(value: string | null) {
   if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return null
   if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return null
   return hours * 60 + minutes
+}
+
+function isMinutesWithinOptionalWindow(
+  currentMinutes: number,
+  startTime: string | null,
+  endTime: string | null
+) {
+  const startMinutes = toMinutes(startTime)
+  const endMinutes = toMinutes(endTime)
+
+  if (startMinutes === null && endMinutes === null) {
+    return true
+  }
+
+  if (startMinutes !== null && endMinutes !== null) {
+    if (startMinutes === endMinutes) {
+      return false
+    }
+    if (startMinutes < endMinutes) {
+      return currentMinutes >= startMinutes && currentMinutes < endMinutes
+    }
+    return currentMinutes >= startMinutes || currentMinutes < endMinutes
+  }
+
+  if (startMinutes !== null) {
+    return currentMinutes >= startMinutes
+  }
+
+  if (endMinutes !== null) {
+    return currentMinutes < endMinutes
+  }
+
+  return true
+}
+
+function isHolidayMatch(
+  holidayMode: DeliveryZonePricingRule['holidayMode'],
+  isHoliday: boolean
+) {
+  if (holidayMode === 'HOLIDAY_ONLY') {
+    return isHoliday
+  }
+  if (holidayMode === 'EXCLUDE_HOLIDAYS') {
+    return !isHoliday
+  }
+  return true
+}
+
+function isManualOverrideActive(
+  override: DeliveryZonePricingRule['manualOverrideToday'],
+  now: Date
+) {
+  if (!override?.enabled) {
+    return false
+  }
+
+  if (!override.expiresAt) {
+    return true
+  }
+
+  const expiresAt = new Date(override.expiresAt)
+  if (Number.isNaN(expiresAt.getTime())) {
+    return false
+  }
+
+  return expiresAt.getTime() > now.getTime()
+}
+
+function applyDeliveryZonePricingRule(
+  baseDeliveryFee: number | null,
+  rule: DeliveryZonePricingRule
+): DeliveryZonePricingResolution {
+  const normalizedBaseDeliveryFee =
+    typeof baseDeliveryFee === 'number' && Number.isFinite(baseDeliveryFee)
+      ? Math.max(0, baseDeliveryFee)
+      : null
+  const surchargeBase = normalizedBaseDeliveryFee ?? 0
+  const normalizedRuleDeliveryFee =
+    typeof rule.deliveryFee === 'number' && Number.isFinite(rule.deliveryFee)
+      ? Math.max(0, rule.deliveryFee)
+      : null
+  const normalizedRuleSurcharge =
+    typeof rule.surchargeAmount === 'number' && Number.isFinite(rule.surchargeAmount)
+      ? Math.max(0, rule.surchargeAmount)
+      : null
+
+  const effectiveDeliveryFee =
+    rule.priceMode === 'FIXED_FEE'
+      ? normalizedRuleDeliveryFee ?? normalizedBaseDeliveryFee
+      : Math.max(0, surchargeBase + (normalizedRuleSurcharge ?? 0))
+
+  return {
+    baseDeliveryFee: normalizedBaseDeliveryFee,
+    effectiveDeliveryFee,
+    freeDeliveryFrom: null,
+    pricingRuleApplied: {
+      source: 'RULE',
+      ruleId: rule.id,
+      label: rule.label,
+      priority: rule.priority,
+      priceMode: rule.priceMode,
+      holidayMode: rule.holidayMode,
+      surchargeAmount: normalizedRuleSurcharge,
+      deliveryFee: normalizedRuleDeliveryFee,
+      manualOverrideReason: null,
+      manualOverrideExpiresAt: null,
+    },
+  }
+}
+
+function applyDeliveryZonePricingOverride(
+  baseDeliveryFee: number | null,
+  rule: DeliveryZonePricingRule
+): DeliveryZonePricingResolution {
+  const override = rule.manualOverrideToday
+  const normalizedBaseDeliveryFee =
+    typeof baseDeliveryFee === 'number' && Number.isFinite(baseDeliveryFee)
+      ? Math.max(0, baseDeliveryFee)
+      : null
+  const overrideDeliveryFee =
+    typeof override?.deliveryFee === 'number' && Number.isFinite(override.deliveryFee)
+      ? Math.max(0, override.deliveryFee)
+      : null
+  const overrideSurcharge =
+    typeof override?.surchargeAmount === 'number' && Number.isFinite(override.surchargeAmount)
+      ? Math.max(0, override.surchargeAmount)
+      : null
+  const baseResolution = applyDeliveryZonePricingRule(baseDeliveryFee, rule)
+
+  const effectiveDeliveryFee =
+    overrideDeliveryFee !== null
+      ? overrideDeliveryFee
+      : overrideSurcharge !== null
+        ? Math.max(0, (normalizedBaseDeliveryFee ?? 0) + overrideSurcharge)
+        : baseResolution.effectiveDeliveryFee
+
+  return {
+    baseDeliveryFee: normalizedBaseDeliveryFee,
+    effectiveDeliveryFee,
+    freeDeliveryFrom: null,
+    pricingRuleApplied: {
+      source: 'MANUAL_OVERRIDE',
+      ruleId: rule.id,
+      label: rule.label,
+      priority: rule.priority,
+      priceMode: overrideDeliveryFee !== null ? 'FIXED_FEE' : 'SURCHARGE',
+      holidayMode: rule.holidayMode,
+      surchargeAmount: overrideSurcharge,
+      deliveryFee: overrideDeliveryFee,
+      manualOverrideReason: override?.reason ?? null,
+      manualOverrideExpiresAt: override?.expiresAt ?? null,
+    },
+  }
+}
+
+export function resolveDeliveryZonePricing(
+  settings: BusinessSettings,
+  matchedZone: DeliveryZoneSettings | null,
+  now: Date,
+  timeZone: string
+): DeliveryZonePricingResolution {
+  const baseDeliveryFee =
+    matchedZone && typeof matchedZone.deliveryFee === 'number' && Number.isFinite(matchedZone.deliveryFee)
+      ? Math.max(0, matchedZone.deliveryFee)
+      : null
+  const freeDeliveryFrom =
+    matchedZone && typeof matchedZone.freeDeliveryFrom === 'number' && Number.isFinite(matchedZone.freeDeliveryFrom)
+      ? Math.max(0, matchedZone.freeDeliveryFrom)
+      : null
+
+  if (!matchedZone) {
+    return {
+      baseDeliveryFee: null,
+      effectiveDeliveryFee: null,
+      freeDeliveryFrom: null,
+      pricingRuleApplied: null,
+    }
+  }
+
+  const tenantNow = getTenantLocalDate(now, timeZone)
+  const currentWeekDay = toPricingRuleDay(tenantNow.weekDay)
+  const currentMinutes = tenantNow.hour * 60 + tenantNow.minute
+  const isHoliday = Boolean(getHolidayWindow(settings, now, timeZone))
+  const sortedRules = [...(matchedZone.pricingRules ?? [])]
+    .filter((rule) => rule.active)
+    .sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority
+      }
+      return left.label.localeCompare(right.label, 'de-DE')
+    })
+
+  const matchedRule =
+    sortedRules.find((rule) => {
+      const matchesDay =
+        rule.daysOfWeek.length === 0 || rule.daysOfWeek.includes(currentWeekDay)
+      if (!matchesDay) {
+        return false
+      }
+
+      if (!isHolidayMatch(rule.holidayMode, isHoliday)) {
+        return false
+      }
+
+      return isMinutesWithinOptionalWindow(currentMinutes, rule.startTime, rule.endTime)
+    }) ?? null
+
+  if (!matchedRule) {
+    return {
+      baseDeliveryFee,
+      effectiveDeliveryFee: baseDeliveryFee,
+      freeDeliveryFrom,
+      pricingRuleApplied: null,
+    }
+  }
+
+  const pricingResolution = isManualOverrideActive(matchedRule.manualOverrideToday, now)
+    ? applyDeliveryZonePricingOverride(baseDeliveryFee, matchedRule)
+    : applyDeliveryZonePricingRule(baseDeliveryFee, matchedRule)
+
+  return {
+    ...pricingResolution,
+    freeDeliveryFrom,
+  }
 }
 
 function minutesToTime(value: number) {

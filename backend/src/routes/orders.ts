@@ -19,6 +19,7 @@ import {
   buildDeliveryAvailability,
   resolveDeliveryAreaSelection,
   resolveDeliveryAvailabilityTimeZone,
+  resolveDeliveryZonePricing,
 } from '../lib/delivery-availability'
 import { resolveDisplayRouting } from '../lib/order-routing'
 import { signDriverDeviceToken, verifyDriverDeviceToken } from '../auth/driver-device-token'
@@ -3631,6 +3632,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         const deliveryAvailability = buildDeliveryAvailability({
           settings,
           now: availabilityNow,
+          timeZone,
           deliveryAreaOverride: effectiveCheckoutDeliveryArea,
           deliveryAreaInput: {
             zipCode: normalizedCustomerZipCode,
@@ -3721,6 +3723,12 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
                     ? 'RADIUS'
                     : 'POSTAL_CODES'
                   : 'UNKNOWN'
+        const deliveryZonePricing = resolveDeliveryZonePricing(
+          settings,
+          deliveryZoneSelection.matchedZone,
+          availabilityNow,
+          timeZone
+        )
         const strictPolygonResult =
           effectiveCheckoutDeliveryArea.strategy === 'POLYGON'
             ? deliveryAreaCheck.matchedByPolygon
@@ -3768,11 +3776,15 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
             deliveryZoneSelection.matchedZone?.minOrderValue ??
             parseAmountFromText(settings.minOrderValue),
           effectiveDeliveryFee:
+            deliveryZonePricing.effectiveDeliveryFee ??
             deliveryZoneSelection.matchedZone?.deliveryFee ??
             parseAmountFromText(settings.deliveryFeeNote) ??
             0,
           effectiveFreeDeliveryFrom:
-            deliveryZoneSelection.matchedZone?.freeDeliveryFrom ?? null,
+            deliveryZonePricing.freeDeliveryFrom ??
+            deliveryZoneSelection.matchedZone?.freeDeliveryFrom ??
+            null,
+          pricingRuleApplied: deliveryZonePricing.pricingRuleApplied,
           usedCheck,
           result: strictPolygonResult,
         })
@@ -3811,11 +3823,14 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           deliveryZoneSelection.matchedZone?.minOrderValue ??
           parseAmountFromText(settings.minOrderValue)
         const effectiveDeliveryFee =
+          deliveryZonePricing.effectiveDeliveryFee ??
           deliveryZoneSelection.matchedZone?.deliveryFee ??
           parseAmountFromText(settings.deliveryFeeNote) ??
           0
         const effectiveFreeDeliveryFrom =
-          deliveryZoneSelection.matchedZone?.freeDeliveryFrom ?? null
+          deliveryZonePricing.freeDeliveryFrom ??
+          deliveryZoneSelection.matchedZone?.freeDeliveryFrom ??
+          null
 
         const minOrderAmount = effectiveMinOrderAmount
         if (minOrderAmount !== null && subtotal < minOrderAmount) {
@@ -3838,6 +3853,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
               matchedByZip: deliveryAreaCheck.matchedByZip,
               subtotal,
               requiredMinimumOrderValue: minOrderAmount,
+              pricingRuleApplied: deliveryZonePricing.pricingRuleApplied,
             },
           })
           return res.status(belowMinimumError.status).json(belowMinimumError.body)

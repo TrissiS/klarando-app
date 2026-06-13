@@ -14,7 +14,10 @@ import {
   type WeekDay,
 } from '../lib/business-settings'
 import { getTenantOrderingAvailabilityFromSettings } from '../lib/ordering-availability'
-import { resolveDeliveryAvailabilityTimeZone } from '../lib/delivery-availability'
+import {
+  resolveDeliveryAvailabilityTimeZone,
+  resolveDeliveryZonePricing,
+} from '../lib/delivery-availability'
 import { resolveProductOffers } from '../lib/action-pricing'
 import {
   provisionTenantDatabase,
@@ -1066,16 +1069,29 @@ router.get('/public/discovery', async (req, res) => {
           matchedDeliveryZoneEntry && matchedDeliveryZoneEntry.zone.minOrderValue !== null
             ? formatZoneAmountLabel(matchedDeliveryZoneEntry.zone.minOrderValue)
             : settings.minOrderValue
+        const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
+        const deliveryZonePricing = resolveDeliveryZonePricing(
+          settings,
+          matchedDeliveryZoneEntry?.zone ?? null,
+          new Date(),
+          timeZone
+        )
         const effectiveDiscoveryDeliveryFee =
-          matchedDeliveryZoneEntry && matchedDeliveryZoneEntry.zone.deliveryFee !== null
-            ? formatZoneAmountLabel(matchedDeliveryZoneEntry.zone.deliveryFee)
-            : settings.deliveryFeeNote
+          deliveryZonePricing.effectiveDeliveryFee !== null
+            ? formatZoneAmountLabel(deliveryZonePricing.effectiveDeliveryFee)
+            : matchedDeliveryZoneEntry && matchedDeliveryZoneEntry.zone.deliveryFee !== null
+              ? formatZoneAmountLabel(matchedDeliveryZoneEntry.zone.deliveryFee)
+              : settings.deliveryFeeNote
         const effectiveMinOrderValueAmount =
           matchedDeliveryZoneEntry?.zone.minOrderValue ?? parseAmountLabel(settings.minOrderValue)
         const effectiveDeliveryFeeAmount =
-          matchedDeliveryZoneEntry?.zone.deliveryFee ?? parseAmountLabel(settings.deliveryFeeNote)
+          deliveryZonePricing.effectiveDeliveryFee ??
+          matchedDeliveryZoneEntry?.zone.deliveryFee ??
+          parseAmountLabel(settings.deliveryFeeNote)
         const effectiveFreeDeliveryFromAmount =
-          matchedDeliveryZoneEntry?.zone.freeDeliveryFrom ?? null
+          deliveryZonePricing.freeDeliveryFrom ??
+          matchedDeliveryZoneEntry?.zone.freeDeliveryFrom ??
+          null
         const effectiveEstimatedDeliveryMinutes =
           matchedDeliveryZoneEntry?.zone.estimatedDeliveryMinutes ?? null
 
@@ -1131,7 +1147,6 @@ router.get('/public/discovery', async (req, res) => {
             : Boolean(pickupMatch?.matched)
 
         const deliveryScheduleState = resolveDeliveryScheduleState(settings)
-        const timeZone = resolveDeliveryAvailabilityTimeZone(tenant.tenantBillingSettings?.timezone)
         const deliveryOrderingAvailability = getTenantOrderingAvailabilityFromSettings(
           settings,
           'DELIVERY',
@@ -1313,6 +1328,7 @@ router.get('/public/discovery', async (req, res) => {
           deliveryAvailable: matchesDelivery,
           pickupAvailable: matchesPickup,
           deliveryFee: effectiveDeliveryFeeAmount,
+          effectiveDeliveryFee: effectiveDeliveryFeeAmount,
           freeDeliveryFrom: effectiveFreeDeliveryFromAmount,
           estimatedDeliveryMinutes: effectiveEstimatedDeliveryMinutes,
           openingStatus: {
@@ -1360,6 +1376,7 @@ router.get('/public/discovery', async (req, res) => {
               strategy: effectiveDiscoveryDeliveryArea.strategy,
               minOrderValue: effectiveMinOrderValueAmount,
               deliveryFee: effectiveDeliveryFeeAmount,
+              effectiveDeliveryFee: effectiveDeliveryFeeAmount,
               freeDeliveryFrom: effectiveFreeDeliveryFromAmount,
               estimatedDeliveryMinutes: effectiveEstimatedDeliveryMinutes,
               polygonPoints: effectiveDiscoveryDeliveryArea.polygonPath.length,
@@ -1385,6 +1402,7 @@ router.get('/public/discovery', async (req, res) => {
                 serviceEnabledNow: intake.services.deliveryEnabledNow,
                 rejectionReason: deliveryRejectionReason,
                 debugMessage: deliveryOrderingAvailability.message,
+                pricingRuleApplied: deliveryZonePricing.pricingRuleApplied,
               },
             },
             pickup: {

@@ -746,6 +746,7 @@ export type PublicTenantDiscoveryTenant = {
   deliveryAvailable: boolean
   pickupAvailable: boolean
   deliveryFee: number | null
+  effectiveDeliveryFee?: number | null
   freeDeliveryFrom: number | null
   estimatedDeliveryMinutes: number | null
   openingStatus: {
@@ -790,6 +791,7 @@ export type PublicTenantDiscoveryTenant = {
       strategy: BusinessServiceAreaStrategy
       minOrderValue: number | null
       deliveryFee: number | null
+      effectiveDeliveryFee?: number | null
       freeDeliveryFrom: number | null
       estimatedDeliveryMinutes: number | null
       matchedByZip: boolean
@@ -810,6 +812,18 @@ export type PublicTenantDiscoveryTenant = {
         serviceEnabledNow: boolean
         rejectionReason: string | null
         debugMessage: string | null
+        pricingRuleApplied?: {
+          source: 'RULE' | 'MANUAL_OVERRIDE'
+          ruleId: string
+          label: string
+          priority: number
+          priceMode: BusinessDeliveryZonePricingRulePriceMode
+          holidayMode: BusinessDeliveryZonePricingRuleHolidayMode
+          surchargeAmount: number | null
+          deliveryFee: number | null
+          manualOverrideReason: string | null
+          manualOverrideExpiresAt: string | null
+        } | null
       }
     }
     pickup: {
