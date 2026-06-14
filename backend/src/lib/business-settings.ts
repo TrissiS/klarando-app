@@ -107,6 +107,7 @@ export type DeliveryZonePricingRule = {
   startTime: string | null
   endTime: string | null
   priceMode: DeliveryZonePricingRulePriceMode
+  minOrderValueOverride?: number | null
   surchargeAmount: number | null
   deliveryFee: number | null
   holidayMode: DeliveryZonePricingRuleHolidayMode
@@ -1188,6 +1189,7 @@ function sanitizeDeliveryZonePricingRule(
     startTime: normalizeTime(source.startTime),
     endTime: normalizeTime(source.endTime),
     priceMode: sanitizeDeliveryZonePricingRulePriceMode(source.priceMode),
+    minOrderValueOverride: normalizeNumeric(source.minOrderValueOverride),
     surchargeAmount: normalizeNumeric(source.surchargeAmount),
     deliveryFee: normalizeNumeric(source.deliveryFee),
     holidayMode: sanitizeDeliveryZonePricingRuleHolidayMode(source.holidayMode),

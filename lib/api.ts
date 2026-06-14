@@ -435,6 +435,7 @@ export type BusinessDeliveryZonePricingRule = {
   startTime: string | null
   endTime: string | null
   priceMode: BusinessDeliveryZonePricingRulePriceMode
+  minOrderValueOverride?: number | null
   surchargeAmount: number | null
   deliveryFee: number | null
   holidayMode: BusinessDeliveryZonePricingRuleHolidayMode
@@ -821,6 +822,7 @@ export type PublicTenantDiscoveryTenant = {
           priority: number
           priceMode: BusinessDeliveryZonePricingRulePriceMode
           holidayMode: BusinessDeliveryZonePricingRuleHolidayMode
+          minOrderValueOverride: number | null
           surchargeAmount: number | null
           deliveryFee: number | null
           manualOverrideReason: string | null

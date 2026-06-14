@@ -114,6 +114,7 @@ function createDefaultDeliveryZonePricingRule(
     startTime: null,
     endTime: null,
     priceMode: 'SURCHARGE',
+    minOrderValueOverride: null,
     surchargeAmount: null,
     deliveryFee: null,
     holidayMode: 'NONE',
@@ -1565,7 +1566,31 @@ export default function AdminSettingsPage() {
                                             <option value="FIXED_FEE">
                                               Fester Lieferpreis
                                             </option>
-                                          </select>
+                                            </select>
+                                        </label>
+                                        <label className="block">
+                                          <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                                            Mindestbestellwert überschreiben
+                                          </span>
+                                          <input
+                                            type="number"
+                                            min={0}
+                                            step={0.01}
+                                            value={rule.minOrderValueOverride ?? ''}
+                                            onChange={(event) =>
+                                              updateDeliveryZonePricingRule(
+                                                selectedDeliveryZone.id,
+                                                rule.id,
+                                                (currentRule) => ({
+                                                  ...currentRule,
+                                                  minOrderValueOverride: parseNullableNumber(
+                                                    event.target.value
+                                                  ),
+                                                })
+                                              )
+                                            }
+                                            className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                                          />
                                         </label>
                                         <label className="block">
                                           <span className="mb-1 block text-sm font-medium text-rose-900/85">

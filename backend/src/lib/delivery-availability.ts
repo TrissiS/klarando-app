@@ -57,6 +57,7 @@ export type DeliveryZonePricingRuleApplication = {
   priority: number
   priceMode: DeliveryZonePricingRule['priceMode']
   holidayMode: DeliveryZonePricingRule['holidayMode']
+  minOrderValueOverride: number | null
   surchargeAmount: number | null
   deliveryFee: number | null
   manualOverrideReason: string | null
@@ -64,6 +65,8 @@ export type DeliveryZonePricingRuleApplication = {
 }
 
 export type DeliveryZonePricingResolution = {
+  baseMinOrderValue: number | null
+  effectiveMinOrderValue: number | null
   baseDeliveryFee: number | null
   effectiveDeliveryFee: number | null
   freeDeliveryFrom: number | null
@@ -329,12 +332,21 @@ function isManualOverrideActive(
 }
 
 function applyDeliveryZonePricingRule(
+  baseMinOrderValue: number | null,
   baseDeliveryFee: number | null,
   rule: DeliveryZonePricingRule
 ): DeliveryZonePricingResolution {
+  const normalizedBaseMinOrderValue =
+    typeof baseMinOrderValue === 'number' && Number.isFinite(baseMinOrderValue)
+      ? Math.max(0, baseMinOrderValue)
+      : null
   const normalizedBaseDeliveryFee =
     typeof baseDeliveryFee === 'number' && Number.isFinite(baseDeliveryFee)
       ? Math.max(0, baseDeliveryFee)
+      : null
+  const normalizedRuleMinOrderValue =
+    typeof rule.minOrderValueOverride === 'number' && Number.isFinite(rule.minOrderValueOverride)
+      ? Math.max(0, rule.minOrderValueOverride)
       : null
   const surchargeBase = normalizedBaseDeliveryFee ?? 0
   const normalizedRuleDeliveryFee =
@@ -352,6 +364,8 @@ function applyDeliveryZonePricingRule(
       : Math.max(0, surchargeBase + (normalizedRuleSurcharge ?? 0))
 
   return {
+    baseMinOrderValue: normalizedBaseMinOrderValue,
+    effectiveMinOrderValue: normalizedRuleMinOrderValue ?? normalizedBaseMinOrderValue,
     baseDeliveryFee: normalizedBaseDeliveryFee,
     effectiveDeliveryFee,
     freeDeliveryFrom: null,
@@ -362,6 +376,7 @@ function applyDeliveryZonePricingRule(
       priority: rule.priority,
       priceMode: rule.priceMode,
       holidayMode: rule.holidayMode,
+      minOrderValueOverride: normalizedRuleMinOrderValue,
       surchargeAmount: normalizedRuleSurcharge,
       deliveryFee: normalizedRuleDeliveryFee,
       manualOverrideReason: null,
@@ -371,13 +386,22 @@ function applyDeliveryZonePricingRule(
 }
 
 function applyDeliveryZonePricingOverride(
+  baseMinOrderValue: number | null,
   baseDeliveryFee: number | null,
   rule: DeliveryZonePricingRule
 ): DeliveryZonePricingResolution {
   const override = rule.manualOverrideToday
+  const normalizedBaseMinOrderValue =
+    typeof baseMinOrderValue === 'number' && Number.isFinite(baseMinOrderValue)
+      ? Math.max(0, baseMinOrderValue)
+      : null
   const normalizedBaseDeliveryFee =
     typeof baseDeliveryFee === 'number' && Number.isFinite(baseDeliveryFee)
       ? Math.max(0, baseDeliveryFee)
+      : null
+  const normalizedRuleMinOrderValue =
+    typeof rule.minOrderValueOverride === 'number' && Number.isFinite(rule.minOrderValueOverride)
+      ? Math.max(0, rule.minOrderValueOverride)
       : null
   const overrideDeliveryFee =
     typeof override?.deliveryFee === 'number' && Number.isFinite(override.deliveryFee)
@@ -387,7 +411,7 @@ function applyDeliveryZonePricingOverride(
     typeof override?.surchargeAmount === 'number' && Number.isFinite(override.surchargeAmount)
       ? Math.max(0, override.surchargeAmount)
       : null
-  const baseResolution = applyDeliveryZonePricingRule(baseDeliveryFee, rule)
+  const baseResolution = applyDeliveryZonePricingRule(baseMinOrderValue, baseDeliveryFee, rule)
 
   const effectiveDeliveryFee =
     overrideDeliveryFee !== null
@@ -397,6 +421,8 @@ function applyDeliveryZonePricingOverride(
         : baseResolution.effectiveDeliveryFee
 
   return {
+    baseMinOrderValue: normalizedBaseMinOrderValue,
+    effectiveMinOrderValue: normalizedRuleMinOrderValue ?? normalizedBaseMinOrderValue,
     baseDeliveryFee: normalizedBaseDeliveryFee,
     effectiveDeliveryFee,
     freeDeliveryFrom: null,
@@ -407,6 +433,7 @@ function applyDeliveryZonePricingOverride(
       priority: rule.priority,
       priceMode: overrideDeliveryFee !== null ? 'FIXED_FEE' : 'SURCHARGE',
       holidayMode: rule.holidayMode,
+      minOrderValueOverride: normalizedRuleMinOrderValue,
       surchargeAmount: overrideSurcharge,
       deliveryFee: overrideDeliveryFee,
       manualOverrideReason: override?.reason ?? null,
@@ -440,6 +467,7 @@ function createImplicitHolidaySurchargeRule(
     startTime: null,
     endTime: null,
     priceMode: 'SURCHARGE',
+    minOrderValueOverride: null,
     surchargeAmount: amount,
     deliveryFee: null,
     holidayMode: 'HOLIDAY_ONLY',
@@ -454,6 +482,10 @@ export function resolveDeliveryZonePricing(
   now: Date,
   timeZone: string
 ): DeliveryZonePricingResolution {
+  const baseMinOrderValue =
+    matchedZone && typeof matchedZone.minOrderValue === 'number' && Number.isFinite(matchedZone.minOrderValue)
+      ? Math.max(0, matchedZone.minOrderValue)
+      : null
   const baseDeliveryFee =
     matchedZone && typeof matchedZone.deliveryFee === 'number' && Number.isFinite(matchedZone.deliveryFee)
       ? Math.max(0, matchedZone.deliveryFee)
@@ -465,6 +497,8 @@ export function resolveDeliveryZonePricing(
 
   if (!matchedZone) {
     return {
+      baseMinOrderValue: null,
+      effectiveMinOrderValue: null,
       baseDeliveryFee: null,
       effectiveDeliveryFee: null,
       freeDeliveryFrom: null,
@@ -506,6 +540,8 @@ export function resolveDeliveryZonePricing(
 
   if (!matchedRule) {
     return {
+      baseMinOrderValue,
+      effectiveMinOrderValue: baseMinOrderValue,
       baseDeliveryFee,
       effectiveDeliveryFee: baseDeliveryFee,
       freeDeliveryFrom,
@@ -514,8 +550,8 @@ export function resolveDeliveryZonePricing(
   }
 
   const pricingResolution = isManualOverrideActive(matchedRule.manualOverrideToday, now)
-    ? applyDeliveryZonePricingOverride(baseDeliveryFee, matchedRule)
-    : applyDeliveryZonePricingRule(baseDeliveryFee, matchedRule)
+    ? applyDeliveryZonePricingOverride(baseMinOrderValue, baseDeliveryFee, matchedRule)
+    : applyDeliveryZonePricingRule(baseMinOrderValue, baseDeliveryFee, matchedRule)
 
   return {
     ...pricingResolution,

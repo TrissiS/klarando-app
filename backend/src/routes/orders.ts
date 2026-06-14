@@ -3773,6 +3773,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
           deliveryEnabledNow: intake.services.deliveryEnabledNow,
           rejectionReason: deliveryValidationReason,
           effectiveMinOrderAmount:
+            deliveryZonePricing.effectiveMinOrderValue ??
             deliveryZoneSelection.matchedZone?.minOrderValue ??
             parseAmountFromText(settings.minOrderValue),
           effectiveDeliveryFee:
@@ -3820,6 +3821,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         }
 
         const effectiveMinOrderAmount =
+          deliveryZonePricing.effectiveMinOrderValue ??
           deliveryZoneSelection.matchedZone?.minOrderValue ??
           parseAmountFromText(settings.minOrderValue)
         const effectiveDeliveryFee =

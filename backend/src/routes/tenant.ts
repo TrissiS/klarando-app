@@ -1083,7 +1083,9 @@ router.get('/public/discovery', async (req, res) => {
               ? formatZoneAmountLabel(matchedDeliveryZoneEntry.zone.deliveryFee)
               : settings.deliveryFeeNote
         const effectiveMinOrderValueAmount =
-          matchedDeliveryZoneEntry?.zone.minOrderValue ?? parseAmountLabel(settings.minOrderValue)
+          deliveryZonePricing.effectiveMinOrderValue ??
+          matchedDeliveryZoneEntry?.zone.minOrderValue ??
+          parseAmountLabel(settings.minOrderValue)
         const effectiveDeliveryFeeAmount =
           deliveryZonePricing.effectiveDeliveryFee ??
           matchedDeliveryZoneEntry?.zone.deliveryFee ??
