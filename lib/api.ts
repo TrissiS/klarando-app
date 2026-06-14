@@ -697,6 +697,21 @@ export type PlatformBrandingSettings = {
   headerWordmarkHeight: number
 }
 
+export type PlatformHoliday = {
+  id: string
+  name: string
+  date: string
+  countryCode: string | null
+  stateCode: string | null
+  regionName: string | null
+  isNationwide: boolean
+  active: boolean
+  repeatsYearly: boolean
+  source: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export const DEFAULT_PLATFORM_BRANDING_SETTINGS: PlatformBrandingSettings = {
   iconUrl: '/klarando_icon.png',
   wordmarkUrl: '/klarando_logo_wordmark.png',
@@ -2944,6 +2959,48 @@ export async function updatePlatformBrandingSettings(
     ...DEFAULT_PLATFORM_BRANDING_SETTINGS,
     ...data,
   }
+}
+
+export async function getPlatformHolidayCalendar(
+  token?: string
+): Promise<PlatformHoliday[]> {
+  const accessToken = token ?? readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/platform-holidays`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feiertagskalender konnte nicht geladen werden')
+  }
+
+  const data = (await res.json()) as { holidays?: PlatformHoliday[] }
+  return Array.isArray(data.holidays) ? data.holidays : []
+}
+
+export async function updatePlatformHolidayCalendar(
+  holidays: PlatformHoliday[],
+  token?: string
+): Promise<PlatformHoliday[]> {
+  const accessToken = token ?? readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/platform-holidays`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify({
+      holidays,
+    }),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feiertagskalender konnte nicht gespeichert werden')
+  }
+
+  const data = (await res.json()) as { holidays?: PlatformHoliday[] }
+  return Array.isArray(data.holidays) ? data.holidays : []
 }
 
 export async function getPublicTenantDiscovery(params: {
