@@ -712,6 +712,19 @@ export type PlatformHoliday = {
   updatedAt: string
 }
 
+export type GermanHolidayImportStateCode =
+  | 'BW'
+  | 'BY'
+  | 'HE'
+  | 'NI'
+  | 'NW'
+  | 'RP'
+
+export type GermanHolidayImportStateOption = {
+  code: GermanHolidayImportStateCode
+  label: string
+}
+
 export const DEFAULT_PLATFORM_BRANDING_SETTINGS: PlatformBrandingSettings = {
   iconUrl: '/klarando_icon.png',
   wordmarkUrl: '/klarando_logo_wordmark.png',
@@ -3001,6 +3014,68 @@ export async function updatePlatformHolidayCalendar(
 
   const data = (await res.json()) as { holidays?: PlatformHoliday[] }
   return Array.isArray(data.holidays) ? data.holidays : []
+}
+
+export async function getGermanHolidayImportOptions(token?: string): Promise<{
+  countryCode: 'DE'
+  states: GermanHolidayImportStateOption[]
+}> {
+  const accessToken = token ?? readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/platform-holidays/germany/options`, {
+    headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined,
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feiertagsoptionen konnten nicht geladen werden')
+  }
+
+  return res.json()
+}
+
+export async function importGermanPlatformHolidays(
+  input:
+    | {
+        mode: 'GENERATE'
+        year: number
+        stateCode?: GermanHolidayImportStateCode | null
+        includeNationwide?: boolean
+      }
+    | {
+        mode: 'JSON'
+        holidays: PlatformHoliday[]
+      }
+    | {
+        mode: 'CSV'
+        csv: string
+      },
+  token?: string
+): Promise<{
+  holidays: PlatformHoliday[]
+  summary: {
+    mode: string
+    importedCount: number
+    addedCount: number
+    skippedDuplicates: number
+    totalCount: number
+  }
+}> {
+  const accessToken = token ?? readBrowserAccessToken()
+  const res = await fetch(`${API_BASE_URL}/api/platform-holidays/import/germany`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    },
+    body: JSON.stringify(input),
+  })
+
+  if (!res.ok) {
+    const errorData = await res.json().catch(() => null)
+    throw new Error(errorData?.error || 'Feiertagsimport konnte nicht ausgeführt werden')
+  }
+
+  return res.json()
 }
 
 export async function getPublicTenantDiscovery(params: {

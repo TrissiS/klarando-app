@@ -163,3 +163,37 @@ export async function savePlatformHolidayCalendar(input: unknown) {
 
   return normalized
 }
+
+function buildHolidayUniquenessKey(entry: Pick<
+  PlatformHolidayEntry,
+  'date' | 'name' | 'countryCode' | 'stateCode' | 'regionName'
+>) {
+  return [
+    entry.date,
+    entry.name.trim().toLowerCase(),
+    entry.countryCode?.trim().toUpperCase() ?? '',
+    entry.stateCode?.trim().toUpperCase() ?? '',
+    entry.regionName?.trim().toLowerCase() ?? '',
+  ].join('::')
+}
+
+export function mergePlatformHolidayEntries(
+  current: PlatformHolidayEntry[],
+  incoming: PlatformHolidayEntry[]
+) {
+  const merged = [...current]
+  const existingKeys = new Set(current.map((entry) => buildHolidayUniquenessKey(entry)))
+  const existingIds = new Set(current.map((entry) => entry.id))
+
+  for (const entry of incoming) {
+    const uniquenessKey = buildHolidayUniquenessKey(entry)
+    if (existingKeys.has(uniquenessKey) || existingIds.has(entry.id)) {
+      continue
+    }
+    merged.push(entry)
+    existingKeys.add(uniquenessKey)
+    existingIds.add(entry.id)
+  }
+
+  return merged
+}
