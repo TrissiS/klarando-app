@@ -128,6 +128,7 @@ export default function BackofficeLayout({
                 '/superadmin/payments',
                 '/superadmin/app-settings',
                 '/superadmin/misc-settings',
+                '/superadmin/holiday-calendar',
               ]),
             },
           ].filter((group) => group.items.length > 0)
