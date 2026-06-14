@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -14,6 +15,7 @@ import 'package:webview_flutter/webview_flutter.dart';
 import 'core/app_update_service.dart';
 import 'core/klarando_api.dart';
 import 'core/api_environment.dart';
+import 'core/orderdesk_native_printer.dart';
 import 'core/pairing_payload.dart';
 import 'core/receipt_printing.dart';
 import 'theme/klarando_theme.dart';
@@ -51,6 +53,11 @@ const _klarandoJugendschutzUrl = 'https://www.klarando.com/jugendschutz';
 const _orderDeskNewOrderAudioAsset = 'assets/audio/orderdesk_new_order.mp3';
 const _orderDeskNewOrderAudioSource = 'audio/orderdesk_new_order.mp3';
 const _heartbeatFailureOfflineThreshold = 3;
+const _orderDeskDeveloperMode = bool.fromEnvironment(
+      'KLARANDO_ORDERDESK_DEVTOOLS',
+      defaultValue: false,
+    ) ||
+    kDebugMode;
 
 enum _DeskConnectionHealth { online, checking, degraded, offline }
 enum _OrderDeskViewMode { open, archive }
@@ -181,6 +188,7 @@ class _CashierDisplayHomePage extends StatefulWidget {
 class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   final _api = const KlarandoApi();
   final _appUpdateService = AppUpdateService();
+  final _nativePrinter = const OrderDeskNativePrinter();
   final _secureStorage = const FlutterSecureStorage();
   final _baseUrlController = TextEditingController(
     text: defaultApiBaseUrl,
@@ -523,14 +531,83 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _testPrinter() async {
-    if (_printerMode == EscPosPrinterMode.disabled) {
+    final mode = _normalizedPrinterModeForUi(_printerMode);
+    if (mode == EscPosPrinterMode.disabled) {
       if (!mounted) return;
       setState(() {
         _info = 'Drucker ist deaktiviert. Bitte zuerst Drucker einrichten.';
       });
       return;
     }
+    if (mode == EscPosPrinterMode.platformChannel) {
+      await _testBuiltInPrinter();
+      return;
+    }
     await _runDemoPrintFlow();
+  }
+
+  Future<void> _testBuiltInPrinter() async {
+    try {
+      final available = await _nativePrinter.isPrinterAvailable();
+      if (!available) {
+        throw const ApiException('Nyx/Incar Druckservice nicht gefunden.');
+      }
+      final response = await _nativePrinter.printTest();
+      _appendLocalLog(
+        'PRINTER',
+        'integrated printer test response: ${_formatResponseBodyForLog(response)}',
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _error = null;
+        _info = 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.';
+      });
+      _showOrderDeskSnackBar(
+        'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.',
+      );
+    } on ApiException catch (error) {
+      final responseBody = error.responseBody;
+      _appendLocalLog(
+        'PRINTER',
+        'integrated printer test error: body=${_formatResponseBodyForLog(responseBody)} message=${error.message}',
+      );
+      final platformCode = responseBody?['platformCode']?.toString();
+      final pendingActivation =
+          platformCode == 'PRINTER_SDK_MISSING' ||
+          platformCode == 'PRINTER_BIND_TIMEOUT' ||
+          platformCode == 'PRINTER_NULL_BINDING' ||
+          platformCode == 'PRINTER_BINDING_DIED' ||
+          platformCode == 'PRINTER_BIND_FAILED';
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        if (pendingActivation) {
+          _error = null;
+          _info = 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.';
+        } else {
+          _error = error.message;
+        }
+      });
+      _showOrderDeskSnackBar(
+        pendingActivation
+            ? 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.'
+            : error.message,
+        isError: !pendingActivation,
+      );
+    } catch (error) {
+      _appendLocalLog('PRINTER', 'integrated printer test unexpected error: $error');
+      if (!mounted) {
+        return;
+      }
+      final message = 'Druckertest fehlgeschlagen: $error';
+      setState(() {
+        _error = message;
+      });
+      _showOrderDeskSnackBar(message, isError: true);
+    }
   }
 
   Future<void> _connect() async {
@@ -2067,6 +2144,153 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
   }
 
+  EscPosPrinterMode _normalizedPrinterModeForUi(EscPosPrinterMode mode) {
+    if (_orderDeskDeveloperMode) {
+      return mode;
+    }
+    if (mode == EscPosPrinterMode.debugLog || mode == EscPosPrinterMode.sunmi) {
+      return EscPosPrinterMode.platformChannel;
+    }
+    return mode;
+  }
+
+  List<EscPosPrinterMode> _availablePrinterModesForUi() {
+    if (_orderDeskDeveloperMode) {
+      return const <EscPosPrinterMode>[
+        EscPosPrinterMode.platformChannel,
+        EscPosPrinterMode.tcp,
+        EscPosPrinterMode.disabled,
+        EscPosPrinterMode.debugLog,
+        EscPosPrinterMode.sunmi,
+      ];
+    }
+    return const <EscPosPrinterMode>[
+      EscPosPrinterMode.platformChannel,
+      EscPosPrinterMode.tcp,
+      EscPosPrinterMode.disabled,
+    ];
+  }
+
+  String _printerModeLabel(EscPosPrinterMode mode) {
+    switch (_normalizedPrinterModeForUi(mode)) {
+      case EscPosPrinterMode.platformChannel:
+        return 'Integrierter Gerätedrucker';
+      case EscPosPrinterMode.tcp:
+        return 'Netzwerkdrucker';
+      case EscPosPrinterMode.disabled:
+        return 'Druck deaktiviert';
+      case EscPosPrinterMode.debugLog:
+        return 'Debug-Protokoll';
+      case EscPosPrinterMode.sunmi:
+        return 'Sunmi-Gerätedrucker';
+    }
+  }
+
+  String _printerStatusSummary() {
+    final mode = _normalizedPrinterModeForUi(_printerMode);
+    switch (mode) {
+      case EscPosPrinterMode.disabled:
+        return 'Druck deaktiviert';
+      case EscPosPrinterMode.tcp:
+        final host = _tcpHostController.text.trim();
+        final port = int.tryParse(_tcpPortController.text.trim()) ?? 9100;
+        if (host.isEmpty) {
+          return 'Netzwerkdrucker noch nicht vollständig eingerichtet';
+        }
+        return 'Netzwerkdrucker: $host:$port';
+      case EscPosPrinterMode.platformChannel:
+        return 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv';
+      case EscPosPrinterMode.debugLog:
+        return 'Debug-Protokoll aktiv';
+      case EscPosPrinterMode.sunmi:
+        return 'Sunmi-Gerätedrucker aktiv';
+    }
+  }
+
+  bool _shouldShowNetworkPrinterFields(EscPosPrinterMode mode) {
+    return _normalizedPrinterModeForUi(mode) == EscPosPrinterMode.tcp;
+  }
+
+  bool _isToday(DateTime? value) {
+    if (value == null) {
+      return false;
+    }
+    final now = DateTime.now();
+    return value.year == now.year &&
+        value.month == now.month &&
+        value.day == now.day;
+  }
+
+  int _countOrdersBetween(
+    List<PublicOrderSummary> orders,
+    DateTime startInclusive,
+    DateTime endExclusive,
+  ) {
+    return orders.where((entry) {
+      final createdAt = entry.createdAt;
+      if (createdAt == null) {
+        return false;
+      }
+      return !createdAt.isBefore(startInclusive) && createdAt.isBefore(endExclusive);
+    }).length;
+  }
+
+  Widget _buildCompactStatsCard(List<PublicOrderSummary> orders) {
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final tomorrowStart = todayStart.add(const Duration(days: 1));
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    final weekStart = todayStart.subtract(const Duration(days: 6));
+    final todayCount = _countOrdersBetween(orders, todayStart, tomorrowStart);
+    final yesterdayCount = _countOrdersBetween(orders, yesterdayStart, todayStart);
+    final weekTotal = _countOrdersBetween(orders, weekStart, tomorrowStart);
+    final weeklyAverage = weekTotal / 7;
+
+    Widget buildStat(String label, String value) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        buildStat('Heute', '$todayCount'),
+        buildStat('Gestern', '$yesterdayCount'),
+        buildStat('Ø Woche', weeklyAverage.toStringAsFixed(1)),
+      ],
+    );
+  }
+
   void _appendLocalLog(String category, String message) {
     final entry = _OrderDeskLogEntry(
       timestamp: DateTime.now(),
@@ -2423,30 +2647,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Text('Gerät verbunden: ${_connected ? 'ja' : 'nein'}'),
                   Text('Binding vorhanden: ${hasBinding ? 'ja' : 'nein'}'),
                   Text('Binding-ID: ${bindingId.isEmpty ? '-' : _truncateMiddle(bindingId)}'),
-                  Text('API-URL: $apiBase'),
-                  Text('Heartbeat Endpoint: ${_lastHeartbeatEndpointUrl ?? '-'}'),
-                  Text('Heartbeat HTTP Status: ${_lastHeartbeatHttpStatus?.toString() ?? '-'}'),
-                  Text('Last Auth Check HTTP Status: ${_lastAuthCheckHttpStatus?.toString() ?? '-'}'),
-                  Text(
-                    'Heartbeat Response Body: ${_lastHeartbeatResponseBody == null || _lastHeartbeatResponseBody!.trim().isEmpty ? '-' : _lastHeartbeatResponseBody!}',
-                  ),
                   Text('Tenant-ID: ${tenantId.isEmpty ? '-' : _truncateMiddle(tenantId)}'),
                   Text('Device-Code: ${displayCode.isEmpty ? '-' : displayCode}'),
-                  Text('Token: $tokenStatus'),
-                  Text('Token Prefix: $tokenPrefix'),
                   Text('Session authentifiziert: ${_deviceSessionAuthenticated ? 'ja' : 'nein'}'),
-                  Text('Gespeicherter Token-Typ: $tokenType'),
-                  Text('Audio-Asset: $_orderDeskNewOrderAudioAsset'),
                   Text(
                     'Bestellton zuletzt: ${_lastOrderTonePlayedAt?.toIso8601String() ?? '-'}',
                   ),
                   Text(
                     'Bestellton Intervall: ${_orderToneRepeatSeconds == 0 ? 'Aus' : '${_orderToneRepeatSeconds}s'}',
-                  ),
-                  Text('Bestellton Fehler: ${_lastOrderToneError ?? '-'}'),
-                  Text('Letzter Bind HTTP Status: ${_lastBindHttpStatus?.toString() ?? '-'}'),
-                  Text(
-                    'Letzter Bind Response Body: ${_lastBindResponseBody == null || _lastBindResponseBody!.trim().isEmpty ? '-' : _lastBindResponseBody!}',
                   ),
                   const SizedBox(height: 8),
                   Text('Letzter Orders-Load: ${_lastOrdersLoadAt?.toIso8601String() ?? '-'}'),
@@ -2457,6 +2665,25 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Text('Aktueller Status: $status'),
                   Text('Heartbeat-Fehler in Folge: $_consecutiveHeartbeatFailures'),
                   Text('API-Fehler in Folge: $_consecutiveApiFailures'),
+                  if (_orderDeskDeveloperMode) ...[
+                    const SizedBox(height: 8),
+                    Text('API-URL: $apiBase'),
+                    Text('Heartbeat Endpoint: ${_lastHeartbeatEndpointUrl ?? '-'}'),
+                    Text('Heartbeat HTTP Status: ${_lastHeartbeatHttpStatus?.toString() ?? '-'}'),
+                    Text('Last Auth Check HTTP Status: ${_lastAuthCheckHttpStatus?.toString() ?? '-'}'),
+                    Text(
+                      'Heartbeat Response Body: ${_lastHeartbeatResponseBody == null || _lastHeartbeatResponseBody!.trim().isEmpty ? '-' : _lastHeartbeatResponseBody!}',
+                    ),
+                    Text('Token: $tokenStatus'),
+                    Text('Token Prefix: $tokenPrefix'),
+                    Text('Gespeicherter Token-Typ: $tokenType'),
+                    Text('Audio-Asset: $_orderDeskNewOrderAudioAsset'),
+                    Text('Bestellton Fehler: ${_lastOrderToneError ?? '-'}'),
+                    Text('Letzter Bind HTTP Status: ${_lastBindHttpStatus?.toString() ?? '-'}'),
+                    Text(
+                      'Letzter Bind Response Body: ${_lastBindResponseBody == null || _lastBindResponseBody!.trim().isEmpty ? '-' : _lastBindResponseBody!}',
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   const Text('Interne Logliste (max. 30):', style: TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 6),
@@ -2627,10 +2854,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   onPressed: () async {
                     Navigator.of(context).pop();
                     await _testPrinter();
-                    if (!mounted) return;
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      const SnackBar(content: Text('Testdruck ausgelöst')),
-                    );
                   },
                   icon: const Icon(Icons.receipt_long_rounded),
                   label: const Text('Testdruck'),
@@ -2640,13 +2863,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   onPressed: () async {
                     Navigator.of(context).pop();
                     if (!mounted) return;
-                    final status = _printerMode == EscPosPrinterMode.disabled
-                        ? 'deaktiviert'
-                        : _printerMode == EscPosPrinterMode.debugLog
-                        ? 'Debug-Log'
-                        : 'TCP ${_tcpHostController.text.trim().isEmpty ? '(kein Host)' : _tcpHostController.text.trim()}:${int.tryParse(_tcpPortController.text.trim()) ?? 9100}';
                     ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(content: Text('Druckerstatus: $status')),
+                      SnackBar(content: Text('Druckerstatus: ${_printerStatusSummary()}')),
                     );
                   },
                   icon: const Icon(Icons.info_outline_rounded),
@@ -2656,8 +2874,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 FilledButton.tonalIcon(
                   onPressed: () async {
                     Navigator.of(context).pop();
-                    final nextMode = _printerMode == EscPosPrinterMode.disabled
-                        ? EscPosPrinterMode.debugLog
+                    final nextMode = _normalizedPrinterModeForUi(_printerMode) ==
+                            EscPosPrinterMode.disabled
+                        ? EscPosPrinterMode.platformChannel
                         : EscPosPrinterMode.disabled;
                     setState(() {
                       _printerMode = nextMode;
@@ -2676,9 +2895,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   },
                   icon: const Icon(Icons.settings_suggest_rounded),
                   label: Text(
-                    _printerMode == EscPosPrinterMode.disabled
-                        ? 'Automatischer Bondruck an'
-                        : 'Automatischer Bondruck aus',
+                    _normalizedPrinterModeForUi(_printerMode) ==
+                            EscPosPrinterMode.disabled
+                        ? 'Automatischen Bondruck aktivieren'
+                        : 'Automatischen Bondruck deaktivieren',
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -2803,6 +3023,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             ),
             child: StatefulBuilder(
               builder: (innerContext, setSheetState) {
+                final selectedMode = _normalizedPrinterModeForUi(_printerMode);
                 return Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -2813,16 +3034,16 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     ),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<EscPosPrinterMode>(
-                      value: _printerMode,
+                      value: selectedMode,
                       decoration: const InputDecoration(
-                        labelText: 'Modus',
+                        labelText: 'Druckerart',
                         border: OutlineInputBorder(),
                       ),
-                      items: EscPosPrinterMode.values
+                      items: _availablePrinterModesForUi()
                           .map(
                             (mode) => DropdownMenuItem<EscPosPrinterMode>(
                               value: mode,
-                              child: Text(mode.name),
+                              child: Text(_printerModeLabel(mode)),
                             ),
                           )
                           .toList(growable: false),
@@ -2834,23 +3055,50 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                         setSheetState(() {});
                       },
                     ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _tcpHostController,
-                      decoration: const InputDecoration(
-                        labelText: 'TCP Host',
-                        border: OutlineInputBorder(),
+                    const SizedBox(height: 10),
+                    Text(
+                      _printerStatusSummary(),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF52525B),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _tcpPortController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(
-                        labelText: 'TCP Port',
-                        border: OutlineInputBorder(),
+                    if (selectedMode == EscPosPrinterMode.platformChannel) ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Der integrierte Incar/Nyx-Drucker wird erkannt. Die Druckschnittstelle ist aktuell noch nicht vollständig aktiv.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                       ),
-                    ),
+                    ],
+                    if (_shouldShowNetworkPrinterFields(selectedMode)) ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _tcpHostController,
+                        decoration: const InputDecoration(
+                          labelText: 'Netzwerkdrucker Host / IP',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _tcpPortController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(
+                          labelText: 'Netzwerkdrucker Port',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ],
+                    if (_orderDeskDeveloperMode &&
+                        (selectedMode == EscPosPrinterMode.debugLog ||
+                            selectedMode == EscPosPrinterMode.sunmi)) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Entwicklermodus aktiv: ${_printerModeLabel(selectedMode)}',
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     FilledButton.icon(
                       onPressed: () async {
@@ -3427,6 +3675,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       });
     final archivedOrders = orders
         .where((entry) => _isArchivedOrderStatus(entry.status))
+        .where((entry) => _isToday(entry.createdAt))
         .toList(growable: false);
     final visibleOrders =
         _viewMode == _OrderDeskViewMode.open ? openOrders : archivedOrders;
@@ -3581,9 +3830,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       ),
               icon: const Icon(Icons.refresh),
             ),
-          IconButton(
-            tooltip: 'Servicebereich',
-            onPressed: _showServiceActionsSheet,
+          PopupMenuButton<String>(
+            tooltip: 'Menü',
+            onSelected: (value) {
+              if (value == 'service_area') {
+                _showServiceActionsSheet();
+              }
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem<String>(
+                value: 'service_area',
+                child: Text('Servicebereich'),
+              ),
+            ],
             icon: const Icon(Icons.more_vert),
           ),
         ],
@@ -3626,6 +3885,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   style: const TextStyle(color: Color(0xFFFFF7ED)),
                 ),
               const SizedBox(height: 8),
+              _buildCompactStatsCard(orders),
+              const SizedBox(height: 8),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -3640,7 +3901,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     },
                   ),
                   ChoiceChip(
-                    label: Text('Archiv: ${archivedOrders.length}'),
+                    label: Text('Archiv heute: ${archivedOrders.length}'),
                     selected: _viewMode == _OrderDeskViewMode.archive,
                     onSelected: (_) {
                       setState(() {
@@ -3671,7 +3932,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     child: Text(
                       _viewMode == _OrderDeskViewMode.open
                           ? 'Keine offenen Bestellungen.'
-                          : 'Keine abgeschlossenen oder stornierten Bestellungen im Archiv.',
+                          : 'Keine abgeschlossenen oder stornierten Bestellungen von heute im Archiv.',
                     ),
                   ),
                 ),
@@ -3758,7 +4019,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               minLines: 2,
               maxLines: 4,
             ),
-            if (_pairingInputDebug != null) ...[
+            if (_orderDeskDeveloperMode && _pairingInputDebug != null) ...[
               const SizedBox(height: 6),
               Text(
                 _pairingInputDebug!,
@@ -3909,8 +4170,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               icon: const Icon(Icons.link_rounded),
               label: const Text('Geräteverbindung öffnen'),
             ),
-            const SizedBox(height: 10),
-            _buildOrderDeskAuthDebugCard(),
+            if (_orderDeskDeveloperMode) ...[
+              const SizedBox(height: 10),
+              _buildOrderDeskAuthDebugCard(),
+            ],
           ],
         ),
       ),
@@ -4038,8 +4301,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: Color(0xFFDC2626)),
               ),
-            const SizedBox(height: 10),
-            _buildOrderDeskAuthDebugCard(),
+            if (_orderDeskDeveloperMode) ...[
+              const SizedBox(height: 10),
+              _buildOrderDeskAuthDebugCard(),
+            ],
           ],
         ),
       ),
