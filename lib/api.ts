@@ -3050,6 +3050,13 @@ export async function importGermanPlatformHolidays(
     | {
         mode: 'CSV'
         csv: string
+      }
+    | {
+        mode: 'ICS'
+        ics: string
+        stateCode?: GermanHolidayImportStateCode | null
+        isNationwide?: boolean
+        countryCode?: string | null
       },
   token?: string
 ): Promise<{

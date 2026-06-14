@@ -23,7 +23,7 @@ export default function SuperadminHolidayCalendarPage() {
   const [importYear, setImportYear] = useState(new Date().getFullYear())
   const [importStateCode, setImportStateCode] = useState<GermanHolidayImportStateCode | ''>('')
   const [includeNationwide, setIncludeNationwide] = useState(true)
-  const [importSource, setImportSource] = useState<'GENERATE' | 'JSON' | 'CSV'>('GENERATE')
+  const [importSource, setImportSource] = useState<'GENERATE' | 'JSON' | 'CSV' | 'ICS'>('GENERATE')
   const [importPayload, setImportPayload] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -75,6 +75,21 @@ export default function SuperadminHolidayCalendarPage() {
     return null
   }
 
+  async function handleImportFileSelected(file: File | null) {
+    if (!file) {
+      return
+    }
+
+    try {
+      const text = await file.text()
+      setImportPayload(text)
+      setError('')
+      setSuccess('')
+    } catch {
+      setError('ICS-Datei konnte nicht gelesen werden')
+    }
+  }
+
   async function handleImport() {
     if (!token) {
       return
@@ -103,13 +118,24 @@ export default function SuperadminHolidayCalendarPage() {
                 },
                 token
               )
-            : await importGermanPlatformHolidays(
-                {
-                  mode: 'CSV',
-                  csv: importPayload,
-                },
-                token
-              )
+            : importSource === 'CSV'
+              ? await importGermanPlatformHolidays(
+                  {
+                    mode: 'CSV',
+                    csv: importPayload,
+                  },
+                  token
+                )
+              : await importGermanPlatformHolidays(
+                  {
+                    mode: 'ICS',
+                    ics: importPayload,
+                    stateCode: importStateCode || null,
+                    isNationwide: importStateCode ? false : includeNationwide,
+                    countryCode: 'DE',
+                  },
+                  token
+                )
 
       setHolidays(result.holidays)
       setSuccess(
@@ -159,7 +185,7 @@ export default function SuperadminHolidayCalendarPage() {
             <div>
               <h2 className="text-base font-semibold text-slate-900">Feiertagsimport Deutschland</h2>
               <p className="mt-1 text-sm text-rose-900/75">
-                Unterstützt automatische Generierung je Jahr/Bundesland sowie Import aus JSON oder CSV. Duplikate werden beim Einspielen übersprungen.
+                Unterstützt automatische Generierung je Jahr/Bundesland sowie Import aus JSON, CSV oder ICS. Duplikate werden beim Einspielen übersprungen.
               </p>
             </div>
           </div>
@@ -169,28 +195,35 @@ export default function SuperadminHolidayCalendarPage() {
               <span className="mb-1 block text-sm font-medium text-rose-900/85">Importmodus</span>
               <select
                 value={importSource}
-                onChange={(event) => setImportSource(event.target.value as 'GENERATE' | 'JSON' | 'CSV')}
+                onChange={(event) => setImportSource(event.target.value as 'GENERATE' | 'JSON' | 'CSV' | 'ICS')}
                 className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
               >
                 <option value="GENERATE">Automatisch generieren</option>
                 <option value="JSON">JSON importieren</option>
                 <option value="CSV">CSV importieren</option>
+                <option value="ICS">ICS importieren</option>
               </select>
             </label>
 
-            {importSource === 'GENERATE' ? (
+            {importSource === 'GENERATE' || importSource === 'ICS' ? (
               <>
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Jahr</span>
-                  <input
-                    type="number"
-                    min={2000}
-                    max={2100}
-                    value={importYear}
-                    onChange={(event) => setImportYear(Number(event.target.value) || new Date().getFullYear())}
-                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-                  />
-                </label>
+                {importSource === 'GENERATE' ? (
+                  <label className="block">
+                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Jahr</span>
+                    <input
+                      type="number"
+                      min={2000}
+                      max={2100}
+                      value={importYear}
+                      onChange={(event) => setImportYear(Number(event.target.value) || new Date().getFullYear())}
+                      className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                    />
+                  </label>
+                ) : (
+                  <div className="rounded-xl border border-[var(--brand-border)] bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    ICS-Import nutzt Datum und Titel direkt aus den VEVENT-Einträgen.
+                  </div>
+                )}
                 <label className="block">
                   <span className="mb-1 block text-sm font-medium text-rose-900/85">Bundesland</span>
                   <select
@@ -213,30 +246,52 @@ export default function SuperadminHolidayCalendarPage() {
                     type="checkbox"
                     checked={includeNationwide}
                     onChange={(event) => setIncludeNationwide(event.target.checked)}
+                    disabled={importSource === 'ICS' && Boolean(importStateCode)}
                   />
-                  Bundesweite Feiertage einschließen
+                  {importSource === 'GENERATE'
+                    ? 'Bundesweite Feiertage einschließen'
+                    : 'Als bundesweite Feiertage importieren'}
                 </label>
               </>
             ) : null}
           </div>
 
           {importSource !== 'GENERATE' ? (
-            <label className="mt-4 block">
-              <span className="mb-1 block text-sm font-medium text-rose-900/85">
-                {importSource === 'JSON' ? 'JSON-Payload' : 'CSV-Payload'}
-              </span>
-              <textarea
-                value={importPayload}
-                onChange={(event) => setImportPayload(event.target.value)}
-                rows={10}
-                className="w-full rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-mono outline-none"
-                placeholder={
-                  importSource === 'JSON'
-                    ? '[{"id":"de-2026-nw-corpus-christi","name":"Fronleichnam","date":"2026-06-04","countryCode":"DE","stateCode":"NW","regionName":"Nordrhein-Westfalen","isNationwide":false,"active":true,"repeatsYearly":true,"source":"MANUAL_IMPORT","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}]'
-                    : 'id,name,date,countryCode,stateCode,regionName,isNationwide,active,repeatsYearly,source'
-                }
-              />
-            </label>
+            <div className="mt-4 space-y-3">
+              {importSource === 'ICS' ? (
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">ICS-Datei</span>
+                  <input
+                    type="file"
+                    accept=".ics,text/calendar"
+                    onChange={(event) => void handleImportFileSelected(event.target.files?.[0] || null)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
+                  />
+                </label>
+              ) : null}
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-rose-900/85">
+                  {importSource === 'JSON'
+                    ? 'JSON-Payload'
+                    : importSource === 'CSV'
+                      ? 'CSV-Payload'
+                      : 'ICS-Inhalt'}
+                </span>
+                <textarea
+                  value={importPayload}
+                  onChange={(event) => setImportPayload(event.target.value)}
+                  rows={10}
+                  className="w-full rounded-2xl border border-[var(--brand-border)] px-3 py-2 text-sm font-mono outline-none"
+                  placeholder={
+                    importSource === 'JSON'
+                      ? '[{"id":"de-2026-nw-corpus-christi","name":"Fronleichnam","date":"2026-06-04","countryCode":"DE","stateCode":"NW","regionName":"Nordrhein-Westfalen","isNationwide":false,"active":true,"repeatsYearly":true,"source":"MANUAL_IMPORT","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}]'
+                      : importSource === 'CSV'
+                        ? 'id,name,date,countryCode,stateCode,regionName,isNationwide,active,repeatsYearly,source'
+                        : 'BEGIN:VCALENDAR\nBEGIN:VEVENT\nSUMMARY:Fronleichnam\nDTSTART;VALUE=DATE:20260604\nEND:VEVENT\nEND:VCALENDAR'
+                  }
+                />
+              </label>
+            </div>
           ) : null}
 
           <div className="mt-4 flex justify-end">

@@ -39,6 +39,128 @@ function parseImportRowsFromCsv(raw: string) {
   })
 }
 
+function normalizeIcsTextValue(value: string) {
+  return value
+    .replace(/\\n/gi, '\n')
+    .replace(/\\,/g, ',')
+    .replace(/\\;/g, ';')
+    .trim()
+}
+
+function normalizeIcsDateToIso(raw: string) {
+  const value = raw.trim()
+  const dateOnlyMatch = value.match(/^(\d{4})(\d{2})(\d{2})$/)
+  if (dateOnlyMatch) {
+    return `${dateOnlyMatch[1]}-${dateOnlyMatch[2]}-${dateOnlyMatch[3]}`
+  }
+
+  const dateTimeMatch = value.match(/^(\d{4})(\d{2})(\d{2})T\d{6}Z?$/i)
+  if (dateTimeMatch) {
+    return `${dateTimeMatch[1]}-${dateTimeMatch[2]}-${dateTimeMatch[3]}`
+  }
+
+  return null
+}
+
+function foldIcsLines(raw: string) {
+  const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const lines = normalized.split('\n')
+  const unfolded: string[] = []
+
+  for (const line of lines) {
+    if ((line.startsWith(' ') || line.startsWith('\t')) && unfolded.length > 0) {
+      unfolded[unfolded.length - 1] += line.slice(1)
+    } else {
+      unfolded.push(line)
+    }
+  }
+
+  return unfolded
+}
+
+function createHolidayIdFromImport(name: string, date: string, stateCode: string | null) {
+  const slug =
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'holiday'
+
+  return ['ics', date, stateCode?.toLowerCase() || 'nationwide', slug].join('-')
+}
+
+function parseHolidayRowsFromIcs(
+  raw: string,
+  options: {
+    stateCode: string | null
+    isNationwide: boolean
+    countryCode?: string | null
+  }
+) {
+  const rows: Array<Record<string, unknown>> = []
+  const lines = foldIcsLines(raw)
+  let currentEvent: Record<string, string> | null = null
+
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) {
+      continue
+    }
+
+    if (trimmed.toUpperCase() === 'BEGIN:VEVENT') {
+      currentEvent = {}
+      continue
+    }
+
+    if (trimmed.toUpperCase() === 'END:VEVENT') {
+      if (currentEvent) {
+        const summary = normalizeIcsTextValue(currentEvent.SUMMARY || '')
+        const isoDate = normalizeIcsDateToIso(currentEvent.DTSTART || '')
+
+        if (summary && isoDate) {
+          rows.push({
+            id: createHolidayIdFromImport(summary, isoDate, options.stateCode),
+            name: summary,
+            date: isoDate,
+            countryCode: options.countryCode || 'DE',
+            stateCode: options.isNationwide ? null : options.stateCode,
+            regionName: null,
+            isNationwide: options.isNationwide,
+            active: true,
+            repeatsYearly:
+              typeof currentEvent.RRULE === 'string' &&
+              currentEvent.RRULE.toUpperCase().includes('FREQ=YEARLY'),
+            source: 'ICS_IMPORT',
+          })
+        }
+      }
+
+      currentEvent = null
+      continue
+    }
+
+    if (!currentEvent) {
+      continue
+    }
+
+    const separatorIndex = trimmed.indexOf(':')
+    if (separatorIndex < 0) {
+      continue
+    }
+
+    const rawKey = trimmed.slice(0, separatorIndex).trim()
+    const rawValue = trimmed.slice(separatorIndex + 1).trim()
+    const key = rawKey.split(';')[0].trim().toUpperCase()
+
+    if (key === 'SUMMARY' || key === 'DTSTART' || key === 'RRULE') {
+      currentEvent[key] = rawValue
+    }
+  }
+
+  return rows
+}
+
 router.get('/germany/options', requirePermission(PermissionKey.SETTINGS_READ), async (req, res) => {
   if (req.authUser?.role !== UserRole.SUPERADMIN) {
     return res.status(403).json({ error: 'Nur Superadmin darf Feiertagsoptionen laden' })
@@ -137,6 +259,24 @@ router.post('/import/germany', requirePermission(PermissionKey.SETTINGS_WRITE), 
       const rawCsv = typeof req.body?.csv === 'string' ? req.body.csv : ''
       const csvRows = parseImportRowsFromCsv(rawCsv)
       incoming = normalizePlatformHolidayCalendar(csvRows)
+    } else if (mode === 'ICS') {
+      const rawIcs = typeof req.body?.ics === 'string' ? req.body.ics : ''
+      const rawStateCode =
+        typeof req.body?.stateCode === 'string' ? req.body.stateCode.trim().toUpperCase() : ''
+      const stateCode =
+        rawStateCode && isSupportedGermanStateCode(rawStateCode) ? rawStateCode : null
+      const isNationwide = req.body?.isNationwide !== false
+      const countryCode =
+        typeof req.body?.countryCode === 'string' && req.body.countryCode.trim().length > 0
+          ? req.body.countryCode.trim().toUpperCase()
+          : 'DE'
+
+      const rows = parseHolidayRowsFromIcs(rawIcs, {
+        stateCode,
+        isNationwide,
+        countryCode,
+      })
+      incoming = normalizePlatformHolidayCalendar(rows)
     } else {
       return res.status(400).json({ error: 'Unbekannter Importmodus' })
     }
