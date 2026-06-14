@@ -231,6 +231,10 @@ router.post('/import/germany', requirePermission(PermissionKey.SETTINGS_WRITE), 
 
     const mode =
       typeof req.body?.mode === 'string' ? req.body.mode.trim().toUpperCase() : 'GENERATE'
+    const targetYear =
+      Number.isInteger(Number(req.body?.targetYear)) && Number(req.body?.targetYear) >= 2000 && Number(req.body?.targetYear) <= 2100
+        ? Number(req.body?.targetYear)
+        : null
 
     const current = await readPlatformHolidayCalendar()
     let incoming = [] as ReturnType<typeof normalizePlatformHolidayCalendar>
@@ -281,6 +285,13 @@ router.post('/import/germany', requirePermission(PermissionKey.SETTINGS_WRITE), 
       return res.status(400).json({ error: 'Unbekannter Importmodus' })
     }
 
+    if (targetYear !== null) {
+      incoming = incoming.filter((entry) => {
+        const year = Number(entry.date.slice(0, 4))
+        return Number.isInteger(year) && year === targetYear
+      })
+    }
+
     const merged = mergePlatformHolidayEntries(current, incoming)
     const saved = await savePlatformHolidayCalendar(merged)
     const addedCount = saved.length - current.length
@@ -294,6 +305,7 @@ router.post('/import/germany', requirePermission(PermissionKey.SETTINGS_WRITE), 
       tenantId: null,
       metadata: {
         mode,
+        targetYear,
         importedCount: incoming.length,
         addedCount,
         totalCount: saved.length,
@@ -304,6 +316,7 @@ router.post('/import/germany', requirePermission(PermissionKey.SETTINGS_WRITE), 
       holidays: saved,
       summary: {
         mode,
+        targetYear,
         importedCount: incoming.length,
         addedCount,
         skippedDuplicates: Math.max(0, incoming.length - addedCount),

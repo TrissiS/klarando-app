@@ -3046,10 +3046,12 @@ export async function importGermanPlatformHolidays(
     | {
         mode: 'JSON'
         holidays: PlatformHoliday[]
+        targetYear?: number | null
       }
     | {
         mode: 'CSV'
         csv: string
+        targetYear?: number | null
       }
     | {
         mode: 'ICS'
@@ -3057,6 +3059,7 @@ export async function importGermanPlatformHolidays(
         stateCode?: GermanHolidayImportStateCode | null
         isNationwide?: boolean
         countryCode?: string | null
+        targetYear?: number | null
       },
   token?: string
 ): Promise<{

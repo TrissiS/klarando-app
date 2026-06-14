@@ -1,30 +1,58 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import BackofficeLayout from '@/app/Components/admin/BackofficeLayout'
 import { SUPERADMIN_NAV_ITEMS } from '@/app/superadmin/nav'
 import {
   getGermanHolidayImportOptions,
   getPlatformHolidayCalendar,
   importGermanPlatformHolidays,
+  updatePlatformHolidayCalendar,
   type GermanHolidayImportStateCode,
   type GermanHolidayImportStateOption,
   type PlatformHoliday,
 } from '@/lib/api'
 import type { SessionUser } from '@/lib/app-data'
 
+type ImportSource = 'GENERATE' | 'JSON' | 'CSV' | 'ICS'
+
+function formatHolidayDate(value: string) {
+  const parsed = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+  return parsed.toLocaleDateString('de-DE')
+}
+
+function getHolidayRegionLabel(entry: PlatformHoliday) {
+  if (entry.isNationwide) {
+    return 'Bundesweit'
+  }
+  return entry.regionName || entry.stateCode || '—'
+}
+
+function normalizeSearchValue(value: string) {
+  return value.trim().toLowerCase()
+}
+
 export default function SuperadminHolidayCalendarPage() {
   const [session, setSession] = useState<SessionUser | null>(null)
   const [token, setToken] = useState('')
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [holidays, setHolidays] = useState<PlatformHoliday[]>([])
   const [supportedStates, setSupportedStates] = useState<GermanHolidayImportStateOption[]>([])
   const [importYear, setImportYear] = useState(new Date().getFullYear())
+  const [importTargetYear, setImportTargetYear] = useState('')
   const [importStateCode, setImportStateCode] = useState<GermanHolidayImportStateCode | ''>('')
   const [includeNationwide, setIncludeNationwide] = useState(true)
-  const [importSource, setImportSource] = useState<'GENERATE' | 'JSON' | 'CSV' | 'ICS'>('GENERATE')
+  const [importSource, setImportSource] = useState<ImportSource>('GENERATE')
   const [importPayload, setImportPayload] = useState('')
+  const [filterYear, setFilterYear] = useState('')
+  const [filterRegion, setFilterRegion] = useState('')
+  const [filterSource, setFilterSource] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -71,8 +99,87 @@ export default function SuperadminHolidayCalendarPage() {
     void loadData()
   }, [token])
 
+  const regionOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        holidays
+          .map((entry) => getHolidayRegionLabel(entry))
+          .filter((value) => value && value !== '—')
+      )
+    ).sort((a, b) => a.localeCompare(b, 'de'))
+  }, [holidays])
+
+  const sourceOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        holidays
+          .map((entry) => entry.source?.trim())
+          .filter((value): value is string => Boolean(value))
+      )
+    ).sort((a, b) => a.localeCompare(b, 'de'))
+  }, [holidays])
+
+  const yearOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        holidays
+          .map((entry) => entry.date.slice(0, 4))
+          .filter((value) => /^\d{4}$/.test(value))
+      )
+    ).sort((a, b) => b.localeCompare(a))
+  }, [holidays])
+
+  const filteredHolidays = useMemo(() => {
+    const search = normalizeSearchValue(searchQuery)
+    return [...holidays]
+      .filter((entry) => (filterYear ? entry.date.startsWith(`${filterYear}-`) : true))
+      .filter((entry) => (filterRegion ? getHolidayRegionLabel(entry) === filterRegion : true))
+      .filter((entry) => (filterSource ? (entry.source || '') === filterSource : true))
+      .filter((entry) =>
+        search
+          ? normalizeSearchValue(entry.name).includes(search) ||
+            normalizeSearchValue(entry.source || '').includes(search) ||
+            normalizeSearchValue(getHolidayRegionLabel(entry)).includes(search)
+          : true
+      )
+      .sort((left, right) => {
+        if (left.date !== right.date) {
+          return left.date.localeCompare(right.date)
+        }
+        return left.name.localeCompare(right.name, 'de')
+      })
+  }, [filterRegion, filterSource, filterYear, holidays, searchQuery])
+
+  const filteredIds = useMemo(
+    () => new Set(filteredHolidays.map((entry) => entry.id)),
+    [filteredHolidays]
+  )
+
   if (!session) {
     return null
+  }
+
+  async function persistHolidays(nextHolidays: PlatformHoliday[], successMessage: string) {
+    if (!token) {
+      return
+    }
+
+    try {
+      setSaving(true)
+      setError('')
+      setSuccess('')
+      const saved = await updatePlatformHolidayCalendar(nextHolidays, token)
+      setHolidays(saved)
+      setSuccess(successMessage)
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error
+          ? saveError.message
+          : 'Feiertagskalender konnte nicht gespeichert werden'
+      )
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleImportFileSelected(file: File | null) {
@@ -99,6 +206,14 @@ export default function SuperadminHolidayCalendarPage() {
       setImporting(true)
       setError('')
       setSuccess('')
+
+      const targetYear =
+        importSource === 'GENERATE'
+          ? undefined
+          : Number.isInteger(Number(importTargetYear))
+            ? Number(importTargetYear)
+            : undefined
+
       const result =
         importSource === 'GENERATE'
           ? await importGermanPlatformHolidays(
@@ -115,6 +230,7 @@ export default function SuperadminHolidayCalendarPage() {
                 {
                   mode: 'JSON',
                   holidays: JSON.parse(importPayload || '[]') as PlatformHoliday[],
+                  targetYear,
                 },
                 token
               )
@@ -123,6 +239,7 @@ export default function SuperadminHolidayCalendarPage() {
                   {
                     mode: 'CSV',
                     csv: importPayload,
+                    targetYear,
                   },
                   token
                 )
@@ -133,13 +250,14 @@ export default function SuperadminHolidayCalendarPage() {
                     stateCode: importStateCode || null,
                     isNationwide: importStateCode ? false : includeNationwide,
                     countryCode: 'DE',
+                    targetYear,
                   },
                   token
                 )
 
       setHolidays(result.holidays)
       setSuccess(
-        `Import abgeschlossen. ${result.summary.addedCount} neue Feiertage hinzugefügt, ${result.summary.skippedDuplicates} Duplikate übersprungen.`
+        `Import abgeschlossen. ${result.summary.addedCount} hinzugefügt, ${result.summary.skippedDuplicates} übersprungen, ${result.summary.importedCount} verarbeitet.`
       )
     } catch (importError) {
       setError(
@@ -152,11 +270,91 @@ export default function SuperadminHolidayCalendarPage() {
     }
   }
 
+  function handleToggleActive(entry: PlatformHoliday) {
+    const nextHolidays = holidays.map((holiday) =>
+      holiday.id === entry.id ? { ...holiday, active: !holiday.active } : holiday
+    )
+    void persistHolidays(
+      nextHolidays,
+      `${entry.name} wurde ${entry.active ? 'deaktiviert' : 'aktiviert'}.`
+    )
+  }
+
+  function handleDeleteEntry(entry: PlatformHoliday) {
+    if (!window.confirm(`Soll "${entry.name}" am ${formatHolidayDate(entry.date)} wirklich gelöscht werden?`)) {
+      return
+    }
+
+    const nextHolidays = holidays.filter((holiday) => holiday.id !== entry.id)
+    void persistHolidays(nextHolidays, `${entry.name} wurde gelöscht.`)
+  }
+
+  function handleDeactivateFiltered() {
+    if (filteredHolidays.length === 0) {
+      return
+    }
+
+    const nextHolidays = holidays.map((holiday) =>
+      filteredIds.has(holiday.id) ? { ...holiday, active: false } : holiday
+    )
+    void persistHolidays(nextHolidays, `${filteredHolidays.length} gefilterte Feiertage wurden deaktiviert.`)
+  }
+
+  function handleDeleteFiltered() {
+    if (filteredHolidays.length === 0) {
+      return
+    }
+
+    if (!window.confirm(`Sollten wirklich ${filteredHolidays.length} gefilterte Feiertage gelöscht werden?`)) {
+      return
+    }
+
+    const nextHolidays = holidays.filter((holiday) => !filteredIds.has(holiday.id))
+    void persistHolidays(nextHolidays, `${filteredHolidays.length} gefilterte Feiertage wurden gelöscht.`)
+  }
+
+  function handleDeleteIcsImports() {
+    const icsEntries = holidays.filter((entry) => entry.source === 'ICS_IMPORT')
+    if (icsEntries.length === 0) {
+      return
+    }
+
+    if (!window.confirm(`Sollten wirklich alle ${icsEntries.length} ICS_IMPORT-Einträge gelöscht werden?`)) {
+      return
+    }
+
+    const nextHolidays = holidays.filter((entry) => entry.source !== 'ICS_IMPORT')
+    void persistHolidays(nextHolidays, `${icsEntries.length} ICS-Importeinträge wurden gelöscht.`)
+  }
+
+  function handleDeleteSelectedYear() {
+    if (!filterYear) {
+      setError('Bitte zuerst ein Jahr im Filter auswählen.')
+      return
+    }
+
+    const yearEntries = holidays.filter((entry) => entry.date.startsWith(`${filterYear}-`))
+    if (yearEntries.length === 0) {
+      return
+    }
+
+    if (!window.confirm(`Sollten wirklich alle ${yearEntries.length} Feiertage aus ${filterYear} gelöscht werden?`)) {
+      return
+    }
+
+    const nextHolidays = holidays.filter((entry) => !entry.date.startsWith(`${filterYear}-`))
+    void persistHolidays(nextHolidays, `${yearEntries.length} Feiertage aus ${filterYear} wurden gelöscht.`)
+  }
+
+  const activeCount = holidays.filter((entry) => entry.active).length
+  const recurringCount = holidays.filter((entry) => entry.repeatsYearly).length
+  const filteredCount = filteredHolidays.length
+
   return (
     <BackofficeLayout
       brand="Superadmin"
       title="Feiertagskalender"
-      subtitle="Technische Plattform-Grundlage für zentrale Feiertage je Land, Bundesland und Region"
+      subtitle="Zentrale Verwaltung für Feiertage je Jahr, Quelle und Bundesland"
       navItems={SUPERADMIN_NAV_ITEMS}
     >
       {error ? (
@@ -172,20 +370,18 @@ export default function SuperadminHolidayCalendarPage() {
 
       <section className="rounded-3xl bg-white p-5 shadow-sm ring-1 ring-[var(--brand-border)]">
         <div className="rounded-2xl border border-[var(--brand-border)] bg-rose-50/60 px-4 py-3">
-          <p className="text-xs uppercase tracking-wide text-rose-900/70">
-            Foundation
-          </p>
+          <p className="text-xs uppercase tracking-wide text-rose-900/70">Plattformweit</p>
           <p className="mt-1 text-sm text-rose-900/85">
-            Die zentrale Superadmin-API für Plattform-Feiertage ist vorbereitet. Die große Kalender-UI folgt später separat.
+            Feiertage werden zentral gepflegt und können nach Quelle, Jahr und Region verwaltet werden.
           </p>
         </div>
 
         <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <h2 className="text-base font-semibold text-slate-900">Feiertagsimport Deutschland</h2>
+              <h2 className="text-base font-semibold text-slate-900">Feiertagsimport</h2>
               <p className="mt-1 text-sm text-rose-900/75">
-                Unterstützt automatische Generierung je Jahr/Bundesland sowie Import aus JSON, CSV oder ICS. Duplikate werden beim Einspielen übersprungen.
+                Unterstützt automatische Generierung sowie Import aus JSON, CSV und ICS. Duplikate werden beim Einspielen übersprungen.
               </p>
             </div>
           </div>
@@ -195,7 +391,7 @@ export default function SuperadminHolidayCalendarPage() {
               <span className="mb-1 block text-sm font-medium text-rose-900/85">Importmodus</span>
               <select
                 value={importSource}
-                onChange={(event) => setImportSource(event.target.value as 'GENERATE' | 'JSON' | 'CSV' | 'ICS')}
+                onChange={(event) => setImportSource(event.target.value as ImportSource)}
                 className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
               >
                 <option value="GENERATE">Automatisch generieren</option>
@@ -205,55 +401,62 @@ export default function SuperadminHolidayCalendarPage() {
               </select>
             </label>
 
-            {importSource === 'GENERATE' || importSource === 'ICS' ? (
-              <>
-                {importSource === 'GENERATE' ? (
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-rose-900/85">Jahr</span>
-                    <input
-                      type="number"
-                      min={2000}
-                      max={2100}
-                      value={importYear}
-                      onChange={(event) => setImportYear(Number(event.target.value) || new Date().getFullYear())}
-                      className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
-                    />
-                  </label>
-                ) : (
-                  <div className="rounded-xl border border-[var(--brand-border)] bg-slate-50 px-3 py-2 text-sm text-slate-600">
-                    ICS-Import nutzt Datum und Titel direkt aus den VEVENT-Einträgen.
-                  </div>
-                )}
-                <label className="block">
-                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Bundesland</span>
-                  <select
-                    value={importStateCode}
-                    onChange={(event) =>
-                      setImportStateCode((event.target.value as GermanHolidayImportStateCode | '') || '')
-                    }
-                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
-                  >
-                    <option value="">Nur bundesweit</option>
-                    {supportedStates.map((state) => (
-                      <option key={state.code} value={state.code}>
-                        {state.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85">
-                  <input
-                    type="checkbox"
-                    checked={includeNationwide}
-                    onChange={(event) => setIncludeNationwide(event.target.checked)}
-                    disabled={importSource === 'ICS' && Boolean(importStateCode)}
-                  />
-                  {importSource === 'GENERATE'
-                    ? 'Bundesweite Feiertage einschließen'
-                    : 'Als bundesweite Feiertage importieren'}
-                </label>
-              </>
-            ) : null}
+            {importSource === 'GENERATE' ? (
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-rose-900/85">Zieljahr</span>
+                <input
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  value={importYear}
+                  onChange={(event) => setImportYear(Number(event.target.value) || new Date().getFullYear())}
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                />
+              </label>
+            ) : (
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-rose-900/85">Optional nur Jahr importieren</span>
+                <input
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  value={importTargetYear}
+                  onChange={(event) => setImportTargetYear(event.target.value)}
+                  placeholder="z. B. 2026"
+                  className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                />
+              </label>
+            )}
+
+            <label className="block">
+              <span className="mb-1 block text-sm font-medium text-rose-900/85">Bundesland</span>
+              <select
+                value={importStateCode}
+                onChange={(event) =>
+                  setImportStateCode((event.target.value as GermanHolidayImportStateCode | '') || '')
+                }
+                className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
+              >
+                <option value="">Nur bundesweit</option>
+                {supportedStates.map((state) => (
+                  <option key={state.code} value={state.code}>
+                    {state.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="inline-flex items-center gap-2 rounded-xl border border-[var(--brand-border)] bg-rose-50/60 px-3 py-2 text-sm text-rose-900/85">
+              <input
+                type="checkbox"
+                checked={includeNationwide}
+                onChange={(event) => setIncludeNationwide(event.target.checked)}
+                disabled={importSource === 'ICS' && Boolean(importStateCode)}
+              />
+              {importSource === 'GENERATE'
+                ? 'Bundesweite Feiertage einschließen'
+                : 'Als bundesweite Feiertage importieren'}
+            </label>
           </div>
 
           {importSource !== 'GENERATE' ? (
@@ -269,6 +472,7 @@ export default function SuperadminHolidayCalendarPage() {
                   />
                 </label>
               ) : null}
+
               <label className="block">
                 <span className="mb-1 block text-sm font-medium text-rose-900/85">
                   {importSource === 'JSON'
@@ -310,31 +514,189 @@ export default function SuperadminHolidayCalendarPage() {
           <p className="mt-4 text-sm text-rose-900/75">Lade Feiertagskalender...</p>
         ) : (
           <>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-4">
               <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Einträge</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">Einträge gesamt</p>
                 <p className="mt-2 text-2xl font-semibold text-slate-900">{holidays.length}</p>
               </div>
               <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Aktiv</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">
-                  {holidays.filter((entry) => entry.active).length}
-                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{activeCount}</p>
               </div>
               <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Wiederkehrend</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-900">
-                  {holidays.filter((entry) => entry.repeatsYearly).length}
-                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{recurringCount}</p>
+              </div>
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Gefiltert</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-900">{filteredCount}</p>
               </div>
             </div>
 
-            <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-slate-950 p-4 text-xs text-slate-100">
-              <p className="mb-2 font-semibold text-white">Aktueller JSON-Stand</p>
-              <pre className="overflow-x-auto whitespace-pre-wrap">
+            <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+              <h2 className="text-base font-semibold text-slate-900">Filter</h2>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Jahr</span>
+                  <select
+                    value={filterYear}
+                    onChange={(event) => setFilterYear(event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
+                  >
+                    <option value="">Alle Jahre</option>
+                    {yearOptions.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Bundesland / Region</span>
+                  <select
+                    value={filterRegion}
+                    onChange={(event) => setFilterRegion(event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
+                  >
+                    <option value="">Alle Regionen</option>
+                    {regionOptions.map((region) => (
+                      <option key={region} value={region}>
+                        {region}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Quelle</span>
+                  <select
+                    value={filterSource}
+                    onChange={(event) => setFilterSource(event.target.value)}
+                    className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm outline-none"
+                  >
+                    <option value="">Alle Quellen</option>
+                    {sourceOptions.map((source) => (
+                      <option key={source} value={source}>
+                        {source}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-sm font-medium text-rose-900/85">Suche nach Name</span>
+                  <input
+                    value={searchQuery}
+                    onChange={(event) => setSearchQuery(event.target.value)}
+                    placeholder="z. B. Fronleichnam"
+                    className="w-full rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm outline-none"
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleDeactivateFiltered}
+                  disabled={saving || filteredHolidays.length === 0}
+                  className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Alle gefilterten deaktivieren
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteFiltered}
+                  disabled={saving || filteredHolidays.length === 0}
+                  className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Alle gefilterten löschen
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteIcsImports}
+                  disabled={saving || holidays.every((entry) => entry.source !== 'ICS_IMPORT')}
+                  className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Alle ICS_IMPORT-Einträge löschen
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteSelectedYear}
+                  disabled={saving || !filterYear}
+                  className="rounded-xl border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Alle Einträge für ausgewähltes Jahr löschen
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-[var(--brand-border)] bg-white">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-3 py-3">Datum</th>
+                    <th className="px-3 py-3">Name</th>
+                    <th className="px-3 py-3">Land</th>
+                    <th className="px-3 py-3">Bundesland / Region</th>
+                    <th className="px-3 py-3">Bundesweit</th>
+                    <th className="px-3 py-3">Aktiv</th>
+                    <th className="px-3 py-3">Wiederkehrend</th>
+                    <th className="px-3 py-3">Quelle</th>
+                    <th className="px-3 py-3">Aktionen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredHolidays.map((entry) => (
+                    <tr key={entry.id} className="border-t border-slate-100 align-top">
+                      <td className="px-3 py-3 whitespace-nowrap text-slate-700">{formatHolidayDate(entry.date)}</td>
+                      <td className="px-3 py-3 font-medium text-slate-900">{entry.name}</td>
+                      <td className="px-3 py-3 text-slate-700">{entry.countryCode || '—'}</td>
+                      <td className="px-3 py-3 text-slate-700">{getHolidayRegionLabel(entry)}</td>
+                      <td className="px-3 py-3 text-slate-700">{entry.isNationwide ? 'Ja' : 'Nein'}</td>
+                      <td className="px-3 py-3 text-slate-700">{entry.active ? 'Ja' : 'Nein'}</td>
+                      <td className="px-3 py-3 text-slate-700">{entry.repeatsYearly ? 'Ja' : 'Nein'}</td>
+                      <td className="px-3 py-3 text-slate-700">{entry.source || '—'}</td>
+                      <td className="px-3 py-3">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleActive(entry)}
+                            disabled={saving}
+                            className="rounded-lg border border-[var(--brand-border)] px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {entry.active ? 'Deaktivieren' : 'Aktivieren'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEntry(entry)}
+                            disabled={saving}
+                            className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Löschen
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {filteredHolidays.length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-6 text-center text-sm text-slate-500" colSpan={9}>
+                        Keine Feiertage für die aktuellen Filter gefunden.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+
+            <details className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-slate-950 p-4 text-xs text-slate-100">
+              <summary className="cursor-pointer font-semibold text-white">
+                Technische JSON-Ansicht
+              </summary>
+              <pre className="mt-3 overflow-x-auto whitespace-pre-wrap">
                 {JSON.stringify(holidays, null, 2)}
               </pre>
-            </div>
+            </details>
           </>
         )}
       </section>
