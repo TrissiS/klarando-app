@@ -268,6 +268,14 @@ export default function AdminFinanzenPage() {
     }
   }
 
+  function handleOpenMailboxAction(actionUrl: string) {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    window.location.assign(actionUrl)
+  }
+
   const feeBreakdown = useMemo(() => {
     if (!usage) {
       return null
@@ -664,16 +672,27 @@ export default function AdminFinanzenPage() {
                     {formatDateTime(message.createdAt)} · {message.readAt ? 'Gelesen' : 'Ungelesen'} ·{' '}
                     {message.status || 'Info'}
                   </p>
-                  {message.invoiceId ? (
-                    <button
-                      type="button"
-                      onClick={() => void handleOpenInvoicePdf(message.invoiceId!)}
-                      disabled={pdfLoadingInvoiceId === message.invoiceId}
-                      className="mt-2 rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {pdfLoadingInvoiceId === message.invoiceId ? 'Öffnet…' : 'PDF öffnen'}
-                    </button>
-                  ) : null}
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {message.invoiceId ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenInvoicePdf(message.invoiceId!)}
+                        disabled={pdfLoadingInvoiceId === message.invoiceId}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-[var(--brand-strong)] hover:text-[var(--brand-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {pdfLoadingInvoiceId === message.invoiceId ? 'Öffnet…' : 'PDF öffnen'}
+                      </button>
+                    ) : null}
+                    {message.actionUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenMailboxAction(message.actionUrl!)}
+                        className="rounded-lg border border-[var(--brand-border)] bg-[var(--brand-soft)] px-3 py-2 text-xs font-semibold text-[var(--brand-strong)] transition hover:border-[var(--brand-strong)] hover:bg-white"
+                      >
+                        Hinweis öffnen
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ))}
               {mailboxMessages.length === 0 ? (

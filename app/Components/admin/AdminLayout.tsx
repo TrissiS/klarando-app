@@ -361,9 +361,11 @@ function AdminLayoutContent({ title, subtitle, children }: Props) {
     const mapMailboxMessage = (message: BillingMailboxMessage): HeaderInboxItem => ({
       id: `mailbox-${message.id}`,
       title: message.title,
-      href: message.invoiceId
-        ? `/admin/finanzen?section=postfach&invoice=${message.invoiceId}#postfach`
-        : '/admin/finanzen?section=postfach#postfach',
+      href:
+        message.actionUrl ||
+        (message.invoiceId
+          ? `/admin/finanzen?section=postfach&invoice=${message.invoiceId}#postfach`
+          : '/admin/finanzen?section=postfach#postfach'),
       unread: !message.readAt,
       meta: `${new Date(message.createdAt).toLocaleString('de-DE')} · ${message.status || 'Info'}`,
       source: 'mailbox',

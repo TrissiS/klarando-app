@@ -612,6 +612,8 @@ export type BusinessSettings = {
   zipCode: string | null
   city: string | null
   country: string | null
+  stateCode?: string | null
+  regionName?: string | null
   phone: string | null
   email: string | null
   website: string | null

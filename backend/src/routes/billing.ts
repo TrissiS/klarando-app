@@ -21,6 +21,7 @@ import {
   finalizeInvoiceFromPreview,
   parseBillingMonthOrCurrent,
 } from '../lib/billing-engine'
+import { ensureUpcomingHolidayReminderForTenant } from '../lib/holiday-reminders'
 
 const router = Router()
 const AUTO_APPROVE_MONTHLY_BILLING = (process.env.AUTO_APPROVE_MONTHLY_BILLING || 'false').trim().toLowerCase() === 'true'
@@ -1612,6 +1613,14 @@ router.get('/mailbox', requirePermission(PermissionKey.ORDERS_READ), async (req,
 
     const chainId = authUser.role === UserRole.CHAINADMIN ? authUser.chainId : asString(req.query.chainId) || null
 
+    if (tenantId) {
+      try {
+        await ensureUpcomingHolidayReminderForTenant(tenantId)
+      } catch (reminderError) {
+        console.error('GET BILLING MAILBOX HOLIDAY REMINDER ERROR:', reminderError)
+      }
+    }
+
     const messages = await prisma.klarandoMailboxMessage.findMany({
       where: {
         ...(tenantId ? { tenantId } : {}),
@@ -1643,6 +1652,14 @@ router.get('/mailbox/header', requirePermission(PermissionKey.ORDERS_READ), asyn
         : (await resolveTenantScope(req, asString(req.query.tenantId))).tenantId
 
     const chainId = authUser.role === UserRole.CHAINADMIN ? authUser.chainId : asString(req.query.chainId) || null
+
+    if (tenantId) {
+      try {
+        await ensureUpcomingHolidayReminderForTenant(tenantId)
+      } catch (reminderError) {
+        console.error('GET BILLING MAILBOX HEADER HOLIDAY REMINDER ERROR:', reminderError)
+      }
+    }
 
     const messages = await prisma.klarandoMailboxMessage.findMany({
       where: {

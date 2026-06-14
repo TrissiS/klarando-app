@@ -259,6 +259,8 @@ export type BusinessSettings = {
   zipCode: string | null
   city: string | null
   country: string | null
+  stateCode?: string | null
+  regionName?: string | null
   phone: string | null
   email: string | null
   website: string | null
@@ -2091,6 +2093,8 @@ export function parseSettings(
     zipCode: normalizeZipCode(source.zipCode) ?? normalizeText(source.zipCode),
     city: normalizeText(source.city),
     country: normalizeText(source.country) ?? 'Deutschland',
+    stateCode: normalizeText(source.stateCode)?.toUpperCase() ?? null,
+    regionName: normalizeText(source.regionName),
     phone: normalizeText(source.phone),
     email: normalizeEmail(source.email) ?? tenantDefaults.email,
     website: normalizePublicUrl(source.website),
