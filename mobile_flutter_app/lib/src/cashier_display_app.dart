@@ -31,6 +31,8 @@ const _prefsCashierPrinterHost = 'klarando_cashier_printer_host';
 const _prefsCashierPrinterPort = 'klarando_cashier_printer_port';
 const _prefsCashierOrderToneRepeatSeconds =
     'klarando_cashier_order_tone_repeat_seconds';
+const _prefsCashierShowDebugInfo = 'klarando_cashier_show_debug_info';
+const _prefsCashierShowStats = 'klarando_cashier_show_stats';
 const _secureCashierDeviceToken = 'klarando_cashier_secure_device_token';
 const _secureCashierBindingId = 'klarando_cashier_secure_binding_id';
 const _secureCashierDisplayCode = 'klarando_cashier_secure_display_code';
@@ -216,6 +218,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _deviceSessionAuthenticated = false;
   bool _bindingLocked = false;
   bool _showManualConnection = false;
+  bool _showDebugInfo = false;
+  bool _showStats = true;
   _OrderDeskViewMode _viewMode = _OrderDeskViewMode.open;
   final Map<String, bool> _orderDetailExpandedById = <String, bool>{};
   String? _error;
@@ -278,6 +282,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _hasStoredSessionToken &&
       (_bindingId ?? '').trim().isNotEmpty &&
       _deviceSessionAuthenticated;
+
+  bool get _shouldShowDebugData => _showDebugInfo;
 
   int get _deviceTokenLength => (_deviceAuthToken ?? '').trim().length;
 
@@ -383,6 +389,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final printerPort = prefs.getString(_prefsCashierPrinterPort);
     final orderToneRepeatRaw =
         prefs.getInt(_prefsCashierOrderToneRepeatSeconds) ?? 60;
+    final showDebugInfoRaw = prefs.getBool(_prefsCashierShowDebugInfo) ?? false;
+    final showStatsRaw = prefs.getBool(_prefsCashierShowStats) ?? true;
 
     if (baseUrl != null && baseUrl.trim().isNotEmpty) {
       _baseUrlController.text = baseUrl;
@@ -426,6 +434,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     } else {
       _orderToneRepeatSeconds = 60;
     }
+    _showDebugInfo = showDebugInfoRaw;
+    _showStats = showStatsRaw;
     _deviceAuthToken = deviceToken;
     _bindingId = bindingId;
     _deviceSessionAuthenticated = false;
@@ -515,6 +525,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _prefsCashierOrderToneRepeatSeconds,
       _orderToneRepeatSeconds,
     );
+    await prefs.setBool(_prefsCashierShowDebugInfo, _showDebugInfo);
+    await prefs.setBool(_prefsCashierShowStats, _showStats);
     await _secureWrite(
       _secureCashierManualTenantId,
       _manualTenantIdController.text.trim(),
@@ -562,10 +574,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
       setState(() {
         _error = null;
-        _info = 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.';
+        _info = 'Drucker erkannt – Druckschnittstelle noch nicht aktiv.';
       });
       _showOrderDeskSnackBar(
-        'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.',
+        'Drucker erkannt – Druckschnittstelle noch nicht aktiv.',
       );
     } on ApiException catch (error) {
       final responseBody = error.responseBody;
@@ -586,14 +598,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       setState(() {
         if (pendingActivation) {
           _error = null;
-          _info = 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.';
+          _info = 'Drucker erkannt – Druckschnittstelle noch nicht aktiv.';
         } else {
           _error = error.message;
         }
       });
       _showOrderDeskSnackBar(
         pendingActivation
-            ? 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv.'
+            ? 'Drucker erkannt – Druckschnittstelle noch nicht aktiv.'
             : error.message,
         isError: !pendingActivation,
       );
@@ -2221,6 +2233,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         value.day == now.day;
   }
 
+  bool _isIntegratedPrinterPendingMessage(String? value) {
+    final message = (value ?? '').trim().toLowerCase();
+    return message == 'drucker erkannt – druckschnittstelle noch nicht aktiv.' ||
+        message == 'integrierter drucker erkannt, druckschnittstelle noch nicht aktiv.';
+  }
+
   int _countOrdersBetween(
     List<PublicOrderSummary> orders,
     DateTime startInclusive,
@@ -2235,7 +2253,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }).length;
   }
 
-  Widget _buildCompactStatsCard(List<PublicOrderSummary> orders) {
+  Widget _buildCompactStatsCard({
+    required List<PublicOrderSummary> orders,
+    required int openOrdersCount,
+    required int archivedOrdersCount,
+    required int deliveryOrdersCount,
+    required int pickupOrdersCount,
+  }) {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     final tomorrowStart = todayStart.add(const Duration(days: 1));
@@ -2248,10 +2272,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
     Widget buildStat(String label, String value) {
       return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
           color: Colors.white.withValues(alpha: 0.16),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
         ),
         child: Column(
@@ -2262,16 +2286,16 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               label,
               style: const TextStyle(
                 color: Colors.white70,
-                fontSize: 11,
+                fontSize: 10,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Text(
               value,
               style: const TextStyle(
                 color: Colors.white,
-                fontSize: 16,
+                fontSize: 14,
                 fontWeight: FontWeight.w800,
               ),
             ),
@@ -2287,6 +2311,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         buildStat('Heute', '$todayCount'),
         buildStat('Gestern', '$yesterdayCount'),
         buildStat('Ø Woche', weeklyAverage.toStringAsFixed(1)),
+        buildStat('Offen', '$openOrdersCount'),
+        buildStat('Archiv heute', '$archivedOrdersCount'),
+        buildStat('Lieferungen', '$deliveryOrdersCount'),
+        buildStat('Abholungen', '$pickupOrdersCount'),
       ],
     );
   }
@@ -2665,7 +2693,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   Text('Aktueller Status: $status'),
                   Text('Heartbeat-Fehler in Folge: $_consecutiveHeartbeatFailures'),
                   Text('API-Fehler in Folge: $_consecutiveApiFailures'),
-                  if (_orderDeskDeveloperMode) ...[
+                  if (_shouldShowDebugData) ...[
                     const SizedBox(height: 8),
                     Text('API-URL: $apiBase'),
                     Text('Heartbeat Endpoint: ${_lastHeartbeatEndpointUrl ?? '-'}'),
@@ -2779,10 +2807,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
                     ChoiceChip(
                       selected: _orderToneRepeatSeconds == 0,
                       label: const Text('Aus'),
@@ -2802,12 +2830,41 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       selected: _orderToneRepeatSeconds == 120,
                       label: const Text('120 Sek.'),
                       onSelected: (_) => _updateOrderToneRepeatSeconds(120),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Debug anzeigen'),
+                    subtitle: const Text(
+                      'Zeigt technische Debugdaten nur auf diesem Gerät an.',
                     ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                FilledButton.tonalIcon(
-                  onPressed: () async {
+                    value: _showDebugInfo,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showDebugInfo = value;
+                      });
+                      await _persistState();
+                    },
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Statistik anzeigen'),
+                    subtitle: const Text(
+                      'Blendet die kompakten Statistik-Kacheln im Dashboard ein oder aus.',
+                    ),
+                    value: _showStats,
+                    onChanged: (value) async {
+                      setState(() {
+                        _showStats = value;
+                      });
+                      await _persistState();
+                    },
+                  ),
+                  const SizedBox(height: 4),
+                  FilledButton.tonalIcon(
+                    onPressed: () async {
                     Navigator.of(context).pop();
                     final allowed = await _confirmConnectionEdit();
                     if (!allowed || !mounted) {
@@ -3877,7 +3934,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   _error!,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
-              if (_info != null && !isOperationalView)
+              if (_info != null &&
+                  !isOperationalView &&
+                  !_isIntegratedPrinterPendingMessage(_info))
                 Text(_info!, style: const TextStyle(color: Colors.white)),
               if (_updateInfo != null && !isOperationalView)
                 Text(
@@ -3885,8 +3944,16 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   style: const TextStyle(color: Color(0xFFFFF7ED)),
                 ),
               const SizedBox(height: 8),
-              _buildCompactStatsCard(orders),
-              const SizedBox(height: 8),
+              if (_showStats) ...[
+                _buildCompactStatsCard(
+                  orders: orders,
+                  openOrdersCount: openOrders.length,
+                  archivedOrdersCount: archivedOrders.length,
+                  deliveryOrdersCount: deliveryOrders.length,
+                  pickupOrdersCount: pickupOrders.length,
+                ),
+                const SizedBox(height: 8),
+              ],
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -4170,7 +4237,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               icon: const Icon(Icons.link_rounded),
               label: const Text('Geräteverbindung öffnen'),
             ),
-            if (_orderDeskDeveloperMode) ...[
+            if (_shouldShowDebugData) ...[
               const SizedBox(height: 10),
               _buildOrderDeskAuthDebugCard(),
             ],
@@ -4233,6 +4300,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         ? null
         : _formatDuration(_now.difference(_lastSuccessfulSyncAt!));
     final showReconnectHint = _isReconnecting || !_connected;
+    final showPrinterHint = _isIntegratedPrinterPendingMessage(_info);
 
     return Card(
       child: Padding(
@@ -4294,6 +4362,25 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               'Letzter Heartbeat: $lastHeartbeatText',
               style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
             ),
+            if (showPrinterHint) ...[
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7ED),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFFED7AA)),
+                ),
+                child: const Text(
+                  'Drucker erkannt – Druckschnittstelle noch nicht aktiv.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF9A3412),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
             if ((_lastHeartbeatError ?? '').trim().isNotEmpty)
               Text(
                 'Letzter Fehler: ${_lastHeartbeatError!}',
@@ -4301,7 +4388,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 11, color: Color(0xFFDC2626)),
               ),
-            if (_orderDeskDeveloperMode) ...[
+            if (_shouldShowDebugData) ...[
               const SizedBox(height: 10),
               _buildOrderDeskAuthDebugCard(),
             ],
