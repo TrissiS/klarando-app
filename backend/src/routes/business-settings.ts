@@ -162,7 +162,6 @@ function applyChainadminRestrictions(
     next.deliveryScheduling = requested.timeManagement.deliveryScheduling
     next.deliveryFeeNote = requested.deliveryFeeNote
     next.minOrderValue = requested.minOrderValue
-    next.serviceFee = requested.serviceFee
     next.driver = requested.driver
   }
 
@@ -201,6 +200,7 @@ function applyNonSuperadminRestrictions(
     termsUrl: current.termsUrl,
     supportEmail: current.supportEmail,
     accountDeletionEmail: current.accountDeletionEmail,
+    serviceFee: current.serviceFee,
     compliance: current.compliance,
     customerApp: {
       ...requested.customerApp,
