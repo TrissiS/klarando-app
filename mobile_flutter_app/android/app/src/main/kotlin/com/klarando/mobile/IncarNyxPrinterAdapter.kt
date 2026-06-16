@@ -7,9 +7,14 @@ import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.IBinder
+import android.os.IInterface
+import android.os.Parcel
 import android.os.Looper
+import android.os.RemoteException
 import android.util.Log
 import io.flutter.plugin.common.MethodChannel
+import net.nyx.printerservice.print.PrintTextFormat
+import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 
 class IncarNyxPrinterAdapter(
@@ -18,6 +23,8 @@ class IncarNyxPrinterAdapter(
   companion object {
     const val CHANNEL_NAME = "klarando/orderdesk_printer"
     private const val TAG = "KlarandoPrinter"
+    private const val PRINTER_INTERFACE_DESCRIPTOR =
+      "net.nyx.printerservice.print.IPrinterService"
 
     private const val PRINTER_SERVICE_PACKAGE = "com.incar.printerservice"
     private const val PRINTER_SERVICE_ACTION = "com.incar.printerservice.IPrinterService"
@@ -25,6 +32,9 @@ class IncarNyxPrinterAdapter(
       "net.nyx.printerservice.print.PrinterService"
     private const val SDK_MISSING_MESSAGE =
       "Nyx/Incar Druckservice gefunden, aber SDK/AIDL-Schnittstelle noch nicht eingebunden."
+    private const val TRANSACTION_PRINT_TEXT = 7
+    private const val TRANSACTION_PRINT_TEXT_WITH_POSITION = 8
+    private const val TRANSACTION_COMMIT_PRINT_JOB = 21
   }
 
   fun isPrinterAvailable(result: MethodChannel.Result) {
@@ -69,6 +79,8 @@ class IncarNyxPrinterAdapter(
     result: MethodChannel.Result,
     extraDetails: Map<String, Any?> = emptyMap(),
   ) {
+    cleanupActiveBinding()
+
     val availability = buildAvailability()
     if (!availability.serviceInstalled || !availability.serviceDeclared) {
       Log.e(TAG, "printProbe[$ticketType] service unavailable: ${availability.toMap(ticketType = ticketType, extraDetails = extraDetails)}")
@@ -129,26 +141,68 @@ class IncarNyxPrinterAdapter(
           Log.e(TAG, "Failed reading binder descriptor", error)
           null
         }
+        val localInterface = try {
+          if (service != null && descriptor != null) {
+            service.queryLocalInterface(descriptor)
+          } else {
+            null
+          }
+        } catch (error: Throwable) {
+          Log.e(TAG, "Failed querying local interface", error)
+          null
+        }
+        val discoveredMethods = describeBinderMethods(
+          binder = service,
+          localInterface = localInterface,
+          typedPrinterService = localInterface,
+        )
         Log.d(TAG, "binder descriptor: $descriptor")
-        // TODO(printer): Sobald der echte Binder-Descriptor stabil bekannt ist,
-        // die passende Nyx/Incar-AIDL-Datei einbinden und hier das konkrete
-        // Service-Interface statt der reinen Bind-Diagnose verwenden.
+        Log.d(
+          TAG,
+          "KLARANDO_PRINTER_METHODS ${mapOf(
+            "binderClass" to service?.javaClass?.name,
+            "binderDescriptor" to descriptor,
+            "directDescriptorMatch" to (descriptor == PRINTER_INTERFACE_DESCRIPTOR),
+            "localInterfaceClass" to localInterface?.javaClass?.name,
+            "binderMethods" to discoveredMethods["binderMethods"],
+            "localInterfaceMethods" to discoveredMethods["localInterfaceMethods"],
+            "typedInterfaceMethods" to discoveredMethods["typedInterfaceMethods"],
+          )}",
+        )
+        val printOutcome = if (ticketType == "test" && service != null) {
+          executeVendorTestPrint(service)
+        } else {
+          PrintAttemptResult.skipped("Nur Testdruck fuehrt aktuell einen echten Vendor-Druck aus.")
+        }
         val connectedDetails = bindAttemptDetails + mapOf(
           "bound" to true,
           "bindServiceReturned" to didBind.get(),
           "onServiceConnectedCalled" to true,
           "binderObjectPresent" to (service != null),
           "binderInterfaceDescriptor" to descriptor,
-          "aidlTodo" to "AIDL/SDK fehlt noch. Binder-Descriptor fuer Interface-Namen auswerten und passende AIDL-Datei einbinden.",
+          "preparedAidlInterface" to PRINTER_INTERFACE_DESCRIPTOR,
+          "directDescriptorMatch" to (descriptor == PRINTER_INTERFACE_DESCRIPTOR),
+          "localInterfaceClass" to localInterface?.javaClass?.name,
+          "binderMethods" to discoveredMethods["binderMethods"],
+          "localInterfaceMethods" to discoveredMethods["localInterfaceMethods"],
+          "typedInterfaceMethods" to discoveredMethods["typedInterfaceMethods"],
+          "printAttempted" to printOutcome.attempted,
+          "printSucceeded" to printOutcome.succeeded,
+          "printResultCodes" to printOutcome.resultCodes,
+          "printError" to printOutcome.error,
           "serviceComponent" to name?.flattenToShortString(),
         )
         Log.d(TAG, "printProbe[$ticketType] connected: $connectedDetails")
-        safelyUnbind(this, didBind.get())
-        result.error(
-          "PRINTER_SDK_MISSING",
-          SDK_MISSING_MESSAGE,
-          connectedDetails,
-        )
+        rememberActiveBinding(this, service, localInterface)
+        if (printOutcome.succeeded) {
+          result.success(connectedDetails)
+        } else {
+          result.error(
+            "PRINTER_PRINT_FAILED",
+            printOutcome.error ?: SDK_MISSING_MESSAGE,
+            connectedDetails,
+          )
+        }
       }
 
       override fun onNullBinding(name: ComponentName?) {
@@ -244,6 +298,154 @@ class IncarNyxPrinterAdapter(
       // Keep failure isolated from Flutter response flow.
       Log.e(TAG, "unbindService failed", error)
     }
+  }
+
+  @Volatile
+  private var activeConnection: ServiceConnection? = null
+
+  @Volatile
+  private var activeBinder: IBinder? = null
+
+  @Volatile
+  private var activePrinterService: IInterface? = null
+
+  private fun rememberActiveBinding(
+    connection: ServiceConnection,
+    binder: IBinder?,
+    printerService: IInterface?,
+  ) {
+    activeConnection = connection
+    activeBinder = binder
+    activePrinterService = printerService
+  }
+
+  private fun cleanupActiveBinding() {
+    val connection = activeConnection ?: return
+    safelyUnbind(connection, true)
+    activeConnection = null
+    activeBinder = null
+    activePrinterService = null
+  }
+
+  private fun executeVendorTestPrint(service: IBinder): PrintAttemptResult {
+    Log.d(TAG, "executeVendorTestPrint start")
+    val format = PrintTextFormat().apply {
+      b(1)
+      c(32)
+      a(1)
+    }
+    val resultCodes = linkedMapOf<String, Int>()
+
+    return try {
+      resultCodes["headline"] = transactPrintText(
+        binder = service,
+        text = "KLARANDO ORDERDESK TEST\n",
+        format = format,
+      )
+
+      format.b(0)
+      format.c(24)
+      format.a(0)
+
+      resultCodes["body"] = transactPrintText(
+        binder = service,
+        text = "Drucker erkannt und Vendor-Service angebunden.\n",
+        format = format,
+      )
+      resultCodes["body2"] = transactPrintText(
+        binder = service,
+        text = "Wenn dieser Text auf Papier erscheint, ist der Textdruck aktiv.\n\n",
+        format = format,
+      )
+
+      format.a(1)
+      resultCodes["footer"] = transactPrintText(
+        binder = service,
+        text = "*** Testdruck abgeschlossen ***\n",
+        format = format,
+      )
+
+      resultCodes["commit"] = transactCommitPrintJob(service)
+      Log.d(TAG, "executeVendorTestPrint success: $resultCodes")
+      PrintAttemptResult.success(resultCodes)
+    } catch (error: Throwable) {
+      Log.e(TAG, "executeVendorTestPrint failed", error)
+      PrintAttemptResult.failure(resultCodes, error)
+    }
+  }
+
+  private fun transactPrintText(
+    binder: IBinder,
+    text: String,
+    format: PrintTextFormat,
+  ): Int {
+    val data = Parcel.obtain()
+    val reply = Parcel.obtain()
+    return try {
+      data.writeInterfaceToken(PRINTER_INTERFACE_DESCRIPTOR)
+      data.writeString(text)
+      data.writeInt(1)
+      format.writeToParcel(data, 0)
+      val transacted = binder.transact(TRANSACTION_PRINT_TEXT, data, reply, 0)
+      Log.d(
+        TAG,
+        "transactPrintText: transacted=$transacted text=${text.trim()} formatSize=${format.h} align=${format.p} style=${format.q}",
+      )
+      if (!transacted) {
+        throw RemoteException("Printer transact($TRANSACTION_PRINT_TEXT) returned false")
+      }
+      reply.readException()
+      reply.readInt()
+    } finally {
+      reply.recycle()
+      data.recycle()
+    }
+  }
+
+  private fun transactCommitPrintJob(binder: IBinder): Int {
+    val data = Parcel.obtain()
+    val reply = Parcel.obtain()
+    return try {
+      data.writeInterfaceToken(PRINTER_INTERFACE_DESCRIPTOR)
+      val transacted = binder.transact(TRANSACTION_COMMIT_PRINT_JOB, data, reply, 0)
+      Log.d(TAG, "transactCommitPrintJob: transacted=$transacted")
+      if (!transacted) {
+        throw RemoteException("Printer transact($TRANSACTION_COMMIT_PRINT_JOB) returned false")
+      }
+      reply.readException()
+      reply.readInt()
+    } finally {
+      reply.recycle()
+      data.recycle()
+    }
+  }
+
+  private fun describeBinderMethods(
+    binder: IBinder?,
+    localInterface: IInterface?,
+    typedPrinterService: IInterface?,
+  ): Map<String, List<String>> {
+    return mapOf(
+      "binderMethods" to extractMethodSignatures(binder?.javaClass),
+      "localInterfaceMethods" to extractMethodSignatures(localInterface?.javaClass),
+      "typedInterfaceMethods" to extractMethodSignatures(typedPrinterService?.javaClass),
+    )
+  }
+
+  private fun extractMethodSignatures(type: Class<*>?): List<String> {
+    if (type == null) {
+      return emptyList()
+    }
+
+    return type.methods
+      .map(::formatMethodSignature)
+      .distinct()
+      .sorted()
+  }
+
+  private fun formatMethodSignature(method: Method): String {
+    val parameterList = method.parameterTypes.joinToString(",") { it.simpleName }
+    return "${method.name}($parameterList): ${method.returnType.simpleName}"
   }
 
   private fun buildAvailability(): PrinterAvailability {
@@ -348,6 +550,42 @@ class IncarNyxPrinterAdapter(
           put("ticketType", ticketType)
         }
         putAll(extraDetails)
+      }
+    }
+  }
+
+  private data class PrintAttemptResult(
+    val attempted: Boolean,
+    val succeeded: Boolean,
+    val resultCodes: Map<String, Int>,
+    val error: String?,
+  ) {
+    companion object {
+      fun success(resultCodes: Map<String, Int>): PrintAttemptResult {
+        return PrintAttemptResult(
+          attempted = true,
+          succeeded = true,
+          resultCodes = resultCodes,
+          error = null,
+        )
+      }
+
+      fun failure(resultCodes: Map<String, Int>, error: Throwable): PrintAttemptResult {
+        return PrintAttemptResult(
+          attempted = true,
+          succeeded = false,
+          resultCodes = resultCodes,
+          error = error.message ?: error.javaClass.simpleName,
+        )
+      }
+
+      fun skipped(reason: String): PrintAttemptResult {
+        return PrintAttemptResult(
+          attempted = false,
+          succeeded = false,
+          resultCodes = emptyMap(),
+          error = reason,
+        )
       }
     }
   }
