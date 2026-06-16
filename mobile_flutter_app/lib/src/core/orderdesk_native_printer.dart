@@ -37,6 +37,7 @@ class OrderDeskNativePrinter {
   Future<void> printKitchenTicket({
     required String orderNumber,
     required String time,
+    required String serviceType,
     required List<String> items,
     String? notes,
   }) async {
@@ -44,6 +45,7 @@ class OrderDeskNativePrinter {
       await _channel.invokeMethod<void>('printKitchenTicket', {
         'orderNumber': orderNumber,
         'time': time,
+        'serviceType': serviceType,
         'items': items,
         'notes': notes,
       });
@@ -54,22 +56,26 @@ class OrderDeskNativePrinter {
 
   Future<void> printCustomerTicket({
     required String orderNumber,
+    required String time,
     required String serviceType,
     required String customer,
     required String address,
     required String payment,
     required List<String> items,
     required String total,
+    String? notes,
   }) async {
     try {
       await _channel.invokeMethod<void>('printCustomerTicket', {
         'orderNumber': orderNumber,
+        'time': time,
         'serviceType': serviceType,
         'customer': customer,
         'address': address,
         'payment': payment,
         'items': items,
         'total': total,
+        'notes': notes,
       });
     } on PlatformException catch (error) {
       throw _mapPlatformException(error);

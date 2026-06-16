@@ -29,6 +29,8 @@ const _prefsCashierDeviceAlias = 'klarando_cashier_device_alias';
 const _prefsCashierPrinterMode = 'klarando_cashier_printer_mode';
 const _prefsCashierPrinterHost = 'klarando_cashier_printer_host';
 const _prefsCashierPrinterPort = 'klarando_cashier_printer_port';
+const _prefsCashierAutoPrintKitchen = 'klarando_cashier_auto_print_kitchen';
+const _prefsCashierAutoPrintCustomer = 'klarando_cashier_auto_print_customer';
 const _prefsCashierOrderToneRepeatSeconds =
     'klarando_cashier_order_tone_repeat_seconds';
 const _prefsCashierShowDebugInfo = 'klarando_cashier_show_debug_info';
@@ -220,6 +222,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   bool _showManualConnection = false;
   bool _showDebugInfo = false;
   bool _showStats = true;
+  bool _autoPrintKitchen = false;
+  bool _autoPrintCustomer = false;
   _OrderDeskViewMode _viewMode = _OrderDeskViewMode.open;
   final Map<String, bool> _orderDetailExpandedById = <String, bool>{};
   String? _error;
@@ -253,6 +257,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   final List<_OrderDeskLogEntry> _localErrorLog = <_OrderDeskLogEntry>[];
   final Map<String, String> _lastOrderStatusById = <String, String>{};
   final Set<String> _pendingNewOrderIds = <String>{};
+  final Set<String> _autoPrintedOrderIds = <String>{};
   final Set<String> _archivingOrderIds = <String>{};
   final Map<String, _GeoPoint> _destinationCoordinatesByOrderId =
       <String, _GeoPoint>{};
@@ -387,6 +392,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final printerModeRaw = prefs.getString(_prefsCashierPrinterMode);
     final printerHost = prefs.getString(_prefsCashierPrinterHost);
     final printerPort = prefs.getString(_prefsCashierPrinterPort);
+    final autoPrintKitchenRaw =
+        prefs.getBool(_prefsCashierAutoPrintKitchen) ?? false;
+    final autoPrintCustomerRaw =
+        prefs.getBool(_prefsCashierAutoPrintCustomer) ?? false;
     final orderToneRepeatRaw =
         prefs.getInt(_prefsCashierOrderToneRepeatSeconds) ?? 60;
     final showDebugInfoRaw = prefs.getBool(_prefsCashierShowDebugInfo) ?? false;
@@ -436,6 +445,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     _showDebugInfo = showDebugInfoRaw;
     _showStats = showStatsRaw;
+    _autoPrintKitchen = autoPrintKitchenRaw;
+    _autoPrintCustomer = autoPrintCustomerRaw;
     _deviceAuthToken = deviceToken;
     _bindingId = bindingId;
     _deviceSessionAuthenticated = false;
@@ -521,6 +532,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       _prefsCashierPrinterPort,
       _tcpPortController.text.trim(),
     );
+    await prefs.setBool(_prefsCashierAutoPrintKitchen, _autoPrintKitchen);
+    await prefs.setBool(_prefsCashierAutoPrintCustomer, _autoPrintCustomer);
     await prefs.setInt(
       _prefsCashierOrderToneRepeatSeconds,
       _orderToneRepeatSeconds,
@@ -574,11 +587,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
       setState(() {
         _error = null;
-        _info = 'Drucker erkannt – Druckschnittstelle noch nicht aktiv.';
+        _info = 'Testdruck erfolgreich gesendet.';
       });
-      _showOrderDeskSnackBar(
-        'Drucker erkannt – Druckschnittstelle noch nicht aktiv.',
-      );
+      _showOrderDeskSnackBar('Testdruck erfolgreich gesendet.');
     } on ApiException catch (error) {
       final responseBody = error.responseBody;
       _appendLocalLog(
@@ -586,28 +597,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         'integrated printer test error: body=${_formatResponseBodyForLog(responseBody)} message=${error.message}',
       );
       final platformCode = responseBody?['platformCode']?.toString();
-      final pendingActivation =
-          platformCode == 'PRINTER_SDK_MISSING' ||
-          platformCode == 'PRINTER_BIND_TIMEOUT' ||
-          platformCode == 'PRINTER_NULL_BINDING' ||
-          platformCode == 'PRINTER_BINDING_DIED' ||
-          platformCode == 'PRINTER_BIND_FAILED';
       if (!mounted) {
         return;
       }
       setState(() {
-        if (pendingActivation) {
-          _error = null;
-          _info = 'Drucker erkannt – Druckschnittstelle noch nicht aktiv.';
-        } else {
-          _error = error.message;
-        }
+        _error = error.message;
       });
       _showOrderDeskSnackBar(
-        pendingActivation
-            ? 'Drucker erkannt – Druckschnittstelle noch nicht aktiv.'
-            : error.message,
-        isError: !pendingActivation,
+        platformCode == null ? error.message : '$platformCode: ${error.message}',
+        isError: true,
       );
     } catch (error) {
       _appendLocalLog('PRINTER', 'integrated printer test unexpected error: $error');
@@ -827,10 +825,16 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   void _handleOrderFeedSignals(List<PublicOrderSummary> orders) {
     final nextStatusByOrderId = <String, String>{
-      for (final order in orders) order.id: order.status.trim().toLowerCase(),
+      for (final order in orders) order.id: _effectiveOrderStatus(order),
     };
 
     if (!_hasLoadedInitialFeed) {
+      for (final order in orders) {
+        _appendLocalLog(
+          'ORDER_STATUS',
+          'orderId=${order.id} rawStatus=${order.status.trim().toLowerCase()} acceptedAt=${order.acceptedAt?.toIso8601String() ?? '-'} effectiveStatus=${_effectiveOrderStatus(order)}',
+        );
+      }
       _lastOrderStatusById
         ..clear()
         ..addAll(nextStatusByOrderId);
@@ -845,12 +849,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       }
       return !_isUnacceptedOrderStatus(status);
     });
+    _autoPrintedOrderIds.removeWhere((orderId) => !nextStatusByOrderId.containsKey(orderId));
 
     final hasNewUnacceptedOrder = orders.any((order) {
       final status = order.status.trim().toLowerCase();
       final isNew = !_lastOrderStatusById.containsKey(order.id);
       if (isNew && _isUnacceptedOrderStatus(status)) {
         _pendingNewOrderIds.add(order.id);
+        unawaited(_autoPrintNewOrder(order));
         return true;
       }
       return false;
@@ -862,9 +868,16 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
 
     for (final order in orders) {
+      final effectiveStatus = _effectiveOrderStatus(order);
       final previousStatus = _lastOrderStatusById[order.id];
-      final currentStatus = order.status.trim().toLowerCase();
-      final becameDone = previousStatus != 'done' && currentStatus == 'done';
+      if (previousStatus != effectiveStatus ||
+          effectiveStatus != order.status.trim().toLowerCase()) {
+        _appendLocalLog(
+          'ORDER_STATUS',
+          'orderId=${order.id} rawStatus=${order.status.trim().toLowerCase()} acceptedAt=${order.acceptedAt?.toIso8601String() ?? '-'} effectiveStatus=$effectiveStatus',
+        );
+      }
+      final becameDone = previousStatus != 'done' && effectiveStatus == 'done';
       if (becameDone) {
         unawaited(_archiveDeliveredOrder(order));
       }
@@ -1129,7 +1142,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         if (!mounted) {
           return;
         }
-        _info = 'Bestellung angenommen (${eta} Min).';
+        setState(() {
+          _error = null;
+          _lastApiError = null;
+          _info = 'Bestellung angenommen (${eta} Min).';
+        });
         _showOrderDeskSnackBar(
           'Bestellung ${order.id} angenommen (${eta} Min.)',
         );
@@ -1388,21 +1405,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       orderId: order.id,
       targetStatus: kind,
       action: () async {
-        final jobsResponse = await _api.fetchPublicOrderDisplayReceiptJobs(
-          baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-          displayCode: _displayCodeController.text.trim(),
-          orderId: order.id,
-          kind: kind,
-        );
-        if (jobsResponse.jobs.isEmpty) {
-          throw const ApiException(
-            'Keine Druckjobs für diese Bestellung erhalten.',
-          );
-        }
-        for (final job in jobsResponse.jobs) {
-          _printQueue.enqueue(orderId: order.id, job: job);
-        }
-        await _printQueue.process();
+        await _executeOrderPrint(order, kind: kind);
         if (_printerMode == EscPosPrinterMode.disabled) {
           _info = 'Druckjob erstellt (Drucker deaktiviert).';
         } else if (_printerMode == EscPosPrinterMode.debugLog) {
@@ -1411,10 +1414,86 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               ? 'Debug-Druckjob protokolliert.'
               : 'Debug-Druckjob protokolliert: $logPath';
         } else {
-          _info = 'Druckjob gesendet.';
+          _info = 'Bon gedruckt.';
         }
       },
     );
+  }
+
+  Future<void> _executeOrderPrint(
+    PublicOrderSummary order, {
+    required String kind,
+  }) async {
+    if (_normalizedPrinterModeForUi(_printerMode) ==
+        EscPosPrinterMode.platformChannel) {
+      final normalizedKind = kind.trim().toLowerCase();
+      if (normalizedKind == 'both' || normalizedKind == 'kitchen') {
+        await _nativePrinter.printKitchenTicket(
+          orderNumber: _orderDisplayCode(order),
+          time: _formatReceiptTime(order.createdAt),
+          serviceType: _orderServiceTypeLabel(order),
+          items: _buildReceiptItems(order),
+          notes: _buildReceiptNotes(order),
+        );
+      }
+      if (normalizedKind == 'both' || normalizedKind == 'customer') {
+        await _nativePrinter.printCustomerTicket(
+          orderNumber: _orderDisplayCode(order),
+          time: _formatReceiptTime(order.createdAt),
+          serviceType: _orderServiceTypeLabel(order),
+          customer: order.customerName?.trim().isNotEmpty == true
+              ? order.customerName!.trim()
+              : 'Gast',
+          address: _formatCustomerAddress(order),
+          payment: _formatPaymentLabel(order),
+          items: _buildReceiptItems(order),
+          total: _formatEuro(order.total),
+          notes: _buildReceiptNotes(order),
+        );
+      }
+      return;
+    }
+
+    final jobsResponse = await _api.fetchPublicOrderDisplayReceiptJobs(
+      baseUrl: _normalizeBaseUrl(_baseUrlController.text),
+      displayCode: _displayCodeController.text.trim(),
+      orderId: order.id,
+      kind: kind,
+    );
+    if (jobsResponse.jobs.isEmpty) {
+      throw const ApiException(
+        'Keine Druckjobs für diese Bestellung erhalten.',
+      );
+    }
+    for (final job in jobsResponse.jobs) {
+      _printQueue.enqueue(orderId: order.id, job: job);
+    }
+    await _printQueue.process();
+  }
+
+  Future<void> _autoPrintNewOrder(PublicOrderSummary order) async {
+    if ((!_autoPrintKitchen && !_autoPrintCustomer) ||
+        _autoPrintedOrderIds.contains(order.id)) {
+      return;
+    }
+    _autoPrintedOrderIds.add(order.id);
+    try {
+      if (_autoPrintKitchen) {
+        await _executeOrderPrint(order, kind: 'kitchen');
+      }
+      if (_autoPrintCustomer) {
+        await _executeOrderPrint(order, kind: 'customer');
+      }
+      _appendLocalLog(
+        'PRINTER',
+        'auto print completed: order=${order.id} kitchen=$_autoPrintKitchen customer=$_autoPrintCustomer',
+      );
+    } catch (error) {
+      _appendLocalLog(
+        'PRINTER',
+        'auto print failed: order=${order.id} error=$error',
+      );
+    }
   }
 
   Future<void> _runOrderMutation({
@@ -2211,7 +2290,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         }
         return 'Netzwerkdrucker: $host:$port';
       case EscPosPrinterMode.platformChannel:
-        return 'Integrierter Drucker erkannt, Druckschnittstelle noch nicht aktiv';
+        return 'Integrierter Drucker aktiv';
       case EscPosPrinterMode.debugLog:
         return 'Debug-Protokoll aktiv';
       case EscPosPrinterMode.sunmi:
@@ -3124,7 +3203,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     if (selectedMode == EscPosPrinterMode.platformChannel) ...[
                       const SizedBox(height: 8),
                       const Text(
-                        'Der integrierte Incar/Nyx-Drucker wird erkannt. Die Druckschnittstelle ist aktuell noch nicht vollständig aktiv.',
+                        '58mm-Integriertdrucker aktiv. Küchen- und Kundenbons werden direkt als Textdruck ausgegeben.',
                         style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                       ),
                     ],
@@ -3156,6 +3235,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                         style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                       ),
                     ],
+                    const SizedBox(height: 8),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Automatischer Küchendruck'),
+                      value: _autoPrintKitchen,
+                      onChanged: (value) {
+                        setState(() {
+                          _autoPrintKitchen = value;
+                        });
+                        setSheetState(() {});
+                      },
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Automatischer Kundendruck'),
+                      value: _autoPrintCustomer,
+                      onChanged: (value) {
+                        setState(() {
+                          _autoPrintCustomer = value;
+                        });
+                        setSheetState(() {});
+                      },
+                    ),
+                    const Text(
+                      'Manueller Nachdruck bleibt über die Bestellkarten verfügbar.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
                     const SizedBox(height: 10),
                     FilledButton.icon(
                       onPressed: () async {
@@ -3324,6 +3430,78 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       return pickup.toString();
     }
     return order.id.length >= 8 ? order.id.substring(0, 8) : order.id;
+  }
+
+  String _effectiveOrderStatus(PublicOrderSummary order) {
+    final rawStatus = order.status.trim().toLowerCase();
+    if (rawStatus == 'open' && order.acceptedAt != null) {
+      return 'accepted';
+    }
+    return rawStatus;
+  }
+
+  String _formatReceiptTime(DateTime? value) {
+    if (value == null) {
+      return '--:--';
+    }
+    final hour = value.hour.toString().padLeft(2, '0');
+    final minute = value.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
+  }
+
+  String _formatEuro(double value) {
+    final normalized = value.toStringAsFixed(2).replaceAll('.', ',');
+    return '$normalized €';
+  }
+
+  String _orderServiceTypeLabel(PublicOrderSummary order) {
+    return (order.serviceType ?? '').toUpperCase() == 'PICKUP'
+        ? 'ABHOLUNG'
+        : 'LIEFERUNG';
+  }
+
+  String _formatCustomerAddress(PublicOrderSummary order) {
+    final postalCity = [
+      order.customerZipCode?.trim(),
+      order.customerCity?.trim(),
+    ].whereType<String>().where((entry) => entry.isNotEmpty).join(' ');
+    final address = [
+      order.customerAddress?.trim(),
+      postalCity,
+    ].whereType<String>().where((entry) => entry.trim().isNotEmpty).join(', ');
+    return address.isEmpty ? '-' : address;
+  }
+
+  List<String> _buildReceiptItems(PublicOrderSummary order) {
+    return order.items.expand((item) {
+      final lines = <String>[
+        '${item.quantity}x ${item.productName}',
+      ];
+      for (final modifier in item.modifierNames) {
+        final normalized = modifier.trim();
+        if (normalized.isNotEmpty) {
+          lines.add('  - $normalized');
+        }
+      }
+      return lines;
+    }).toList(growable: false);
+  }
+
+  String? _buildReceiptNotes(PublicOrderSummary _) {
+    return null;
+  }
+
+  String _formatPaymentLabel(PublicOrderSummary order) {
+    final method = order.paymentMethod?.trim();
+    if (order.paymentStatus.toUpperCase() == 'PAID') {
+      return method == null || method.isEmpty
+          ? 'Online bezahlt'
+          : 'Online bezahlt ($method)';
+    }
+    if (method == null || method.isEmpty) {
+      return _paymentStatusLabel(order.paymentStatus);
+    }
+    return method;
   }
 
   bool _isArchivedOrderStatus(String status) {
@@ -3658,7 +3836,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   Widget _buildOutForDeliveryStrip(List<PublicOrderSummary> orders) {
     final underwayOrders = orders
-        .where((entry) => entry.status.trim().toLowerCase() == 'out_for_delivery')
+        .where((entry) => _effectiveOrderStatus(entry) == 'out_for_delivery')
         .toList(growable: false);
     if (underwayOrders.isEmpty) {
       return const SizedBox.shrink();
@@ -3715,11 +3893,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   Widget build(BuildContext context) {
     final orders = _feed?.orders ?? const <PublicOrderSummary>[];
     final openOrders = orders
-        .where((entry) => _isOpenOrderStatus(entry.status))
+        .where((entry) => _isOpenOrderStatus(_effectiveOrderStatus(entry)))
         .toList(growable: true)
       ..sort((a, b) {
-        final priorityCompare = _openOrderSortPriority(a.status)
-            .compareTo(_openOrderSortPriority(b.status));
+        final priorityCompare = _openOrderSortPriority(_effectiveOrderStatus(a))
+            .compareTo(_openOrderSortPriority(_effectiveOrderStatus(b)));
         if (priorityCompare != 0) {
           return priorityCompare;
         }
@@ -3731,7 +3909,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         return bCreated.compareTo(aCreated);
       });
     final archivedOrders = orders
-        .where((entry) => _isArchivedOrderStatus(entry.status))
+        .where((entry) => _isArchivedOrderStatus(_effectiveOrderStatus(entry)))
         .where((entry) => _isToday(entry.createdAt))
         .toList(growable: false);
     final visibleOrders =
@@ -3740,14 +3918,14 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         .where(
           (entry) =>
               (entry.serviceType ?? '').toUpperCase() == 'DELIVERY' &&
-              _isOpenOrderStatus(entry.status),
+              _isOpenOrderStatus(_effectiveOrderStatus(entry)),
         )
         .toList(growable: false);
     final pickupOrders = openOrders
         .where(
           (entry) =>
               (entry.serviceType ?? '').toUpperCase() == 'PICKUP' &&
-              _isOpenOrderStatus(entry.status),
+              _isOpenOrderStatus(_effectiveOrderStatus(entry)),
         )
         .toList(growable: false);
     PublicOrderSummary? firstDeliveryOrderWithAddress;
@@ -4415,7 +4593,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final isPaid = order.paymentStatus.toUpperCase() == 'PAID';
     final isDelivery = (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
     final isPickup = (order.serviceType ?? '').toUpperCase() == 'PICKUP';
-    final statusLower = order.status.trim().toLowerCase();
+    final statusLower = _effectiveOrderStatus(order);
     final hasModifiers = order.items.any((entry) => entry.modifierNames.isNotEmpty);
     final waitMinutes = order.createdAt == null
         ? null
@@ -4444,7 +4622,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final orderNumber = _orderDisplayCode(order);
     final paymentLabel = _paymentStatusLabel(order.paymentStatus);
     final paymentMethod = (order.paymentMethod ?? '').trim();
-    final statusLabel = _orderStatusLabel(order.status);
+    final statusLabel = _orderStatusLabel(statusLower);
     final isTerminalStatus = _isArchivedOrderStatus(statusLower);
     final canRunOrderActions = _hasAuthenticatedOrderDeskSession;
     final isCancelledStatus =
@@ -5028,19 +5206,19 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                         ? null
                         : () => _printOrder(order, kind: 'both'),
                     icon: const Icon(Icons.print, size: 16),
-                    label: const Text('Drucken'),
+                    label: const Text('Nachdruck'),
                   ),
                   TextButton(
                     onPressed: _loading
                         ? null
                         : () => _printOrder(order, kind: 'kitchen'),
-                    child: const Text('Küchenbon'),
+                    child: const Text('Druck Küche'),
                   ),
                   TextButton(
                     onPressed: _loading
                         ? null
                         : () => _printOrder(order, kind: 'customer'),
-                    child: const Text('Kundenbon'),
+                    child: const Text('Druck Kunde'),
                   ),
                 ],
               ),
@@ -5176,7 +5354,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       final orderLabel = _orderDisplayCode(order)
           .replaceAll("'", '');
       final customer = (order.customerName ?? 'Unbekannt').replaceAll("'", '');
-      final status = _orderStatusLabel(order.status).replaceAll("'", '');
+      final status = _orderStatusLabel(_effectiveOrderStatus(order)).replaceAll("'", '');
       if (hasDestination) {
         final lat = payload.destinationLatitude!;
         final lng = payload.destinationLongitude!;

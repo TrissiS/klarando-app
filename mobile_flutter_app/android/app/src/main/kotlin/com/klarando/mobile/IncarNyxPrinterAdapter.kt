@@ -33,8 +33,8 @@ class IncarNyxPrinterAdapter(
     private const val SDK_MISSING_MESSAGE =
       "Nyx/Incar Druckservice gefunden, aber SDK/AIDL-Schnittstelle noch nicht eingebunden."
     private const val TRANSACTION_PRINT_TEXT = 7
-    private const val TRANSACTION_PRINT_TEXT_WITH_POSITION = 8
     private const val TRANSACTION_COMMIT_PRINT_JOB = 21
+    private const val RECEIPT_LINE_WIDTH = 32
   }
 
   fun isPrinterAvailable(result: MethodChannel.Result) {
@@ -169,10 +169,10 @@ class IncarNyxPrinterAdapter(
             "typedInterfaceMethods" to discoveredMethods["typedInterfaceMethods"],
           )}",
         )
-        val printOutcome = if (ticketType == "test" && service != null) {
-          executeVendorTestPrint(service)
+        val printOutcome = if (service != null) {
+          executeVendorPrint(ticketType, service, extraDetails)
         } else {
-          PrintAttemptResult.skipped("Nur Testdruck fuehrt aktuell einen echten Vendor-Druck aus.")
+          PrintAttemptResult.skipped("Kein Binder fuer den Druckservice vorhanden.")
         }
         val connectedDetails = bindAttemptDetails + mapOf(
           "bound" to true,
@@ -327,52 +327,125 @@ class IncarNyxPrinterAdapter(
     activePrinterService = null
   }
 
-  private fun executeVendorTestPrint(service: IBinder): PrintAttemptResult {
-    Log.d(TAG, "executeVendorTestPrint start")
+  private fun executeVendorPrint(
+    ticketType: String,
+    service: IBinder,
+    extraDetails: Map<String, Any?>,
+  ): PrintAttemptResult {
+    Log.d(TAG, "executeVendorPrint start: ticketType=$ticketType")
     val format = PrintTextFormat().apply {
       b(1)
-      c(32)
+      c(28)
       a(1)
     }
     val resultCodes = linkedMapOf<String, Int>()
+    val document = when (ticketType) {
+      "kitchen" -> buildKitchenTicketPreviewFromDetails(extraDetails)
+      "customer" -> buildCustomerTicketPreviewFromDetails(extraDetails)
+      else -> buildTestDocument()
+    }
 
     return try {
-      resultCodes["headline"] = transactPrintText(
-        binder = service,
-        text = "KLARANDO ORDERDESK TEST\n",
-        format = format,
-      )
-
-      format.b(0)
-      format.c(24)
-      format.a(0)
-
-      resultCodes["body"] = transactPrintText(
-        binder = service,
-        text = "Drucker erkannt und Vendor-Service angebunden.\n",
-        format = format,
-      )
-      resultCodes["body2"] = transactPrintText(
-        binder = service,
-        text = "Wenn dieser Text auf Papier erscheint, ist der Textdruck aktiv.\n\n",
-        format = format,
-      )
-
-      format.a(1)
-      resultCodes["footer"] = transactPrintText(
-        binder = service,
-        text = "*** Testdruck abgeschlossen ***\n",
-        format = format,
-      )
-
+      document.forEachIndexed { index, line ->
+        configurePrintFormatForLine(format, index, line)
+        resultCodes["line_$index"] = transactPrintText(
+          binder = service,
+          text = line,
+          format = format,
+        )
+      }
       resultCodes["commit"] = transactCommitPrintJob(service)
-      Log.d(TAG, "executeVendorTestPrint success: $resultCodes")
+      Log.d(TAG, "executeVendorPrint success: $resultCodes")
       PrintAttemptResult.success(resultCodes)
     } catch (error: Throwable) {
-      Log.e(TAG, "executeVendorTestPrint failed", error)
+      Log.e(TAG, "executeVendorPrint failed", error)
       PrintAttemptResult.failure(resultCodes, error)
     }
   }
+
+  private fun configurePrintFormatForLine(
+    format: PrintTextFormat,
+    index: Int,
+    line: String,
+  ) {
+    val trimmed = line.trim()
+    val isHeadline = index == 0 || trimmed == "KLARANDO" || trimmed == "KLARANDO KUECHE"
+    val isSectionLabel = trimmed.endsWith(":") || trimmed == "LIEFERUNG" || trimmed == "ABHOLUNG"
+
+    if (isHeadline) {
+      format.b(1)
+      format.c(28)
+      format.a(1)
+      return
+    }
+    if (isSectionLabel || trimmed.startsWith("Bestellung #")) {
+      format.b(0)
+      format.c(24)
+      format.a(0)
+      return
+    }
+    format.b(0)
+    format.c(22)
+    format.a(0)
+  }
+
+  private fun buildTestDocument(): List<String> {
+    return listOf(
+      "KLARANDO",
+      "ORDERDESK TEST",
+      separatorLine(),
+      "Drucker erkannt und Vendor-Service angebunden.",
+      "Wenn dieser Text auf Papier erscheint, ist der Textdruck aktiv.",
+      separatorLine(),
+      "Testdruck abgeschlossen",
+      "",
+    ).flatMap(::wrapReceiptLine)
+  }
+
+  private fun buildKitchenTicketPreviewFromDetails(
+    extraDetails: Map<String, Any?>,
+  ): List<String> {
+    val preview = extraDetails["preview"]?.toString()?.trim().orEmpty()
+    return if (preview.isEmpty()) {
+      buildTestDocument()
+    } else {
+      preview.lines().flatMap(::wrapReceiptLine)
+    }
+  }
+
+  private fun buildCustomerTicketPreviewFromDetails(
+    extraDetails: Map<String, Any?>,
+  ): List<String> {
+    val preview = extraDetails["preview"]?.toString()?.trim().orEmpty()
+    return if (preview.isEmpty()) {
+      buildTestDocument()
+    } else {
+      preview.lines().flatMap(::wrapReceiptLine)
+    }
+  }
+
+  private fun wrapReceiptLine(line: String): List<String> {
+    if (line.isBlank()) {
+      return listOf("")
+    }
+    if (line.length <= RECEIPT_LINE_WIDTH) {
+      return listOf(line)
+    }
+    val result = mutableListOf<String>()
+    var remaining = line.trim()
+    while (remaining.length > RECEIPT_LINE_WIDTH) {
+      val splitAt = remaining.lastIndexOf(' ', RECEIPT_LINE_WIDTH)
+        .takeIf { it > 0 } ?: RECEIPT_LINE_WIDTH
+      result += remaining.substring(0, splitAt).trimEnd()
+      remaining = remaining.substring(splitAt).trimStart()
+    }
+    if (remaining.isNotEmpty()) {
+      result += remaining
+    }
+    return result
+  }
+
+  private fun separatorLine(): String = "-".repeat(RECEIPT_LINE_WIDTH)
 
   private fun transactPrintText(
     binder: IBinder,
@@ -486,45 +559,67 @@ class IncarNyxPrinterAdapter(
   private fun buildKitchenTicketPreview(arguments: Map<*, *>): String {
     val orderNumber = arguments["orderNumber"]?.toString()?.ifBlank { "-" } ?: "-"
     val timeLabel = arguments["time"]?.toString()?.ifBlank { "-" } ?: "-"
+    val serviceType = arguments["serviceType"]?.toString()?.ifBlank { "-" } ?: "-"
     val notes = arguments["notes"]?.toString()?.trim().orEmpty()
-    val items = (arguments["items"] as? List<*>)?.joinToString("\n") { "- ${it.toString()}" }
-      ?.ifBlank { "- Keine Artikel" } ?: "- Keine Artikel"
+    val items = (arguments["items"] as? List<*>)?.joinToString("\n") { it.toString() }
+      ?.ifBlank { "Keine Artikel" } ?: "Keine Artikel"
 
     return buildString {
       appendLine("KLARANDO KUECHE")
-      appendLine("Bestellnummer: $orderNumber")
-      appendLine("Uhrzeit: $timeLabel")
-      appendLine("------------------------------")
+      appendLine("")
+      appendLine("Bestellung #$orderNumber")
+      appendLine("$timeLabel Uhr")
+      appendLine("")
+      appendLine(serviceType)
+      appendLine("")
       appendLine(items)
       if (notes.isNotEmpty()) {
-        appendLine("------------------------------")
+        appendLine("")
         appendLine("Hinweise:")
         appendLine(notes)
       }
+      appendLine("")
+      appendLine(separatorLine())
     }.trim()
   }
 
   private fun buildCustomerTicketPreview(arguments: Map<*, *>): String {
     val orderNumber = arguments["orderNumber"]?.toString()?.ifBlank { "-" } ?: "-"
+    val timeLabel = arguments["time"]?.toString()?.ifBlank { "-" } ?: "-"
     val serviceType = arguments["serviceType"]?.toString()?.ifBlank { "-" } ?: "-"
     val customer = arguments["customer"]?.toString()?.ifBlank { "-" } ?: "-"
     val address = arguments["address"]?.toString()?.ifBlank { "-" } ?: "-"
     val payment = arguments["payment"]?.toString()?.ifBlank { "-" } ?: "-"
     val total = arguments["total"]?.toString()?.ifBlank { "-" } ?: "-"
-    val items = (arguments["items"] as? List<*>)?.joinToString("\n") { "- ${it.toString()}" }
-      ?.ifBlank { "- Keine Artikel" } ?: "- Keine Artikel"
+    val notes = arguments["notes"]?.toString()?.trim().orEmpty()
+    val items = (arguments["items"] as? List<*>)?.joinToString("\n") { it.toString() }
+      ?.ifBlank { "Keine Artikel" } ?: "Keine Artikel"
 
     return buildString {
       appendLine("KLARANDO")
-      appendLine("Bestellnummer: $orderNumber")
-      appendLine("Lieferart: $serviceType")
-      appendLine("Kunde: $customer")
-      appendLine("Adresse: $address")
-      appendLine("Zahlung: $payment")
-      appendLine("------------------------------")
+      appendLine("")
+      appendLine("Bestellung #$orderNumber")
+      appendLine("$timeLabel Uhr")
+      appendLine("")
+      appendLine("Kunde:")
+      appendLine(customer)
+      appendLine("")
+      appendLine(if (serviceType == "ABHOLUNG") "Abholung:" else "Lieferadresse:")
+      appendLine(address)
+      appendLine("")
+      appendLine("Artikel:")
       appendLine(items)
-      appendLine("------------------------------")
-      appendLine("Gesamtbetrag: $total")
+      if (notes.isNotEmpty()) {
+        appendLine("")
+        appendLine("Hinweise:")
+        appendLine(notes)
+      }
+      appendLine("")
+      appendLine("Gesamt: $total")
+      appendLine("Zahlung: $payment")
+      appendLine("")
+      appendLine("Vielen Dank")
+      appendLine(separatorLine())
     }.trim()
   }
 
