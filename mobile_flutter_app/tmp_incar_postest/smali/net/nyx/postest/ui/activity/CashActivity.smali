@@ -1,0 +1,438 @@
+.class public Lnet/nyx/postest/ui/activity/CashActivity;
+.super Lnet/nyx/postest/ui/activity/BasePrinterActivity;
+.source "CashActivity.java"
+
+
+# static fields
+.field public static final synthetic E:Le/a/a/a$a;
+
+.field public static synthetic F:Ljava/lang/annotation/Annotation;
+
+
+# instance fields
+.field public D:Landroid/widget/Button;
+
+
+# direct methods
+.method public static constructor <clinit>()V
+    .registers 0
+
+    .line 1
+    invoke-static {}, Lnet/nyx/postest/ui/activity/CashActivity;->Q()V
+
+    return-void
+.end method
+
+.method public constructor <init>()V
+    .registers 1
+
+    .line 1
+    invoke-direct {p0}, Lnet/nyx/postest/ui/activity/BasePrinterActivity;-><init>()V
+
+    return-void
+.end method
+
+.method public static synthetic Q()V
+    .registers 9
+
+    .line 1
+    new-instance v8, Le/a/b/a/b;
+
+    const-class v0, Lnet/nyx/postest/ui/activity/CashActivity;
+
+    const-string v1, "CashActivity.java"
+
+    invoke-direct {v8, v1, v0}, Le/a/b/a/b;-><init>(Ljava/lang/String;Ljava/lang/Class;)V
+
+    const-string v1, "1"
+
+    const-string v2, "onClick"
+
+    const-string v3, "net.nyx.postest.ui.activity.CashActivity"
+
+    const-string v4, "android.view.View"
+
+    const-string v5, "view"
+
+    const-string v6, ""
+
+    const-string v7, "void"
+
+    move-object v0, v8
+
+    invoke-virtual/range {v0 .. v7}, Le/a/b/a/b;->a(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)Le/a/a/e/c;
+
+    move-result-object v0
+
+    const-string v1, "method-execution"
+
+    const/16 v2, 0x22
+
+    invoke-virtual {v8, v1, v0, v2}, Le/a/b/a/b;->a(Ljava/lang/String;Le/a/a/d;I)Le/a/a/a$a;
+
+    move-result-object v0
+
+    sput-object v0, Lnet/nyx/postest/ui/activity/CashActivity;->E:Le/a/a/a$a;
+
+    return-void
+.end method
+
+.method public static final synthetic a(Lnet/nyx/postest/ui/activity/CashActivity;Landroid/view/View;Le/a/a/a;)V
+    .registers 3
+
+    .line 1
+    invoke-virtual {p1}, Landroid/view/View;->getId()I
+
+    move-result p1
+
+    const p2, 0x7f080059
+
+    if-ne p1, p2, :cond_c
+
+    .line 2
+    invoke-virtual {p0}, Lnet/nyx/postest/ui/activity/CashActivity;->P()V
+
+    :cond_c
+    return-void
+.end method
+
+.method public static final synthetic a(Lnet/nyx/postest/ui/activity/CashActivity;Landroid/view/View;Le/a/a/a;Ld/a/b/c/b;Le/a/a/c;Ld/a/b/c/a;)V
+    .registers 14
+
+    .line 3
+    invoke-interface {p4}, Le/a/a/a;->a()Le/a/a/d;
+
+    move-result-object p2
+
+    check-cast p2, Le/a/a/e/a;
+
+    .line 4
+    invoke-interface {p2}, Le/a/a/d;->a()Ljava/lang/Class;
+
+    move-result-object v0
+
+    invoke-virtual {v0}, Ljava/lang/Class;->getName()Ljava/lang/String;
+
+    move-result-object v0
+
+    .line 5
+    invoke-interface {p2}, Le/a/a/d;->b()Ljava/lang/String;
+
+    move-result-object p2
+
+    .line 6
+    new-instance v1, Ljava/lang/StringBuilder;
+
+    new-instance v2, Ljava/lang/StringBuilder;
+
+    invoke-direct {v2}, Ljava/lang/StringBuilder;-><init>()V
+
+    invoke-virtual {v2, v0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    const-string v0, "."
+
+    invoke-virtual {v2, v0}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    invoke-virtual {v2, p2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    invoke-virtual {v2}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+
+    move-result-object p2
+
+    invoke-direct {v1, p2}, Ljava/lang/StringBuilder;-><init>(Ljava/lang/String;)V
+
+    const-string p2, "("
+
+    .line 7
+    invoke-virtual {v1, p2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    .line 8
+    invoke-interface {p4}, Le/a/a/a;->b()[Ljava/lang/Object;
+
+    move-result-object p2
+
+    const/4 v0, 0x0
+
+    const/4 v2, 0x0
+
+    .line 9
+    :goto_36
+    array-length v3, p2
+
+    if-ge v2, v3, :cond_4c
+
+    .line 10
+    aget-object v3, p2, v2
+
+    if-nez v2, :cond_41
+
+    .line 11
+    invoke-virtual {v1, v3}, Ljava/lang/StringBuilder;->append(Ljava/lang/Object;)Ljava/lang/StringBuilder;
+
+    goto :goto_49
+
+    :cond_41
+    const-string v4, ", "
+
+    .line 12
+    invoke-virtual {v1, v4}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    .line 13
+    invoke-virtual {v1, v3}, Ljava/lang/StringBuilder;->append(Ljava/lang/Object;)Ljava/lang/StringBuilder;
+
+    :goto_49
+    add-int/lit8 v2, v2, 0x1
+
+    goto :goto_36
+
+    :cond_4c
+    const-string p2, ")"
+
+    .line 14
+    invoke-virtual {v1, p2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+
+    .line 15
+    invoke-virtual {v1}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+
+    move-result-object p2
+
+    .line 16
+    invoke-static {}, Ljava/lang/System;->currentTimeMillis()J
+
+    move-result-wide v1
+
+    .line 17
+    invoke-static {p3}, Ld/a/b/c/b;->b(Ld/a/b/c/b;)J
+
+    move-result-wide v3
+
+    sub-long v3, v1, v3
+
+    invoke-interface {p5}, Ld/a/b/c/a;->value()J
+
+    move-result-wide v5
+
+    cmp-long v7, v3, v5
+
+    if-gez v7, :cond_8c
+
+    invoke-static {p3}, Ld/a/b/c/b;->a(Ld/a/b/c/b;)Ljava/lang/String;
+
+    move-result-object v3
+
+    invoke-virtual {p2, v3}, Ljava/lang/String;->equals(Ljava/lang/Object;)Z
+
+    move-result v3
+
+    if-eqz v3, :cond_8c
+
+    const-string p0, "SingleClick"
+
+    .line 18
+    invoke-static {p0}, Lf/a/a;->a(Ljava/lang/String;)Lf/a/a$c;
+
+    const/4 p0, 0x2
+
+    new-array p0, p0, [Ljava/lang/Object;
+
+    .line 19
+    invoke-interface {p5}, Ld/a/b/c/a;->value()J
+
+    move-result-wide p3
+
+    invoke-static {p3, p4}, Ljava/lang/Long;->valueOf(J)Ljava/lang/Long;
+
+    move-result-object p1
+
+    aput-object p1, p0, v0
+
+    const/4 p1, 0x1
+
+    aput-object p2, p0, p1
+
+    const-string p1, "%s \u6beb\u79d2\u5185\u53d1\u751f\u5feb\u901f\u70b9\u51fb\uff1a%s"
+
+    invoke-static {p1, p0}, Lf/a/a;->b(Ljava/lang/String;[Ljava/lang/Object;)V
+
+    return-void
+
+    .line 20
+    :cond_8c
+    invoke-static {p3, v1, v2}, Ld/a/b/c/b;->a(Ld/a/b/c/b;J)V
+
+    .line 21
+    invoke-static {p3, p2}, Ld/a/b/c/b;->a(Ld/a/b/c/b;Ljava/lang/String;)V
+
+    .line 22
+    invoke-static {p0, p1, p4}, Lnet/nyx/postest/ui/activity/CashActivity;->a(Lnet/nyx/postest/ui/activity/CashActivity;Landroid/view/View;Le/a/a/a;)V
+
+    return-void
+.end method
+
+
+# virtual methods
+.method public A()V
+    .registers 4
+
+    const v0, 0x7f080059
+
+    .line 1
+    invoke-virtual {p0, v0}, Landroidx/appcompat/app/AppCompatActivity;->findViewById(I)Landroid/view/View;
+
+    move-result-object v1
+
+    check-cast v1, Landroid/widget/Button;
+
+    iput-object v1, p0, Lnet/nyx/postest/ui/activity/CashActivity;->D:Landroid/widget/Button;
+
+    const/4 v1, 0x1
+
+    new-array v1, v1, [I
+
+    const/4 v2, 0x0
+
+    aput v0, v1, v2
+
+    .line 2
+    invoke-interface {p0, v1}, Ld/a/a/g/e;->a([I)V
+
+    return-void
+.end method
+
+.method public M()V
+    .registers 2
+
+    .line 1
+    new-instance v0, Ld/a/b/f/a/b;
+
+    invoke-direct {v0, p0}, Ld/a/b/f/a/b;-><init>(Lnet/nyx/postest/ui/activity/CashActivity;)V
+
+    invoke-virtual {p0, v0}, Landroid/app/Activity;->runOnUiThread(Ljava/lang/Runnable;)V
+
+    return-void
+.end method
+
+.method public synthetic O()V
+    .registers 3
+
+    .line 1
+    iget-object v0, p0, Lnet/nyx/postest/ui/activity/CashActivity;->D:Landroid/widget/Button;
+
+    const/4 v1, 0x1
+
+    invoke-virtual {v0, v1}, Landroid/widget/Button;->setEnabled(Z)V
+
+    return-void
+.end method
+
+.method public final P()V
+    .registers 2
+
+    .line 1
+    iget-object v0, p0, Lnet/nyx/postest/ui/activity/BasePrinterActivity;->B:Ld/a/c/a/a;
+
+    if-eqz v0, :cond_15
+
+    .line 2
+    :try_start_4
+    invoke-interface {v0}, Ld/a/c/a/a;->a()I
+
+    move-result v0
+
+    if-nez v0, :cond_15
+
+    const v0, 0x7f0f0021
+
+    .line 3
+    invoke-interface {p0, v0}, Ld/a/b/b/e;->a(I)V
+    :try_end_10
+    .catch Landroid/os/RemoteException; {:try_start_4 .. :try_end_10} :catch_11
+
+    return-void
+
+    :catch_11
+    move-exception v0
+
+    .line 4
+    invoke-virtual {v0}, Landroid/os/RemoteException;->printStackTrace()V
+
+    :cond_15
+    const v0, 0x7f0f0022
+
+    .line 5
+    invoke-interface {p0, v0}, Ld/a/b/b/e;->a(I)V
+
+    return-void
+.end method
+
+.method public onClick(Landroid/view/View;)V
+    .registers 10
+    .annotation runtime Ld/a/b/c/a;
+    .end annotation
+
+    .line 1
+    sget-object v0, Lnet/nyx/postest/ui/activity/CashActivity;->E:Le/a/a/a$a;
+
+    invoke-static {v0, p0, p0, p1}, Le/a/b/a/b;->a(Le/a/a/a$a;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Le/a/a/a;
+
+    move-result-object v3
+
+    invoke-static {}, Ld/a/b/c/b;->b()Ld/a/b/c/b;
+
+    move-result-object v4
+
+    move-object v5, v3
+
+    check-cast v5, Le/a/a/c;
+
+    sget-object v0, Lnet/nyx/postest/ui/activity/CashActivity;->F:Ljava/lang/annotation/Annotation;
+
+    if-nez v0, :cond_29
+
+    const-class v0, Lnet/nyx/postest/ui/activity/CashActivity;
+
+    const-string v1, "onClick"
+
+    const/4 v2, 0x1
+
+    new-array v2, v2, [Ljava/lang/Class;
+
+    const/4 v6, 0x0
+
+    const-class v7, Landroid/view/View;
+
+    aput-object v7, v2, v6
+
+    invoke-virtual {v0, v1, v2}, Ljava/lang/Class;->getDeclaredMethod(Ljava/lang/String;[Ljava/lang/Class;)Ljava/lang/reflect/Method;
+
+    move-result-object v0
+
+    const-class v1, Ld/a/b/c/a;
+
+    invoke-virtual {v0, v1}, Ljava/lang/reflect/Method;->getAnnotation(Ljava/lang/Class;)Ljava/lang/annotation/Annotation;
+
+    move-result-object v0
+
+    sput-object v0, Lnet/nyx/postest/ui/activity/CashActivity;->F:Ljava/lang/annotation/Annotation;
+
+    :cond_29
+    move-object v6, v0
+
+    check-cast v6, Ld/a/b/c/a;
+
+    move-object v1, p0
+
+    move-object v2, p1
+
+    invoke-static/range {v1 .. v6}, Lnet/nyx/postest/ui/activity/CashActivity;->a(Lnet/nyx/postest/ui/activity/CashActivity;Landroid/view/View;Le/a/a/a;Ld/a/b/c/b;Le/a/a/c;Ld/a/b/c/a;)V
+
+    return-void
+.end method
+
+.method public w()I
+    .registers 2
+
+    const v0, 0x7f0b001c
+
+    return v0
+.end method
