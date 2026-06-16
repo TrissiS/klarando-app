@@ -1155,15 +1155,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   Future<void> _markPaid(PublicOrderSummary order) async {
+    final isPickup = (order.serviceType ?? '').toUpperCase() == 'PICKUP';
+    final completionStatus = isPickup ? 'archived' : 'done';
     _logOrderActionPressed(
       action: 'mark_paid_and_complete',
       orderId: order.id,
-      targetStatus: 'done',
+      targetStatus: completionStatus,
     );
     await _runOrderMutation(
       actionLabel: 'mark_paid_and_complete',
       orderId: order.id,
-      targetStatus: 'done',
+      targetStatus: completionStatus,
       action: () async {
         if (!_ensureOrderActionReady(
           action: 'mark_paid_and_complete',
@@ -1183,14 +1185,13 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           orderId: order.id,
           path:
               '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/status',
-          body: const <String, dynamic>{'status': 'done'},
-          targetStatus: 'done',
+          body: <String, dynamic>{'status': completionStatus},
+          targetStatus: completionStatus,
         );
         await _pollFeed();
         if (!mounted) {
           return;
         }
-        final isPickup = (order.serviceType ?? '').toUpperCase() == 'PICKUP';
         _info = isPickup
             ? 'Bestellung als abgeholt markiert.'
             : 'Lieferung als abgeschlossen markiert.';
@@ -1242,10 +1243,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
     await _setOrderStatus(
       order,
-      'done',
+      isDelivery ? 'done' : 'picked_up',
       isDelivery
           ? 'Lieferung als abgeschlossen markiert.'
           : 'Bestellung als abgeholt markiert.',
+      buttonLabel:
+          isDelivery ? 'Lieferung abgeschlossen' : 'Bestellung abgeholt',
     );
   }
 
@@ -1303,27 +1306,43 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     PublicOrderSummary order,
     String status,
     String successMessage,
+    {String? buttonLabel}
   ) async {
+    final rawStatusBefore = order.status.trim().toLowerCase();
+    final effectiveStatusBefore = _effectiveOrderStatus(order);
+    final sentStatus = _resolveBackendOrderStatus(
+      order: order,
+      requestedStatus: status,
+    );
+    final resolvedButtonLabel = buttonLabel ?? status;
     _logOrderActionPressed(
       action: 'set_status',
       orderId: order.id,
-      targetStatus: status,
+      targetStatus: sentStatus,
     );
     await _runOrderMutation(
       actionLabel: 'set_status',
       orderId: order.id,
-      targetStatus: status,
+      targetStatus: sentStatus,
       action: () async {
         if (!_ensureOrderActionReady(action: 'set_status', orderId: order.id)) {
           return;
         }
-        await _postOrderDeskAction(
-          action: 'set_status:$status',
+        _appendLocalLog(
+          'ORDER_STATUS_DEBUG',
+          'request orderId=${order.id} button=$resolvedButtonLabel sentStatus=$sentStatus rawStatusBefore=$rawStatusBefore effectiveStatusBefore=$effectiveStatusBefore',
+        );
+        final responseBody = await _postOrderDeskAction(
+          action: 'set_status:$sentStatus',
           orderId: order.id,
           path:
               '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/status',
-          body: <String, dynamic>{'status': status},
-          targetStatus: status,
+          body: <String, dynamic>{'status': sentStatus},
+          targetStatus: sentStatus,
+        );
+        _appendLocalLog(
+          'ORDER_STATUS_DEBUG',
+          'response orderId=${order.id} button=$resolvedButtonLabel sentStatus=$sentStatus rawStatusBefore=$rawStatusBefore effectiveStatusBefore=$effectiveStatusBefore responseStatus=${responseBody['status']?.toString() ?? '-'} responseBody=${_formatResponseBodyForLog(responseBody)}',
         );
         await _pollFeed();
         if (!mounted) {
@@ -3434,10 +3453,37 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
 
   String _effectiveOrderStatus(PublicOrderSummary order) {
     final rawStatus = order.status.trim().toLowerCase();
+    final serviceType = (order.serviceType ?? '').trim().toUpperCase();
     if (rawStatus == 'open' && order.acceptedAt != null) {
       return 'accepted';
     }
+    if (rawStatus == 'done' && serviceType == 'PICKUP') {
+      return 'ready_for_pickup';
+    }
+    if (rawStatus == 'archived' &&
+        serviceType == 'PICKUP' &&
+        order.acceptedAt != null) {
+      return 'picked_up';
+    }
     return rawStatus;
+  }
+
+  String _resolveBackendOrderStatus({
+    required PublicOrderSummary order,
+    required String requestedStatus,
+  }) {
+    final normalizedRequested = requestedStatus.trim().toLowerCase();
+    final serviceType = (order.serviceType ?? '').trim().toUpperCase();
+    switch (normalizedRequested) {
+      case 'ready_for_pickup':
+        return 'done';
+      case 'ready_for_delivery':
+        return serviceType == 'DELIVERY' ? 'preparing' : 'done';
+      case 'picked_up':
+        return 'archived';
+      default:
+        return normalizedRequested;
+    }
   }
 
   String _formatReceiptTime(DateTime? value) {
@@ -4633,8 +4679,10 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     String nextStepKey;
     if (statusLower == 'open' || statusLower == 'pending_payment') {
       nextStepKey = 'accept';
-    } else if (statusLower == 'accepted' || statusLower == 'preparing') {
-      nextStepKey = isDelivery ? 'ready_delivery' : 'ready_pickup';
+    } else if (statusLower == 'accepted') {
+      nextStepKey = 'prepare';
+    } else if (statusLower == 'preparing') {
+      nextStepKey = isDelivery ? 'out_for_delivery' : 'ready_pickup';
     } else if (statusLower == 'ready_for_delivery') {
       nextStepKey = 'out_for_delivery';
     } else if (statusLower == 'out_for_delivery') {
@@ -5036,8 +5084,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     label: const Text('Bestellung annehmen'),
                   ),
                 ),
-              if (!isTerminalStatus &&
-                  (nextStepKey == 'ready_delivery' || nextStepKey == 'ready_pickup'))
+              if (!isTerminalStatus && nextStepKey == 'prepare')
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
@@ -5045,24 +5092,36 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                         ? null
                         : () => _setOrderStatus(
                               order,
-                              isDelivery ? 'ready_for_delivery' : 'ready_for_pickup',
-                              isDelivery
-                                  ? 'Bestellung ist bereit für die Lieferung.'
-                                  : 'Bestellung ist bereit zur Abholung.',
+                              'preparing',
+                              'Bestellung ist jetzt in Vorbereitung.',
+                              buttonLabel: 'In Vorbereitung',
                             ),
                     style: FilledButton.styleFrom(
-                      backgroundColor: isDelivery
-                          ? const Color(0xFF2563EB)
-                          : const Color(0xFF2563EB),
+                      backgroundColor: const Color(0xFFD97706),
                       foregroundColor: Colors.white,
                     ),
-                    icon: Icon(
-                      isDelivery ? Icons.delivery_dining : Icons.storefront,
-                      size: 18,
+                    icon: const Icon(Icons.restaurant, size: 18),
+                    label: const Text('In Vorbereitung'),
+                  ),
+                ),
+              if (!isTerminalStatus && nextStepKey == 'ready_pickup')
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _loading
+                        ? null
+                        : () => _setOrderStatus(
+                              order,
+                              'ready_for_pickup',
+                              'Bestellung ist bereit zur Abholung.',
+                              buttonLabel: 'Bereit zur Abholung',
+                            ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
                     ),
-                    label: Text(
-                      isDelivery ? 'Bereit für Lieferung' : 'Bereit zur Abholung',
-                    ),
+                    icon: const Icon(Icons.storefront, size: 18),
+                    label: const Text('Bereit zur Abholung'),
                   ),
                 ),
               if (!isTerminalStatus && nextStepKey == 'out_for_delivery')
@@ -5075,6 +5134,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                               order,
                               'out_for_delivery',
                               'Fahrer ist unterwegs.',
+                              buttonLabel: 'Fahrer unterwegs',
                             ),
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF5B21B6),
@@ -5123,6 +5183,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                               order,
                               'preparing',
                               'Bestellung ist jetzt in Vorbereitung.',
+                              buttonLabel: 'In Vorbereitung',
                             ),
                       icon: const Icon(Icons.restaurant, size: 16),
                       label: const Text('In Vorbereitung'),
@@ -5155,6 +5216,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                               order,
                               'ready_for_pickup',
                               'Bestellung ist bereit zur Abholung.',
+                              buttonLabel: 'Bereit zur Abholung',
                             ),
                       icon: const Icon(Icons.storefront, size: 16),
                       label: const Text('Bereit zur Abholung'),
@@ -5165,18 +5227,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       icon: const Icon(Icons.check_circle_outline, size: 16),
                       label: const Text('Bestellung abgeholt'),
                     ),
-                  if (!isTerminalStatus && isDelivery && nextStepKey != 'ready_delivery')
-                    OutlinedButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _setOrderStatus(
-                              order,
-                              'ready_for_delivery',
-                              'Bestellung ist bereit für die Lieferung.',
-                            ),
-                      icon: const Icon(Icons.delivery_dining, size: 16),
-                      label: const Text('Bereit für Lieferung'),
-                    ),
                   if (!isTerminalStatus && isDelivery && nextStepKey != 'out_for_delivery')
                     OutlinedButton.icon(
                       onPressed: _loading
@@ -5185,6 +5235,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                               order,
                               'out_for_delivery',
                               'Fahrer ist unterwegs.',
+                              buttonLabel: 'Fahrer unterwegs',
                             ),
                       icon: const Icon(Icons.local_shipping, size: 16),
                       label: const Text('Fahrer unterwegs'),
