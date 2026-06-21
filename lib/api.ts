@@ -1609,6 +1609,58 @@ export type Order = {
   items: OrderItem[]
 }
 
+export type OrderStatusHistoryEvent = {
+  id: string
+  timestamp: string
+  fromStatus: string | null
+  toStatus: string
+  changedBy: string | null
+  actorRole: string | null
+  source: 'ORDERDESK' | 'DRIVER_APP' | 'ADMIN' | 'SYSTEM' | 'WEBHOOK'
+  deviceId: string | null
+  deviceName: string | null
+  driverId: string | null
+  driverName: string | null
+  durationInPreviousStatusSeconds: number | null
+  note: string | null
+  reason: string | null
+  isFallback: boolean
+}
+
+export type OrderStatusDurationSummary = {
+  timeToAcceptanceSeconds: number | null
+  timeToKitchenSeconds: number | null
+  timeToReadySeconds: number | null
+  timeToDriverHandoverSeconds: number | null
+  deliveryDurationSeconds: number | null
+  totalDurationSeconds: number | null
+}
+
+export type OrderSignatureDetails = {
+  captured: boolean
+  signerName: string | null
+  capturedAt: string | null
+  imageDataUrl: string | null
+  imageAvailable: boolean
+  imageError: string | null
+  source: 'ORDERDESK' | 'DRIVER_APP' | 'ADMIN' | 'SYSTEM' | 'WEBHOOK' | null
+  deviceId: string | null
+  deviceName: string | null
+  driverId: string | null
+  driverName: string | null
+  location: {
+    latitude: number | null
+    longitude: number | null
+  } | null
+}
+
+export type OrderStatusHistoryResponse = {
+  orderId: string
+  timeline: OrderStatusHistoryEvent[]
+  summary: OrderStatusDurationSummary
+  signature: OrderSignatureDetails
+}
+
 export type OrderManagementResponse = {
   total: number
   byStatus: Record<string, number>
@@ -2669,6 +2721,12 @@ export type SuperadminStripeTenantStatusRow = {
     id: string
     name: string
   } | null
+  tenantBillingPlan: {
+    isActive: boolean
+    commissionPercent: number | string
+    commissionAfterIncludedOrdersPercent: number | string | null
+    fixedFeePerOrderCents: number
+  } | null
   paymentConfig: {
     stripeAccountId: string | null
     stripeOnboarded: boolean
@@ -2684,6 +2742,18 @@ export type SuperadminStripeTenantStatusRow = {
     } | null
     stripeLastStatusSyncAt: string | null
   } | null
+  effectivePlatformFee: {
+    source: 'TENANT_BILLING_PLAN' | 'TENANT_PAYMENT_CONFIG' | 'ENV_DEFAULT'
+    percent: number
+    fixedCents: number
+    exampleOrderAmountCents: number
+    examplePlatformFeeCents: number
+  }
+  envDefaultPlatformFee: {
+    source: 'ENV_DEFAULT'
+    percent: number
+    fixedCents: number
+  }
 }
 
 export async function createStripeConnectedAccount(
@@ -4673,6 +4743,14 @@ export async function getOrderManagementList(params?: {
     `${API_BASE_URL}/api/orders/management?${query.toString()}`,
     {},
     'Bestelluebersicht konnte nicht geladen werden'
+  )
+}
+
+export async function getOrderStatusHistory(orderId: string): Promise<OrderStatusHistoryResponse> {
+  return apiAuthJson<OrderStatusHistoryResponse>(
+    `${API_BASE_URL}/api/orders/${encodeURIComponent(orderId)}/history`,
+    {},
+    'Statusverlauf konnte nicht geladen werden'
   )
 }
 

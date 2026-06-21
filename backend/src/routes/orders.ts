@@ -5423,7 +5423,10 @@ router.post('/driver/signature', async (req, res) => {
         signatureImageDataUrl,
         capturedBy: actor.driverUserId ?? `device:${actor.sessionId}`,
         capturedByName: actor.driverName,
+        driverUserId: actor.driverUserId,
+        driverName: actor.driverName,
         deviceSessionId: actor.isDeviceActor ? actor.sessionId : null,
+        displayCode: actor.isDeviceActor ? actor.displayCode : null,
       },
     })
 

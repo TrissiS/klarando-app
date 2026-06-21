@@ -56,6 +56,7 @@ import {
 } from '../lib/order-status-transitions'
 import { dispatchOrder, validateDispatchReadiness } from '../lib/order-dispatch'
 import { resolveDriverAssignmentIdentity } from '../lib/driver-assignment'
+import { writeOrderStatusAuditEvent } from '../lib/order-status-history'
 
 const router = Router()
 
@@ -2085,6 +2086,20 @@ router.post(
       },
     })
 
+    await writeOrderStatusAuditEvent({
+      req,
+      module: 'order_status',
+      orderId: updated.id,
+      tenantId: display.tenantId,
+      previousStatus: currentWorkflowStatus,
+      nextStatus: normalizeOrderWorkflowStatus(updated.status) ?? updated.status,
+      source: 'ORDERDESK',
+      actorName: 'OrderDesk',
+      deviceId: display.id,
+      deviceName: `${display.displayRole}:${displayCode.toUpperCase()}`,
+      note: 'Status am OrderDesk geaendert',
+    })
+
     return res.json(updated)
   } catch (error) {
     const transitionError = asOrderTransitionError(error)
@@ -2254,6 +2269,22 @@ router.post(
           pickupNumber: shouldAssignPickupNumber ? resolvedPickupNumber : undefined,
         },
       })
+
+      if (nextStatus !== currentWorkflowStatus) {
+        await writeOrderStatusAuditEvent({
+          req,
+          module: 'order_status',
+          orderId: existingOrder.id,
+          tenantId: display.tenantId,
+          previousStatus: currentWorkflowStatus,
+          nextStatus,
+          source: 'ORDERDESK',
+          actorName: 'OrderDesk',
+          deviceId: display.id,
+          deviceName: `${display.displayRole}:${displayCode.toUpperCase()}`,
+          note: 'Status aus Positionsbearbeitung am OrderDesk abgeleitet',
+        })
+      }
     }
 
     const updated = await prisma.order.findUnique({
@@ -2638,6 +2669,20 @@ router.post(
       })
     }
 
+    await writeOrderStatusAuditEvent({
+      req,
+      module: 'order_status',
+      orderId: updated.id,
+      tenantId: updated.tenantId,
+      previousStatus: currentWorkflowStatus,
+      nextStatus: normalizeOrderWorkflowStatus(updated.status) ?? updated.status,
+      source: 'ORDERDESK',
+      actorName: 'OrderDesk',
+      deviceId: display.id,
+      deviceName: `${display.displayRole}:${displayCode.toUpperCase()}`,
+      note: 'Bestellung am OrderDesk angenommen',
+    })
+
     return res.json(updated)
   } catch (error) {
     const transitionError = asOrderTransitionError(error)
@@ -2882,6 +2927,22 @@ router.post(
         estimatedMinutes: nextEstimatedMinutes,
         pickupNumber,
       },
+    })
+
+    await writeOrderStatusAuditEvent({
+      req,
+      module: 'order_status',
+      orderId: updated.id,
+      tenantId: updated.tenantId,
+      previousStatus: currentWorkflowStatus,
+      nextStatus: normalizeOrderWorkflowStatus(updated.status) ?? updated.status,
+      source: 'ORDERDESK',
+      actorName: 'OrderDesk',
+      deviceId: display.id,
+      deviceName: `${display.displayRole}:${displayCode.toUpperCase()}`,
+      driverId: assignmentIdentity.assignedDriverId,
+      driverName: assignmentIdentity.assignedDriverName,
+      note: 'Bestellung am OrderDesk an Fahrer uebergeben',
     })
 
     return res.json(updated)

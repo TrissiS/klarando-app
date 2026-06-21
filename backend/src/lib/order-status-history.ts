@@ -133,6 +133,11 @@ function inferSource(moduleName: string, metadata: Record<string, unknown> | nul
   if (moduleName.startsWith('driver_')) {
     return 'DRIVER_APP'
   }
+  if (moduleName === 'order_signature') {
+    if (normalizeText(metadata?.deviceSessionId) || normalizeText(metadata?.driverUserId)) {
+      return 'DRIVER_APP'
+    }
+  }
   if (moduleName === 'orders') {
     return 'ADMIN'
   }
@@ -433,7 +438,10 @@ function buildSignatureDetails(rows: AuditRow[]): OrderSignatureDetails {
     imageError: imageDataUrl ? null : 'Signaturdaten vorhanden, Bild konnte aber nicht geladen werden.',
     source,
     deviceId: normalizeText(metadata?.deviceSessionId),
-    deviceName: normalizeText(metadata?.displayCode) || normalizeText(metadata?.deviceLabel),
+    deviceName:
+      normalizeText(metadata?.displayCode) ||
+      normalizeText(metadata?.deviceLabel) ||
+      normalizeText(metadata?.capturedBy),
     driverId: normalizeText(metadata?.driverUserId),
     driverName:
       normalizeText(metadata?.capturedByName) ||
