@@ -2629,6 +2629,21 @@ class KlarandoApi {
     return PublicOrderSummary.fromJson(response);
   }
 
+  Future<PublicOrderSummary> completeDriverDelivery({
+    required String baseUrl,
+    required String authToken,
+    required String orderId,
+  }) async {
+    final response = await _request(
+      baseUrl: baseUrl,
+      method: 'POST',
+      path: '/api/orders/driver/complete-delivery',
+      headers: {'Authorization': 'Bearer $authToken'},
+      body: {'orderId': orderId},
+    );
+    return PublicOrderSummary.fromJson(response);
+  }
+
   Future<PublicOrderSummary> updateOrderStatus({
     required String baseUrl,
     required String orderId,

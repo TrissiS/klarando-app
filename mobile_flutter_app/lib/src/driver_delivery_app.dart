@@ -363,6 +363,10 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     if (storedBaseUrl != null && storedBaseUrl.trim().isNotEmpty) {
       _baseUrlController.text = storedBaseUrl;
     }
+    final storedDriverName = prefs.getString(_prefsDriverUserName);
+    if (storedDriverName != null && storedDriverName.trim().isNotEmpty) {
+      _pairingDriverNameController.text = storedDriverName.trim();
+    }
 
     if (storedToken != null &&
         storedToken.trim().isNotEmpty &&
@@ -697,6 +701,14 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     final driverEmail = _emailController.text.trim();
     final driverPassword = _passwordController.text;
     final driverName = _pairingDriverNameController.text.trim();
+    if (driverName.isEmpty &&
+        (driverEmail.isEmpty || driverPassword.isEmpty)) {
+      setState(() {
+        _message = 'Bitte Fahrernamen eingeben, bevor das Gerät gekoppelt wird.';
+        _screenState = 'PAIRING_DRIVER_NAME_MISSING';
+      });
+      return;
+    }
 
     try {
       setState(() {
@@ -817,10 +829,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     setState(() {
       _pairingTokenController.text = parsedPairing.rawPayload;
       _baseUrlController.text = parsedPairing.apiBaseUrl;
-      _message = 'QR-Code erkannt. Verbindung wird gestartet ...';
+      _message = 'QR-Code erkannt. Bitte Fahrernamen prüfen und auf "Gerät koppeln" tippen.';
       _screenState = 'PAIRING_DETECTED';
     });
-    await _loginWithPairing();
   }
 
   String _mapPairingErrorMessage(String message) {
@@ -1518,8 +1529,27 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       await _refreshOrders(forceMessage: false);
     }
 
-    final updated = await _setSelectedOrderStatus('done');
-    if (!updated || !mounted) {
+    try {
+      await _api.completeDriverDelivery(
+        baseUrl: _normalizedBaseUrl(_baseUrlController.text),
+        authToken: token,
+        orderId: order.id,
+      );
+      _appendDriverLog(
+        'ORDER',
+        'DRIVER_DELIVERY_COMPLETE { orderId: ${order.id}, oldStatus: ${order.status}, newStatus: done, driverName: ${_driverUser?.name ?? '-'}, signaturePresent: JA }',
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _message = error.message;
+      });
+      _appendDriverLog('ORDER', 'Abschluss fehlgeschlagen: ${error.message}');
+      return;
+    }
+
+    await _refreshOrders(forceMessage: false);
+    if (!mounted) {
       return;
     }
 
@@ -1686,6 +1716,35 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                   label: const Text('QR-Code scannen zum Verbinden'),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _pairingDriverNameController,
+                  enabled: !_isBusy,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) {
+                    if (!_isBusy && _pairingTokenController.text.trim().isNotEmpty) {
+                      unawaited(_loginWithPairing());
+                    }
+                  },
+                  decoration: const InputDecoration(
+                    labelText: 'Fahrername',
+                    hintText: 'z. B. Max',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.badge_outlined),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: (_isBusy || _pairingTokenController.text.trim().isEmpty)
+                      ? null
+                      : _loginWithPairing,
+                  icon: const Icon(Icons.link),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(42),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                  label: const Text('Gerät koppeln'),
                 ),
                 const SizedBox(height: 8),
                 const SizedBox(height: 4),

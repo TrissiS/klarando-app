@@ -56,6 +56,10 @@ import {
   startDriverRoute,
   validateDispatchReadiness,
 } from '../lib/order-dispatch'
+import {
+  buildOrderStatusHistory,
+  writeOrderStatusAuditEvent,
+} from '../lib/order-status-history'
 import { excludeOperationallyHiddenStripeOrders } from '../lib/order-operational-visibility'
 import {
   buildDriverAssignmentLookup,
@@ -2307,6 +2311,73 @@ router.get('/management', requirePermission(PermissionKey.ORDERS_READ), async (r
       stack: prismaDetails.stack,
     })
     return res.status(500).json({ error: 'Bestelluebersicht konnte nicht geladen werden' })
+  }
+})
+
+router.get('/:orderId/history', requirePermission(PermissionKey.ORDERS_READ), async (req, res) => {
+  try {
+    const orderId = normalizeText(
+      Array.isArray(req.params.orderId) ? req.params.orderId[0] : req.params.orderId
+    )
+    if (!orderId) {
+      return res.status(400).json({ error: 'orderId fehlt' })
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        tenantId: true,
+        status: true,
+        createdAt: true,
+        acceptedAt: true,
+        estimatedReadyAt: true,
+        driverAssignedAt: true,
+        driverDepartedAt: true,
+        forwardedToKitchenAt: true,
+        paidAt: true,
+      },
+    })
+
+    if (!order) {
+      return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+    }
+
+    await resolveTenantScope(req, order.tenantId)
+
+    const auditRows = await prisma.auditLog.findMany({
+      where: {
+        targetType: 'order',
+        targetId: order.id,
+      },
+      select: {
+        id: true,
+        module: true,
+        action: true,
+        actorEmail: true,
+        actorRole: true,
+        metadata: true,
+        createdAt: true,
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+    })
+
+    return res.json({
+      orderId: order.id,
+      ...buildOrderStatusHistory({
+        order,
+        auditRows,
+      }),
+    })
+  } catch (error) {
+    const scopeError = asTenantScopeError(error)
+    if (scopeError) {
+      return res.status(scopeError.status).json({ error: scopeError.message })
+    }
+    console.error('GET ORDER HISTORY ERROR:', error)
+    return res.status(500).json({ error: 'Statusverlauf konnte nicht geladen werden' })
   }
 })
 
@@ -4780,6 +4851,23 @@ router.post('/driver/route-start', async (req, res) => {
       },
     })
 
+    await writeOrderStatusAuditEvent({
+      req,
+      module: 'order_status',
+      orderId: order.id,
+      tenantId: order.tenantId,
+      chainId: order.tenant?.chainId ?? null,
+      previousStatus: currentOrderStatus,
+      nextStatus: normalizeOrderWorkflowStatus(updated.status) ?? updated.status,
+      source: 'DRIVER_APP',
+      actorName: actor.driverName,
+      deviceId: actor.isDeviceActor ? actor.sessionId : null,
+      deviceName: actor.isDeviceActor ? actor.displayCode : null,
+      driverId: actor.driverUserId,
+      driverName: actor.driverName,
+      note: 'Fahrer-Route gestartet',
+    })
+
     return res.json(updated)
   } catch (error) {
     const transitionError = asOrderTransitionError(error)
@@ -4788,6 +4876,241 @@ router.post('/driver/route-start', async (req, res) => {
     }
     console.error('POST DRIVER ROUTE START ERROR:', error)
     return res.status(500).json({ error: 'Route-Start konnte nicht gespeichert werden' })
+  }
+})
+
+router.post('/driver/complete-delivery', async (req, res) => {
+  try {
+    const actor = await resolveDriverActor(req)
+    if (!actor) {
+      return res.status(401).json({ error: 'Fahrersitzung fehlt oder ist ungueltig' })
+    }
+
+    const payload = req.body as {
+      orderId?: string | null
+    }
+    const orderId = normalizeText(payload.orderId)
+    if (!orderId) {
+      return res.status(400).json({ error: 'orderId fehlt' })
+    }
+
+    const order = await prisma.order.findUnique({
+      where: { id: orderId },
+      select: {
+        id: true,
+        tenantId: true,
+        status: true,
+        serviceType: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paidAt: true,
+        acceptedAt: true,
+        assignedDriverId: true,
+        assignedDriverName: true,
+        tenant: {
+          select: {
+            chainId: true,
+          },
+        },
+      },
+    })
+
+    if (!order) {
+      return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+    }
+    if (order.tenantId !== actor.tenantId) {
+      return res.status(403).json({ error: 'Keine Berechtigung fuer diese Filiale' })
+    }
+    if (!isOrderAssignedToDriverActor(order, actor)) {
+      return res.status(403).json({ error: 'Bestellung ist nicht diesem Fahrer/Geraet zugewiesen' })
+    }
+
+    const currentWorkflowStatus = normalizeOrderWorkflowStatus(order.status)
+    if (!currentWorkflowStatus) {
+      return res
+        .status(409)
+        .json({ error: `Ungueltiger bestehender Bestellstatus: ${String(order.status)}` })
+    }
+
+    const issueStateByOrderId = await loadOrderIssueStateByOrderId([order.id])
+    const signatureState = issueStateByOrderId.get(order.id)
+    const signaturePresent = signatureState?.signatureCaptured ?? false
+
+    if (order.serviceType === 'DELIVERY') {
+      if (currentWorkflowStatus !== 'out_for_delivery' && currentWorkflowStatus !== 'done') {
+        return res.status(409).json({
+          error: 'Lieferung kann erst abgeschlossen werden, wenn der Fahrer unterwegs ist',
+        })
+      }
+      if (!signaturePresent) {
+        return res.status(409).json({
+          error: 'Lieferung kann erst nach erfasster Unterschrift abgeschlossen werden',
+        })
+      }
+    }
+
+    const paymentMethod = (order.paymentMethod ?? '').trim().toUpperCase()
+    const paymentStatus = (order.paymentStatus ?? '').trim().toUpperCase()
+    if (paymentMethod === 'CASH' && paymentStatus !== 'PAID') {
+      return res.status(409).json({
+        error: 'Barzahlung muss vor dem Abschluss als bezahlt markiert werden',
+      })
+    }
+
+    if (currentWorkflowStatus === 'done' || currentWorkflowStatus === 'archived') {
+      const existing = await prisma.order.findUnique({
+        where: { id: order.id },
+        include: {
+          terminal: {
+            select: {
+              id: true,
+              name: true,
+              terminalCode: true,
+              location: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                include: {
+                  category: true,
+                },
+              },
+            },
+          },
+        },
+      })
+      if (!existing) {
+        return res.status(404).json({ error: 'Bestellung nicht gefunden' })
+      }
+      return res.json(existing)
+    }
+
+    const completedAtIso = new Date().toISOString()
+    console.info('DRIVER_DELIVERY_COMPLETE_REQUEST', {
+      driverDeviceId: actor.isDeviceActor ? actor.sessionId : null,
+      driverName: actor.driverName,
+      orderId: order.id,
+      oldStatus: currentWorkflowStatus,
+      newStatus: 'done',
+      deliveryCompletedAt: completedAtIso,
+      signaturePresent,
+    })
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.orderItem.updateMany({
+        where: {
+          orderId: order.id,
+        },
+        data: {
+          productionStatus: 'DONE',
+          productionDoneAt: new Date(),
+        },
+      })
+
+      await tx.order.update({
+        where: { id: order.id },
+        data: buildOrderStatusUpdate({
+          currentStatus: currentWorkflowStatus,
+          nextStatus: 'done',
+          now: new Date(),
+          currentAcceptedAt: order.acceptedAt,
+        }),
+      })
+
+      const hydrated = await tx.order.findUnique({
+        where: { id: order.id },
+        include: {
+          terminal: {
+            select: {
+              id: true,
+              name: true,
+              terminalCode: true,
+              location: true,
+            },
+          },
+          items: {
+            include: {
+              product: {
+                include: {
+                  category: true,
+                },
+              },
+            },
+          },
+        },
+      })
+
+      if (!hydrated) {
+        throw new Error('Bestellung nicht gefunden')
+      }
+
+      return hydrated
+    })
+
+    await writeAuditLog({
+      req,
+      module: 'driver_delivery',
+      action: 'completed',
+      targetType: 'order',
+      targetId: order.id,
+      chainId: order.tenant?.chainId ?? null,
+      tenantId: order.tenantId,
+      metadata: {
+        driverDeviceId: actor.isDeviceActor ? actor.sessionId : null,
+        driverUserId: actor.driverUserId,
+        driverName: actor.driverName,
+        orderId: order.id,
+        oldStatus: currentWorkflowStatus,
+        newStatus: 'done',
+        deliveryCompletedAt: completedAtIso,
+        signaturePresent,
+      },
+    })
+
+    await writeOrderStatusAuditEvent({
+      req,
+      module: 'order_status',
+      orderId: order.id,
+      tenantId: order.tenantId,
+      chainId: order.tenant?.chainId ?? null,
+      previousStatus: currentWorkflowStatus,
+      nextStatus: normalizeOrderWorkflowStatus(updated.status) ?? updated.status,
+      source: 'DRIVER_APP',
+      actorName: actor.driverName,
+      deviceId: actor.isDeviceActor ? actor.sessionId : null,
+      deviceName: actor.isDeviceActor ? actor.displayCode : null,
+      driverId: actor.driverUserId,
+      driverName: actor.driverName,
+      note: signaturePresent
+        ? 'Lieferung abgeschlossen, Kundensignatur vorhanden'
+        : 'Lieferung abgeschlossen',
+    })
+
+    console.info('DRIVER_DELIVERY_COMPLETE_SUCCESS', {
+      driverDeviceId: actor.isDeviceActor ? actor.sessionId : null,
+      driverName: actor.driverName,
+      orderId: order.id,
+      oldStatus: currentWorkflowStatus,
+      newStatus: updated.status,
+      deliveryCompletedAt: completedAtIso,
+      signaturePresent,
+    })
+
+    return res.json(updated)
+  } catch (error) {
+    const transitionError = asOrderTransitionError(error)
+    if (transitionError) {
+      return res.status(transitionError.statusCode).json({ error: transitionError.message })
+    }
+    console.error('DRIVER_DELIVERY_COMPLETE_FAILED', {
+      message: toErrorMessage(error),
+      orderId:
+        req.body && typeof req.body === 'object' && 'orderId' in req.body
+          ? (req.body as { orderId?: unknown }).orderId
+          : null,
+    })
+    return res.status(500).json({ error: 'Lieferung konnte nicht abgeschlossen werden' })
   }
 })
 
@@ -5441,6 +5764,21 @@ router.post('/:orderId/dispatch', requirePermission(PermissionKey.ORDERS_WRITE),
       },
     })
 
+    await writeOrderStatusAuditEvent({
+      req,
+      module: 'order_status',
+      orderId: updated.id,
+      tenantId: currentOrder.tenantId,
+      chainId: currentOrder.tenant?.chainId ?? null,
+      previousStatus: currentOrderStatus,
+      nextStatus: normalizeOrderWorkflowStatus(updated.status) ?? updated.status,
+      source: 'ADMIN',
+      actorName: req.authUser.name ?? req.authUser.email ?? null,
+      driverId: assignmentIdentity.assignedDriverId,
+      driverName: assignmentIdentity.assignedDriverName,
+      note: 'Bestellung an Fahrer uebergeben',
+    })
+
     if (resolvedDriverUser && driverDeviceStatus && !driverDeviceStatus.isOnline) {
       await writeAuditLog({
         req,
@@ -5603,6 +5941,21 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
       }
 
       return hydrated
+    })
+
+    await writeOrderStatusAuditEvent({
+      req,
+      module: 'order_status',
+      orderId: order.id,
+      tenantId: currentOrder.tenantId,
+      chainId: currentOrder.tenant?.chainId ?? null,
+      previousStatus: currentWorkflowStatus,
+      nextStatus: normalizeOrderWorkflowStatus(order.status) ?? order.status,
+      source: 'ADMIN',
+      actorName: req.authUser.name ?? req.authUser.email ?? null,
+      driverId: currentOrder.assignedDriverId,
+      driverName: currentOrder.assignedDriverName,
+      note: 'Status in der Admin-Bestellansicht geaendert',
     })
 
     return res.json(order)
