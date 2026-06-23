@@ -875,7 +875,12 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
       terminalDeviceId,
       idempotencyKey,
     } = req.body as {
-      items?: Array<{ productId: string; quantity: number; modifierIds?: string[] | string | null }>
+      items?: Array<{
+        productId: string
+        productName?: string
+        quantity: number
+        modifierIds?: string[] | string | null
+      }>
       paymentMethod?: string | null
       markPaid?: boolean
       forwardToKitchen?: boolean
@@ -1038,10 +1043,11 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
     }
 
     const productIds = items.map((item) => item.productId)
+    const uniqueProductIds = Array.from(new Set(productIds))
     const products = await prisma.product.findMany({
       where: {
         tenantId: terminal.tenantId,
-        id: { in: productIds },
+        id: { in: uniqueProductIds },
       },
       include: {
         modifiers: {
@@ -1060,17 +1066,107 @@ router.post('/public/:terminalCode/orders', rateLimitPublicOrderCreate, async (r
         },
       },
     })
+    const productIdModifierMatches =
+      uniqueProductIds.length > 0
+        ? await prisma.productModifier.findMany({
+            where: {
+              tenantId: terminal.tenantId,
+              id: {
+                in: uniqueProductIds,
+              },
+            },
+            select: {
+              id: true,
+              productId: true,
+              name: true,
+            },
+          })
+        : []
+    const foundProductIds = products.map((entry) => entry.id)
+    const missingProductIds = uniqueProductIds.filter((id) => !foundProductIds.includes(id))
 
-    if (products.length !== productIds.length) {
-      return res.status(400).json({ error: 'Ein oder mehrere Produkte wurden nicht gefunden' })
+    console.log('CHECKOUT_PRODUCT_DEBUG_TERMINAL', {
+      tenantId: terminal.tenantId,
+      terminalId: terminal.id,
+      branchId: normalizedBranchId ?? null,
+      receivedProductIds: productIds,
+      uniqueProductIds,
+      foundProductIds,
+      missingProductIds,
+      requestProducts: items.map((item) => ({
+        productId: item.productId,
+        productName: normalizeText(item.productName),
+        quantity: item.quantity,
+        modifierIds: normalizeIdList(item.modifierIds),
+      })),
+      productIdsThatMatchModifierIds: productIdModifierMatches.map((entry) => ({
+        modifierId: entry.id,
+        modifierName: decodeStoredProductModifierName(entry.name).displayName,
+        parentProductId: entry.productId,
+      })),
+    })
+
+    if (products.length !== uniqueProductIds.length) {
+      const uniqueMissingProductIds = Array.from(new Set(missingProductIds))
+      const productsWithoutTenantFilter =
+        uniqueMissingProductIds.length > 0
+          ? await prisma.product.findMany({
+              where: {
+                id: {
+                  in: uniqueMissingProductIds,
+                },
+              },
+              select: {
+                id: true,
+                tenantId: true,
+                name: true,
+                available: true,
+              },
+            })
+          : []
+
+      const invalidProducts = uniqueMissingProductIds.map((missingId) => {
+        const anyTenantProduct = productsWithoutTenantFilter.find((entry) => entry.id === missingId)
+        const existsInAnotherTenant = Boolean(
+          anyTenantProduct?.tenantId && anyTenantProduct.tenantId !== terminal.tenantId
+        )
+
+        return {
+          productId: missingId,
+          productName: anyTenantProduct?.name ?? normalizeText(items.find((item) => item.productId === missingId)?.productName) ?? null,
+          reason: existsInAnotherTenant ? 'WRONG_TENANT' : 'NOT_FOUND',
+          message: existsInAnotherTenant
+            ? `Produkt ${anyTenantProduct?.name ?? missingId} gehoert nicht zu dieser Filiale.`
+            : `Produkt ${anyTenantProduct?.name ?? normalizeText(items.find((item) => item.productId === missingId)?.productName) ?? missingId} wurde nicht gefunden.`,
+          available: anyTenantProduct?.available ?? null,
+          productTenantId: anyTenantProduct?.tenantId ?? null,
+        }
+      })
+
+      return res.status(400).json({
+        error: 'Ein oder mehrere Produkte wurden nicht gefunden',
+        code: 'PRODUCT_NOT_FOUND',
+        missingProductIds: uniqueMissingProductIds,
+        invalidProducts,
+      })
     }
 
     const unavailable = products.filter((product) => !product.available)
     if (unavailable.length > 0) {
       return res.status(400).json({
-        error: `Nicht verfuegbare Produkte in Bestellung: ${unavailable
+        error: `Ein oder mehrere Produkte sind nicht mehr verfuegbar: ${unavailable
           .map((product) => product.name)
           .join(', ')}`,
+        code: 'PRODUCT_UNAVAILABLE',
+        unavailableProductIds: unavailable.map((product) => product.id),
+        invalidProducts: unavailable.map((product) => ({
+          productId: product.id,
+          productName: product.name,
+          reason: 'UNAVAILABLE',
+          message: `Produkt ${product.name} ist nicht mehr verfuegbar.`,
+          available: false,
+          productTenantId: product.tenantId,
+        })),
       })
     }
 
