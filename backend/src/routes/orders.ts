@@ -3003,6 +3003,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       items?: Array<{
         productId: string
         quantity: number
+        productName?: string
         modifierIds?: string[]
       }>
       sourceChannel?: string
@@ -3269,6 +3270,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
 
     const productIds = items.map((item) => item.productId)
     const uniqueProductIds = Array.from(new Set(productIds))
+    const requestProductNames = items.map((item) => normalizeText(item.productName) ?? null)
     const invalidQuantityItem = items.find(
       (item) => !Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 200
     )
@@ -3282,6 +3284,45 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         id: { in: uniqueProductIds },
       },
     })
+    const productIdModifierMatches =
+      uniqueProductIds.length > 0
+        ? await prisma.productModifier.findMany({
+            where: {
+              tenantId: resolvedTenantId,
+              id: {
+                in: uniqueProductIds,
+              },
+            },
+            select: {
+              id: true,
+              productId: true,
+              name: true,
+            },
+          })
+        : []
+    const foundProductIds = products.map((entry) => entry.id)
+    const missingProductIds = uniqueProductIds.filter((id) => !foundProductIds.includes(id))
+
+    console.log('CHECKOUT_PRODUCT_DEBUG', {
+      tenantId: resolvedTenantId,
+      branchId: normalizedBranchId ?? null,
+      receivedProductIds: productIds,
+      uniqueProductIds,
+      foundProductIds,
+      missingProductIds,
+      requestProducts: items.map((item) => ({
+        productId: item.productId,
+        productName: normalizeText(item.productName),
+        quantity: item.quantity,
+        modifierIds: Array.isArray(item.modifierIds) ? item.modifierIds : [],
+      })),
+      requestProductNames,
+      productIdsThatMatchModifierIds: productIdModifierMatches.map((entry) => ({
+        modifierId: entry.id,
+        modifierName: decodeStoredProductModifierName(entry.name).displayName,
+        parentProductId: entry.productId,
+      })),
+    })
     const offeredPrices = await resolveProductOffers(
       resolvedTenantId,
       products.map((entry) => ({
@@ -3291,8 +3332,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     )
 
     if (products.length !== uniqueProductIds.length) {
-      const foundIds = new Set(products.map((entry) => entry.id))
-      const missingProductIds = uniqueProductIds.filter((id) => !foundIds.has(id))
+      const foundIds = new Set(foundProductIds)
       const uniqueMissingProductIds = Array.from(new Set(missingProductIds))
 
       const productsWithoutTenantFilter =

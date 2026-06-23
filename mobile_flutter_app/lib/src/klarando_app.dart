@@ -3108,6 +3108,7 @@ class _HomeShellState extends State<HomeShell> {
           (line) => CreateOrderItem(
             productId: line.product.id,
             quantity: line.quantity,
+            productName: line.product.name,
             modifierIds: line.selectedModifierIds,
           ),
         )
@@ -3115,6 +3116,15 @@ class _HomeShellState extends State<HomeShell> {
 
     if (orderItems.isEmpty) {
       throw const ApiException('Warenkorb ist leer.');
+    }
+
+    final catalogProductIds = (_selectedCatalog?.products ?? const <TenantCatalogProduct>[])
+        .map((product) => product.id)
+        .toSet();
+    for (final item in orderItems) {
+      debugPrint(
+        'CHECKOUT_PRODUCT_DEBUG {productName: ${item.productName ?? 'null'}, productId: ${item.productId}, tenantId: ${tenant.tenantId}, restaurantId: ${tenant.tenantId}, quantity: ${item.quantity}, modifierIds: ${item.modifierIds.join(',')}, productIdExistsInSelectedCatalog: ${catalogProductIds.contains(item.productId)}}',
+      );
     }
 
     final subtotal = _subtotalForLines(lines);
