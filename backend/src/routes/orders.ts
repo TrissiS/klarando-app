@@ -5398,7 +5398,12 @@ router.get('/driver/assigned', async (req, res) => {
         },
         serviceType: 'DELIVERY',
         status: 'done',
-        updatedAt: {
+        // Fallback: Im aktuellen Prisma-Order-Model dieses Repos gibt es
+        // kein persistiertes Abschlussfeld wie completedAt/deliveryCompletedAt.
+        // Deshalb grenzen wir "heute abgeschlossen" hier über createdAt ein;
+        // die eigentliche completedAt-Anzeige kommt weiter unten aus dem
+        // Tracking-Read-Model.
+        createdAt: {
           gte: startOfToday,
         },
       },
@@ -5419,7 +5424,7 @@ router.get('/driver/assigned', async (req, res) => {
           },
         },
       },
-      orderBy: [{ updatedAt: 'desc' }],
+      orderBy: [{ createdAt: 'desc' }],
     })
 
     const allFeedOrders = [...orders, ...completedToday]
