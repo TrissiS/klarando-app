@@ -166,6 +166,16 @@ String _formatDateTime(DateTime value) {
   return '$day.$month.$year $hour:$minute:$second';
 }
 
+String _formatTimeOnly(DateTime? value) {
+  if (value == null) {
+    return '-';
+  }
+  final local = value.toLocal();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$hour:$minute';
+}
+
 String _formatDurationSince(DateTime start, DateTime now) {
   final difference = now.difference(start);
   final safeSeconds = difference.inSeconds < 0 ? 0 : difference.inSeconds;
@@ -173,6 +183,32 @@ String _formatDurationSince(DateTime start, DateTime now) {
   final minutes = (safeSeconds % 3600) ~/ 60;
   final seconds = safeSeconds % 60;
   return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+}
+
+String _paymentMethodLabel(String? value) {
+  switch ((value ?? '').trim().toUpperCase()) {
+    case 'CASH':
+      return 'Bar';
+    case 'CARD':
+      return 'Karte';
+    case 'ONLINE':
+      return 'Online';
+    default:
+      return (value ?? '-').trim().isEmpty ? '-' : value!.trim();
+  }
+}
+
+String _paymentStatusLabel(String value) {
+  switch (value.trim().toUpperCase()) {
+    case 'PAID':
+      return 'Bezahlt';
+    case 'OPEN':
+      return 'Offen';
+    case 'PENDING':
+      return 'Ausstehend';
+    default:
+      return value.trim().isEmpty ? '-' : value.trim();
+  }
 }
 
 class _BrowserPosition {
@@ -239,7 +275,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   String? _authToken;
   AccessUser? _driverUser;
   List<PublicOrderSummary> _orders = const [];
+  List<PublicOrderSummary> _completedTodayOrders = const [];
   String? _selectedOrderId;
+  final Map<String, String> _orderFollowUpNotes = <String, String>{};
 
   bool _locationSharingActive = false;
   bool _locationTrackingEnabled = true;
@@ -303,6 +341,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       _authToken = null;
       _driverUser = null;
       _orders = const [];
+      _completedTodayOrders = const [];
       _selectedOrderId = null;
       _deviceSessionMode = false;
       _deviceDisplayCode = null;
@@ -856,6 +895,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       _authToken = null;
       _driverUser = null;
       _orders = const [];
+      _completedTodayOrders = const [];
       _selectedOrderId = null;
       _locationSharingActive = false;
       _locationInfo = 'Standortfreigabe inaktiv';
@@ -889,6 +929,13 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               Text('Device-Mode: ${_deviceSessionMode ? 'ja' : 'nein'}'),
               Text('Display-Code: ${_deviceDisplayCode ?? '-'}'),
               Text('Tenant-ID: ${_driverUser?.tenantId ?? '-'}'),
+              const SizedBox(height: 10),
+              Text(
+                _locationTrackingEnabled
+                    ? 'Tracking: aktiv | Intervall: $_locationIntervalSeconds s${_customerLiveTrackingEnabled ? ' | Kunden-Live-Tracking aktiv' : ''}'
+                    : 'Tracking: zentral deaktiviert',
+                style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+              ),
             ],
           ),
           actions: [
@@ -972,23 +1019,53 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       if (!mounted) return;
 
       var shouldSyncTracking = false;
+      final activeDeliveries = feed.orders
+          .where((entry) => (entry.serviceType ?? '').toUpperCase() == 'DELIVERY')
+          .toList(growable: false);
+      final completedToday = feed.completedToday
+          .where((entry) => (entry.serviceType ?? '').toUpperCase() == 'DELIVERY')
+          .toList(growable: false);
       setState(() {
-        _orders = feed.orders;
+        _orders = activeDeliveries;
+        _completedTodayOrders = completedToday;
         _locationTrackingEnabled = feed.locationTrackingEnabled;
         _customerLiveTrackingEnabled = feed.customerLiveTrackingEnabled;
         _locationIntervalSeconds = feed.locationUpdateSeconds;
-        if (_selectedOrderId == null || !_orders.any((entry) => entry.id == _selectedOrderId)) {
-          _selectedOrderId = _orders.isNotEmpty ? _orders.first.id : null;
+        if ((feed.driverName ?? '').trim().isNotEmpty && _driverUser != null) {
+          _pairingDriverNameController.text = feed.driverName!.trim();
+          _driverUser = AccessUser(
+            id: _driverUser!.id,
+            email: _driverUser!.email,
+            name: feed.driverName!.trim(),
+            role: _driverUser!.role,
+            chainId: _driverUser!.chainId,
+            tenantId: _driverUser!.tenantId,
+          );
+        }
+        final selectedStillPresent =
+            _selectedOrderId != null &&
+            [..._orders, ..._completedTodayOrders].any((entry) => entry.id == _selectedOrderId);
+        if (!selectedStillPresent) {
+          _selectedOrderId = _orders.isNotEmpty
+              ? _orders.first.id
+              : _completedTodayOrders.isNotEmpty
+                  ? _completedTodayOrders.first.id
+                  : null;
         }
         shouldSyncTracking = true;
         _screenState = 'DASHBOARD';
         _lastSuccessfulOrdersLoadAt = DateTime.now();
 
         if (forceMessage) {
-          _message = '${feed.orders.length} Fahreraufträge geladen.';
+          _message = activeDeliveries.isEmpty
+              ? 'Keine aktiven Lieferungen.'
+              : '${activeDeliveries.length} aktive Lieferungen geladen.';
         }
       });
-      _appendDriverLog('API', 'Orders geladen: ${feed.orders.length}');
+      _appendDriverLog(
+        'API',
+        'Orders geladen: aktiv=${activeDeliveries.length}, abgeschlossen=${completedToday.length}',
+      );
       if (shouldSyncTracking) {
         await _syncLocationSharingState();
       }
@@ -1020,12 +1097,17 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   PublicOrderSummary? get _selectedOrder {
     final selectedId = _selectedOrderId;
     if (selectedId == null) return null;
-    for (final entry in _orders) {
+    for (final entry in [..._orders, ..._completedTodayOrders]) {
       if (entry.id == selectedId) {
         return entry;
       }
     }
     return null;
+  }
+
+  bool get _selectedOrderCompleted {
+    final order = _selectedOrder;
+    return order != null && order.status == 'done';
   }
 
   PublicOrderSummary? get _firstTrackableDeliveryOrder {
@@ -1042,6 +1124,25 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     if (order == null) return false;
     if (!_locationTrackingEnabled) return false;
     return (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
+  }
+
+  String get _driverDisplayName {
+    final sessionName = _driverUser?.name.trim();
+    if (sessionName != null && sessionName.isNotEmpty) {
+      return sessionName;
+    }
+    final pairingName = _pairingDriverNameController.text.trim();
+    if (pairingName.isNotEmpty) {
+      return pairingName;
+    }
+    return 'Fahrer';
+  }
+
+  bool get _connectionHealthy {
+    if (_authToken == null || _sessionInvalid) {
+      return false;
+    }
+    return _screenState != 'API_ERROR' && _screenState != 'SESSION_INVALID';
   }
 
   Future<_BrowserPosition> _resolveCurrentPosition() async {
@@ -1249,6 +1350,76 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _callCustomer(String phoneNumber) async {
+    final sanitized = phoneNumber.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (sanitized.isEmpty) {
+      setState(() {
+        _message = 'Telefonnummer konnte nicht verwendet werden.';
+      });
+      return;
+    }
+    final uri = Uri(scheme: 'tel', path: sanitized);
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      setState(() {
+        _message = 'Anruf konnte nicht gestartet werden.';
+      });
+    }
+  }
+
+  Future<void> _reportOrderProblem(PublicOrderSummary order) async {
+    final controller = TextEditingController(
+      text: _orderFollowUpNotes[order.id] ?? '',
+    );
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Korrektur nötig'),
+        content: SizedBox(
+          width: 460,
+          child: TextField(
+            controller: controller,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Notiz',
+              hintText: 'Kurz notieren, was geprüft werden soll.',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Abbrechen'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Speichern'),
+          ),
+        ],
+      ),
+    );
+
+    if (saved == true && mounted) {
+      final trimmed = controller.text.trim();
+      setState(() {
+        if (trimmed.isEmpty) {
+          _orderFollowUpNotes.remove(order.id);
+        } else {
+          _orderFollowUpNotes[order.id] = trimmed;
+        }
+        _message = trimmed.isEmpty
+            ? 'Hinweis entfernt.'
+            : 'Korrekturhinweis gespeichert. Bitte intern prüfen.';
+      });
+      _appendDriverLog(
+        'FOLLOW_UP',
+        'order=${order.id} note=${trimmed.isEmpty ? '-' : trimmed}',
+      );
+    }
+    controller.dispose();
   }
 
   Future<bool> _setSelectedOrderStatus(String status) async {
@@ -1529,8 +1700,9 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       await _refreshOrders(forceMessage: false);
     }
 
+    late final PublicOrderSummary completedOrder;
     try {
-      await _api.completeDriverDelivery(
+      completedOrder = await _api.completeDriverDelivery(
         baseUrl: _normalizedBaseUrl(_baseUrlController.text),
         authToken: token,
         orderId: order.id,
@@ -1554,10 +1726,16 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     }
 
     setState(() {
+      final displayCompletedOrder = _completedTodayOrders.firstWhere(
+        (entry) => entry.id == completedOrder.id,
+        orElse: () => completedOrder,
+      );
       _orders = _orders.where((entry) => entry.id != order.id).toList(growable: false);
-      if (_selectedOrderId == order.id) {
-        _selectedOrderId = _orders.isNotEmpty ? _orders.first.id : null;
-      }
+      _completedTodayOrders = [
+        displayCompletedOrder,
+        ..._completedTodayOrders.where((entry) => entry.id != order.id),
+      ];
+      _selectedOrderId = displayCompletedOrder.id;
       _message = 'Lieferung abgeschlossen';
     });
     _appendDriverLog('ORDER', 'Lieferung abgeschlossen: ${order.id}');
@@ -1818,75 +1996,157 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 980;
-        final boardHeight = wide ? 560.0 : 920.0;
+        final nextOrder = _orders.isNotEmpty ? _orders.first : null;
         return SingleChildScrollView(
-        child: Column(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Angemeldet: ${_driverUser?.name ?? '-'}',
-                style: const TextStyle(fontWeight: FontWeight.w700),
+                'Hallo, $_driverDisplayName',
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 _message,
-                style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF475569)),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: 10,
+                runSpacing: 10,
                 children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: _connectionHealthy ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _connectionHealthy ? Icons.check_circle : Icons.wifi_off,
+                          size: 18,
+                          color:
+                              _connectionHealthy ? const Color(0xFF166534) : const Color(0xFFB91C1C),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          _connectionHealthy ? 'Verbunden' : 'Offline',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: _connectionHealthy
+                                ? const Color(0xFF166534)
+                                : const Color(0xFFB91C1C),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Text(
+                      '${_orders.length} aktive Lieferungen',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: Text(
+                      '${_completedTodayOrders.length} heute abgeschlossen',
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
                   OutlinedButton.icon(
                     onPressed: () {
                       unawaited(_refreshOrders());
                     },
                     icon: const Icon(Icons.refresh),
-                    style: OutlinedButton.styleFrom(
-                      minimumSize: const Size(0, 40),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    ),
-                    label: const Text('Aufträge aktualisieren'),
+                    label: const Text('Aktualisieren'),
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 10),
               Text(
-                _locationSharingActive ? 'Standort aktiv' : 'Standort nicht verfügbar',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: _locationSharingActive ? const Color(0xFF166534) : const Color(0xFFB91C1C),
-                  fontWeight: FontWeight.w700,
-                ),
+                _locationSharingActive ? _locationInfo : (_connectionHealthy ? _locationInfo : 'Keine Verbindung zum Fahrer-Feed.'),
+                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
-              Text(
-                _locationInfo,
-                style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
-              ),
-              if (_lastLocationSentAt != null)
-                Text(
-                  'Zuletzt gesendet: ${_formatDateTime(_lastLocationSentAt!)}',
-                  style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                ),
-              const SizedBox(height: 12),
-              SizedBox(
-                height: boardHeight,
-                child: wide
-                    ? Row(
-                        children: [
-                          Expanded(flex: 5, child: _buildOrdersListCard()),
-                          const SizedBox(width: 10),
-                          Expanded(flex: 6, child: _buildOrderDetailCard()),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          Expanded(flex: 5, child: _buildOrdersListCard()),
-                          const SizedBox(height: 10),
-                          Expanded(flex: 6, child: _buildOrderDetailCard()),
-                        ],
+              const SizedBox(height: 14),
+              if (!_connectionHealthy)
+                _buildDriverStateCard()
+              else if (nextOrder == null && _completedTodayOrders.isEmpty)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(18),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: const [
+                        Text(
+                          'Keine Lieferungen',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                        ),
+                        SizedBox(height: 6),
+                        Text(
+                          'Aktuell sind keine aktiven oder heute abgeschlossenen Lieferungen vorhanden.',
+                          style: TextStyle(fontSize: 14, color: Color(0xFF475569)),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (wide)
+                SizedBox(
+                  height: 980,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        flex: 5,
+                        child: Column(
+                          children: [
+                            Expanded(flex: 5, child: _buildOrdersListCard()),
+                            const SizedBox(height: 10),
+                            Expanded(flex: 4, child: _buildCompletedOrdersCard()),
+                          ],
+                        ),
                       ),
-              ),
+                      const SizedBox(width: 10),
+                      Expanded(flex: 6, child: _buildOrderDetailCard()),
+                    ],
+                  ),
+                )
+              else ...[
+                _buildOrderDetailCard(),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 320,
+                  child: _buildOrdersListCard(),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  height: 280,
+                  child: _buildCompletedOrdersCard(),
+                ),
+              ],
             ],
           ),
         );
@@ -1902,7 +2162,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
             Text(
-              'Aktive Fahreraufträge (${_orders.length})',
+              'Aktive Lieferungen (${_orders.length})',
               style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
@@ -1910,7 +2170,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
               child: _orders.isEmpty
                   ? const Center(
                       child: Text(
-                        'Aktuell keine zugewiesenen Lieferungen.',
+                        'Aktuell keine aktiven Lieferungen.',
                         style: TextStyle(color: Color(0xFF475569)),
                       ),
                     )
@@ -1969,11 +2229,92 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                                         color: Color(0xFF475569),
                                       ),
                                     ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCompletedOrdersCard() {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Heute abgeschlossen (${_completedTodayOrders.length})',
+              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: _completedTodayOrders.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Heute noch keine Lieferung abgeschlossen.',
+                        style: TextStyle(color: Color(0xFF475569)),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: _completedTodayOrders.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 8),
+                      itemBuilder: (context, index) {
+                        final order = _completedTodayOrders[index];
+                        final selected = _selectedOrderId == order.id;
+                        return InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            setState(() {
+                              _selectedOrderId = order.id;
+                            });
+                          },
+                          child: Ink(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: selected ? const Color(0xFFECFDF5) : Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: selected
+                                    ? const Color(0xFF16A34A)
+                                    : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '#${_displayOrderNumber(order)} · ${order.customerName ?? 'Kunde'}',
+                                  style: const TextStyle(fontWeight: FontWeight.w700),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _orderAddressLine(order),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF334155),
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 6,
+                                  children: [
+                                    _statusBadge(order.status),
                                     Text(
-                                      _serviceTypeLabel(order.serviceType),
+                                      'Abgeschlossen ${_formatTimeOnly(order.completedAt)}',
                                       style: const TextStyle(
                                         fontSize: 12,
-                                        color: Color(0xFF64748B),
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF166534),
                                       ),
                                     ),
                                   ],
@@ -2107,19 +2448,24 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   Widget _buildOrderDetailCard() {
     final order = _selectedOrder;
     if (order == null) {
-      return const Card(
-        child: Center(
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(18),
           child: Text(
-            'Bitte einen Auftrag auswählen.',
-            style: TextStyle(color: Color(0xFF475569)),
+            _completedTodayOrders.isNotEmpty
+                ? 'Keine aktive Lieferung ausgewählt. Du kannst unten auch eine abgeschlossene Lieferung öffnen.'
+                : 'Aktuell ist keine Lieferung ausgewählt.',
+            style: const TextStyle(color: Color(0xFF475569)),
           ),
         ),
       );
     }
 
+    final isCompletedOrder = order.status == 'done';
     final canSetOutForDelivery =
-        order.status != 'out_for_delivery' && (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
-    final canSetPickup = order.status == 'open' || order.status == 'preparing';
+        order.status != 'out_for_delivery' &&
+        order.status != 'done' &&
+        (order.serviceType ?? '').toUpperCase() == 'DELIVERY';
     final isCashPayment = (order.paymentMethod ?? '').trim().toUpperCase() == 'CASH';
     final isPaid = order.paymentStatus.trim().toUpperCase() == 'PAID';
     final canMarkDelivered = order.status == 'out_for_delivery' && (!isCashPayment || isPaid);
@@ -2131,6 +2477,16 @@ class _DriverHomePageState extends State<_DriverHomePage> {
     final handoverMinutes = handoverStart == null ? 0 : _now.difference(handoverStart.toLocal()).inMinutes;
     final handoverCritical = handoverMinutes >= 10;
     final showBlink = handoverCritical && _now.second.isEven;
+    final phoneNumber = (order.customerPhone ?? '').trim();
+    final hasPhoneNumber = phoneNumber.isNotEmpty && phoneNumber != '-';
+    final canOpenNavigation = _googleMapsQueryForOrder(order) != null;
+    final paymentLabel = _paymentMethodLabel(order.paymentMethod);
+    final paymentStatusLabel = _paymentStatusLabel(order.paymentStatus);
+    final paymentStatusColor = isPaid ? const Color(0xFF166534) : const Color(0xFF991B1B);
+    final paymentStatusBackground = isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2);
+    final note = (order.latestComplaintMessage ?? '').trim();
+    final followUpNote = (_orderFollowUpNotes[order.id] ?? '').trim();
+    final isNextOrder = _orders.isNotEmpty && _orders.first.id == order.id;
 
     return Card(
       child: Padding(
@@ -2142,63 +2498,259 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-            Text(
-              'Auftrag #${_displayOrderNumber(order)}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${order.tenantName ?? '-'} | ${_serviceTypeLabel(order.serviceType)}',
-              style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: handoverCritical
-                    ? (showBlink ? const Color(0xFFEF4444) : const Color(0xFFFCA5A5))
-                    : const Color(0xFFDBEAFE),
-                borderRadius: BorderRadius.circular(10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isCompletedOrder
+                              ? 'Abgeschlossene Lieferung'
+                              : isNextOrder
+                                  ? 'Nächste Lieferung'
+                                  : 'Lieferung',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          'Auftrag #${_displayOrderNumber(order)}',
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${order.tenantName ?? '-'} | ${_serviceTypeLabel(order.serviceType)}',
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  _statusBadge(order.status),
+                ],
               ),
-              child: Text(
-                handoverStart == null
-                    ? 'Übergabezeit wird vorbereitet.'
-                    : handoverCritical
-                    ? 'Übergabe überfällig seit ${_formatDurationSince(handoverStart.toLocal(), _now)}'
-                    : 'Übergabe seit ${_formatDurationSince(handoverStart.toLocal(), _now)}',
-                style: TextStyle(
-                  color: handoverCritical ? Colors.white : const Color(0xFF1E3A8A),
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: isCompletedOrder
+                      ? const Color(0xFFECFDF5)
+                      : handoverCritical
+                          ? (showBlink ? const Color(0xFFEF4444) : const Color(0xFFFCA5A5))
+                          : const Color(0xFFDBEAFE),
+                  borderRadius: BorderRadius.circular(10),
+                  border: isCompletedOrder
+                      ? Border.all(color: const Color(0xFF86EFAC))
+                      : null,
                 ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            _detailRow('Kunde', order.customerName ?? '-'),
-            _detailRow('Telefon', order.customerPhone ?? '-'),
-            _detailRow('Adresse', _orderAddressLine(order)),
-            _detailRow('Lieferhinweis', order.latestComplaintMessage ?? '-'),
-            if (_googleMapsQueryForOrder(order) != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _openGoogleMapsForOrder(order),
-                    icon: const Icon(Icons.map_outlined),
-                    label: const Text('Navigation öffnen'),
+                child: Text(
+                  isCompletedOrder
+                      ? 'Abgeschlossen um ${_formatTimeOnly(order.completedAt)}'
+                      : handoverStart == null
+                          ? 'Übergabezeit wird vorbereitet.'
+                          : handoverCritical
+                              ? 'Übergabe überfällig seit ${_formatDurationSince(handoverStart.toLocal(), _now)}'
+                              : 'Übergabe seit ${_formatDurationSince(handoverStart.toLocal(), _now)}',
+                  style: TextStyle(
+                    color: isCompletedOrder
+                        ? const Color(0xFF166534)
+                        : handoverCritical
+                            ? Colors.white
+                            : const Color(0xFF1E3A8A),
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
                   ),
                 ),
               ),
-            _detailRow('Zahlung', order.paymentMethod ?? '-'),
-            _detailRow('Zahlungsstatus', order.paymentStatus.toUpperCase()),
-            _detailRow('Gesamt', '${order.total.toStringAsFixed(2)} EUR'),
-            _detailRow('Status', _statusLabel(order.status)),
-            if (driverRuntime != null)
-              _detailRow('Seit Fahrerstart', driverRuntime),
-            if (!isPaid)
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (!isCompletedOrder) ...[
+                    FilledButton.icon(
+                      onPressed: canOpenNavigation ? () => _openGoogleMapsForOrder(order) : null,
+                      icon: const Icon(Icons.navigation_outlined),
+                      label: const Text('Navigation starten'),
+                    ),
+                    if (hasPhoneNumber)
+                      FilledButton.icon(
+                        onPressed: () => _callCustomer(phoneNumber),
+                        icon: const Icon(Icons.call_outlined),
+                        label: const Text('Kunde anrufen'),
+                      ),
+                    FilledButton.icon(
+                      onPressed: canMarkDelivered && !_statusBusy && !_capturingSignature
+                          ? () {
+                              unawaited(_markSelectedOrderDelivered());
+                            }
+                          : null,
+                      icon: const Icon(Icons.check_circle),
+                      label: Text(
+                        _capturingSignature ? 'Unterschrift läuft...' : 'Geliefert / Unterschrift',
+                      ),
+                    ),
+                    if (canSetOutForDelivery)
+                      OutlinedButton.icon(
+                        onPressed: _statusBusy
+                            ? null
+                            : () {
+                                unawaited(_setSelectedOrderStatus('out_for_delivery'));
+                              },
+                        icon: const Icon(Icons.local_shipping_outlined),
+                        label: Text(_statusBusy ? 'Bitte warten...' : 'Unterwegs setzen'),
+                      ),
+                  ] else ...[
+                    OutlinedButton.icon(
+                      onPressed: () => _reportOrderProblem(order),
+                      icon: const Icon(Icons.report_problem_outlined),
+                      label: const Text('Korrektur nötig'),
+                    ),
+                    if (hasPhoneNumber)
+                      OutlinedButton.icon(
+                        onPressed: () => _callCustomer(phoneNumber),
+                        icon: const Icon(Icons.call_outlined),
+                        label: const Text('Kunde anrufen'),
+                      ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 12),
               Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            order.customerName ?? '-',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                        ),
+                        if (!isCompletedOrder && driverRuntime != null)
+                          Text(
+                            driverRuntime,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _orderAddressLine(order),
+                      style: const TextStyle(fontSize: 14, color: Color(0xFF334155)),
+                    ),
+                    if (hasPhoneNumber) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        phoneNumber,
+                        style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                      ),
+                    ],
+                    if (note.isNotEmpty && note != '-') ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFF97316)),
+                        ),
+                        child: Text(
+                          'Lieferhinweis: $note',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF9A3412),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEFEFE),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Zahlung',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${order.total.toStringAsFixed(2)} EUR',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            paymentLabel,
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: paymentStatusBackground,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        paymentStatusLabel,
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                          color: paymentStatusColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (!isCompletedOrder && !isPaid)
+                Container(
                   width: double.infinity,
                   margin: const EdgeInsets.only(bottom: 8),
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -2228,194 +2780,180 @@ class _DriverHomePageState extends State<_DriverHomePage> {
                     ],
                   ),
                 ),
-            if (!isPaid)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 10),
+              if (!isCompletedOrder && !isPaid)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    'Bitte beim Kunden Zahlung erfassen, bevor der Auftrag abgeschlossen wird.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF991B1B),
+                    ),
+                  ),
+                ),
+              if (!isCompletedOrder && isCashPayment && !isPaid)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: FilledButton.icon(
+                    onPressed: _statusBusy ? null : () => _confirmCashPaymentReceived(order),
+                    icon: const Icon(Icons.payments_outlined),
+                    label: const Text('Betrag erhalten'),
+                  ),
+                ),
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: order.signatureCaptured ? const Color(0xFFECFDF5) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: order.signatureCaptured
+                        ? const Color(0xFF86EFAC)
+                        : const Color(0xFFE2E8F0),
+                  ),
+                ),
                 child: Text(
-                  'Bitte beim Kunden Zahlung erfassen, bevor der Auftrag abgeschlossen wird.',
+                  order.signatureCaptured
+                      ? 'Unterschrift vorhanden${order.signatureSignerName != null ? ' (${order.signatureSignerName})' : ''}'
+                      : 'Unterschrift noch nicht erfasst',
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF991B1B),
-                  ),
-                ),
-              ),
-            if (isCashPayment && !isPaid)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: FilledButton.icon(
-                  onPressed: _statusBusy ? null : () => _confirmCashPaymentReceived(order),
-                  icon: const Icon(Icons.payments_outlined),
-                  label: const Text('Betrag erhalten'),
-                ),
-              ),
-            _detailRow(
-              'Signatur',
-              order.signatureCaptured
-                  ? 'Vorhanden${order.signatureSignerName != null ? ' (${order.signatureSignerName})' : ''}'
-                  : 'Noch nicht erfasst',
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: canSetPickup && !_statusBusy
-                      ? () {
-                          unawaited(_setSelectedOrderStatus('preparing'));
-                        }
-                      : null,
-                  icon: const Icon(Icons.inventory_2_outlined),
-                  label: const Text('Abholen'),
-                ),
-                FilledButton.icon(
-                  onPressed: canSetOutForDelivery && !_statusBusy
-                      ? () {
-                          unawaited(_setSelectedOrderStatus('out_for_delivery'));
-                        }
-                      : null,
-                  icon: const Icon(Icons.local_shipping),
-                  label: Text(_statusBusy ? 'Bitte warten...' : 'Unterwegs'),
-                ),
-                FilledButton.icon(
-                  onPressed: canMarkDelivered && !_statusBusy && !_capturingSignature
-                      ? () {
-                          unawaited(_markSelectedOrderDelivered());
-                        }
-                      : null,
-                  icon: const Icon(Icons.check_circle),
-                  label: Text(
-                    _capturingSignature ? 'Signatur wird erfasst...' : 'Geliefert',
-                  ),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => _openGoogleMapsForOrder(order),
-                  icon: const Icon(Icons.navigation_outlined),
-                  label: const Text('Navigation öffnen'),
-                ),
-              ],
-            ),
-            if (isCashPayment && !isPaid)
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Bitte zuerst Betrag erhalten bestätigen.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFFB91C1C),
                     fontWeight: FontWeight.w700,
+                    color: order.signatureCaptured
+                        ? const Color(0xFF166534)
+                        : const Color(0xFF475569),
                   ),
                 ),
               ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Text(
-                _locationTrackingEnabled
-                    ? 'Auto-Tracking aktiv | Intervall zentral: $_locationIntervalSeconds Sekunden${_customerLiveTrackingEnabled ? ' | Live-Tracking für Kunde aktiv' : ''}'
-                    : 'Auto-Tracking zentral deaktiviert',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF334155),
+              if (!isCompletedOrder && isCashPayment && !isPaid)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Bitte zuerst Betrag erhalten bestätigen.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFFB91C1C),
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            if (!_canTrackSelectedOrder && _locationTrackingEnabled)
-              const Padding(
-                padding: EdgeInsets.only(top: 6),
-                child: Text(
-                  'Bitte eine Lieferbestellung auswählen.',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              if (isCompletedOrder)
+                Container(
+                  width: double.infinity,
+                  margin: const EdgeInsets.only(bottom: 10),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Übergabe vorhanden: ${order.signatureCaptured ? 'ja' : 'nein'}',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Notiz: ${followUpNote.isNotEmpty ? followUpNote : (note.isNotEmpty ? note : '-')}',
+                        style: const TextStyle(fontSize: 13, color: Color(0xFF475569)),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Die Lieferung ist bereits abgeschlossen. Eine direkte Status-Rücksetzung ist hier nicht möglich.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            const Divider(height: 20),
-            const Text(
-              'Bestellte Positionen',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 8),
-            if (order.items.isEmpty)
+              const Divider(height: 20),
               const Text(
-                'Keine Positionen vorhanden.',
-                style: TextStyle(color: Color(0xFF64748B)),
-              )
-            else ...[
-              for (var index = 0; index < order.items.length; index++) ...[
-                if (index > 0) const Divider(height: 12),
-                Builder(
-                  builder: (context) {
-                    final item = order.items[index];
-                    final modifiers = item.modifierNames.join(', ');
-                    return Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          width: 28,
-                          height: 28,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFFEDD5),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            '${item.quantity}x',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                'Bestellung',
+                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              if (order.items.isEmpty)
+                const Text(
+                  'Keine Positionen vorhanden.',
+                  style: TextStyle(color: Color(0xFF64748B)),
+                )
+              else ...[
+                for (var index = 0; index < order.items.length; index++) ...[
+                  if (index > 0) const Divider(height: 12),
+                  Builder(
+                    builder: (context) {
+                      final item = order.items[index];
+                      final modifiers = item.modifierNames.join(', ');
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFEDD5),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '${item.quantity}x',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.productName,
-                                style: const TextStyle(fontWeight: FontWeight.w700),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFF8FAFC),
+                                borderRadius: BorderRadius.circular(12),
                               ),
-                              if (modifiers.isNotEmpty)
-                                Container(
-                                  margin: const EdgeInsets.only(top: 4),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFFEF3C7),
-                                    borderRadius: BorderRadius.circular(8),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    item.productName,
+                                    style: const TextStyle(fontWeight: FontWeight.w800),
                                   ),
-                                  child: Text(
-                                    'Sonderwunsch: $modifiers',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Color(0xFF92400E),
-                                      fontWeight: FontWeight.w700,
+                                  if (modifiers.isNotEmpty)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: Text(
+                                        modifiers,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF64748B),
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ),
-                            ],
+                                ],
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '${item.price.toStringAsFixed(2)} EUR',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF334155),
+                          const SizedBox(width: 8),
+                          Text(
+                            '${item.price.toStringAsFixed(2)} EUR',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF334155),
+                            ),
                           ),
-                        ),
-                      ],
-                    );
-                  },
-                ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
               ],
-            ],
             ],
           ),
         ),

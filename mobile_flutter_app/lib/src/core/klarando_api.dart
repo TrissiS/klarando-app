@@ -1059,17 +1059,21 @@ class CreateOrderItem {
   const CreateOrderItem({
     required this.productId,
     required this.quantity,
+    this.productName,
     this.modifierIds = const [],
   });
 
   final String productId;
   final int quantity;
+  final String? productName;
   final List<String> modifierIds;
 
   Map<String, dynamic> toJson() {
     return {
       'productId': productId,
       'quantity': quantity,
+      if (productName != null && productName!.trim().isNotEmpty)
+        'productName': productName!.trim(),
       if (modifierIds.isNotEmpty) 'modifierIds': modifierIds,
     };
   }
@@ -1302,6 +1306,7 @@ class PublicOrderSummary {
     required this.driverAssignedAt,
     required this.driverDepartedAt,
     required this.driverLocation,
+    required this.completedAt,
     required this.complaintOpen,
     required this.complaintCount,
     required this.latestComplaintAt,
@@ -1347,6 +1352,7 @@ class PublicOrderSummary {
   final DateTime? driverAssignedAt;
   final DateTime? driverDepartedAt;
   final DriverLocationPoint? driverLocation;
+  final DateTime? completedAt;
   final bool complaintOpen;
   final int complaintCount;
   final DateTime? latestComplaintAt;
@@ -1404,6 +1410,7 @@ class PublicOrderSummary {
         }
         return DriverLocationPoint.fromJson(location);
       }(),
+      completedAt: _readNullableDateTime(json['completedAt']),
       complaintOpen: _readBool(json['complaintOpen']),
       complaintCount: _readInt(json['complaintCount']),
       latestComplaintAt: _readNullableDateTime(json['latestComplaintAt']),
@@ -1438,19 +1445,25 @@ class PublicOrderSummary {
 class DriverAssignedFeed {
   const DriverAssignedFeed({
     required this.orders,
+    required this.completedToday,
     required this.locationTrackingEnabled,
     required this.locationUpdateSeconds,
     required this.customerLiveTrackingEnabled,
+    required this.driverName,
   });
 
   final List<PublicOrderSummary> orders;
+  final List<PublicOrderSummary> completedToday;
   final bool locationTrackingEnabled;
   final int locationUpdateSeconds;
   final bool customerLiveTrackingEnabled;
+  final String? driverName;
 
   factory DriverAssignedFeed.fromJson(Map<String, dynamic> json) {
     final rawOrders = json['orders'];
+    final rawCompletedToday = json['completedToday'];
     final rawDriverSettings = _readNullableMap(json['driverSettings']);
+    final rawActor = _readNullableMap(json['actor']);
     final parsedInterval = rawDriverSettings == null
         ? 15
         : _readNullableInt(rawDriverSettings['locationUpdateSeconds']) ?? 15;
@@ -1462,6 +1475,12 @@ class DriverAssignedFeed {
                 .map(PublicOrderSummary.fromJson)
                 .toList(growable: false)
           : const [],
+      completedToday: rawCompletedToday is List
+          ? rawCompletedToday
+                .whereType<Map<String, dynamic>>()
+                .map(PublicOrderSummary.fromJson)
+                .toList(growable: false)
+          : const [],
       locationTrackingEnabled: rawDriverSettings == null
           ? true
           : _readBool(rawDriverSettings['locationTrackingEnabled']),
@@ -1469,6 +1488,7 @@ class DriverAssignedFeed {
       customerLiveTrackingEnabled: rawDriverSettings == null
           ? true
           : _readBool(rawDriverSettings['customerLiveTrackingEnabled']),
+      driverName: rawActor == null ? null : _readNullableString(rawActor['driverName']),
     );
   }
 }

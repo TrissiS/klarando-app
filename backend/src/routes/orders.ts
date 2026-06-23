@@ -5351,8 +5351,11 @@ router.get('/driver/assigned', async (req, res) => {
       driverName: actor.driverName,
     }) as Prisma.OrderWhereInput[]
     if (assignmentFilter.length === 0) {
-      return res.json({ total: 0, orders: [], driverSettings })
+      return res.json({ total: 0, orders: [], completedToday: [], driverSettings })
     }
+
+    const startOfToday = new Date()
+    startOfToday.setHours(0, 0, 0, 0)
 
     const orders = await prisma.order.findMany({
       where: {
@@ -5361,6 +5364,7 @@ router.get('/driver/assigned', async (req, res) => {
         driverAssignedAt: {
           not: null,
         },
+        serviceType: 'DELIVERY',
         status: {
           in: ['preparing', 'out_for_delivery'],
         },
@@ -5385,10 +5389,63 @@ router.get('/driver/assigned', async (req, res) => {
       orderBy: [{ createdAt: 'desc' }],
     })
 
+    const completedToday = await prisma.order.findMany({
+      where: {
+        tenantId: actor.tenantId,
+        OR: assignmentFilter,
+        driverAssignedAt: {
+          not: null,
+        },
+        serviceType: 'DELIVERY',
+        status: 'done',
+        updatedAt: {
+          gte: startOfToday,
+        },
+      },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        items: {
+          include: {
+            product: {
+              include: {
+                category: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ updatedAt: 'desc' }],
+    })
+
+    const allFeedOrders = [...orders, ...completedToday]
     const latestDriverLocations = await loadLatestDriverLocationByOrderId(
-      orders.map((entry) => entry.id)
+      allFeedOrders.map((entry) => entry.id)
     )
-    const issueStateByOrderId = await loadOrderIssueStateByOrderId(orders.map((entry) => entry.id))
+    const issueStateByOrderId = await loadOrderIssueStateByOrderId(allFeedOrders.map((entry) => entry.id))
+
+    const mapFeedOrder = (entry: (typeof allFeedOrders)[number]) => {
+      const trackingReadModel = buildOrderTrackingReadModel(entry)
+      return {
+        ...entry,
+        trackingReadModel,
+        completedAt: trackingReadModel.completedAt,
+        driverLocation: latestDriverLocations.get(entry.id) ?? null,
+        complaintOpen: issueStateByOrderId.get(entry.id)?.complaintOpen ?? false,
+        complaintCount: issueStateByOrderId.get(entry.id)?.complaintCount ?? 0,
+        latestComplaintAt: issueStateByOrderId.get(entry.id)?.latestComplaintAt ?? null,
+        latestComplaintMessage: issueStateByOrderId.get(entry.id)?.latestComplaintMessage ?? null,
+        latestComplaintImageCount:
+          issueStateByOrderId.get(entry.id)?.latestComplaintImageCount ?? 0,
+        signatureCaptured: issueStateByOrderId.get(entry.id)?.signatureCaptured ?? false,
+        signatureCapturedAt: issueStateByOrderId.get(entry.id)?.signatureCapturedAt ?? null,
+        signatureSignerName: issueStateByOrderId.get(entry.id)?.signatureSignerName ?? null,
+      }
+    }
 
     return res.json({
       total: orders.length,
@@ -5408,20 +5465,8 @@ router.get('/driver/assigned', async (req, res) => {
             }
           : null,
       },
-      orders: orders.map((entry) => ({
-        ...entry,
-        trackingReadModel: buildOrderTrackingReadModel(entry),
-        driverLocation: latestDriverLocations.get(entry.id) ?? null,
-        complaintOpen: issueStateByOrderId.get(entry.id)?.complaintOpen ?? false,
-        complaintCount: issueStateByOrderId.get(entry.id)?.complaintCount ?? 0,
-        latestComplaintAt: issueStateByOrderId.get(entry.id)?.latestComplaintAt ?? null,
-        latestComplaintMessage: issueStateByOrderId.get(entry.id)?.latestComplaintMessage ?? null,
-        latestComplaintImageCount:
-          issueStateByOrderId.get(entry.id)?.latestComplaintImageCount ?? 0,
-        signatureCaptured: issueStateByOrderId.get(entry.id)?.signatureCaptured ?? false,
-        signatureCapturedAt: issueStateByOrderId.get(entry.id)?.signatureCapturedAt ?? null,
-        signatureSignerName: issueStateByOrderId.get(entry.id)?.signatureSignerName ?? null,
-      })),
+      orders: orders.map(mapFeedOrder),
+      completedToday: completedToday.map(mapFeedOrder),
     })
   } catch (error) {
     console.error('GET DRIVER ASSIGNED ORDERS ERROR:', error)
