@@ -2914,6 +2914,71 @@ class _HomeShellState extends State<HomeShell> {
       return;
     }
 
+    _CheckoutCartValidationResult cartValidation;
+    try {
+      cartValidation = await _validateCheckoutCart(
+        lines: _cart.values.toList(growable: false),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    if (cartValidation.unavailableProducts.isNotEmpty) {
+      final shouldRemove = await _confirmUnavailableCartCleanup(
+        unavailableProducts: cartValidation.unavailableProducts,
+      );
+      if (!mounted || !shouldRemove) {
+        return;
+      }
+    }
+
+    final checkoutLines = cartValidation.validatedLines;
+    setState(() {
+      _selectedCatalog = cartValidation.catalog;
+      _catalogProducts = cartValidation.catalog.products;
+      _catalogMessage = cartValidation.catalog.products.isEmpty
+          ? 'Keine Produkte für diese Filiale freigegeben.'
+          : '${cartValidation.catalog.products.length} Produkte geladen.';
+      _cart
+        ..clear()
+        ..addEntries(checkoutLines.map((line) => MapEntry(line.id, line)));
+      _checkoutBarCollapsed = false;
+    });
+
+    if (checkoutLines.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Dein Warenkorb ist leer, weil die betroffenen Produkte nicht mehr verfügbar sind.'),
+        ),
+      );
+      return;
+    }
+
+    final checkoutNotes = <String>[];
+    if (cartValidation.unavailableProducts.isNotEmpty) {
+      checkoutNotes.add(
+        '${cartValidation.unavailableProducts.length} Produkt(e) aus dem Warenkorb entfernt.',
+      );
+    }
+    if (cartValidation.repricedProducts.isNotEmpty) {
+      checkoutNotes.add('Preise wurden mit den aktuellen Werten aktualisiert.');
+    }
+    if (checkoutNotes.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(checkoutNotes.join('\n'))),
+      );
+    }
+
     final tenant = _selectedTenant!;
     final allowDelivery = tenant.deliveryAvailable || tenant.orderIntake.deliveryEnabled;
     final allowPickup = tenant.pickupAvailable || tenant.orderIntake.pickupEnabled;
@@ -2945,7 +3010,7 @@ class _HomeShellState extends State<HomeShell> {
         builder: (_) => _CheckoutFlowPage(
           tenantId: tenant.tenantId,
           tenantName: tenant.tenantName,
-          initialLines: _cart.values.toList(growable: false),
+          initialLines: checkoutLines,
           allowDelivery: allowDelivery,
           allowPickup: allowPickup,
           minOrderValueAmount: _parseMoneyValue(tenant.minOrderValue),
@@ -2973,6 +3038,8 @@ class _HomeShellState extends State<HomeShell> {
               initialCoordinatesMatchAddress ? _activeLongitude : null,
           submitOrder: _submitOrder,
           startStripeCheckoutSession: _startStripeCheckoutSession,
+          validateCheckoutCart: _validateCheckoutCart,
+          onCartChanged: _syncCartFromCheckout,
           reloadOrder: _reloadOrderForCheckout,
           validateCoupon: _validateCouponForCheckout,
         ),
@@ -3246,6 +3313,128 @@ class _HomeShellState extends State<HomeShell> {
       tenantId: tenantId,
       appAuthToken: _appAuthToken,
     );
+  }
+
+  Future<_CheckoutCartValidationResult> _validateCheckoutCart({
+    required List<_CartLine> lines,
+  }) async {
+    final tenant = _selectedTenant;
+    if (tenant == null) {
+      throw const ApiException('Keine Filiale ausgewählt.');
+    }
+
+    final catalog = await _api.fetchTenantCatalog(
+      baseUrl: _baseUrl,
+      tenantId: tenant.tenantId,
+    );
+
+    final productsById = <String, TenantCatalogProduct>{
+      for (final product in catalog.products) product.id: product,
+    };
+    final unavailableProducts = <_CheckoutCartIssue>[];
+    final repricedProducts = <String>[];
+    final validatedLines = <_CartLine>[];
+
+    for (final line in lines) {
+      final latestProduct = productsById[line.product.id];
+      if (latestProduct == null) {
+        unavailableProducts.add(
+          _CheckoutCartIssue(
+            productId: line.product.id,
+            productName: line.product.name,
+            reason: 'UNAVAILABLE',
+            message: 'Produkt ${line.product.name} ist nicht mehr verfügbar.',
+          ),
+        );
+        continue;
+      }
+
+      final modifierById = <String, TenantCatalogModifier>{
+        for (final modifier in latestProduct.modifiers) modifier.id: modifier,
+      };
+      final selectedModifierIds = line.selectedModifierIds;
+      final latestSelectedModifiers = selectedModifierIds
+          .map((modifierId) => modifierById[modifierId])
+          .whereType<TenantCatalogModifier>()
+          .toList(growable: false);
+
+      if (latestSelectedModifiers.length != selectedModifierIds.length) {
+        unavailableProducts.add(
+          _CheckoutCartIssue(
+            productId: latestProduct.id,
+            productName: latestProduct.name,
+            reason: 'MODIFIER_UNAVAILABLE',
+            message: 'Produkt ${latestProduct.name} wurde geändert und ist mit dieser Auswahl nicht mehr verfügbar.',
+          ),
+        );
+        continue;
+      }
+
+      final validatedLine = line.copyWith(
+        product: latestProduct,
+        selectedModifiers: _normalizeModifierSelection(latestSelectedModifiers),
+      );
+      if ((validatedLine.unitPrice - line.unitPrice).abs() >= 0.01) {
+        repricedProducts.add(
+          '${latestProduct.name}: ${_formatCurrency(line.unitPrice)} -> ${_formatCurrency(validatedLine.unitPrice)}',
+        );
+      }
+      validatedLines.add(validatedLine);
+    }
+
+    return _CheckoutCartValidationResult(
+      catalog: catalog,
+      validatedLines: validatedLines,
+      unavailableProducts: unavailableProducts,
+      repricedProducts: repricedProducts,
+    );
+  }
+
+  void _syncCartFromCheckout(List<_CartLine> lines) {
+    setState(() {
+      _cart
+        ..clear()
+        ..addEntries(lines.map((line) => MapEntry(line.id, line)));
+      if (_cart.isEmpty) {
+        _checkoutBarCollapsed = false;
+      }
+    });
+  }
+
+  Future<bool> _confirmUnavailableCartCleanup({
+    required List<_CheckoutCartIssue> unavailableProducts,
+  }) async {
+    final preview = unavailableProducts
+        .take(5)
+        .map((issue) => '• ${issue.productName} (${issue.productId})')
+        .join('\n');
+    final suffix = unavailableProducts.length > 5
+        ? '\n+${unavailableProducts.length - 5} weitere'
+        : '';
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Warenkorb aktualisieren?'),
+          content: Text(
+            'Ein oder mehrere Produkte sind nicht mehr verfügbar:\n\n$preview$suffix\n\nDiese Produkte können jetzt aus dem Warenkorb entfernt werden.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Produkte entfernen'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
   }
 
   Future<void> _syncSubmittedOrdersFromServer({bool force = false}) async {
@@ -4082,6 +4271,8 @@ class _CheckoutFlowPage extends StatefulWidget {
     required this.initialDeliveryLongitude,
     required this.submitOrder,
     required this.startStripeCheckoutSession,
+    required this.validateCheckoutCart,
+    required this.onCartChanged,
     required this.reloadOrder,
     required this.validateCoupon,
   });
@@ -4128,6 +4319,11 @@ class _CheckoutFlowPage extends StatefulWidget {
     required String orderId,
   })
   startStripeCheckoutSession;
+  final Future<_CheckoutCartValidationResult> Function({
+    required List<_CartLine> lines,
+  })
+  validateCheckoutCart;
+  final void Function(List<_CartLine> lines) onCartChanged;
   final Future<PublicOrderSummary> Function({
     required String orderId,
     required String tenantId,
@@ -4466,37 +4662,76 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       }
       _lines = next;
     });
+    widget.onCartChanged(List<_CartLine>.from(_lines));
   }
 
-  bool _tryRemoveUnavailableProductsFromOrderError(ApiException error) {
-    final body = error.responseBody;
-    if (body == null) {
-      return false;
-    }
+  Future<bool> _confirmUnavailableProductsRemoval(
+    List<_CheckoutCartIssue> unavailableProducts,
+  ) async {
+    final preview = unavailableProducts
+        .take(5)
+        .map((issue) => '• ${issue.productName} (${issue.productId})')
+        .join('\n');
+    final suffix = unavailableProducts.length > 5
+        ? '\n+${unavailableProducts.length - 5} weitere'
+        : '';
 
-    final code = body['code'] is String ? (body['code'] as String).trim().toUpperCase() : '';
-    final missingRaw = body['missingProductIds'];
-    if (code != 'PRODUCT_NOT_FOUND' || missingRaw is! List) {
-      return false;
-    }
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Produkte nicht verfügbar'),
+          content: Text(
+            'Folgende Produkte sind nicht mehr verfügbar:\n\n$preview$suffix\n\nMöchtest du sie aus dem Warenkorb entfernen?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Produkte entfernen'),
+            ),
+          ],
+        );
+      },
+    );
 
-    final missingIds = missingRaw
-        .map((entry) => entry is String ? entry.trim() : '')
-        .where((entry) => entry.isNotEmpty)
-        .toSet();
-    if (missingIds.isEmpty) {
-      return false;
-    }
+    return result == true;
+  }
 
-    final originalCount = _lines.length;
-    final nextLines = _lines.where((line) => !missingIds.contains(line.product.id)).toList(growable: false);
-    if (nextLines.length == originalCount) {
-      return false;
-    }
-
+  void _replaceCheckoutLines(List<_CartLine> lines) {
     setState(() {
-      _lines = nextLines;
-      _errorMessage = 'Ein Produkt ist nicht mehr verfügbar und wurde aus dem Warenkorb entfernt.';
+      _lines = lines.toList(growable: true);
+    });
+    widget.onCartChanged(List<_CartLine>.from(_lines));
+  }
+
+  Future<bool> _handleUnavailableProductsFromOrderError(ApiException error) async {
+    final unavailableProducts = _parseCheckoutCartIssues(error.responseBody);
+    if (unavailableProducts.isEmpty) {
+      return false;
+    }
+
+    final unavailableIds = unavailableProducts.map((issue) => issue.productId).toSet();
+    final nextLines = _lines
+        .where((line) => !unavailableIds.contains(line.product.id))
+        .toList(growable: false);
+    if (nextLines.length == _lines.length) {
+      return false;
+    }
+
+    final shouldRemove = await _confirmUnavailableProductsRemoval(unavailableProducts);
+    if (!mounted || !shouldRemove) {
+      return false;
+    }
+
+    _replaceCheckoutLines(nextLines);
+    setState(() {
+      _errorMessage = unavailableProducts.length == 1
+          ? unavailableProducts.first.message
+          : '${unavailableProducts.length} Produkte sind nicht mehr verfügbar und wurden aus dem Warenkorb entfernt.';
     });
     return true;
   }
@@ -4601,6 +4836,40 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
           'Adresse konnte nicht genau genug gefunden werden. Bitte Straße und Hausnummer prüfen.',
         );
       }
+      final cartValidation = await widget.validateCheckoutCart(lines: _lines);
+      if (!mounted) {
+        return;
+      }
+      if (cartValidation.unavailableProducts.isNotEmpty) {
+        final shouldRemove = await _confirmUnavailableProductsRemoval(
+          cartValidation.unavailableProducts,
+        );
+        if (!mounted) {
+          return;
+        }
+        if (!shouldRemove) {
+          setState(() {
+            _isSubmitting = false;
+          });
+          return;
+        }
+      }
+      _replaceCheckoutLines(cartValidation.validatedLines);
+      if (cartValidation.validatedLines.isEmpty) {
+        setState(() {
+          _errorMessage = 'Dein Warenkorb ist leer, weil die betroffenen Produkte nicht mehr verfügbar sind.';
+          _paymentInfoMessage = null;
+          _isSubmitting = false;
+        });
+        return;
+      }
+      if (cartValidation.repricedProducts.isNotEmpty && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Preise im Warenkorb wurden mit den aktuellen Werten aktualisiert.'),
+          ),
+        );
+      }
       final order = await widget.submitOrder(
         lines: _lines,
         serviceType: _serviceType,
@@ -4657,7 +4926,7 @@ class _CheckoutFlowPageState extends State<_CheckoutFlowPage> {
       if (!mounted) {
         return;
       }
-      final handledUnavailableProduct = _tryRemoveUnavailableProductsFromOrderError(error);
+      final handledUnavailableProduct = await _handleUnavailableProductsFromOrderError(error);
       if (handledUnavailableProduct) {
         return;
       }
@@ -6082,6 +6351,88 @@ class _CustomerOrderTrackingSheetState extends State<_CustomerOrderTrackingSheet
       ),
     );
   }
+}
+
+class _CheckoutCartIssue {
+  const _CheckoutCartIssue({
+    required this.productId,
+    required this.productName,
+    required this.reason,
+    required this.message,
+  });
+
+  final String productId;
+  final String productName;
+  final String reason;
+  final String message;
+}
+
+class _CheckoutCartValidationResult {
+  const _CheckoutCartValidationResult({
+    required this.catalog,
+    required this.validatedLines,
+    required this.unavailableProducts,
+    required this.repricedProducts,
+  });
+
+  final TenantCatalog catalog;
+  final List<_CartLine> validatedLines;
+  final List<_CheckoutCartIssue> unavailableProducts;
+  final List<String> repricedProducts;
+}
+
+List<_CheckoutCartIssue> _parseCheckoutCartIssues(Map<String, dynamic>? body) {
+  if (body == null) {
+    return const [];
+  }
+
+  final issues = <_CheckoutCartIssue>[];
+  final invalidProducts = body['invalidProducts'];
+  if (invalidProducts is List) {
+    for (final entry in invalidProducts.whereType<Map<String, dynamic>>()) {
+      final productId = (entry['productId'] is String ? entry['productId'] as String : '').trim();
+      if (productId.isEmpty) {
+        continue;
+      }
+      final rawProductName = entry['productName'] is String ? entry['productName'] as String : '';
+      final productName = rawProductName.trim().isNotEmpty ? rawProductName.trim() : productId;
+      final reason = (entry['reason'] is String ? entry['reason'] as String : 'UNAVAILABLE').trim();
+      final rawMessage = entry['message'] is String ? entry['message'] as String : '';
+      issues.add(
+        _CheckoutCartIssue(
+          productId: productId,
+          productName: productName,
+          reason: reason.isEmpty ? 'UNAVAILABLE' : reason,
+          message: rawMessage.trim().isNotEmpty
+              ? rawMessage.trim()
+              : 'Produkt $productName ist nicht mehr verfügbar.',
+        ),
+      );
+    }
+  }
+
+  if (issues.isNotEmpty) {
+    return issues;
+  }
+
+  final missingProductIds = body['missingProductIds'];
+  if (missingProductIds is! List) {
+    return const [];
+  }
+
+  return missingProductIds
+      .whereType<String>()
+      .map((entry) => entry.trim())
+      .where((entry) => entry.isNotEmpty)
+      .map(
+        (productId) => _CheckoutCartIssue(
+          productId: productId,
+          productName: productId,
+          reason: 'NOT_FOUND',
+          message: 'Produkt $productId wurde nicht gefunden.',
+        ),
+      )
+      .toList(growable: false);
 }
 
 class _SubmittedOrder {

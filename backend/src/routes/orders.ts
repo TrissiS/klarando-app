@@ -1,8 +1,16 @@
 import { Router } from 'express'
-import { CouponDiscountType, CouponOrderType, PermissionKey, Prisma, UserRole } from '@prisma/client'
+import {
+  CouponDiscountType,
+  CouponOrderType,
+  PaymentProvider,
+  PermissionKey,
+  Prisma,
+  UserRole,
+} from '@prisma/client'
 import { prisma } from '../lib/prisma'
 import { requirePermission } from '../middleware/auth'
 import { writeAuditLog } from '../lib/audit'
+import { refundPayment } from '../lib/stripe'
 import { resolveProductOffers } from '../lib/action-pricing'
 import {
   matchServiceArea,
@@ -3260,6 +3268,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     }
 
     const productIds = items.map((item) => item.productId)
+    const uniqueProductIds = Array.from(new Set(productIds))
     const invalidQuantityItem = items.find(
       (item) => !Number.isInteger(item.quantity) || item.quantity <= 0 || item.quantity > 200
     )
@@ -3270,7 +3279,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
     const products = await prisma.product.findMany({
       where: {
         tenantId: resolvedTenantId,
-        id: { in: productIds },
+        id: { in: uniqueProductIds },
       },
     })
     const offeredPrices = await resolveProductOffers(
@@ -3281,9 +3290,9 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       }))
     )
 
-    if (products.length !== productIds.length) {
+    if (products.length !== uniqueProductIds.length) {
       const foundIds = new Set(products.map((entry) => entry.id))
-      const missingProductIds = productIds.filter((id) => !foundIds.has(id))
+      const missingProductIds = uniqueProductIds.filter((id) => !foundIds.has(id))
       const uniqueMissingProductIds = Array.from(new Set(missingProductIds))
 
       const productsWithoutTenantFilter =
@@ -3297,6 +3306,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
               select: {
                 id: true,
                 tenantId: true,
+                name: true,
                 available: true,
               },
             })
@@ -3305,10 +3315,28 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
       const productsWithTenantFilterMap = new Map(products.map((entry) => [entry.id, entry]))
       const existsWithoutTenantFilter = new Set(productsWithoutTenantFilter.map((entry) => entry.id))
 
+      const invalidProducts = uniqueMissingProductIds.map((missingId) => {
+        const anyTenantProduct = productsWithoutTenantFilter.find((entry) => entry.id === missingId)
+        const existsInAnotherTenant = Boolean(anyTenantProduct?.tenantId && anyTenantProduct.tenantId !== resolvedTenantId)
+
+        return {
+          productId: missingId,
+          productName: anyTenantProduct?.name ?? null,
+          reason: existsInAnotherTenant ? 'WRONG_TENANT' : 'NOT_FOUND',
+          message: existsInAnotherTenant
+            ? `Produkt ${anyTenantProduct?.name ?? missingId} gehoert nicht zu dieser Filiale.`
+            : `Produkt ${anyTenantProduct?.name ?? missingId} wurde nicht gefunden.`,
+          available: anyTenantProduct?.available ?? null,
+          productTenantId: anyTenantProduct?.tenantId ?? null,
+        }
+      })
+
       console.log('PRODUCT_NOT_FOUND_CONTEXT', {
         tenantId: resolvedTenantId,
         branchId: normalizedBranchId ?? null,
         sentProductIds: productIds,
+        uniqueProductIds,
+        missingProductIds: uniqueMissingProductIds,
       })
 
       for (const missingId of uniqueMissingProductIds) {
@@ -3329,6 +3357,7 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
         error: 'Ein oder mehrere Produkte wurden nicht gefunden',
         code: 'PRODUCT_NOT_FOUND',
         missingProductIds: uniqueMissingProductIds,
+        invalidProducts,
       })
     }
 
@@ -3336,9 +3365,19 @@ router.post('/', rateLimitPublicOrderCreate, async (req, res) => {
 
     if (unavailable.length > 0) {
       return res.status(400).json({
-        error: `Nicht verfügbare Produkte in Bestellung: ${unavailable
+        error: `Ein oder mehrere Produkte sind nicht mehr verfuegbar: ${unavailable
           .map((product) => product.name)
           .join(', ')}`,
+        code: 'PRODUCT_UNAVAILABLE',
+        unavailableProductIds: unavailable.map((product) => product.id),
+        invalidProducts: unavailable.map((product) => ({
+          productId: product.id,
+          productName: product.name,
+          reason: 'UNAVAILABLE',
+          message: `Produkt ${product.name} ist nicht mehr verfuegbar.`,
+          available: false,
+          productTenantId: product.tenantId,
+        })),
       })
     }
 
@@ -5828,7 +5867,11 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
     const orderId = normalizeText(
       Array.isArray(req.params.orderId) ? req.params.orderId[0] : req.params.orderId
     )
-    const { status } = req.body as { status?: string }
+    const { status, reason, confirmOutForDelivery } = req.body as {
+      status?: string
+      reason?: string | null
+      confirmOutForDelivery?: boolean
+    }
     if (!req.authUser) {
       return res.status(401).json({ error: 'Nicht eingeloggt' })
     }
@@ -5837,7 +5880,12 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
       return res.status(400).json({ error: 'orderId oder status fehlt' })
     }
 
-    const normalizedNextStatus = normalizeOrderWorkflowStatus(status)
+    const rawRequestedStatus = normalizeText(status)?.toLowerCase() ?? null
+    const isCancellationRequest =
+      rawRequestedStatus === 'cancelled' || rawRequestedStatus === 'canceled'
+    const normalizedNextStatus = isCancellationRequest
+      ? 'archived'
+      : normalizeOrderWorkflowStatus(status)
     if (!normalizedNextStatus) {
       return res.status(400).json({ error: 'Ungueltiger Status' })
     }
@@ -5852,6 +5900,9 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
         serviceType: true,
         assignedDriverId: true,
         assignedDriverName: true,
+        paymentMethod: true,
+        paymentStatus: true,
+        paidAt: true,
         tenant: {
           select: {
             chainId: true,
@@ -5869,6 +5920,7 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
     if (!currentWorkflowStatus) {
       return res.status(409).json({ error: `Ungueltiger bestehender Bestellstatus: ${String(currentOrder.status)}` })
     }
+    const cancellationReason = normalizeText(reason)
     if (normalizedNextStatus === 'out_for_delivery') {
       validateDispatchReadiness(
         {
@@ -5879,6 +5931,147 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
         },
         { requireAssignedDriver: true, context: 'admin-status' }
       )
+    }
+    if (isCancellationRequest) {
+      const paymentMethod = (currentOrder.paymentMethod ?? '').trim().toUpperCase()
+      const paymentStatus = (currentOrder.paymentStatus ?? '').trim().toUpperCase()
+      const isPaid = paymentStatus === 'PAID'
+
+      if (currentWorkflowStatus === 'done' || currentWorkflowStatus === 'archived') {
+        return res.status(409).json({
+          error:
+            'Bereits abgeschlossene oder stornierte Bestellungen koennen nicht erneut storniert werden.',
+        })
+      }
+      if (currentWorkflowStatus === 'pending_payment' && isPaid) {
+        return res.status(409).json({
+          error:
+            'Bezahlte Bestellungen im Status Zahlung ausstehend koennen nicht direkt storniert werden.',
+        })
+      }
+      if (currentWorkflowStatus === 'out_for_delivery' && confirmOutForDelivery != true) {
+        return res.status(409).json({
+          error: 'Storno fuer bereits versendete Bestellung bitte bestaetigen.',
+        })
+      }
+      if (isPaid && paymentMethod !== 'CASH' && paymentMethod !== 'STRIPE') {
+        return res.status(409).json({
+          error:
+            'Storno nicht abgeschlossen: Fuer diese Zahlart ist keine automatische Erstattung verfuegbar.',
+        })
+      }
+
+      if (paymentMethod === 'STRIPE' && isPaid) {
+        const stripePayment = await prisma.paymentTransaction.findFirst({
+          where: {
+            orderId: currentOrder.id,
+            tenantId: currentOrder.tenantId,
+            provider: PaymentProvider.STRIPE,
+            providerPaymentId: {
+              not: null,
+            },
+          },
+          select: {
+            id: true,
+            providerPaymentId: true,
+            amountCents: true,
+          },
+          orderBy: [{ createdAt: 'desc' }],
+        })
+
+        if (!stripePayment?.providerPaymentId) {
+          await writeAuditLog({
+            req,
+            module: 'payments',
+            action: 'stripe_refund_failed',
+            targetType: 'order',
+            targetId: currentOrder.id,
+            tenantId: currentOrder.tenantId,
+            chainId: currentOrder.tenant?.chainId ?? null,
+            metadata: {
+              source: 'ADMIN',
+              actorName: req.authUser.name ?? req.authUser.email ?? 'Admin',
+              reason: cancellationReason,
+              paymentAction: 'stripe_refund_failed',
+              failureReason: 'payment_intent_missing',
+            },
+          })
+          return res.status(409).json({
+            error: 'Storno nicht abgeschlossen: Stripe-Erstattung fehlgeschlagen.',
+          })
+        }
+
+        try {
+          const refund = await refundPayment({
+            paymentId: stripePayment.id,
+            reason: cancellationReason ?? 'Admin cancellation',
+          })
+          await writeAuditLog({
+            req,
+            module: 'payments',
+            action: 'stripe_refund_created',
+            targetType: 'order',
+            targetId: currentOrder.id,
+            tenantId: currentOrder.tenantId,
+            chainId: currentOrder.tenant?.chainId ?? null,
+            metadata: {
+              source: 'ADMIN',
+              actorName: req.authUser.name ?? req.authUser.email ?? 'Admin',
+              paymentAction: 'stripe_refund_created',
+              amountCents: refund.amountCents,
+              stripeRefundId: refund.stripeRefundId,
+              stripeRefundStatus: refund.status,
+              paymentIntentId: stripePayment.providerPaymentId,
+              reason: cancellationReason,
+            },
+          })
+          if (refund.status !== 'succeeded') {
+            await writeAuditLog({
+              req,
+              module: 'payments',
+              action: 'stripe_refund_failed',
+              targetType: 'order',
+              targetId: currentOrder.id,
+              tenantId: currentOrder.tenantId,
+              chainId: currentOrder.tenant?.chainId ?? null,
+              metadata: {
+                source: 'ADMIN',
+                actorName: req.authUser.name ?? req.authUser.email ?? 'Admin',
+                paymentAction: 'stripe_refund_failed',
+                amountCents: refund.amountCents,
+                paymentIntentId: stripePayment.providerPaymentId,
+                stripeRefundStatus: refund.status,
+                failureReason: 'refund_not_succeeded',
+                reason: cancellationReason,
+              },
+            })
+            return res.status(409).json({
+              error: 'Storno nicht abgeschlossen: Stripe-Erstattung fehlgeschlagen.',
+            })
+          }
+        } catch (error) {
+          await writeAuditLog({
+            req,
+            module: 'payments',
+            action: 'stripe_refund_failed',
+            targetType: 'order',
+            targetId: currentOrder.id,
+            tenantId: currentOrder.tenantId,
+            chainId: currentOrder.tenant?.chainId ?? null,
+            metadata: {
+              source: 'ADMIN',
+              actorName: req.authUser.name ?? req.authUser.email ?? 'Admin',
+              paymentAction: 'stripe_refund_failed',
+              paymentIntentId: stripePayment.providerPaymentId,
+              failureReason: error instanceof Error ? error.message : String(error),
+              reason: cancellationReason,
+            },
+          })
+          return res.status(409).json({
+            error: 'Storno nicht abgeschlossen: Stripe-Erstattung fehlgeschlagen.',
+          })
+        }
+      }
     }
 
     const order = await prisma.$transaction(async (tx) => {
@@ -5906,12 +6099,35 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
 
       await tx.order.update({
         where: { id: currentOrder.id },
-        data: buildOrderStatusUpdate({
-          currentStatus: currentWorkflowStatus,
-          nextStatus: normalizedNextStatus,
-          now: new Date(),
-          currentAcceptedAt: currentOrder.acceptedAt,
-        }),
+        data: {
+          ...buildOrderStatusUpdate({
+            currentStatus: currentWorkflowStatus,
+            nextStatus: normalizedNextStatus,
+            now: new Date(),
+            currentAcceptedAt: currentOrder.acceptedAt,
+          }),
+          ...(normalizedNextStatus === 'archived'
+            ? {
+                pickupAnnouncedAt: null,
+                pickupAnnounceUntil: null,
+              }
+            : {}),
+          ...(isCancellationRequest &&
+          (currentOrder.paymentStatus ?? '').trim().toUpperCase() === 'PAID'
+            ? {
+                ...buildOrderPaymentStatusUpdate({
+                  currentStatus:
+                    normalizeOrderPaymentStatus(currentOrder.paymentStatus) ?? 'PAID',
+                  nextStatus:
+                    (currentOrder.paymentMethod ?? '').trim().toUpperCase() === 'STRIPE'
+                      ? 'REFUNDED'
+                      : 'PAID',
+                  now: new Date(),
+                  preservePaidAt: currentOrder.paidAt,
+                }),
+              }
+            : {}),
+        },
       })
 
       await applyInventoryConsumptionForOrder(tx, currentOrder.id)
@@ -5953,12 +6169,15 @@ router.patch('/:orderId/status', requirePermission(PermissionKey.ORDERS_WRITE), 
       tenantId: currentOrder.tenantId,
       chainId: currentOrder.tenant?.chainId ?? null,
       previousStatus: currentWorkflowStatus,
-      nextStatus: normalizeOrderWorkflowStatus(order.status) ?? order.status,
+      nextStatus: isCancellationRequest ? 'cancelled' : normalizeOrderWorkflowStatus(order.status) ?? order.status,
       source: 'ADMIN',
       actorName: req.authUser.name ?? req.authUser.email ?? null,
       driverId: currentOrder.assignedDriverId,
       driverName: currentOrder.assignedDriverName,
-      note: 'Status in der Admin-Bestellansicht geaendert',
+      note: isCancellationRequest
+        ? 'Bestellung storniert'
+        : 'Status in der Admin-Bestellansicht geaendert',
+      reason: cancellationReason,
     })
 
     return res.json(order)
