@@ -237,6 +237,175 @@ class _SignatureCaptureResult {
   final String imageDataUrl;
 }
 
+class _DriverSignatureDialog extends StatefulWidget {
+  const _DriverSignatureDialog({
+    required this.initialSignerName,
+  });
+
+  final String initialSignerName;
+
+  @override
+  State<_DriverSignatureDialog> createState() => _DriverSignatureDialogState();
+}
+
+class _DriverSignatureDialogState extends State<_DriverSignatureDialog> {
+  late final TextEditingController _signerController;
+  late final SignatureController _signatureController;
+  String? _inlineError;
+  bool _submitting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _signerController = TextEditingController(text: widget.initialSignerName);
+    _signatureController = SignatureController(
+      penStrokeWidth: 2.8,
+      penColor: const Color(0xFF0F172A),
+      exportBackgroundColor: Colors.white,
+      exportPenColor: const Color(0xFF0F172A),
+    );
+  }
+
+  @override
+  void dispose() {
+    _signerController.dispose();
+    _signatureController.dispose();
+    super.dispose();
+  }
+
+  void _clearSignature() {
+    _signatureController.clear();
+    if (!mounted) return;
+    setState(() {
+      _inlineError = null;
+    });
+  }
+
+  Future<void> _confirm() async {
+    final signerName = _signerController.text.trim();
+    if (signerName.isEmpty) {
+      setState(() {
+        _inlineError = 'Bitte Namen eingeben.';
+      });
+      return;
+    }
+    if (_signatureController.isEmpty) {
+      setState(() {
+        _inlineError = 'Bitte zuerst unterschreiben.';
+      });
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _inlineError = null;
+    });
+
+    final Uint8List? pngBytes =
+        await _signatureController.toPngBytes(height: 280);
+    if (!mounted) return;
+    if (pngBytes == null || pngBytes.isEmpty) {
+      setState(() {
+        _submitting = false;
+        _inlineError = 'Unterschrift konnte nicht verarbeitet werden.';
+      });
+      return;
+    }
+
+    final imageDataUrl = 'data:image/png;base64,${base64Encode(pngBytes)}';
+    final dialogContext = context;
+    if (!dialogContext.mounted) return;
+    Navigator.of(dialogContext).pop(
+      _SignatureCaptureResult(
+        signerName: signerName,
+        imageDataUrl: imageDataUrl,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Kundensignatur erfassen'),
+      content: SizedBox(
+        width: 620,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _signerController,
+              decoration: const InputDecoration(
+                labelText: 'Name des Kunden',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            const Text(
+              'Bitte Kunden auf dem Feld unterschreiben lassen.',
+              style: TextStyle(fontSize: 12, color: Color(0xFF475569)),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 190,
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFCBD5E1)),
+              ),
+              child: Signature(
+                controller: _signatureController,
+                backgroundColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _submitting ? null : _clearSignature,
+                  icon: const Icon(Icons.clear),
+                  label: const Text('Leeren'),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  'Unterschrift muss sichtbar sein.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                ),
+              ],
+            ),
+            if (_inlineError != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                _inlineError!,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFFB91C1C),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting
+              ? null
+              : () {
+                  final dialogContext = context;
+                  if (!dialogContext.mounted) return;
+                  Navigator.of(dialogContext).pop();
+                },
+          child: const Text('Abbrechen'),
+        ),
+        FilledButton(
+          onPressed: _submitting ? null : _confirm,
+          child: Text(_submitting ? 'Bitte warten...' : 'Unterschrift übernehmen'),
+        ),
+      ],
+    );
+  }
+}
+
 class _DriverHomePage extends StatefulWidget {
   const _DriverHomePage();
 
@@ -1485,143 +1654,26 @@ class _DriverHomePageState extends State<_DriverHomePage> {
   Future<_SignatureCaptureResult?> _captureSignatureForOrder(
     PublicOrderSummary order,
   ) async {
-    final signerController = TextEditingController(
-      text: order.customerName?.trim().isNotEmpty == true
-          ? order.customerName!.trim()
-          : '',
-    );
-    final signatureController = SignatureController(
-      penStrokeWidth: 2.8,
-      penColor: const Color(0xFF0F172A),
-      exportBackgroundColor: Colors.white,
-      exportPenColor: const Color(0xFF0F172A),
-    );
-
-    String? inlineError;
+    _appendDriverLog('SIGNATURE', 'signature dialog opened order=${order.id}');
     final result = await showDialog<_SignatureCaptureResult>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: const Text('Kundensignatur erfassen'),
-              content: SizedBox(
-                width: 620,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    TextField(
-                      controller: signerController,
-                      decoration: const InputDecoration(
-                        labelText: 'Name des Kunden',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    const Text(
-                      'Bitte Kunden auf dem Feld unterschreiben lassen.',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF475569)),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      height: 190,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: const Color(0xFFCBD5E1)),
-                      ),
-                      child: Signature(
-                        controller: signatureController,
-                        backgroundColor: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () {
-                            signatureController.clear();
-                            setDialogState(() {
-                              inlineError = null;
-                            });
-                          },
-                          icon: const Icon(Icons.clear),
-                          label: const Text('Leeren'),
-                        ),
-                        const SizedBox(width: 8),
-                        const Text(
-                          'Unterschrift muss sichtbar sein.',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-                        ),
-                      ],
-                    ),
-                    if (inlineError != null) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        inlineError!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFFB91C1C),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.of(dialogContext).pop();
-                  },
-                  child: const Text('Abbrechen'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    final signerName = signerController.text.trim();
-                    if (signerName.isEmpty) {
-                      setDialogState(() {
-                        inlineError = 'Bitte Namen eingeben.';
-                      });
-                      return;
-                    }
-                    if (signatureController.isEmpty) {
-                      setDialogState(() {
-                        inlineError = 'Bitte zuerst unterschreiben.';
-                      });
-                      return;
-                    }
-                    final Uint8List? pngBytes =
-                        await signatureController.toPngBytes(height: 280);
-                    if (pngBytes == null || pngBytes.isEmpty) {
-                      setDialogState(() {
-                        inlineError = 'Unterschrift konnte nicht verarbeitet werden.';
-                      });
-                      return;
-                    }
-                    final imageDataUrl =
-                        'data:image/png;base64,${base64Encode(pngBytes)}';
-                    if (!dialogContext.mounted) return;
-                    Navigator.of(dialogContext).pop(
-                      _SignatureCaptureResult(
-                        signerName: signerName,
-                        imageDataUrl: imageDataUrl,
-                      ),
-                    );
-                  },
-                  child: const Text('Unterschrift übernehmen'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (dialogContext) => _DriverSignatureDialog(
+        initialSignerName: order.customerName?.trim().isNotEmpty == true
+            ? order.customerName!.trim()
+            : '',
+      ),
     );
-
-    signerController.dispose();
-    signatureController.dispose();
+    if (result != null) {
+      _appendDriverLog('SIGNATURE', 'signature confirmed order=${order.id}');
+    }
     return result;
+  }
+
+  Future<void> _refreshOrdersAfterComplete() async {
+    _appendDriverLog('ORDER', 'refresh after complete start');
+    await _refreshOrders(forceMessage: false);
+    _appendDriverLog('ORDER', 'refresh after complete end');
   }
 
   Future<void> _markSelectedOrderDelivered() async {
@@ -1658,19 +1710,21 @@ class _DriverHomePageState extends State<_DriverHomePage> {
         ],
       ),
     );
+    if (!mounted) return;
     if (confirmed != true) {
       return;
     }
 
     if ((order.serviceType ?? '').toUpperCase() == 'DELIVERY' &&
         !order.signatureCaptured) {
+      if (!mounted) return;
       setState(() {
         _capturingSignature = true;
       });
       try {
         final signature = await _captureSignatureForOrder(order);
+        if (!mounted) return;
         if (signature == null) {
-          if (!mounted) return;
           setState(() {
             _message = 'Zustellung abgebrochen: Keine Unterschrift erfasst.';
           });
@@ -1683,6 +1737,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           signerName: signature.signerName,
           signatureImageDataUrl: signature.imageDataUrl,
         );
+        if (!mounted) return;
         _appendDriverLog('SIGNATURE', 'Signatur gespeichert: ${order.id}');
       } on ApiException catch (error) {
         if (!mounted) return;
@@ -1697,22 +1752,28 @@ class _DriverHomePageState extends State<_DriverHomePage> {
           });
         }
       }
-      await _refreshOrders(forceMessage: false);
     }
 
     late final PublicOrderSummary completedOrder;
     try {
+      _appendDriverLog('ORDER', 'complete-delivery request start order=${order.id}');
       completedOrder = await _api.completeDriverDelivery(
         baseUrl: _normalizedBaseUrl(_baseUrlController.text),
         authToken: token,
         orderId: order.id,
       );
+      if (!mounted) return;
+      _appendDriverLog('ORDER', 'complete-delivery request success order=${order.id}');
       _appendDriverLog(
         'ORDER',
         'DRIVER_DELIVERY_COMPLETE { orderId: ${order.id}, oldStatus: ${order.status}, newStatus: done, driverName: ${_driverUser?.name ?? '-'}, signaturePresent: JA }',
       );
     } on ApiException catch (error) {
       if (!mounted) return;
+      _appendDriverLog(
+        'ORDER',
+        'complete-delivery request error order=${order.id} message=${error.message}',
+      );
       setState(() {
         _message = error.message;
       });
@@ -1720,7 +1781,7 @@ class _DriverHomePageState extends State<_DriverHomePage> {
       return;
     }
 
-    await _refreshOrders(forceMessage: false);
+    await _refreshOrdersAfterComplete();
     if (!mounted) {
       return;
     }

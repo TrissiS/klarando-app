@@ -877,10 +877,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           'orderId=${order.id} rawStatus=${order.status.trim().toLowerCase()} acceptedAt=${order.acceptedAt?.toIso8601String() ?? '-'} effectiveStatus=$effectiveStatus',
         );
       }
-      final becameDone = previousStatus != 'done' && effectiveStatus == 'done';
-      if (becameDone) {
-        unawaited(_archiveDeliveredOrder(order));
-      }
     }
 
     _lastOrderStatusById
@@ -993,33 +989,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       await player.dispose();
     } catch (_) {
       // Ignore dispose errors to keep app shutdown stable.
-    }
-  }
-
-  Future<void> _archiveDeliveredOrder(PublicOrderSummary order) async {
-    if (_archivingOrderIds.contains(order.id)) {
-      return;
-    }
-    _archivingOrderIds.add(order.id);
-    try {
-      await SystemSound.play(SystemSoundType.click);
-      await _api.updatePublicOrderDisplayOrderStatus(
-        baseUrl: _normalizeBaseUrl(_baseUrlController.text),
-        displayCode: _displayCodeController.text.trim(),
-        orderId: order.id,
-        status: 'archived',
-        authToken: _deviceAuthToken,
-      );
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _info = 'Lieferung erfolgreich abgeschlossen und archiviert.';
-      });
-    } catch (_) {
-      // Silent fallback: Bestellung bleibt sichtbar, bis manueller Abschluss erfolgt.
-    } finally {
-      _archivingOrderIds.remove(order.id);
     }
   }
 
@@ -1256,6 +1225,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (!mounted) {
       return;
     }
+    final effectiveStatus = _effectiveOrderStatus(order);
     _logOrderActionPressed(
       action: 'cancel_order_dialog',
       orderId: order.id,
@@ -1275,6 +1245,49 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       );
       return;
     }
+    var confirmOutForDelivery = false;
+    if (effectiveStatus == 'out_for_delivery') {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Bestellung wirklich stornieren?'),
+          content: const Text(
+            'Diese Bestellung ist bereits unterwegs. Der Storno sollte nur nach ausdruecklicher Bestaetigung erfolgen.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                if (!dialogContext.mounted) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('Abbrechen'),
+            ),
+            FilledButton(
+              onPressed: () {
+                if (!dialogContext.mounted) {
+                  return;
+                }
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('Storno bestaetigen'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) {
+        return;
+      }
+      if (confirmed != true) {
+        _appendLocalLog(
+          'ORDER_ACTION',
+          'cancelled action=cancel_order orderId=${order.id} reason=out_for_delivery_not_confirmed',
+        );
+        return;
+      }
+      confirmOutForDelivery = true;
+    }
     await _runOrderMutation(
       actionLabel: 'cancel_order',
       orderId: order.id,
@@ -1288,7 +1301,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
           orderId: order.id,
           path:
               '/api/order-displays/public/${_displayCodeController.text.trim()}/orders/${order.id}/status',
-          body: const <String, dynamic>{'status': 'cancelled'},
+          body: <String, dynamic>{
+            'status': 'cancelled',
+            'reason': reason,
+            'confirmOutForDelivery': confirmOutForDelivery,
+          },
           targetStatus: 'cancelled',
         );
         await _pollFeed();
@@ -1315,6 +1332,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       requestedStatus: status,
     );
     final resolvedButtonLabel = buttonLabel ?? status;
+    final fulfillmentType = (order.serviceType ?? '').trim().toUpperCase();
+    final acceptedAt = order.acceptedAt?.toIso8601String() ?? '-';
+    final readyAt = order.estimatedReadyAt?.toIso8601String() ?? '-';
     _logOrderActionPressed(
       action: 'set_status',
       orderId: order.id,
@@ -1330,7 +1350,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         }
         _appendLocalLog(
           'ORDER_STATUS_DEBUG',
-          'request orderId=${order.id} button=$resolvedButtonLabel sentStatus=$sentStatus rawStatusBefore=$rawStatusBefore effectiveStatusBefore=$effectiveStatusBefore',
+          'request orderId=${order.id} button=$resolvedButtonLabel fulfillmentType=$fulfillmentType rawStatus=$rawStatusBefore acceptedAt=$acceptedAt readyAt=$readyAt preparedAt=- sentStatus=$sentStatus effectiveStatusBefore=$effectiveStatusBefore',
         );
         final responseBody = await _postOrderDeskAction(
           action: 'set_status:$sentStatus',
@@ -1342,13 +1362,17 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         );
         _appendLocalLog(
           'ORDER_STATUS_DEBUG',
-          'response orderId=${order.id} button=$resolvedButtonLabel sentStatus=$sentStatus rawStatusBefore=$rawStatusBefore effectiveStatusBefore=$effectiveStatusBefore responseStatus=${responseBody['status']?.toString() ?? '-'} responseBody=${_formatResponseBodyForLog(responseBody)}',
+          'response orderId=${order.id} button=$resolvedButtonLabel fulfillmentType=$fulfillmentType rawStatus=$rawStatusBefore acceptedAt=$acceptedAt readyAt=$readyAt preparedAt=- sentStatus=$sentStatus effectiveStatusBefore=$effectiveStatusBefore responseStatus=${responseBody['status']?.toString() ?? '-'} responseBody=${_formatResponseBodyForLog(responseBody)}',
         );
         await _pollFeed();
         if (!mounted) {
           return;
         }
-        _info = successMessage;
+        setState(() {
+          _error = null;
+          _lastApiError = null;
+          _info = successMessage;
+        });
       },
     );
   }
@@ -3063,7 +3087,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     await _showDriverPairingInfo();
                   },
                   icon: const Icon(Icons.qr_code_rounded),
-                  label: const Text('Driver-App koppeln (Info)'),
+                  label: const Text('Driver-App koppeln'),
                 ),
                 ],
               ),
@@ -3309,23 +3333,169 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     final apiUrl = _baseUrlController.text.trim().isEmpty
         ? defaultApiBaseUrl
         : _baseUrlController.text.trim();
-    final tenantValue = _manualTenantIdController.text.trim();
     final displayValue = _displayCodeController.text.trim();
+    final orderDeskDeviceId = (_bindingId ?? '').trim();
+    final future = _createDriverPairingSession();
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Driver-App koppeln'),
-        content: Text(
-          'Kopplungscode im Admin/Superadmin erzeugen:\n\nGeräte → Driver-App koppeln\n\nAPI-URL: $apiUrl\nTenant-ID: ${tenantValue.isEmpty ? '-' : tenantValue}\nDriver-Gerätecode: ${displayValue.isEmpty ? '-' : displayValue}\nPairingToken: wird im Kopplungsdialog angezeigt.\n\nHinweis: Driver-App kann QR oder manuellen Code verwenden.',
+        content: SizedBox(
+          width: 420,
+          child: FutureBuilder<Map<String, dynamic>>(
+            future: future,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      CircularProgressIndicator(),
+                      SizedBox(height: 12),
+                      Text('Kopplungsdaten werden geladen…'),
+                    ],
+                  ),
+                );
+              }
+              if (snapshot.hasError) {
+                final message = snapshot.error is ApiException
+                    ? (snapshot.error as ApiException).message
+                    : snapshot.error.toString();
+                return Text(
+                  'Driver-Pairing konnte nicht vorbereitet werden.\n\n$message\n\nDie Backend-Route ist vorhanden, aber branchId/orderDeskDeviceId werden aktuell nicht im Pairing-Payload zurückgegeben.',
+                );
+              }
+
+              final payload = snapshot.data ?? const <String, dynamic>{};
+              final tenantId = payload['tenantId']?.toString().trim() ?? '';
+              final pairingToken =
+                  payload['pairingToken']?.toString().trim() ?? '';
+              final expiresAt = payload['expiresAt']?.toString().trim() ?? '';
+              final qrImageUrl = payload['qrImageUrl']?.toString().trim() ?? '';
+              final pairingPayload =
+                  payload['pairingPayload']?.toString().trim() ?? '';
+              final backendDisplayCode =
+                  payload['displayCode']?.toString().trim() ?? displayValue;
+
+              return SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (qrImageUrl.isNotEmpty)
+                      Center(
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: Image.network(
+                            qrImageUrl,
+                            width: 220,
+                            height: 220,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => Container(
+                              width: 220,
+                              height: 220,
+                              alignment: Alignment.center,
+                              color: const Color(0xFFF8FAFC),
+                              child: const Text('QR-Code konnte nicht geladen werden.'),
+                            ),
+                          ),
+                        ),
+                      ),
+                    if (qrImageUrl.isNotEmpty) const SizedBox(height: 12),
+                    const Text(
+                      'Der QR-Code enthält echte Driver-Pairing-Daten aus dem bestehenden Backend-Endpunkt.',
+                    ),
+                    const SizedBox(height: 12),
+                    Text('API-URL: $apiUrl'),
+                    Text('Tenant-ID: ${tenantId.isEmpty ? '-' : tenantId}'),
+                    Text(
+                      'Branch-ID: aktuell nicht im Backend-Payload enthalten',
+                      style: const TextStyle(color: Color(0xFF9A3412)),
+                    ),
+                    Text('Display-Code: ${backendDisplayCode.isEmpty ? '-' : backendDisplayCode}'),
+                    Text(
+                      'OrderDeskDeviceId: ${orderDeskDeviceId.isEmpty ? 'noch nicht separat verfügbar' : orderDeskDeviceId}',
+                    ),
+                    Text(
+                      'PairingToken: ${pairingToken.isEmpty ? '-' : _truncateMiddle(pairingToken, edge: 8)}',
+                    ),
+                    Text('Ablaufzeit: ${expiresAt.isEmpty ? '-' : expiresAt}'),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Pairing-Payload',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    SelectableText(
+                      pairingPayload.isEmpty ? '-' : pairingPayload,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Hinweis: branchId und ein separates OrderDesk-Device-Feld fehlen im aktuellen Backend-Response noch. Die Kopplung wird hier deshalb nur mit echten vorhandenen Daten vorbereitet, nicht als Fake-Erfolg dargestellt.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
         ),
         actions: [
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('OK'),
+            child: const Text('Schließen'),
           ),
         ],
       ),
     );
+  }
+
+  Future<Map<String, dynamic>> _createDriverPairingSession() async {
+    final displayCode = _displayCodeController.text.trim();
+    final token = (_deviceAuthToken ?? '').trim();
+    if (displayCode.isEmpty) {
+      throw const ApiException(
+        'Display-Code fehlt. Driver-Pairing kann nicht vorbereitet werden.',
+      );
+    }
+    if (token.isEmpty || !_isSessionToken(_deviceAuthToken)) {
+      throw const ApiException(
+        'OrderDesk ist nicht gekoppelt oder Anmeldung abgelaufen. Driver-Pairing ist aktuell nicht möglich.',
+        statusCode: 401,
+      );
+    }
+
+    final path =
+        '/api/order-displays/public/$displayCode/driver-devices/session';
+    final uri = Uri.parse('${_normalizeBaseUrl(_baseUrlController.text)}$path');
+    _appendLocalLog(
+      'DRIVER_PAIRING',
+      'request displayCode=$displayCode endpoint=$path',
+    );
+    final response = await http
+        .post(
+          uri,
+          headers: _buildOrderDeskActionHeaders(token: token),
+          body: jsonEncode(<String, dynamic>{
+            'deviceLabel': 'Driver-App via OrderDesk',
+          }),
+        )
+        .timeout(const Duration(seconds: 12));
+    final responseBody = _decodeOrderDeskResponseBody(response.body);
+    _appendLocalLog(
+      'DRIVER_PAIRING',
+      'response displayCode=$displayCode status=${response.statusCode} body=${_formatResponseBodyForLog(responseBody)}',
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(
+        _resolveOrderDeskResponseError(responseBody, response.statusCode),
+        statusCode: response.statusCode,
+        responseBody: responseBody,
+      );
+    }
+    return responseBody;
   }
 
   String _buildOsmMapHtml(_DeliveryMapPayload payload) {
@@ -3457,6 +3627,9 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     if (rawStatus == 'open' && order.acceptedAt != null) {
       return 'accepted';
     }
+    if (rawStatus == 'preparing' && serviceType == 'DELIVERY') {
+      return 'ready_for_delivery';
+    }
     if (rawStatus == 'done' && serviceType == 'PICKUP') {
       return 'ready_for_pickup';
     }
@@ -3473,12 +3646,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     required String requestedStatus,
   }) {
     final normalizedRequested = requestedStatus.trim().toLowerCase();
-    final serviceType = (order.serviceType ?? '').trim().toUpperCase();
     switch (normalizedRequested) {
       case 'ready_for_pickup':
         return 'done';
       case 'ready_for_delivery':
-        return serviceType == 'DELIVERY' ? 'preparing' : 'done';
+        return 'preparing';
       case 'picked_up':
         return 'archived';
       default:
@@ -3526,7 +3698,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
       for (final modifier in item.modifierNames) {
         final normalized = modifier.trim();
         if (normalized.isNotEmpty) {
-          lines.add('  - $normalized');
+          lines.add('*** SONDERWUNSCH ***');
+          lines.add(normalized);
         }
       }
       return lines;
@@ -3562,7 +3735,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
   }
 
   bool _isOpenOrderStatus(String status) {
-    return !_isArchivedOrderStatus(status);
+    final normalized = status.trim().toLowerCase();
+    if (normalized == 'done') {
+      return false;
+    }
+    return !_isArchivedOrderStatus(normalized);
   }
 
   int _openOrderSortPriority(String status) {
@@ -4675,14 +4852,37 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
         statusLower == 'cancelled' || statusLower == 'rejected';
     final isOutForDelivery = statusLower == 'out_for_delivery';
     final isCompactDriverCard = isOutForDelivery && !detailsExpanded;
+    final serviceBadgeLabel = isPickup ? 'ABHOLUNG' : 'LIEFERUNG';
+    final serviceBadgeColor = isPickup
+        ? const Color(0xFF0F766E)
+        : const Color(0xFF2563EB);
+    final serviceBadgeBackground = isPickup
+        ? const Color(0xFFCCFBF1)
+        : const Color(0xFFDBEAFE);
+    final serviceBadgeIcon =
+        isPickup ? Icons.storefront_rounded : Icons.delivery_dining_rounded;
+    final stepLabels = isDelivery
+        ? const <String>[
+            'Eingang',
+            'In Bearbeitung',
+            'Bereit',
+            'Unterwegs',
+            'Abgeschlossen',
+          ]
+        : const <String>[
+            'Eingang',
+            'In Bearbeitung',
+            'Bereit',
+            'Abgeschlossen',
+          ];
 
     String nextStepKey;
     if (statusLower == 'open' || statusLower == 'pending_payment') {
       nextStepKey = 'accept';
     } else if (statusLower == 'accepted') {
-      nextStepKey = 'prepare';
+      nextStepKey = isDelivery ? 'ready_delivery' : 'ready_pickup';
     } else if (statusLower == 'preparing') {
-      nextStepKey = isDelivery ? 'out_for_delivery' : 'ready_pickup';
+      nextStepKey = isDelivery ? 'ready_delivery' : 'ready_pickup';
     } else if (statusLower == 'ready_for_delivery') {
       nextStepKey = 'out_for_delivery';
     } else if (statusLower == 'out_for_delivery') {
@@ -4694,19 +4894,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
     }
 
     int stepIndex;
-    if (statusLower == 'open' || statusLower == 'pending_payment') {
-      stepIndex = 0;
-    } else if (statusLower == 'accepted' || statusLower == 'preparing') {
-      stepIndex = 1;
-    } else if (statusLower == 'ready_for_delivery' ||
-        statusLower == 'ready_for_pickup') {
-      stepIndex = 2;
-    } else if (statusLower == 'out_for_delivery') {
-      stepIndex = 3;
-    } else if (_isArchivedOrderStatus(statusLower)) {
-      stepIndex = 4;
+    if (isDelivery) {
+      if (statusLower == 'open' || statusLower == 'pending_payment') {
+        stepIndex = 0;
+      } else if (statusLower == 'accepted') {
+        stepIndex = 1;
+      } else if (statusLower == 'ready_for_delivery' ||
+          statusLower == 'preparing') {
+        stepIndex = 2;
+      } else if (statusLower == 'out_for_delivery') {
+        stepIndex = 3;
+      } else if (_isArchivedOrderStatus(statusLower)) {
+        stepIndex = 4;
+      } else {
+        stepIndex = 0;
+      }
     } else {
-      stepIndex = 0;
+      if (statusLower == 'open' || statusLower == 'pending_payment') {
+        stepIndex = 0;
+      } else if (statusLower == 'accepted' || statusLower == 'preparing') {
+        stepIndex = 1;
+      } else if (statusLower == 'ready_for_pickup') {
+        stepIndex = 2;
+      } else if (_isArchivedOrderStatus(statusLower)) {
+        stepIndex = 3;
+      } else {
+        stepIndex = 0;
+      }
     }
 
     Color statusBadgeColor;
@@ -4751,12 +4965,33 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                         spacing: 8,
                         runSpacing: 4,
                         children: [
-                          Text(
-                            isDelivery ? 'Lieferung' : 'Abholung',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF334155),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: serviceBadgeBackground,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  serviceBadgeIcon,
+                                  size: 14,
+                                  color: serviceBadgeColor,
+                                ),
+                                const SizedBox(width: 4),
+                                Text(
+                                  serviceBadgeLabel,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: serviceBadgeColor,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           Text(
@@ -4821,10 +5056,12 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
             const SizedBox(height: 6),
             Row(
               children: [
-                for (var index = 0; index < 5; index++)
+                for (var index = 0; index < stepLabels.length; index++)
                   Expanded(
                     child: Container(
-                      margin: EdgeInsets.only(right: index < 4 ? 4 : 0),
+                      margin: EdgeInsets.only(
+                        right: index < stepLabels.length - 1 ? 4 : 0,
+                      ),
                       child: Column(
                         children: [
                           Container(
@@ -4840,13 +5077,7 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            const [
-                              'Eingegangen',
-                              'In Bearbeitung',
-                              'Bereit',
-                              'Unterwegs',
-                              'Abgeschlossen',
-                            ][index],
+                            stepLabels[index],
                             textAlign: TextAlign.center,
                             style: TextStyle(
                               fontSize: 10,
@@ -4869,19 +5100,25 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               order.customerName ?? '-',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-            if (addressText.isNotEmpty)
+            if (isDelivery && addressText.isNotEmpty)
               Text(
                 addressText,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
               ),
+            if (isPickup)
+              const Text(
+                'Abholung im Betrieb',
+                style: TextStyle(fontSize: 12, color: Color(0xFF334155)),
+              ),
             if (order.customerPhone != null && order.customerPhone!.trim().isNotEmpty)
               Text(
                 'Tel: ${order.customerPhone}',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
               ),
-            if (order.assignedDriverName != null &&
+            if (isDelivery &&
+                order.assignedDriverName != null &&
                 order.assignedDriverName!.trim().isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
@@ -4935,10 +5172,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                 'Telefon: ${order.customerPhone ?? '-'}',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
               ),
-              if (addressText.isNotEmpty)
+              if (isDelivery && addressText.isNotEmpty)
                 Text(
                   'Adresse: $addressText',
                   style: const TextStyle(fontSize: 12, color: Color(0xFF334155)),
+                ),
+              if (isPickup)
+                const Text(
+                  'Abholung: vor Ort im Betrieb',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF334155)),
                 ),
               if (order.paymentMethod != null && order.paymentMethod!.trim().isNotEmpty)
                 Text(
@@ -4990,6 +5232,15 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                   fontWeight: FontWeight.w600,
                 ),
               )
+            else if (statusLower == 'ready_for_delivery' ||
+                statusLower == 'ready_for_pickup')
+              Text(
+                'Bereit seit ${progressMinutes ?? 0} Min.',
+                style: const TextStyle(
+                  color: Color(0xFF1D4ED8),
+                  fontWeight: FontWeight.w700,
+                ),
+              )
             else if (_isArchivedOrderStatus(statusLower))
               Text(
                 'Fertig seit ${doneMinutes ?? 0} Min.',
@@ -5029,13 +5280,36 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       ),
                       if (item.modifierNames.isNotEmpty)
                         Padding(
-                          padding: const EdgeInsets.only(top: 1),
-                          child: Text(
-                            item.modifierNames.join(' · '),
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF64748B),
-                            ),
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: item.modifierNames
+                                .map(
+                                  (modifier) => Container(
+                                    width: double.infinity,
+                                    margin: const EdgeInsets.only(bottom: 4),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 10,
+                                      vertical: 8,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFEDD5),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: const Color(0xFFEA580C),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      '⚠ Sonderwunsch: $modifier',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        color: Color(0xFF9A3412),
+                                        fontWeight: FontWeight.w800,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                                .toList(growable: false),
                           ),
                         ),
                     ],
@@ -5044,11 +5318,11 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
               }),
               if (hasModifiers)
                 const Text(
-                  'Sonderwünsche vorhanden',
+                  '⚠ Diese Bestellung enthält Sonderwünsche',
                   style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF92400E),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF9A3412),
                   ),
                 ),
             ],
@@ -5084,7 +5358,8 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                     label: const Text('Bestellung annehmen'),
                   ),
                 ),
-              if (!isTerminalStatus && nextStepKey == 'prepare')
+              if (!isTerminalStatus &&
+                  (nextStepKey == 'ready_delivery' || nextStepKey == 'ready_pickup'))
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
@@ -5092,36 +5367,25 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                         ? null
                         : () => _setOrderStatus(
                               order,
-                              'preparing',
-                              'Bestellung ist jetzt in Vorbereitung.',
-                              buttonLabel: 'In Vorbereitung',
-                            ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFD97706),
-                      foregroundColor: Colors.white,
-                    ),
-                    icon: const Icon(Icons.restaurant, size: 18),
-                    label: const Text('In Vorbereitung'),
-                  ),
-                ),
-              if (!isTerminalStatus && nextStepKey == 'ready_pickup')
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton.icon(
-                    onPressed: _loading
-                        ? null
-                        : () => _setOrderStatus(
-                              order,
-                              'ready_for_pickup',
-                              'Bestellung ist bereit zur Abholung.',
-                              buttonLabel: 'Bereit zur Abholung',
+                              isDelivery ? 'ready_for_delivery' : 'ready_for_pickup',
+                              isDelivery
+                                  ? 'Bestellung ist bereit für die Lieferung.'
+                                  : 'Bestellung ist bereit zur Abholung.',
+                              buttonLabel: isDelivery
+                                  ? 'Bereit für Lieferung'
+                                  : 'Bereit zur Abholung',
                             ),
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
                       foregroundColor: Colors.white,
                     ),
-                    icon: const Icon(Icons.storefront, size: 18),
-                    label: const Text('Bereit zur Abholung'),
+                    icon: Icon(
+                      isDelivery ? Icons.delivery_dining : Icons.storefront,
+                      size: 18,
+                    ),
+                    label: Text(
+                      isDelivery ? 'Bereit für Lieferung' : 'Bereit zur Abholung',
+                    ),
                   ),
                 ),
               if (!isTerminalStatus && nextStepKey == 'out_for_delivery')
@@ -5172,22 +5436,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       icon: const Icon(Icons.close, size: 16),
                       label: const Text('Ablehnen'),
                     ),
-                  if (!isTerminalStatus &&
-                      statusLower != 'open' &&
-                      statusLower != 'pending_payment' &&
-                      statusLower != 'preparing')
-                    FilledButton.tonalIcon(
-                      onPressed: _loading
-                          ? null
-                          : () => _setOrderStatus(
-                              order,
-                              'preparing',
-                              'Bestellung ist jetzt in Vorbereitung.',
-                              buttonLabel: 'In Vorbereitung',
-                            ),
-                      icon: const Icon(Icons.restaurant, size: 16),
-                      label: const Text('In Vorbereitung'),
-                    ),
                   if (!isTerminalStatus)
                     OutlinedButton.icon(
                       onPressed: _loading || !isDelivery
@@ -5207,44 +5455,6 @@ class _CashierDisplayHomePageState extends State<_CashierDisplayHomePage> {
                       onPressed: _loading ? null : () => _acceptOrder(order),
                       icon: const Icon(Icons.schedule, size: 16),
                       label: const Text('Zeit aktualisieren'),
-                    ),
-                  if (!isTerminalStatus && isPickup && nextStepKey != 'ready_pickup')
-                    OutlinedButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _setOrderStatus(
-                              order,
-                              'ready_for_pickup',
-                              'Bestellung ist bereit zur Abholung.',
-                              buttonLabel: 'Bereit zur Abholung',
-                            ),
-                      icon: const Icon(Icons.storefront, size: 16),
-                      label: const Text('Bereit zur Abholung'),
-                    ),
-                  if (!isTerminalStatus && isPickup && nextStepKey != 'complete_pickup')
-                    OutlinedButton.icon(
-                      onPressed: _loading ? null : () => _completeOrder(order),
-                      icon: const Icon(Icons.check_circle_outline, size: 16),
-                      label: const Text('Bestellung abgeholt'),
-                    ),
-                  if (!isTerminalStatus && isDelivery && nextStepKey != 'out_for_delivery')
-                    OutlinedButton.icon(
-                      onPressed: _loading
-                          ? null
-                          : () => _setOrderStatus(
-                              order,
-                              'out_for_delivery',
-                              'Fahrer ist unterwegs.',
-                              buttonLabel: 'Fahrer unterwegs',
-                            ),
-                      icon: const Icon(Icons.local_shipping, size: 16),
-                      label: const Text('Fahrer unterwegs'),
-                    ),
-                  if (!isTerminalStatus && isDelivery && nextStepKey != 'complete_delivery')
-                    OutlinedButton.icon(
-                      onPressed: _loading ? null : () => _completeOrder(order),
-                      icon: const Icon(Icons.check_circle_outline, size: 16),
-                      label: const Text('Lieferung abgeschlossen'),
                     ),
                   if (!isTerminalStatus)
                     OutlinedButton.icon(
